@@ -19,7 +19,7 @@
     "id": "S03",
     "title": "Ereignisprotokoll",
     "phase": 1,
-    "status": "queued",
+    "status": "done",
     "done_when": "Ereignisse schreibbar und in Reihenfolge lesbar",
     "depends_on": ["S02"]
   },
@@ -27,7 +27,7 @@
     "id": "S04",
     "title": "Runtime-Skelett",
     "phase": 1,
-    "status": "queued",
+    "status": "ready",
     "done_when": "Session überlebt einen Prozess-Neustart",
     "depends_on": ["S03"]
   },

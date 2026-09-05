@@ -1,0 +1,1 @@
+Hierhin gehört das Ereignisprotokoll: Anhängen und Lesen der Tabelle `kuronami.events`. Das Protokoll ist die Wahrheit, der Zustands-Snapshot ist daraus abgeleitet. Nur Schreib- und Lesepfad des Protokolls selbst, keine Logik, die andere Tabellen fortschreibt.
