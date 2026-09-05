@@ -3,7 +3,7 @@
     "id": "S01",
     "title": "Repo-Grundgerüst",
     "phase": 0,
-    "status": "in_progress",
+    "status": "done",
     "done_when": "Struktur steht, .claudeignore und AGENTS.md da, Testlauf grün",
     "depends_on": []
   },
