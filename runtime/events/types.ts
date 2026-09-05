@@ -1,9 +1,10 @@
 /**
- * Ereignis-Taxonomie aus Abschnitt 4.4 der Architektur, zwölf Namensräume.
- * Namensform: namensraum.vergangenheitsform, kleingeschrieben, Punkt als Trenner.
- * Neue Typen werden hier ergänzt. Bestehende werden nie umbenannt und nie umgedeutet.
+ * Ereignis-Taxonomie. Namensform: namensraum.vergangenheitsform, kleingeschrieben, Punkt
+ * als Trenner. Neue Typen werden hier ergänzt. Bestehende werden nie umbenannt und nie in
+ * ihrer Bedeutung verändert.
  */
 export const EVENT_TYPES = [
+  // Abschnitt 4.4 der Architektur, wörtlich und in der dortigen Reihenfolge.
   "session.created",
   "session.resumed",
   "session.completed",
@@ -31,6 +32,14 @@ export const EVENT_TYPES = [
   "agent.delegated",
   "agent.returned",
   "error.raised",
+
+  // Seither dazugekommen (S04). Die Taxonomie kennt nur den Lebenslauf der Session, nicht
+  // den des Prozesses, der sie bedient. Genau darin liegt aber das Ergebnis von S04: die
+  // Session überlebt den Prozess. Ohne eigenen Namensraum wäre ein Neustart im Protokoll
+  // nicht von einer neuen Session zu unterscheiden — die Folge session.resumed nach
+  // runtime.stopped ist der Nachweis, dass beides getrennte Dinge sind.
+  "runtime.started",
+  "runtime.stopped",
 ] as const;
 
 export type EventType = (typeof EVENT_TYPES)[number];

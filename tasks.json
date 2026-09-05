@@ -27,7 +27,7 @@
     "id": "S04",
     "title": "Runtime-Skelett",
     "phase": 1,
-    "status": "ready",
+    "status": "done",
     "done_when": "Session überlebt einen Prozess-Neustart",
     "depends_on": ["S03"]
   },
@@ -35,7 +35,7 @@
     "id": "S05",
     "title": "Wiederaufnahme und Abbruch",
     "phase": 1,
-    "status": "queued",
+    "status": "ready",
     "done_when": "Killen und Fortsetzen mitten im Lauf funktioniert",
     "depends_on": ["S04"]
   },

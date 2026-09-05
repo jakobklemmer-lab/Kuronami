@@ -105,3 +105,91 @@ Status: abgeschlossen. Nächste Session: S03 Ereignisprotokoll.
   Abhängigkeit jetzt erfüllt ist.
 
 Status: abgeschlossen. Nächste Session: S04 Runtime-Skelett.
+
+## S04 · Runtime-Skelett · 2026-09-05
+
+- Migration `0003_session_identity` mit einem UNIQUE-Index auf `kuronami.sessions
+  (thread_id, channel)`. Abweichung von der Aufgabenstellung, die nur ein neues Modul
+  vorsah: Wiederfinden braucht einen Schlüssel, den ein neu gestarteter Prozess kennt, und
+  das ist nicht die `session_id`. Ohne Index wäre "keine doppelte Session" eine Hoffnung
+  auf die Reihenfolge zweier gleichzeitig startender Prozesse; mit ihm ist es eine Zusage
+  der Datenbank, nach dem Muster von `idx_events_session_seq` aus S03. Zusammengesetzt und
+  nicht allein auf `thread_id`, weil `channel` im Datenmodell ein Feld der Session ist:
+  derselbe Faden auf zwei Kanälen sind zwei Sessions.
+- `runtime/session/manager.ts`: `createOrResumeSession(pool, criteria)` legt an oder gibt
+  die bestehende Zeile zurück. Pool als erster Parameter, kein Modul-Singleton, kein Cache
+  — Muster aus S03 fortgesetzt. Der Zustand liegt ausschließlich in `kuronami.sessions`;
+  im Speicher steht nur, was bei jedem Start neu von dort abgeleitet wird.
+- Anlegen und Wiederfinden sind eine einzige Anweisung
+  (`INSERT ... ON CONFLICT (thread_id, channel) DO NOTHING RETURNING ...`), bei Kollision
+  gefolgt von einem `SELECT`. Ein vorgeschaltetes `SELECT` wäre ein Blick auf einen
+  Zustand, der beim folgenden `INSERT` schon ein anderer sein kann: zwei gleichzeitig
+  startende Prozesse fänden beide nichts und legten beide an. Der zweite Blick sieht die
+  fremde Zeile verlässlich, weil der Konflikt auf deren Transaktion wartet und READ
+  COMMITTED für jede Anweisung einen frischen Snapshot nimmt. Bleibt er trotzdem leer,
+  fliegt ein Fehler statt eines stillen `undefined`.
+- Zeile und Ereignis (`session.created` bzw. `session.resumed`) entstehen in derselben
+  Transaktion, über `appendEventInTx` aus S03 — der erste Aufrufer dieser Funktion, wie
+  dort angekündigt. Das ist ein Checkpoint im Sinne von Abschnitt 6: sonst gäbe es einen
+  Moment, in dem die Session existiert, das Protokoll ihre Entstehung aber nicht kennt.
+- `criteria` trägt neben `threadId` und `channel` ein verschachteltes `defaults`. Damit
+  bleibt die Signatur `(pool, criteria)` und die Trennung steht im Typ statt nur im
+  Kommentar: Startwerte gelten ausschließlich bei der Neuanlage. `model_profile` oder
+  `tool_catalog_version` beim Wiederfinden zu überschreiben, bräche die Cache-Stabilität
+  (Grundprinzip 2) und baute den Toolsatz mitten in der Session um (Anti-Muster 2).
+  Startwerte selbst aus dem Session-Beispiel in Abschnitt 5 und aus Abschnitt 13.
+- `runtime.started` und `runtime.stopped` in `EVENT_TYPES` ergänzt, ein dreizehnter
+  Namensraum über die Taxonomie aus Abschnitt 4.4 hinaus. Begründung: die Taxonomie kennt
+  nur den Lebenslauf der Session, nicht den des Prozesses, der sie bedient — und genau
+  darin liegt das Ergebnis dieser Session. Ohne eigenen Namensraum wäre ein Neustart im
+  Protokoll nicht von einer neuen Session zu unterscheiden. Die Zahl der Namensräume steht
+  weiterhin fest im Test (12 → 13), damit ein neuer eine Entscheidung bleibt und nicht
+  nebenbei entsteht.
+- `startRuntime(pool, criteria)` liefert einen `RuntimeHandle` mit `stop()`. Die
+  `runtimeId` benennt eine Prozess-Inkarnation und macht im Protokoll unterscheidbar,
+  welcher Lauf welchen Eintrag geschrieben hat. `runtime.started` läuft bewusst in einer
+  zweiten Transaktion: es ist eine Beobachtung über den Prozess, kein Session-Zustand.
+  `stop()` schreibt nur beim ersten Aufruf, weil Signalbehandler doppelt kommen (SIGINT,
+  danach SIGTERM) und zwei `runtime.stopped` zu einem Lauf eine Falschaussage wären. Das
+  ist keine Schritt-Idempotenz — die gehört nach S05.
+- `runtime/index.ts` ist vom Platzhalter zum lauffähigen Skelett geworden: Session
+  aufnehmen, auf SIGINT/SIGTERM sauber stoppen. Kleine Erweiterung des Auftrags, aber ein
+  Skelett, das man nicht starten kann, ist keins. Dazu `dev` auf
+  `tsx watch --env-file=.env` (wie `migrate`, sonst fehlt `DATABASE_URL`) und ein
+  `setInterval`-Anker: ohne ihn schlösse der Pool nach seinem Leerlauf-Timeout die
+  Verbindungen, der Prozess endete von selbst und `runtime.stopped` bliebe ungeschrieben.
+  Faden und Kanal kommen vorerst aus der Umgebung; woher wirklich, entscheidet S16.
+- `runtime/session/manager.test.ts`, sieben Tests: Neustart über zwei unabhängige Pools
+  liefert dieselbe `session_id` und genau eine Zeile; das Protokoll liest sich danach als
+  `session.created, runtime.started, runtime.stopped, session.resumed, runtime.started,
+  runtime.stopped` mit lückenloser `seq`; zehn gleichzeitige Starts ergeben genau ein
+  `session.created` und neun `session.resumed`; verschiedene Fäden und verschiedene Kanäle
+  bleiben getrennt; Startwerte greifen nur bei der Neuanlage; Vorgabewerte stimmen;
+  doppelter Stop schreibt einmal. Der Testlauf räumt seine Sessions und Ereignisse ab.
+- Zwei Gegenproben, beide danach zurückgesetzt. Ohne `ON CONFLICT` scheitern vier Tests an
+  `duplicate key value violates unique constraint "idx_sessions_thread_channel"`, auch der
+  Nebenläufigkeitstest — der erzeugt also echte gleichzeitige Kollisionen und läuft nicht
+  zufällig serialisiert durch. Mit zurückgenommener Migration 0003 scheitern alle sieben an
+  `there is no unique or exclusion constraint matching the ON CONFLICT specification`, der
+  Code hängt also nachweislich am Index und nicht an einer Zufälligkeit.
+- Nachweis außerhalb von vitest, weil ein einzelner Testprozess ein Modul teilt und einen
+  versehentlichen Cache im Prozessspeicher nicht auffliegen ließe: dasselbe Skript in drei
+  getrennten Betriebssystem-Prozessen (pid 7520, 6956, 21424) ergab dieselbe `session_id`,
+  ein `session.created`, zwei `session.resumed`. Danach `runtime/index.ts` selbst zweimal
+  gestartet, der zweite Lauf meldete "Session wiederaufgenommen" mit derselben Kennung.
+  Probe-Sessions und -Ereignisse anschließend gelöscht.
+- Nebenbefund, bewusst offen: ein hart abgeschossener Prozess schreibt kein
+  `runtime.stopped` — beim Test unter Windows kam kein SIGINT an, im Protokoll blieb ein
+  `runtime.started` ohne Gegenstück stehen. Genau dieser hängende Lauf ist der Fall, den
+  S05 erkennen muss ("den letzten offenen Schritt finden und entscheiden, ob er wiederholt
+  oder als fehlgeschlagen markiert wird"). Hier bewusst nicht behandelt.
+- Bewusst nicht gebaut: Idempotenz- und Retry-Logik für Schritte, Wiederaufnahme mitten im
+  Lauf, Abbruch. Das ist S05 und Abschnitt 6, hier ging es nur ums Überleben eines
+  Neustarts.
+- `pnpm typecheck && pnpm lint && pnpm test` grün, 15 Tests. Migration verifiziert: `down`
+  (nimmt nur 0003 zurück, die sechs Tabellen aus S02/S03 bleiben stehen, der Index
+  verschwindet), danach `up` (Index wieder da, Tracking-Zeilen 0001, 0002, 0003).
+- `tasks.json`: S04 auf `done`, S05 von `queued` auf `ready`, weil dessen einzige
+  Abhängigkeit jetzt erfüllt ist.
+
+Status: abgeschlossen. Nächste Session: S05 Wiederaufnahme und Abbruch.

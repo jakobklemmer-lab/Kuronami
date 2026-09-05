@@ -1,0 +1,1 @@
+Hierhin gehört der Lebenslauf einer Session: Anlegen, Wiederfinden nach einem Prozess-Neustart und die Klammer um einen laufenden Runtime-Prozess (`manager.ts`). Der Zustand liegt ausschließlich in `kuronami.sessions`, kein Cache im Prozessspeicher. Keine Schrittausführung, keine Wiederaufnahme mitten im Lauf, kein Retry — das gehört in die Ausführungshülle.

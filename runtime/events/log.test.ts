@@ -98,7 +98,10 @@ describe("Ereignisprotokoll", () => {
     const events = await readEvents(pool, sessionId);
 
     expect(events.map((event) => event.type)).toEqual([...EVENT_TYPES]);
-    expect(new Set(events.map((event) => event.type.split(".")[0])).size).toBe(12);
+    // Zwölf Namensräume aus Abschnitt 4.4, dazu runtime.* aus S04 für den Lebenslauf des
+    // Prozesses. Die Zahl steht hier fest, damit ein neuer Namensraum eine Entscheidung
+    // bleibt und nicht nebenbei entsteht.
+    expect(new Set(events.map((event) => event.type.split(".")[0])).size).toBe(13);
     expect(events.every((event) => event.payload !== null)).toBe(true);
   });
 

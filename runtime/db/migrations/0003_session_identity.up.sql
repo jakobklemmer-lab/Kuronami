@@ -1,0 +1,12 @@
+-- Wiederfinden einer Session braucht einen Schlüssel, der nicht die session_id ist: die
+-- kennt ein neu gestarteter Prozess ja gerade nicht. Aus dem Datenmodell (Abschnitt 5) ist
+-- das (thread_id, channel) — ein Gespräch auf einem Kanal ist genau eine Session.
+--
+-- Zusammengesetzt und nicht nur thread_id, weil `channel` im Datenmodell ein Feld der
+-- Session ist: derselbe Faden auf zwei Kanälen wären zwei Sessions, und ein Index allein
+-- auf thread_id verböte das strukturell, ohne dass die Architektur das verlangt.
+--
+-- UNIQUE und nicht bloß ein Suchindex, nach dem Muster von idx_events_session_seq aus S03:
+-- "keine doppelte Session" ist damit eine Zusage der Datenbank und nicht eine Hoffnung auf
+-- die Reihenfolge zweier gleichzeitig startender Prozesse.
+CREATE UNIQUE INDEX idx_sessions_thread_channel ON kuronami.sessions (thread_id, channel);
