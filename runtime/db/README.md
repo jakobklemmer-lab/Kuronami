@@ -1,0 +1,1 @@
+Hierhin gehören das Postgres-Schema als nummerierte SQL-Migrationen (`migrations/`) und der Migrationsrunner (`migrate.ts`). Keine Anwendungslogik, die auf den Tabellen operiert, die gehört in die jeweiligen Runtime-Module.

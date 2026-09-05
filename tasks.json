@@ -11,7 +11,7 @@
     "id": "S02",
     "title": "Postgres-Schema",
     "phase": 1,
-    "status": "queued",
+    "status": "done",
     "done_when": "Migration läuft durch, alle Tabellen existieren",
     "depends_on": ["S01"]
   },
