@@ -1,22 +1,18 @@
 import { randomUUID } from "node:crypto";
 import type { Pool, PoolClient } from "pg";
 import { appendEvent, appendEventInTx } from "../events/log.js";
+import { resumeSessionInTx } from "./lifecycle.js";
+import {
+  SESSION_COLUMNS,
+  type SessionChannel,
+  type SessionRecord,
+  type SessionRow,
+  toSessionRecord,
+} from "./types.js";
 
-export type SessionChannel = "web" | "telegram" | "mail" | "heartbeat" | "voice";
-export type ApprovalMode = "ask" | "accept_edits" | "bypass_in_sandbox";
-
-/** Eine Zeile aus `kuronami.sessions`, die Felder der Session aus Abschnitt 5. */
-export interface SessionRecord {
-  sessionId: string;
-  threadId: string;
-  channel: SessionChannel;
-  mode: string;
-  modelProfile: string;
-  toolCatalogVersion: string;
-  approvalMode: ApprovalMode;
-  contextState: Record<string, unknown>;
-  createdAt: Date;
-}
+// Seit S05 liegen die Typen in ./types.js, damit Manager und Lebenszyklus nicht
+// aufeinander zeigen. Hier weiter sichtbar, weil sie so eingeführt wurden.
+export type { ApprovalMode, SessionChannel, SessionRecord } from "./types.js";
 
 /**
  * Werte, die eine neue Session mitbekommt. Sie gehören bewusst nicht zu den Kriterien:
@@ -28,7 +24,7 @@ export interface SessionDefaults {
   mode?: string;
   modelProfile?: string;
   toolCatalogVersion?: string;
-  approvalMode?: ApprovalMode;
+  approvalMode?: "ask" | "accept_edits" | "bypass_in_sandbox";
 }
 
 /**
@@ -56,11 +52,6 @@ const SESSION_DEFAULTS = {
   approvalMode: "ask",
 } as const satisfies Required<SessionDefaults>;
 
-const SESSION_COLUMNS = `
-  session_id, thread_id, channel, mode, model_profile,
-  tool_catalog_version, approval_mode, context_state, created_at
-`;
-
 /**
  * Anlegen und Wiederfinden in einer einzigen Anweisung. Ein vorgeschaltetes SELECT wäre
  * ein Blick auf einen Zustand, der beim folgenden INSERT schon ein anderer sein kann:
@@ -81,32 +72,6 @@ const SELECT_SESSION_SQL = `
   WHERE thread_id = $1 AND channel = $2
 `;
 
-interface SessionRow {
-  session_id: string;
-  thread_id: string;
-  channel: SessionChannel;
-  mode: string;
-  model_profile: string;
-  tool_catalog_version: string;
-  approval_mode: ApprovalMode;
-  context_state: Record<string, unknown>;
-  created_at: Date;
-}
-
-function toRecord(row: SessionRow): SessionRecord {
-  return {
-    sessionId: row.session_id,
-    threadId: row.thread_id,
-    channel: row.channel,
-    mode: row.mode,
-    modelProfile: row.model_profile,
-    toolCatalogVersion: row.tool_catalog_version,
-    approvalMode: row.approval_mode,
-    contextState: row.context_state,
-    createdAt: row.created_at,
-  };
-}
-
 async function resolveSession(
   client: PoolClient,
   criteria: SessionCriteria,
@@ -124,7 +89,7 @@ async function resolveSession(
   ]);
 
   if (inserted.rowCount === 1) {
-    return { session: toRecord(inserted.rows[0]), created: true };
+    return { session: toSessionRecord(inserted.rows[0]), created: true };
   }
 
   // `ON CONFLICT DO NOTHING` liefert bei Kollision keine Zeile zurück, deshalb der zweite
@@ -141,7 +106,7 @@ async function resolveSession(
     );
   }
 
-  return { session: toRecord(existing.rows[0]), created: false };
+  return { session: toSessionRecord(existing.rows[0]), created: false };
 }
 
 /**
@@ -152,6 +117,10 @@ async function resolveSession(
  * Zeile und Ereignis entstehen in derselben Transaktion — ein Checkpoint im Sinne von
  * Abschnitt 6. Andernfalls gäbe es einen Moment, in dem die Session existiert, das
  * Protokoll ihre Entstehung aber nicht kennt, und das Protokoll ist die Wahrheit.
+ *
+ * Seit S05 ist der Wiederfindungsfall eine echte Wiederaufnahme: er läuft über
+ * `resumeSessionInTx` und löst dabei die offenen Schritte auf, die ein abgestürzter Lauf
+ * hinterlassen hat. In S04 blieben die noch liegen — genau der dort offen notierte Punkt.
  */
 export async function createOrResumeSession(
   pool: Pool,
@@ -161,12 +130,16 @@ export async function createOrResumeSession(
   try {
     await client.query("BEGIN");
     const resolved = await resolveSession(client, criteria);
-    await appendEventInTx(
-      client,
-      resolved.session.sessionId,
-      resolved.created ? "session.created" : "session.resumed",
-      { thread_id: resolved.session.threadId, channel: resolved.session.channel },
-    );
+
+    if (resolved.created) {
+      await appendEventInTx(client, resolved.session.sessionId, "session.created", {
+        thread_id: resolved.session.threadId,
+        channel: resolved.session.channel,
+      });
+    } else {
+      await resumeSessionInTx(client, resolved.session);
+    }
+
     await client.query("COMMIT");
     return resolved;
   } catch (error) {
@@ -187,6 +160,11 @@ export interface RuntimeHandle {
   readonly session: SessionRecord;
   readonly created: boolean;
   readonly runtimeId: string;
+  /**
+   * Bricht bei `stop()`. Seiteneffekte, die über die Ausführungshülle laufen, bekommen ihn
+   * als `signal` und können reagieren, statt bis zu ihrem Timeout weiterzulaufen.
+   */
+  readonly signal: AbortSignal;
   stop(reason?: string): Promise<void>;
 }
 
@@ -207,17 +185,20 @@ export async function startRuntime(pool: Pool, criteria: SessionCriteria): Promi
     resumed: !created,
   });
 
+  const controller = new AbortController();
   let stopped = false;
 
   return {
     session,
     created,
     runtimeId,
+    signal: controller.signal,
     async stop(reason = "shutdown"): Promise<void> {
       // Signalbehandler kommen doppelt (SIGINT und danach SIGTERM). Zwei runtime.stopped zu
       // einem Lauf wären eine Falschaussage über den Prozess, kein bloßer Doppeleintrag.
       if (stopped) return;
       stopped = true;
+      controller.abort(new Error(`Runtime beendet: ${reason}`));
       await appendEvent(pool, session.sessionId, "runtime.stopped", {
         runtime_id: runtimeId,
         pid: process.pid,

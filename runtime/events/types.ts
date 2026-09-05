@@ -40,6 +40,14 @@ export const EVENT_TYPES = [
   // runtime.stopped ist der Nachweis, dass beides getrennte Dinge sind.
   "runtime.started",
   "runtime.stopped",
+
+  // Seither dazugekommen (S05). Kein neuer Namensraum: step.* steht seit Abschnitt 4.4,
+  // nur der Ausgang "abgebrochen" fehlte darin. Das Datenmodell kennt ihn längst —
+  // kuronami.step_status hat seit S02 den Wert 'canceled'. Ohne eigenes Ereignis wäre das
+  // der einzige Zustand, den der Snapshot tragen kann und das Protokoll nicht, und damit
+  // wäre der Snapshot nicht mehr aus dem Protokoll herleitbar (Abschnitt 4.4). step.failed
+  // dafür zu benutzen, hieße einen bestehenden Typ umzudeuten.
+  "step.canceled",
 ] as const;
 
 export type EventType = (typeof EVENT_TYPES)[number];

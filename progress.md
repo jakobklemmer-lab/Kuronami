@@ -193,3 +193,174 @@ Status: abgeschlossen. Nächste Session: S04 Runtime-Skelett.
   Abhängigkeit jetzt erfüllt ist.
 
 Status: abgeschlossen. Nächste Session: S05 Wiederaufnahme und Abbruch.
+
+## S05 · Wiederaufnahme und Abbruch · 2026-09-05
+
+- Tests der Vorsession vorab gelaufen: 15 grün (health, events, session), unverändert.
+- Migration `0004_step_idempotency` erweitert `kuronami.steps` um `idempotency_key`,
+  `attempt`, `repeatable`, `result` und einen UNIQUE-Index auf
+  `(session_id, idempotency_key)`. Abweichung von Abschnitt 6, die begründet werden muss:
+  dort ist `step_id` der Idempotenzschlüssel. Das trägt nur, solange die Zeile schon
+  existiert — nach einem Absturz leitet der neue Prozess seinen Plan neu ab und würfelte
+  für dieselbe logische Arbeit eine neue `step_id`. Der Schlüssel muss aus der Arbeit
+  folgen, nicht aus der Zeile. `step_id` bleibt die Identität der Zeile,
+  `idempotency_key` wird die Identität der Arbeit; bestehende Zeilen bekommen im Up ihre
+  eigene `step_id` als Schlüssel, für sie gilt die Lesart aus Abschnitt 6 also weiter.
+  UNIQUE nach dem Muster von S03/S04: die Zusage liegt in der Datenbank.
+- `repeatable` mit `DEFAULT false` in SQL (vorsichtige Seite: wer nichts sagt, bekommt
+  keinen zweiten Seiteneffekt), aber als Pflichtfeld ohne Default in `StepSpec`. Ob ein
+  unterbrochener Seiteneffekt wiederholt werden darf, ist eine Aussage über die Außenwelt.
+  Nur die Aufrufstelle kann sie treffen; ein Default in TypeScript wäre genau das Raten,
+  das Abschnitt 6 verbietet.
+- `step.canceled` in `EVENT_TYPES` ergänzt. Kein neuer Namensraum, die Zahl 13 im Test aus
+  S03 bleibt also stehen. Begründung: `kuronami.step_status` hat seit S02 den Wert
+  `canceled`; ohne eigenes Ereignis wäre das der einzige Zustand, den der Snapshot tragen
+  kann und das Protokoll nicht — und damit wäre der Snapshot nicht mehr aus dem Protokoll
+  herleitbar (Abschnitt 4.4). `step.failed` dafür zu nehmen, hieße einen bestehenden Typ
+  umzudeuten.
+- `runtime/steps/hull.ts`, die Ausführungshülle: `beginStep` (Checkpoint vor dem
+  Seiteneffekt), `finishStep` (Checkpoint danach), `executeStep` als Klammer mit
+  Zeitfenster. Beide Hälften sind bewusst öffentlich und nicht in `executeStep` versteckt:
+  ein abgestürzter Prozess ist genau der Fall, in dem nur der erste Checkpoint
+  stattgefunden hat, und wer diesen Fall herstellen oder prüfen will, braucht sie einzeln.
+- Zeile und Ereignis entstehen in beiden Checkpoints in derselben Transaktion, über
+  `appendEventInTx` aus S03. Anlegen und Wiederfinden des Schritts ist wieder eine einzige
+  Anweisung (`INSERT ... ON CONFLICT (session_id, idempotency_key) DO NOTHING`), bei
+  Kollision gefolgt von `SELECT ... FOR UPDATE`.
+- Die Sessionsperre aus S03 (`SELECT ... FROM sessions FOR UPDATE`) trägt jetzt eine zweite
+  Bedeutung: wer den Schrittbestand einer Session ändert, hält sie. Eine Sperre je Session,
+  damit es zwischen Schritt-Start, Wiederaufnahme und Abbruch keine Sperrreihenfolge zu
+  beachten gibt.
+- Ausgänge von `reclaimStep`, wenn der Schlüssel schon da ist: `completed` gibt das
+  gespeicherte Ergebnis zurück, ohne den Effekt noch einmal auszulösen (das ist der Zweck
+  des Schlüssels) und ohne ein Ereignis zu schreiben, weil sich nichts geändert hat.
+  `running` wirft — von außen ist ein fremder Ausführer nicht von einem abgestürzten Lauf
+  zu unterscheiden, und auflösen darf das nur `resumeSession`. `failed`/`pending` erlauben
+  einen neuen Versuch, aber nur bei `repeatable` und nur bis `maxAttempts` (Vorgabe 3, also
+  ein erster Versuch plus zwei Wiederholungen, das untere Ende von Abschnitt 13).
+- Nicht wiederholbar heißt nicht wiederholbar, auch bei einem sauber geworfenen Fehler:
+  auch ein Effekt, der eine Ausnahme wirft, kann vorher die Mail verschickt haben. Die
+  Hülle unterscheidet nicht nach Fehlerart, weil sie es nicht kann.
+- Zeitfenster je Schritt (Vorgabe 60 s aus Abschnitt 13) als Rennen zwischen Effekt und
+  Timer, danach `step.failed`. Ein dabei gefundener Fehler, der ohne Test durchgerutscht
+  wäre: `interrupt()` muss erst das Rennen ablehnen und dann `controller.abort()` rufen.
+  Umgekehrt gewinnt ein Effekt, der auf sein Signal hört — `abort()` ruft seinen Zuhörer
+  sofort auf, dessen Auflösung stünde vor der Ablehnung in der Warteschlange, und ein
+  abgelaufenes Zeitfenster käme als ordentliches Ergebnis zurück. Wer aufs Signal hört,
+  würde damit bestraft.
+- Ein Timeout ist kein sauberer Fehler und wird auch nicht als einer protokolliert:
+  JavaScript kann eine laufende Zusage nicht abschießen, der Effekt läuft weiter. Deshalb
+  trägt `step.failed` `effect_outcome: "unknown"` und `effect_still_running`. Der verlierende
+  Zweig bekommt ein `.catch()`, sonst risse eine späte Ablehnung den Prozess ab.
+- `runtime/session/lifecycle.ts`: `resumeSession(pool, id)` und
+  `cancelSession(pool, id, reason)` — die geforderten `session.resume(id)` und
+  `session.cancel(id)`, mit Pool als erstem Parameter wie überall seit S03.
+- Wiederaufnahme findet die Schritte auf `running` und entscheidet über jeden: `repeat`
+  oder `failed_final`, allein anhand der Zusage `repeatable` beim Start. Beide enden im
+  Status `failed` — der Unterschied liegt nicht im Zustand, sondern darin, ob die Hülle
+  einen neuen Versuch zulässt. "Wiederholen" heißt: darf wieder angefasst werden, nicht:
+  wird jetzt heimlich noch einmal ausgeführt. Der Fehlertext benennt den unbekannten
+  Ausgang statt ihn zu glätten.
+- Abbruch wirkt über Prozessgrenzen ohne Signal: `beginStep` liest `session.canceled` in
+  derselben Transaktion und unter derselben Sessionsperre, in der der Schritt entstünde.
+  Ein Blick davor wäre eine Momentaufnahme mit einem Spalt, in den ein gleichzeitiger
+  Abbruch fiele. Zusätzlich hat `RuntimeHandle` jetzt ein `signal`, das bei `stop()` bricht,
+  damit ein Effekt im selben Prozess nicht bis zu seinem Zeitfenster weiterläuft.
+- `finishStep` prüft bewusst **nicht** auf Abbruch: der Seiteneffekt ist dann trotzdem
+  gelaufen. Überholt ein Abbruch einen laufenden Schritt, trägt sein Ausführer den
+  tatsächlichen Ausgang nach und das Ereignis vermerkt `after_cancel`. Die Faltung nimmt
+  das letzte Schritt-Ereignis. Das Protokoll behält recht, nicht der Abbruch.
+- Zweiter Abbruch schreibt nichts (wie `stop()` in S04). Eine abgebrochene Session wird
+  nicht wiederaufgenommen: das wäre keine Wiederaufnahme, sondern eine Übergehung der
+  Nutzerentscheidung. Weiterarbeiten heißt neue Session.
+- `runtime/session/state.ts`: `deriveSessionState(sessionId, events)` faltet das Protokoll
+  zum Zustand, `replaySession(pool, sessionId)` liest und faltet. Dass ein Replay nichts
+  nach draußen tut, ist keine Zusage der Sorgfalt, sondern eine Eigenschaft der Signatur —
+  es gibt keinen Parameter, über den ein Effekt hereinkäme. Unbekannte Ereignistypen werden
+  übersprungen, die Taxonomie wächst; ein Schritt-Ereignis ohne passendes `step.started`
+  wirft, denn dann ist der Zustand wirklich nicht herleitbar.
+- Damit Snapshot und Faltung exakt gleich ausfallen, setzt der zweite Versuch in der Hülle
+  `result`, `error` und `ended_at` per SQL zurück, genau wie die Faltung bei `step.started`.
+  Die Zeitstempel passen ohne Zutun: `now()` ist in Postgres die Transaktionszeit, und Zeile
+  und Ereignis entstehen in derselben Transaktion — `created_at` der Zeile ist damit
+  buchstäblich derselbe Wert wie `created_at` des ersten `step.started`.
+- `readSessionState` liest die Schritte aus der Tabelle, den Sessionstatus aber aus dem
+  Protokoll: `kuronami.sessions` hat dafür keine Spalte, Abschnitt 5 sieht keine vor. Die
+  Aussage "Replay ergibt denselben Endzustand" trägt deshalb bei den Schritten ihr ganzes
+  Gewicht — dort stehen zwei unabhängig geschriebene Wege nebeneinander (UPDATE gegen
+  Faltung), beim Status nur einer. Der geforderte Test vergleicht beide ausdrücklich.
+- Umbau an S04-Code, klein aber nötig: die Session-Typen sind nach `session/types.ts`
+  gewandert (Manager und Lebenszyklus brauchen sie beide, und der Manager ruft den
+  Lebenszyklus auf — lägen sie weiter im Manager, zeigten die Module aufeinander; die Typen
+  bleiben aus `manager.ts` re-exportiert). Und `createOrResumeSession` läuft im
+  Wiederfindungsfall jetzt über `resumeSessionInTx`, löst also die offenen Schritte mit auf.
+  Damit gibt es nicht zwei Arten der Wiederaufnahme, von denen nur eine aufräumt — genau der
+  in S04 offen notierte Punkt ist damit geschlossen.
+- 20 neue Tests, zusammen 35. `runtime/steps/hull.test.ts` (9): Seiteneffekt läuft bei
+  zweimal gleichem Schlüssel genau einmal und schreibt beim zweiten Mal kein Ereignis;
+  hängender Schritt endet am Zeitfenster statt zu warten; Fehlertext samt Stacktrace steht
+  in Zeile und Ereignis gleich; wiederholbarer Schritt bekommt Versuch 2 und verliert dabei
+  den alten Fehler; nicht wiederholbarer Schritt wird abgewiesen; Obergrenze greift; nach
+  Abbruch entsteht keine Schritt-Zeile mehr; ein offener Schritt wird nicht nebenbei
+  übernommen; ein Signal von außen bricht den Effekt ab.
+- `runtime/session/lifecycle.test.ts` (7) stellt den Absturz nicht nach, sondern führt ihn
+  vor: `crash-mid-step.process.ts` läuft als eigener Betriebssystem-Prozess
+  (`node --import tsx`, nicht über die pnpm-Hülle, die unter Windows eine .cmd ist und einen
+  zweiten Prozess dazwischenstellte), beginnt einen Schritt, meldet ihn und wird vom Test
+  mit `SIGKILL` abgeschossen. Innerhalb eines Testprozesses ließe sich das nicht ehrlich
+  bauen — dort liefe immer noch ein `finally` oder wenigstens die Möglichkeit dazu.
+  Geprüft: der Schritt bleibt auf `running`, das Protokoll endet auf einem `step.started`
+  ohne Gegenstück, `resumeSession` entscheidet `repeat`, danach läuft derselbe Schlüssel als
+  Versuch 2 durch, und die Ereignisfolge liest sich vollständig als
+  `session.created, step.started, step.completed, step.started, session.resumed, step.failed,
+  step.started, step.completed`. Das ist das Fertig-Kriterium der Session, mit einem Befehl
+  nachweisbar. Dazu: nicht wiederholbarer Schritt bleibt nach dem Absturz liegen; die
+  Wiederaufnahme über `thread_id` räumt genauso auf wie die über die Kennung; Abbruch
+  schließt den laufenden Schritt; zweiter Abbruch schreibt nichts; abgebrochene Session wird
+  nicht wiederaufgenommen.
+- `runtime/session/replay.test.ts` (4), darunter der geforderte Test: ein Lauf mit sechs
+  Dummy-Seiteneffekten über fünf Schritte — Erfolg, Fehlschlag mit zweitem Versuch,
+  endgültiger Fehlschlag, Zeitfenster und ein Aufruf auf einen schon fertigen Schlüssel.
+  Danach Zähler auf null, Replay, Ergebnis: Endzustand identisch (`toEqual` über den ganzen
+  Zustand, zusätzlich gegen den reinen Tabellen-Snapshot), Zähler bleibt bei null. Absichtlich
+  nicht nur der Sonnenschein-Pfad: gerade Fehlschlag, Wiederholung und Zeitfenster sind die
+  Stellen, an denen Snapshot und Protokoll auseinanderlaufen könnten. Dazu: zweimaliges
+  Replay ergibt dasselbe (Abschnitt 6, Regel 2), abgebrochener Lauf ebenso, und eine
+  Gegenprobe, die die Schritt-Zeilen löscht — die Herleitung liefert danach unverändert
+  dasselbe, der Snapshot ist also wirklich entbehrlich und das Protokoll nicht.
+- Sechs Gegenproben, alle bestätigt und danach zurückgesetzt. Ohne `result` im
+  `step.completed`-Ereignis scheitert der Replay-Vergleich (der Test hängt also am Inhalt des
+  Protokolls, nicht an sich selbst). Ohne die Abbruchprüfung in `beginStep` startet ein
+  Schritt nach dem Abbruch. Mit unendlichem Zeitfenster hängt der Test und fällt erst nach
+  5000 ms in den vitest-Timeout — genau das Verhalten, das die Session beseitigen soll. Ohne
+  die `repeatable`-Sperre wird der nicht wiederholbare Schritt wiederholt. Ohne den
+  UNIQUE-Index scheitern vier Tests an `there is no unique or exclusion constraint matching
+  the ON CONFLICT specification`. Löst die Wiederaufnahme die offenen Schritte nicht auf,
+  scheitern die drei Absturz-Tests.
+- Migration verifiziert: `down` (nimmt nur 0004 zurück, `steps` steht wieder mit den zehn
+  Spalten und vier Indizes aus S02 da), danach `up` (vierzehn Spalten, fünf Indizes, davon
+  `idx_steps_session_idempotency` UNIQUE, Tracking-Zeilen 0001 bis 0004).
+- Nachweis außerhalb von vitest: `runtime/index.ts` zweimal gestartet, der erste Lauf hart
+  abgeschossen. Protokoll danach `session.created, runtime.started, session.resumed,
+  runtime.started` — dieselbe Session, zwei Läufe, und das fehlende `runtime.stopped` des
+  abgeschossenen Laufs steht weiterhin sichtbar da statt beschönigt zu werden. Probedaten
+  gelöscht, die Tabellen sind nach dem Testlauf leer.
+- Bewusst nicht gebaut: die Schleife über Schritte samt Wiederholungsstrategie und Backoff
+  (S12 — hier steht nur die Obergrenze), `artifact_refs` in den Schritt-Ereignissen (S06;
+  die Faltung liest sie schon mit Vorgabe `[]`, und der Replay-Test schlägt fehl, sobald S06
+  die Spalte füllt, ohne das Ereignis mitzuziehen), Schreiber für `session.completed` und
+  `session.failed` (S12; die Faltung kennt sie bereits), der Redaction-Filter aus Abschnitt
+  4.7 (weiterhin offen für S11 — die Fehlertexte enthalten jetzt Stacktraces mit absoluten
+  Pfaden, der Punkt wird damit dringender).
+- Zwei offene Befunde, bewusst so stehen gelassen. Erstens: `StepCanceledError` in der Hülle
+  ist derzeit nicht erreichbar, weil nur `cancelSession` Schritte abbricht und dabei immer
+  auch die Session abbricht — `beginStep` wirft dann schon vorher. Der Zweig bleibt trotzdem
+  drin, weil der Typ den Zustand zulässt: fiele er weg, geriete ein abgebrochener Schritt in
+  den Wiederholungszweig, sobald irgendwann ein einzelner Schritt ohne die Session
+  abgebrochen wird (S10/S11). Zweitens: `pending` ist als Schritt-Status zurzeit unerreichbar,
+  weil die Hülle Zeilen direkt auf `running` anlegt; der Wert stammt aus S02 und wird erst mit
+  einem geplanten Schrittbestand (S12) gefüllt.
+- `pnpm typecheck && pnpm lint && pnpm test` grün, 35 Tests.
+- `tasks.json`: S05 auf `done`, S06 von `queued` auf `ready`.
+
+Status: abgeschlossen. Nächste Session: S06 Artefaktspeicher.
