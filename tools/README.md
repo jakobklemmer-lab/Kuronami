@@ -1,0 +1,1 @@
+Hierhin gehört die Capability Surface: Tool-Router, Kern-Tools (`fs.*`, `web.*`, `exec.*`, `task.*`, `user.*`, `agent.*`), die n8n-Brücke und Subagenten-Definitionen. Keine Policy-Entscheidungen und keine Kanal-Normalisierung, die gehören in `policy/` beziehungsweise `gateway/`.

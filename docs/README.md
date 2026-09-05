@@ -1,0 +1,1 @@
+Hierhin gehören `ARCHITEKTUR.md` als einzige Kontextquelle und alle Folgeentscheidungen, die sie ergänzen. Keine Fortschrittsprotokolle und keine Aufgabenzustände, die gehören in `progress.md` beziehungsweise `tasks.json` im Repo-Wurzelverzeichnis.

@@ -1,0 +1,1 @@
+Hierhin gehört die Surface/Protokoll-Schicht: Kanal-Normalisierung für Web, Telegram, Mail, Sprache. Die Runtime darf niemals von dieser Schicht abhängen, deshalb keine Ausführungs- oder Zustandslogik hier.

@@ -1,0 +1,194 @@
+[
+  {
+    "id": "S01",
+    "title": "Repo-Grundgerüst",
+    "phase": 0,
+    "status": "in_progress",
+    "done_when": "Struktur steht, .claudeignore und AGENTS.md da, Testlauf grün",
+    "depends_on": []
+  },
+  {
+    "id": "S02",
+    "title": "Postgres-Schema",
+    "phase": 1,
+    "status": "queued",
+    "done_when": "Migration läuft durch, alle Tabellen existieren",
+    "depends_on": ["S01"]
+  },
+  {
+    "id": "S03",
+    "title": "Ereignisprotokoll",
+    "phase": 1,
+    "status": "queued",
+    "done_when": "Ereignisse schreibbar und in Reihenfolge lesbar",
+    "depends_on": ["S02"]
+  },
+  {
+    "id": "S04",
+    "title": "Runtime-Skelett",
+    "phase": 1,
+    "status": "queued",
+    "done_when": "Session überlebt einen Prozess-Neustart",
+    "depends_on": ["S03"]
+  },
+  {
+    "id": "S05",
+    "title": "Wiederaufnahme und Abbruch",
+    "phase": 1,
+    "status": "queued",
+    "done_when": "Killen und Fortsetzen mitten im Lauf funktioniert",
+    "depends_on": ["S04"]
+  },
+  {
+    "id": "S06",
+    "title": "Artefaktspeicher",
+    "phase": 1,
+    "status": "queued",
+    "done_when": "Datei über artifact://-Handle les- und schreibbar",
+    "depends_on": ["S05"]
+  },
+  {
+    "id": "S07",
+    "title": "Tool-Router",
+    "phase": 1,
+    "status": "queued",
+    "done_when": "Dummy-Tool antwortet in der einheitlichen Hülle",
+    "depends_on": ["S06"]
+  },
+  {
+    "id": "S08",
+    "title": "Kern-Tools fs.*",
+    "phase": 1,
+    "status": "queued",
+    "done_when": "Pfad-Traversal-Test wird abgewiesen",
+    "depends_on": ["S07"]
+  },
+  {
+    "id": "S09",
+    "title": "web.search / web.fetch",
+    "phase": 1,
+    "status": "queued",
+    "done_when": "Große Antwort landet automatisch als Artefakt",
+    "depends_on": ["S08"]
+  },
+  {
+    "id": "S10",
+    "title": "task.* und user.ask",
+    "phase": 1,
+    "status": "queued",
+    "done_when": "Lauf pausiert sauber bei awaiting_user",
+    "depends_on": ["S09"]
+  },
+  {
+    "id": "S11",
+    "title": "Policy-Engine",
+    "phase": 1,
+    "status": "queued",
+    "done_when": "Schreibendes Tool wird ohne Freigabe blockiert",
+    "depends_on": ["S10"]
+  },
+  {
+    "id": "S12",
+    "title": "Erster echter Loop",
+    "phase": 1,
+    "status": "queued",
+    "done_when": "Aufgabe mit 30 Schritten läuft vollständig durch",
+    "depends_on": ["S11"]
+  },
+  {
+    "id": "S13",
+    "title": "n8n-Brücke",
+    "phase": 2,
+    "status": "queued",
+    "done_when": "Ein n8n-Workflow antwortet im Tool-Schema",
+    "depends_on": ["S12"]
+  },
+  {
+    "id": "S14",
+    "title": "Mail-Tools",
+    "phase": 2,
+    "status": "queued",
+    "done_when": "Entwurf entsteht, Senden ist technisch unmöglich",
+    "depends_on": ["S13"]
+  },
+  {
+    "id": "S15",
+    "title": "Kalender und Notion",
+    "phase": 2,
+    "status": "queued",
+    "done_when": "Termine und Notion-Seiten lesbar",
+    "depends_on": ["S14"]
+  },
+  {
+    "id": "S16",
+    "title": "Gateway",
+    "phase": 3,
+    "status": "queued",
+    "done_when": "Zwei Kanäle, ein Agent, ein Gedächtnis",
+    "depends_on": ["S15"]
+  },
+  {
+    "id": "S17",
+    "title": "Heartbeat",
+    "phase": 3,
+    "status": "queued",
+    "done_when": "Morgen-Digest läuft ohne manuellen Anstoß",
+    "depends_on": ["S16"]
+  },
+  {
+    "id": "S18",
+    "title": "Langzeitgedächtnis",
+    "phase": 3,
+    "status": "queued",
+    "done_when": "Alte Notiz wird bei neuem Lauf automatisch gefunden",
+    "depends_on": ["S17"]
+  },
+  {
+    "id": "S19",
+    "title": "Agenten-Registry und agent.create",
+    "phase": 5,
+    "status": "queued",
+    "done_when": "Neuer Agent per Sprachbefehl anlegbar, sofort aktiv",
+    "depends_on": ["S18"]
+  },
+  {
+    "id": "S20",
+    "title": "Erste Subagent-Besetzung",
+    "phase": 5,
+    "status": "queued",
+    "done_when": "Alle sieben Rollen angelegt, Tools rollenspezifisch begrenzt",
+    "depends_on": ["S19"]
+  },
+  {
+    "id": "S21",
+    "title": "Kosten-Tracking und Modell-Routing",
+    "phase": 8,
+    "status": "queued",
+    "done_when": "Tagesausgaben pro Agent sichtbar",
+    "depends_on": ["S20"]
+  },
+  {
+    "id": "S22",
+    "title": "Tauri-Desktop-Wrapper",
+    "phase": 9,
+    "status": "queued",
+    "done_when": "Installierbare Desktop-App aus demselben Code",
+    "depends_on": ["S21"]
+  },
+  {
+    "id": "S23",
+    "title": "Sprachschicht-Grundgerüst",
+    "phase": 9,
+    "status": "queued",
+    "done_when": "Pipecat läuft, Deepgram und ElevenLabs angebunden",
+    "depends_on": ["S22"]
+  },
+  {
+    "id": "S24",
+    "title": "Barge-in und Backend-Brücke",
+    "phase": 9,
+    "status": "queued",
+    "done_when": "Unterbrechen funktioniert, unter 800 ms End-zu-End",
+    "depends_on": ["S23"]
+  }
+]

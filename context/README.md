@@ -1,0 +1,1 @@
+Hierhin gehört das Context System: Prompt-Aufbau, Artefakt-Referenzen, Kompaktierung, Cache-Disziplin. Keine Tool-Implementierungen und keine Ausführungslogik, die gehört in `tools/` beziehungsweise `runtime/`.

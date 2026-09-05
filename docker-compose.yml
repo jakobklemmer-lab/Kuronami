@@ -1,0 +1,49 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: kuronami
+      POSTGRES_PASSWORD: kuronami
+      POSTGRES_DB: kuronami
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+
+  n8n:
+    image: n8nio/n8n:latest
+    restart: unless-stopped
+    environment:
+      N8N_BASIC_AUTH_ACTIVE: "true"
+      N8N_BASIC_AUTH_USER: kuronami
+      N8N_BASIC_AUTH_PASSWORD: kuronami
+      N8N_HOST: localhost
+      N8N_PORT: "5678"
+      DB_TYPE: postgresdb
+      DB_POSTGRESDB_HOST: postgres
+      DB_POSTGRESDB_DATABASE: kuronami
+      DB_POSTGRESDB_USER: kuronami
+      DB_POSTGRESDB_PASSWORD: kuronami
+    ports:
+      - "5678:5678"
+    volumes:
+      - n8n-data:/home/node/.n8n
+    depends_on:
+      - postgres
+
+  runtime:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    env_file:
+      - .env
+    depends_on:
+      - postgres
+    volumes:
+      - ./artifacts:/app/artifacts
+
+volumes:
+  postgres-data:
+  n8n-data:

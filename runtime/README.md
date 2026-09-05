@@ -1,0 +1,1 @@
+Hierhin gehört die Execution Runtime: Loop, Sessions, Checkpoints, Wiederaufnahme, Abbruch, Retry, sowie das Postgres-Schema unter `runtime/db/migrations/`. Keine Oberflächen-, Kanal- oder Governance-Logik, die gehört in `gateway/` beziehungsweise `policy/`.

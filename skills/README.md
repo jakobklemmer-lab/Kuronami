@@ -1,0 +1,1 @@
+Hierhin gehören Skill-Verzeichnisse, die die Capability Surface um abrufbare Fähigkeiten erweitern. Fremde Skills werden vor der Installation gelesen. Keine Kern-Tools der Runtime, die gehören in `tools/`.

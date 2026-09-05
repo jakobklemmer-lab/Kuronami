@@ -1,0 +1,1 @@
+Hierhin gehört die Governance-Schicht: Freigaben, Hooks, Allow/Deny-Regeln, Sandbox-Konfiguration, Risikostufen. Keine Tool-Implementierungen und keine Business-Logik, die gehören in `tools/` beziehungsweise `runtime/`.
