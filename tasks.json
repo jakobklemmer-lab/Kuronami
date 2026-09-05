@@ -113,10 +113,10 @@
   },
   {
     "id": "S15",
-    "title": "Kalender und Notion",
+    "title": "Kalender und Obsidian",
     "phase": 2,
     "status": "queued",
-    "done_when": "Termine und Notion-Seiten lesbar",
+    "done_when": "Termine und Obsidian-Notizen lesbar",
     "depends_on": ["S14"]
   },
   {

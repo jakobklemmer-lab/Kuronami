@@ -191,7 +191,7 @@ Risikostufe: hartes Schreiben, also immer Freigabe.
 `namensraum.aktion`, kleingeschrieben, Punkt als Trenner, Aktion englisch.
 
 Erlaubte Namensräume: `fs`, `web`, `exec`, `task`, `user`, `agent`, `mail`, `cal`, `notes`,
-`notion`, `github`, `server`. Ein neuer Namensraum braucht eine Begründung in `docs/`.
+`github`, `server`. Ein neuer Namensraum braucht eine Begründung in `docs/`.
 
 ---
 
@@ -359,6 +359,7 @@ exec.run
 task.set · task.update
 user.ask
 agent.delegate
+notes.read · notes.write
 ```
 
 ### Assistenz-Tools über n8n
@@ -366,8 +367,6 @@ agent.delegate
 ```
 mail.search · mail.read · mail.draft · mail.send
 cal.list · cal.create · cal.update
-notes.search · notes.write
-notion.read · notion.write
 github.issues · github.branch · github.pr
 server.metrics
 ```
@@ -544,7 +543,7 @@ Ergebnis nicht mit einem Befehl testen, ist die Session zu groß geschnitten.
 | 12 | Erster echter Loop | 1 | Aufgabe mit 30 Schritten läuft vollständig durch |
 | 13 | n8n-Brücke | 2 | Ein n8n-Workflow antwortet im Tool-Schema |
 | 14 | Mail-Tools | 2 | Entwurf entsteht, Senden ist technisch unmöglich |
-| 15 | Kalender und Notion | 2 | Termine und Notion-Seiten lesbar |
+| 15 | Kalender und Obsidian | 2 | Termine und Obsidian-Notizen lesbar |
 | 16 | Gateway | 3 | Zwei Kanäle, ein Agent, ein Gedächtnis |
 | 17 | Heartbeat | 3 | Morgen-Digest läuft ohne manuellen Anstoß |
 | 18 | Langzeitgedächtnis | 3 | Alte Notiz wird bei neuem Lauf automatisch gefunden |

@@ -8,7 +8,7 @@ Codeschreiben.
 
 `namensraum.aktion`, kleingeschrieben, Punkt als Trenner, Aktion englisch.
 Erlaubte Namensräume: `fs`, `web`, `exec`, `task`, `user`, `agent`, `mail`, `cal`,
-`notes`, `notion`, `github`, `server`. Ein neuer Namensraum braucht eine Begründung
+`notes`, `github`, `server`. Ein neuer Namensraum braucht eine Begründung
 in `docs/`.
 
 ## Einheitliche Rückgabehülle
