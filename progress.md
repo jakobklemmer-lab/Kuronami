@@ -404,3 +404,134 @@ Status: abgeschlossen. Nächste Session: S05 Wiederaufnahme und Abbruch.
 - `pnpm typecheck && pnpm lint && pnpm test` grün, 46 Tests.
 
 Status: abgeschlossen. Nächste Session: S06 Artefaktspeicher.
+
+## S06 · Artefaktspeicher · 2026-09-05
+
+- Tests der Vorsession vorab gelaufen: 46 grün (health, events, session, steps), unverändert.
+- `.gitignore`/`.claudeignore`: Zeile `artifacts/` auf `/artifacts/` verankert. Das Muster
+  ohne führenden Schrägstrich fasst jedes Verzeichnis dieses Namens in jeder Tiefe — also
+  auch das neue Quellverzeichnis `runtime/artifacts/`, das damit weder von git noch von
+  Biome (`useIgnoreFile: true`) gesehen worden wäre (`git check-ignore` bestätigt:
+  `.gitignore:6:artifacts/`). `/artifacts/` trifft nur noch die Ablage im Projektwurzel
+  (`ARTIFACT_ROOT=./artifacts`), die weiterhin ignoriert bleibt. Beide Dateien synchron
+  gehalten wie seit S01.
+- Migration `0005_artifact_store` erweitert `kuronami.artifacts` (aus S02) um drei Zusagen,
+  alle drei direkt aus dem Session-Auftrag:
+  1. `size_bytes bigint NOT NULL CHECK (>= 0)`. `head()` soll Metadaten liefern, "ohne die
+     Datei zu laden" — die Größe gehört dazu und darf deshalb nicht aus einem `stat()`
+     stammen. `bigint`, weil ein Artefakt eine ausgelagerte Tool-Ausgabe ist (Abschnitt
+     4.5) und die 2-GB-Grenze von `integer` grundsätzlich reißen kann.
+  2. `summary SET NOT NULL` plus `CHECK (length(btrim(summary)) > 0)`. summary ist
+     Pflichtfeld (Auftrag). Kein Backfill wie bei `idempotency_key` in 0004: für eine
+     fehlende Zusammenfassung gibt es keinen richtigen Ersatzwert. Tabelle ist leer, der
+     Constraint greift sofort. Der `btrim`-CHECK zusätzlich, weil `NOT NULL` den Leerstring
+     durchließe.
+  3. `source DROP DEFAULT` plus `CHECK (source ? 'tool' AND source ? 'session_id' AND
+     source ? 'step_id')`. Herkunft (Tool, Session, Schritt) immer mitspeichern (Auftrag) —
+     bisher nur Konvention des schreibenden Codes, jetzt eine Zusage der Datenbank, nach dem
+     Muster von `idx_events_session_seq` (S03). `?` prüft Schlüssel-Präsenz, nicht den Wert:
+     `step_id` darf JSON-null sein (ein Artefakt vor jedem Schritt), der Schlüssel muss
+     dastehen. Der `DEFAULT '{}'` fällt weg, weil ein leeres `source` den CHECK verletzt —
+     ein Default, der jede Einfügung sofort bricht, wäre nur eine Falle.
+- **Abweichung von Abschnitt 4.5**, die begründet werden muss: die URI ist
+  `artifact://<session_id>/<artifact_id>`, nicht `artifact://<namensraum>/<name>`. Die
+  Ablage folgt 1:1: `<ARTIFACT_ROOT>/<session_id>/<artifact_id>`, die URI bildet durch
+  reine Zeichenersetzung auf den Pfad ab ("auflösbar zu Dateipfad" im wörtlichsten Sinn).
+  Gründe: (a) der Session-Auftrag schreibt `artifacts/<session_id>/<artifact_id>`
+  ausdrücklich vor. (b) Der `<namensraum>` in den Beispielen der Architektur (`mail/`,
+  `summary.md`) ist in Wahrheit der Namensraum des *Tools*, das die Bytes erzeugt — der
+  Runtime-Primitiv darunter kennt keine Tool-Semantik, er kennt die Session und den
+  Schritt. Diese Herkunft trägt `source` ohnehin; sie zusätzlich in den Pfad zu legen,
+  koppelte den Speicherpfad an die Tool-Identität. (c) Die Unveränderlichkeit (Abschnitt
+  4.5, AGENTS.md) wird dadurch *strenger*, nicht schwächer: `artifact_id` ist eine frische
+  UUID je Schreibvorgang, ein Name kann strukturell nicht kollidieren. Die `-2`/`-3`-Regel
+  war der Mechanismus, um Unveränderlichkeit unter *menschlich gewählten* Namen
+  herzustellen; mit Maschinenkennungen gilt die Eigenschaft ohne den Mechanismus. Ein
+  späterer Alias-Layer (S09 "große Antwort als Artefakt", S14 Mail) kann lesbare
+  `artifact://mail/...`-URIs obendraufsetzen, die auf denselben physischen Speicher zeigen —
+  das ist eine Ergänzung, keine Änderung an diesem Primitiv.
+- `runtime/artifacts/store.ts`: `writeArtifact(pool, root, input)`,
+  `readArtifact(pool, root, uri)`, `headArtifact(pool, uri)` — die geforderten
+  `artifact.write/read/head`. `pool` als erster Parameter, kein Modul-Singleton (Muster seit
+  S03); `artifactRootFromEnv()` als Fabrik wie `createPool`, die Wurzel bleibt beim
+  Aufrufer, Tests zeigen sie auf ein Wegwerf-Verzeichnis. `artifact` ist kein Tool-Namensraum
+  (nicht in der Liste von Abschnitt 4.8) — das hier ist die interne API des Speichers, die
+  einheitliche Rückgabehülle ist Sache des Tool-Routers ab S07.
+- `headArtifact` bekommt `pool` und die URI und **kein `root`**. Dass es die Datei nie
+  öffnet, ist damit eine Eigenschaft der Signatur, kein Versprechen der Sorgfalt — dasselbe
+  Muster wie `deriveSessionState` in `session/state.ts`. Genau das macht `head()` auch bei
+  einem 5-MB-Artefakt billig: eine Zeilenabfrage, kein Dateizugriff.
+- Schreibreihenfolge und ihr Grund: erst die Datei (als `.tmp`, `fsync`, dann `rename` auf
+  den endgültigen Pfad), danach Zeile und Ereignis `artifact.created` in einer Transaktion
+  (Checkpoint, Abschnitt 6). Bricht der Prozess dazwischen ab, bleibt eine Datei ohne Zeile
+  liegen — folgenlos, kein Handle zeigt darauf, ein GC-Lauf kann sie abräumen. Die
+  Umkehrung, eine Zeile ohne Datei, wäre ein Handle, das ins Leere auflöst. Das `rename`
+  nach `fsync` sorgt dafür, dass am gültigen Pfad nie eine halb geschriebene Datei liegt.
+  Vor dem ersten Dateizugriff steht eine Session-Existenzprüfung, damit ein ungültiger
+  Aufruf nicht einmal ein leeres Verzeichnis hinterlässt.
+- Kein Idempotenzschlüssel wie bei den Schritten (S05): jeder `writeArtifact`-Aufruf bekommt
+  eine frische `artifact_id`, `uri` ist UNIQUE. Determinismus über Prozessgrenzen kommt
+  hier nicht aus einem Schlüssel, sondern daraus, dass `writeArtifact` im echten Loop
+  (S12) *innerhalb* eines Schritt-Effekts läuft — der Schritt ist idempotent, beim Replay
+  wird sein gespeichertes `result` (mit der URI) zurückgegeben, ohne dass der Effekt neu
+  läuft. Der Speicher selbst muss nicht deterministisch schreiben.
+- SHA-256 wird beim Schreiben über die rohen Bytes gebildet und in der Zeile abgelegt.
+  `readArtifact` bildet sie erneut und wirft `ArtifactIntegrityError` bei Abweichung —
+  bewusst der Normalfall und nicht abschaltbar: eine stumme Differenz zwischen Prüfsumme
+  und Datei wäre genau das Verstecken eines Fehlers, das AGENTS.md untersagt. Sollte das
+  bei großen Artefakten (S09) zu teuer werden, ist das eine spätere, ausdrücklich zu
+  begründende Ausnahme.
+- `artifact.created` steht seit Abschnitt 4.4 in `EVENT_TYPES` — kein neuer Typ, kein neuer
+  Namensraum, die Zahl 13 aus dem S03/S04-Test bleibt unberührt.
+- `runtime/artifacts/store.test.ts`, 12 Tests: schreibt 5 MB und gibt ein Handle unter 100
+  Zeichen zurück (Datei auf der Platte hat exakt 5 MiB, kein `.tmp` bleibt liegen, SHA
+  stimmt mit einer unabhängig berechneten Prüfsumme überein); `head()` liefert nach dem
+  Löschen der Datei weiterhin die vollständigen Metadaten, während `read()` auf derselben
+  URI mit `ArtifactFileMissingError` scheitert — die Gegenprobe, die "ohne die Datei zu
+  laden" erst belegt; `read()` gibt einen Binärpuffer mit Nullbytes bytegleich zurück;
+  Zeile und `artifact.created` entstehen zusammen (letztes Ereignis, Payload trägt
+  `artifact_id`, `uri`, `sha256`, `size_bytes`, `mime_type`, `summary`, `source`); die
+  Herkunft steht vollständig und der Ausdrucksindex aus 0001 (`source ->> 'session_id'`)
+  ist befüllt; ein schrittloser Ursprung (`step_id` null) wird angenommen und der CHECK
+  trägt trotzdem; ein leeres `summary` wird abgewiesen, ohne Datei, Verzeichnis oder
+  Ereignis zu hinterlassen (Gegenprobe: mit echter Zusammenfassung geht derselbe Aufruf
+  durch); zwei Schreibvorgänge mit identischem Inhalt bekommen verschiedene Kennungen und
+  bleiben beide lesbar (Unveränderlichkeit ohne `-2`/`-3`); eine nachträglich um ein Byte
+  veränderte Datei fällt beim Lesen auf; eine wohlgeformte, aber nie vergebene URI wirft
+  `ArtifactNotFoundError`; kaputte URIs (falsches Schema, fehlende Teile, drei Teile,
+  `..`, Leerzeichen) werfen `ArtifactUriError` an der Grenze; ein Artefakt zu einer
+  unbekannten Session wird abgewiesen, ohne ein Verzeichnis zu hinterlassen.
+- Vier Gegenproben, alle bestätigt und danach zurückgesetzt:
+  * `artifact_id` als Konstante statt `randomUUID()` → "eigene Kennung je Schreibvorgang"
+    scheitert an `duplicate key value violates unique constraint "artifacts_pkey"`. Die
+    Unveränderlichkeit hängt an der Datenbank, nicht daran, dass zufällig verschiedene
+    Namen entstehen.
+  * SHA-Prüfung in `readArtifact` deaktiviert → "erkennt eine veränderte Datei" scheitert,
+    `read()` liefert die manipulierten Bytes zurück. Der Test hängt am Inhalt der Prüfung,
+    nicht an sich selbst.
+  * `parseArtifactUri`-Aufruf in `headArtifact` entfernt → "weist kaputte URIs ab"
+    scheitert: `http://example.test/x` fällt bis zur Zeilenabfrage durch und kommt als
+    `ArtifactNotFoundError` zurück statt als `ArtifactUriError`. Die Grenzprüfung trägt.
+  * Session-Existenzprüfung entfernt → "unbekannte Session ohne Datei" scheitert: die
+    Transaktion bricht zwar bei `appendEventInTx` ab und der Rollback räumt die Datei weg,
+    aber das leere Session-Verzeichnis bleibt stehen.
+- Migration verifiziert: `down` (nimmt nur 0005 zurück; `artifacts` steht wieder in exakt
+  der S02-Form — `summary` nullbar, `source` mit `DEFAULT '{}'`, keine `size_bytes`-Spalte,
+  Tracking-Zeilen 0001 bis 0004), danach `up` (acht Spalten, Constraints
+  `artifacts_size_bytes_check`, `artifacts_summary_not_blank`, `artifacts_source_has_provenance`,
+  Tracking-Zeile 0005). Die Datenbank bleibt im migrierten Zustand, die Tabellen sind nach
+  dem Testlauf leer.
+- Bewusst nicht gebaut: der Alias-Layer mit `artifact://<namensraum>/<name>` (S09/S14); die
+  *Automatik*, ab der ein Tool-Ergebnis ausgelagert wird (Auslagerungsschwelle 8k–16k
+  Token-Äquivalent, Abschnitt 4.5 — sie gehört in den Tool-Router bzw. das Kontext-System,
+  S07/S09; hier steht nur der Speicher, in den sie schreibt); ein GC-Lauf für verwaiste
+  Dateien nach einem Absturz zwischen `rename` und `COMMIT`; das Füllen von
+  `steps.artifact_refs` bzw. der `artifact_refs` in Schritt-Ereignissen (S12 — `state.ts`
+  liest sie seit S05 mit Vorgabe `[]`, der Replay-Test bleibt grün, solange niemand die
+  Spalte ohne das Ereignis füllt); der Redaction-Filter aus Abschnitt 4.7 (weiter offen für
+  S11, jetzt zusätzlich relevant, weil `artifact.created` `summary` und `source` ins
+  Protokoll schreibt).
+- `pnpm typecheck && pnpm lint && pnpm test` grün, 58 Tests.
+- `tasks.json`: S06 auf `done`, S07 von `queued` auf `ready`.
+
+Status: abgeschlossen. Nächste Session: S07 Tool-Router.

@@ -43,7 +43,7 @@
     "id": "S06",
     "title": "Artefaktspeicher",
     "phase": 1,
-    "status": "ready",
+    "status": "done",
     "done_when": "Datei über artifact://-Handle les- und schreibbar",
     "depends_on": ["S05"]
   },
@@ -51,7 +51,7 @@
     "id": "S07",
     "title": "Tool-Router",
     "phase": 1,
-    "status": "queued",
+    "status": "ready",
     "done_when": "Dummy-Tool antwortet in der einheitlichen Hülle",
     "depends_on": ["S06"]
   },

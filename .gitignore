@@ -3,7 +3,7 @@ node_modules/
 dist/
 build/
 coverage/
-artifacts/
+/artifacts/
 *.log
 *.lock
 __pycache__/
