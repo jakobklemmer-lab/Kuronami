@@ -8,6 +8,7 @@ import {
   SessionCanceledError,
   StepAlreadyRunningError,
   StepAttemptsExhaustedError,
+  StepCanceledError,
   type StepEffect,
   StepNotRepeatableError,
   beginStep,
@@ -259,6 +260,34 @@ describe("Ausführungshülle", () => {
 
     await expect(executeStep(pool, spec, dummyEffect({ ok: true }))).rejects.toThrow(
       StepAlreadyRunningError,
+    );
+    expect(effects.calls).toBe(0);
+  });
+
+  it("startet einen einzeln abgebrochenen Schritt nicht neu", async () => {
+    const sessionId = await newSession();
+    const spec = {
+      sessionId,
+      idempotencyKey: "mail.send:zurueckgezogen",
+      kind: "tool_call" as const,
+      toolName: "mail.send",
+      repeatable: true,
+    };
+
+    const { step } = await beginStep(pool, spec);
+    // Der Schritt wird abgebrochen, die Session nicht. Über die heutige API entsteht diese
+    // Lage nicht — `cancelSession` bricht immer beides ab, und dann greift schon die
+    // Abbruchprüfung in beginStep. Dass die Kaskade gilt, ist aber nur Konvention der
+    // aktuellen Implementierung. Deshalb wird die Zeile hier direkt gesetzt: so sieht es
+    // aus, wenn eine spätere Aufrufstelle (S10/S11) einen einzelnen Schritt zurückzieht.
+    await pool.query("UPDATE kuronami.steps SET status = 'canceled' WHERE step_id = $1", [
+      step.stepId,
+    ]);
+
+    // Ohne diesen Halt fiele der Schritt in den Wiederholungszweig — `repeatable` steht auf
+    // true — und der zurückgezogene Seiteneffekt liefe doch noch los.
+    await expect(executeStep(pool, spec, dummyEffect({ sent: true }))).rejects.toThrow(
+      StepCanceledError,
     );
     expect(effects.calls).toBe(0);
   });

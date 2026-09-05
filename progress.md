@@ -363,4 +363,44 @@ Status: abgeschlossen. Nächste Session: S05 Wiederaufnahme und Abbruch.
 - `pnpm typecheck && pnpm lint && pnpm test` grün, 35 Tests.
 - `tasks.json`: S05 auf `done`, S06 von `queued` auf `ready`.
 
+### Nachtrag nach Review (Commit b17bc94)
+
+- Die feinere Unterscheidung "Fehler vor Seiteneffekt" gegen "Fehler nach Seiteneffekt"
+  wäre kein verfeinertes `repeatable`, sondern ein zweiter Vertrag: der Schritt selbst
+  müsste sie melden, von außen sehen beide Fälle identisch aus. Erst dann anfassen, wenn
+  sich zeigt, dass die manuelle Eskalation aus S10/S11 häufig auf Fälle anspringt, die
+  tatsächlich "sicher vor Effekt" waren.
+- `StepCanceledError` bleibt, jetzt mit einem Kommentar im Code statt nur hier: das Risiko
+  ist nicht der unerreichbare Zweig, sondern dass die Kaskade "Abbruch geht immer über die
+  Session" nirgends erzwungen wird. Sie gilt allein durch die heutige Implementierung von
+  `cancelSession`, nicht durch einen Typ und nicht durch die Datenbank — und genau daran
+  bricht später eine neue Aufrufstelle, ohne dass jemand den Wiederholungspfad anfasst. Dazu
+  der Test "startet einen einzeln abgebrochenen Schritt nicht neu": er setzt die Zeile
+  direkt auf `canceled`, ohne die Session abzubrechen, und hält damit das Verhalten fest,
+  bevor es die Aufrufstelle gibt. Ohne den Zweig fällt der Schritt in den
+  Wiederholungszweig und läuft noch einmal los — als Gegenprobe bestätigt.
+- Keine `sessions.status`-Spalte. Der Vergleich bei den Schritten trägt, weil es dort zwei
+  unabhängig geschriebene Repräsentationen gibt (UPDATE gegen Faltung), die auseinander
+  laufen können. Beim Sessionstatus gibt es die zweite nicht, und ein Vergleich Log gegen
+  Log prüfte nur, ob die Faltung deterministisch ist. Eine Spalte einzuführen hieße, sich
+  die Fehlerklasse erst einzuhandeln, gegen die man dann prüft. Die Spalte wird richtig an
+  dem Tag, an dem sie aus Leistungsgründen gebraucht wird — dann als mitgeschriebener
+  Snapshot, Protokoll bleibt die Wahrheit, und der Vergleich hat wieder Sinn.
+- Die eigentliche Fehlerfläche war stattdessen, dass `deriveSessionState` nur über die
+  Datenbank lief und nie direkt. `runtime/session/state.test.ts` (10 Tests, ohne Datenbank)
+  schließt das: Sessionstatus aus den `session.*`-Ereignissen, Schrittlauf von Start bis
+  Abschluss, zweiter Versuch, überholter Abbruch (letztes Ereignis gewinnt),
+  `artifact_refs` aus dem Ereignis, Überspringen unbekannter Typen, Sortierung samt
+  Gleichstand, und zwei Fälle, in denen die Herleitung zu Recht wirft.
+- Beim Gegenproben dieser Tests ein echtes Loch gefunden: das Zurücksetzen von `result`,
+  `error` und `endedAt` bei `step.started` war durch keinen Test gedeckt. Trägt die Faltung
+  den Fehler des ersten Versuchs weiter, fällt das nicht auf, weil das Terminalereignis des
+  zweiten Versuchs ihn ohnehin überschreibt. Beobachtbar ist es nur in einem Fenster: ein
+  Protokoll, das auf einem zweiten `step.started` ohne Gegenstück endet — also ein Absturz
+  mitten im zweiten Versuch. Genau das prüft "zeigt einen laufenden zweiten Versuch ohne die
+  Spuren des ersten" jetzt, und zwei Gegenproben (Fehler bzw. `ended_at` nicht geleert)
+  scheitern daran.
+- Fünf weitere Gegenproben zu den neuen Tests, alle bestätigt und zurückgesetzt.
+- `pnpm typecheck && pnpm lint && pnpm test` grün, 46 Tests.
+
 Status: abgeschlossen. Nächste Session: S06 Artefaktspeicher.

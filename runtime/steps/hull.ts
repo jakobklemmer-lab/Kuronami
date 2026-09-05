@@ -257,6 +257,15 @@ async function reclaimStep(
     );
   }
 
+  // ACHTUNG, keine Leiche: dieser Zweig ist heute nicht über die öffentliche API
+  // erreichbar, weil `cancelSession` der einzige Abbrecher von Schritten ist und dabei
+  // immer auch die Session abbricht — dann wirft schon die Abbruchprüfung oben. Diese
+  // Kaskade ist aber nur Konvention der aktuellen Implementierung, kein Constraint im Typ
+  // und keiner in der Datenbank. Sobald ein einzelner Schritt ohne die Session abgebrochen
+  // wird (absehbar mit user.ask in S10 oder der Policy-Engine in S11), ist der Zweig der
+  // einzige Halt: ohne ihn fiele ein abgebrochener Schritt in den Wiederholungszweig
+  // darunter und liefe noch einmal los. Der Test "startet einen einzeln abgebrochenen
+  // Schritt nicht neu" hält das fest, ohne auf jene Aufrufstelle zu warten.
   if (existing.status === "canceled") {
     throw new StepCanceledError(
       `Schritt ${existing.stepId} (${existing.idempotencyKey}) wurde abgebrochen und wird nicht neu gestartet`,
