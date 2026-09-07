@@ -5,6 +5,9 @@ Sie ersetzt die Notion-Seite im Arbeitsalltag. Wenn eine Session etwas braucht,
 das hier nicht steht, wird es hier ergänzt und nicht in der Session improvisiert.
 
 Stand: 04.09.2026 · Phase 0 abgeschlossen
+Nachträge aus dem Bau sind als **Umsetzung (Sxx)** in den betroffenen Abschnitt gesetzt.
+Sie ergänzen die Entscheidung, sie ersetzen sie nicht; wo eine Umsetzung von der
+Entscheidung abweicht, steht die Begründung im jeweiligen `progress.md`-Eintrag.
 
 ---
 
@@ -143,6 +146,12 @@ Einfügung, damit die Reihenfolge deterministisch bleibt.
 Neue Ereignistypen kommen dazu, bestehende werden nie umbenannt und nie in ihrer Bedeutung
 verändert. Ein Protokoll, dessen Vergangenheit sich ändert, ist kein Protokoll.
 
+**Umsetzung (S07):** Der Tool-Router schreibt `tool.requested` und danach `tool.completed`
+bzw. `tool.failed`. Die in der Notion-Checkliste zu S07 genannten `tool.called` und
+`tool.returned` werden ausdrücklich **nicht** eingeführt: sie wären zweite Schreibweisen für
+bereits vergebene Typen, und `tool.returned` verlöre die Unterscheidung zwischen geglückt und
+fehlgeschlagen, die `tool.completed`/`tool.failed` schon tragen.
+
 ### 4.5 Artefakt-URI und Ablage
 
 Logische Form: `artifact://<namensraum>/<name>`
@@ -157,6 +166,18 @@ Replay dieselben Handles auf denselben Inhalt auflöst.
 
 Auslagerungsschwelle: ab 8k bis 16k Token-Äquivalent wandert ein Tool-Ergebnis
 automatisch ins Artefakt, und der Kontext bekommt nur Zusammenfassung plus Handle.
+
+**Umsetzung (S06):** Die URI lautet `artifact://<session_id>/<artifact_id>` statt
+`artifact://<namensraum>/<name>`; Begründung im `progress.md`-Eintrag zu S06. Ein lesbarer
+Alias-Layer über denselben physischen Speicher bleibt möglich (S09/S14).
+
+**Umsetzung (S07):** Der Startwert der Schwelle ist 8000 Token-Äquivalent, also das untere
+Ende der Spanne (`tools/offload.ts`). Gerechnet wird mit vier Bytes je Token, und gemessen
+wird die vollständige serialisierte Rückgabehülle — nicht der Rohinhalt und nicht das, wofür
+ein Tool sich selbst hält. Ausgelagert wird `structured`, der einzige unbegrenzte Teil der
+Hülle; `summary`, `preview` und die Handles bleiben im Kontext. Passt die Hülle danach immer
+noch nicht unter die Schwelle, sind `summary` oder `preview` selbst zu groß: das ist ein
+Fehler des Tools und wird als solcher gemeldet, nicht durch stilles Kürzen geheilt.
 
 ### 4.6 Sandbox-Strategie
 
@@ -175,6 +196,25 @@ Risikostufe: hartes Schreiben, also immer Freigabe.
 * **Secrets** leben ausschließlich in Umgebungsvariablen des Runtime-Prozesses. Sie
   erreichen nie den Prompt, nie ein Artefakt, nie das Ereignisprotokoll. Vor jedem Schreiben
   ins Protokoll läuft ein Redaction-Filter.
+
+  **Umsetzung (S07, Nachzug aus der verworfenen S05b):** `runtime/redaction/`. Eine Funktion,
+  drei Schreibtore: `appendEventInTx` (Ereignisprotokoll), `writeArtifact` (Metadaten, also
+  `summary`, `mime_type` und `source`) und `buildPrompt` (Prompt-Aufbau). Der Filter geht
+  rekursiv durch verschachtelte Objekte und Arrays und greift auf zwei Wegen — über die Form
+  des Wertes (`sk-ant-…`, `postgres://u:p@…`) und über den Namen des Feldes (`api_key`,
+  `password`), weil ein Geheimnis ohne erkennbare Form nur über den Namen auffindbar ist.
+  Die Musterliste liegt als eigene, erweiterbare Datei in `runtime/redaction/patterns.ts`.
+
+  **Der Filter ist nicht abschaltbar.** Kein Flag, kein Parameter, keine Umgebungsvariable.
+  Eine Ausnahme wäre irgendwann gesetzt — beim Debuggen, "nur kurz", in genau dem Lauf,
+  dessen Protokoll später jemand liest.
+
+  Nicht gefiltert werden die **Bytes** eines Artefakts: ein Artefakt ist die byteweise
+  archivierte Wahrheit eines Tool-Laufs, ein Textmuster über beliebige Bytes beschädigte sie
+  und die SHA-256-Kette dazu. Der Schutz greift an der anderen Stelle — aus dem Speicher
+  heraus führt in den Kontext kein Weg an `summary` und dem Handle vorbei, und beide sind
+  gefiltert. Dass ein Tool keine Secrets in ein Artefakt schreibt, bleibt damit eine Pflicht
+  des Tools; ab S08 ist das beim Schreiben der Kern-Tools mitzuprüfen.
 * **Externe Inhalte** (`web.fetch`, MCP-Ausgaben, Mailtexte, fremde Dokumente) sind
   grundsätzlich nicht vertrauenswürdig. Rohinhalt geht ins Artefakt, in den Kontext geht
   nur eine normalisierte Zusammenfassung. Eine Anweisung aus externem Inhalt hebt nie eine
@@ -191,7 +231,19 @@ Risikostufe: hartes Schreiben, also immer Freigabe.
 `namensraum.aktion`, kleingeschrieben, Punkt als Trenner, Aktion englisch.
 
 Erlaubte Namensräume: `fs`, `web`, `exec`, `task`, `user`, `agent`, `mail`, `cal`, `notes`,
-`github`, `server`. Ein neuer Namensraum braucht eine Begründung in `docs/`.
+`github`, `server`, `dev`. Ein neuer Namensraum braucht eine Begründung in `docs/`.
+
+**`dev` (neu mit S07), Begründung:** Prüf-Tools des Harness selbst — `dev.echo` und
+`dev.blob` aus `tools/dummies.ts`, mit denen sich die Auslagerungsschwelle nachweisen lässt.
+Sie brauchen einen Namensraum, weil die Registry jeden Namen an dieser Liste prüft und es
+keine Hintertür für Tests gibt (eine Hintertür wäre dieselbe Hintertür für alles andere).
+Ein bestehender Namensraum wäre falsch: `dev.blob` ist weder Dateisystem noch Web noch
+Ausführung, und es unter einem dieser Namen zu führen lehrte das Modell einen Aktionsraum,
+den es nicht hat.
+
+**`dev.*` gehört in keinen produktiven Tool-Katalog.** Diese Tools tun nichts, was ein
+Assistent für einen Nutzer tun soll. Der Katalog wird pro Session zusammengestellt (S07),
+und dort haben sie nichts verloren; sie stehen in Tests und Proben.
 
 ---
 
@@ -395,6 +447,29 @@ Sonst bleibt es in der Shell oder Code-Sandbox.
 
 `status` ist `ok` oder `error`. Bei `error` bleibt der Fehlertext erhalten und wird nicht
 geglättet.
+
+**Umsetzung (S07):** `tools/router.ts` ist die einzige Stelle, die diese Hülle herstellt —
+deshalb kann kein Tool eine andere Form zurückgeben. Ein Handler liefert nur `summary`,
+`structured`, `artifact_refs` und `preview`; `status` setzt der Router daran, ob der Handler
+zurückkam oder geworfen hat, und nicht das Tool an einem Feld, das es auch falsch setzen
+könnte.
+
+Als Ergebnis (`status: "error"`) kommen zurück: unbekannter Toolname, Schema-Verstoß,
+geworfener Handler, Zeitüberschreitung und die Weigerung der Ausführungshülle, einen
+zweiten Versuch zuzulassen. Der volle Fehlertext samt Stacktrace steht in
+`structured.error`, der maschinenlesbare Grund in `structured.reason`.
+
+**Geworfen** wird genau eine Lage: die Session trägt eine andere Tool-Katalogversion als der
+aufrufende Prozess. Das ist keine Antwort auf einen Tool-Aufruf, sondern die Aussage, dass
+dieser Prozess diese Session nicht bedienen darf — dieselbe Trennlinie wie in der
+Ausführungshülle aus S05 (das Ergebnis eines Laufs kommt zurück, die Weigerung zu laufen
+fliegt).
+
+Der Katalog ist pro Session eingefroren. Seine Version ist ein Fingerabdruck über Name,
+Beschreibung, Eingabeschema, Risikostufe und Wiederholbarkeit aller Tools und wird bei der
+Neuanlage in `sessions.tool_catalog_version` festgehalten. Eine von Hand gepflegte Version
+wäre die Hoffnung darauf, dass jemand sie beim Ändern hochzählt; der Handler-Rumpf zählt
+bewusst nicht mit, damit eine Fehlerbehebung keine laufende Session ungültig macht.
 
 ---
 

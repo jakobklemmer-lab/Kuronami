@@ -8,8 +8,9 @@ Codeschreiben.
 
 `namensraum.aktion`, kleingeschrieben, Punkt als Trenner, Aktion englisch.
 Erlaubte Namensräume: `fs`, `web`, `exec`, `task`, `user`, `agent`, `mail`, `cal`,
-`notes`, `github`, `server`. Ein neuer Namensraum braucht eine Begründung
-in `docs/`.
+`notes`, `github`, `server`, `dev`. Ein neuer Namensraum braucht eine Begründung
+in `docs/`. `dev.*` sind Prüf-Tools des Harness und gehören in keinen produktiven
+Tool-Katalog.
 
 ## Einheitliche Rückgabehülle
 
@@ -26,6 +27,17 @@ Jedes Tool liefert genau diese Form zurück:
 ```
 
 `status` ist `ok` oder `error`.
+
+## Secrets laufen durch den Redaction-Filter
+
+Jeder Schreibpfad, der Text auf die Platte oder in den Modellkontext bringt, läuft durch
+`redact` aus `runtime/redaction/`. Heute sind das drei: Ereignisprotokoll, Artefaktmetadaten,
+Prompt-Aufbau. Kommt ein vierter dazu, wird er dort angeschlossen — nicht mit einer eigenen
+Prüfung an der Aufrufstelle.
+
+Der Filter ist **nicht abschaltbar**, und er bekommt kein Flag. Die Reichweite ändert man
+über die Musterliste in `runtime/redaction/patterns.ts`, also durch eine sichtbare Änderung
+an einer versionierten Datei.
 
 ## Fehler nie verstecken oder glätten
 

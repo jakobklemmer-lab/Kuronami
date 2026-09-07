@@ -3,6 +3,7 @@ import { mkdir, open, readFile, rename, rm } from "node:fs/promises";
 import path from "node:path";
 import type { Pool } from "pg";
 import { appendEventInTx } from "../events/log.js";
+import { redactText } from "../redaction/redact.js";
 import {
   ARTIFACT_COLUMNS,
   ARTIFACT_URI_SCHEME,
@@ -84,7 +85,32 @@ const SELECT_ARTIFACT_BY_URI_SQL = `
   SELECT ${ARTIFACT_COLUMNS} FROM kuronami.artifacts WHERE uri = $1
 `;
 
-function assertWriteInput(input: WriteArtifactInput): ArtifactSource {
+/** Die geprüften und gefilterten Metadaten, wie sie in Zeile und Ereignis gehen. */
+interface CheckedInput {
+  mimeType: string;
+  summary: string;
+  source: ArtifactSource;
+}
+
+/**
+ * Prüfung und Redaction an einem Ort, in dieser Reihenfolge: erst gilt die Pflicht, dann
+ * läuft der Filter. Umgekehrt käme eine Zusammenfassung durch, die nur aus einem Geheimnis
+ * bestand und nach dem Filter zufällig nicht mehr leer ist.
+ *
+ * Gefiltert wird alles, was die Zeile und das Ereignis `artifact.created` tragen — seit S06
+ * gehen `summary` und `source` ungefiltert ins Protokoll, und `summary` ist obendrein genau
+ * das Feld, das statt der Bytes in den Modellkontext wandert (Abschnitt 4.5). Ein Geheimnis
+ * darin stünde also an beiden verbotenen Orten zugleich.
+ *
+ * Die **Bytes** laufen bewusst nicht durch den Filter. Ein Artefakt ist die byteweise
+ * archivierte Wahrheit eines Tool-Laufs — der S06-Test schreibt einen Binärpuffer mit
+ * Nullbytes und liest ihn bytegleich zurück; ein Textmuster über beliebige Bytes zu legen,
+ * beschädigte genau diese Zusage und obendrein die SHA-256-Kette. Der Schutz greift an der
+ * anderen Stelle: aus dem Speicher heraus führt in den Kontext kein Weg an `summary` und
+ * dem Handle vorbei, und wer die Bytes doch in ein Tool-Ergebnis hebt, schreibt sie über
+ * `appendEventInTx` und den Prompt-Aufbau — beide filtern.
+ */
+function assertWriteInput(input: WriteArtifactInput): CheckedInput {
   if (typeof input.summary !== "string" || input.summary.trim() === "") {
     throw new ArtifactInputError(
       "summary ist Pflichtfeld und darf nicht leer sein: sie geht statt der Bytes in den Modellkontext",
@@ -106,7 +132,27 @@ function assertWriteInput(input: WriteArtifactInput): ArtifactSource {
   if (stepId !== null && typeof stepId !== "string") {
     throw new ArtifactInputError("source.stepId muss eine Zeichenkette oder null sein");
   }
-  return { tool: source.tool, sessionId: source.sessionId, stepId };
+
+  // `session_id` ist der einzige dieser Werte, der zusätzlich den physischen Ort adressiert:
+  // die Datei liegt unter <root>/<session_id>/<artifact_id>, und `readArtifact` löst den Pfad
+  // später aus genau diesem Feld der Zeile auf. Veränderte ihn der Filter, zeigte die Zeile
+  // woandershin als die Datei. Eine von uns vergebene Kennung (`sess_<uuid>`) kann kein
+  // Muster treffen — und wenn doch, ist das ein Fehler und keine Stelle zum Weitermachen.
+  if (redactText(source.sessionId) !== source.sessionId) {
+    throw new ArtifactInputError(
+      `source.sessionId "${source.sessionId}" wird vom Redaction-Filter verändert und taugt damit nicht als Speicheradresse`,
+    );
+  }
+
+  return {
+    mimeType: redactText(input.mimeType),
+    summary: redactText(input.summary),
+    source: {
+      tool: redactText(source.tool),
+      sessionId: source.sessionId,
+      stepId: stepId === null ? null : redactText(stepId),
+    },
+  };
 }
 
 async function assertSessionExists(pool: Pool, sessionId: string): Promise<void> {
@@ -141,7 +187,7 @@ export async function writeArtifact(
   root: string,
   input: WriteArtifactInput,
 ): Promise<ArtifactMeta> {
-  const source = assertWriteInput(input);
+  const { mimeType, summary, source } = assertWriteInput(input);
   const bytes =
     typeof input.content === "string"
       ? Buffer.from(input.content, "utf8")
@@ -180,8 +226,8 @@ export async function writeArtifact(
     const inserted = await client.query<ArtifactRow>(INSERT_ARTIFACT_SQL, [
       artifactId,
       uri,
-      input.mimeType,
-      input.summary,
+      mimeType,
+      summary,
       sha256,
       bytes.length,
       sourceJson,

@@ -535,3 +535,308 @@ Status: abgeschlossen. Nächste Session: S06 Artefaktspeicher.
 - `tasks.json`: S06 auf `done`, S07 von `queued` auf `ready`.
 
 Status: abgeschlossen. Nächste Session: S07 Tool-Router.
+
+## S07 · Redaction-Filter (Nachzug) und Tool-Router · 2026-09-05
+
+Zwei getrennte Arbeiten in einer Session. Teil 1 ist der Redaction-Filter aus Abschnitt 4.7,
+seit S03 offen notiert und ursprünglich für eine eigene Session S05b vorgesehen, die
+verworfen wurde (die Notion-Seite dazu ist archiviert: von ihren fünf Punkten waren vier
+längst erledigt, nur der Filter fehlte wirklich). Teil 2 ist S07 nach Sessionplan. Die
+beiden hängen an einer Stelle zusammen — der Router schreibt Tool-Eingaben und -Ergebnisse
+ins Protokoll, und das ist genau der Pfad, den der Filter absichern muss —, sind sonst aber
+unabhängig und stehen unten auch getrennt.
+
+- Tests der Vorsession vorab gelaufen: 58 grün (health, events, session, steps, artifacts),
+  unverändert.
+- Der Startprompt zu S07 stand nicht im Sessionauftrag (Platzhalter blieb stehen) und wurde
+  aus der Notion-Seite "S07 · Tool-Router" geholt.
+
+### Teil 1 · Redaction-Filter
+
+- `runtime/redaction/patterns.ts` und `runtime/redaction/redact.ts`, dazu
+  `runtime/redaction/README.md`. **Abweichung von der eigenen Notiz aus S03**, die
+  ausdrücklich revidiert wird: der Filter sollte "in die Governance-Schicht, und er braucht
+  sie". Er braucht sie nicht, und er gehört auch nicht dorthin. Erstens trifft er keine
+  Entscheidung — eine Policy hat Optionen (Allow/Deny/Ask, Risikostufen, Freigaben), dieser
+  Filter hat prinzipiell keine. Zweitens sind zwei seiner drei Schreibtore selbst Runtime,
+  und die Policy-Engine wird ab S11 umgekehrt Ereignisse schreiben und damit auf
+  `runtime/events` zeigen; läge der Filter in `policy/`, zeigten beide Schichten
+  aufeinander. `context/` darf auf `runtime/` zeigen, der dritte Aufrufer ist also auch
+  bedient.
+- **Nicht abschaltbar, und das ist die eigentliche Entscheidung.** Es gibt keinen Parameter,
+  keine Umgebungsvariable, kein Flag und keine Fassung von `redactText`, die eine
+  Ausnahmeliste entgegennähme. Ein Schalter wäre irgendwann gesetzt — beim Debuggen, "nur
+  kurz", in genau dem Lauf, dessen Protokoll später jemand liest. Wer die Reichweite ändern
+  will, ändert die Musterliste; das ist eine sichtbare Änderung an einer versionierten
+  Datei, kein Aufrufargument.
+- Drei Schreibtore, jedes an der Stelle, an der es keinen zweiten Weg vorbei gibt:
+  `appendEventInTx` (das einzige Schreibtor von `kuronami.events`; `appendEvent` läuft
+  hindurch), `writeArtifact` (`summary`, `mime_type`, `source`) und `buildPrompt`. Ein
+  Filter, den jede Aufrufstelle selbst anwenden müsste, wäre in der ersten vergessenen Zeile
+  umgangen.
+- Zwei Wege zur Ersetzung, und beide werden gebraucht: über die **Form des Wertes**
+  (`sk-ant-…`, `postgres://u:p@host`, JWT, PEM-Block, Bearer-Header, dazu die üblichen
+  Anbieterpräfixe) und über den **Namen des Feldes** (`api_key`, `password`, `DATABASE_URL`).
+  `{ "api_key": "hunter2" }` trägt kein erkennbares Format — über den Wert allein ist dieses
+  Geheimnis nicht zu finden, wohl aber über den Namen, unter dem es abgelegt wurde. Die
+  Gegenprobe unten belegt, dass beide Wege tragen.
+- Rekursiv über verschachtelte Objekte und Arrays, nicht nur über Zeichenketten auf oberster
+  Ebene: ein Ereignis-Payload ist ein Baum, und `result.structured.config.api_key` ist genau
+  die Stelle, an der niemand nachschaut. Auch die Schlüssel eines Objekts werden gefiltert.
+  Ein Zyklus wird erkannt und wirft, statt in einen Stapelüberlauf zu laufen — als JSON wäre
+  der Wert ohnehin nicht schreibbar.
+- **Bewusst nicht dabei: eine Entropie-Heuristik** ("lange Zeichenkette ohne Leerzeichen").
+  Sie fräse genau die Felder weg, von denen das Protokoll lebt — SHA-256-Prüfsummen, UUIDs,
+  Artefakt-Handles. Erkannt wird, was eine erkennbare Form hat. Aus demselben Grund enthält
+  die Endungsliste der Feldnamen kein `key`: damit fiele `idempotency_key` mit hinein, der
+  Schlüssel, an dem seit S05 die gesamte Wiederaufnahme hängt, und Replay bräche lautlos.
+  Der Test "lässt die Felder in Ruhe, von denen das Protokoll lebt" hält das fest.
+- Der Ersatztext benennt die Regel (`[redacted:anthropic-api-key]`) und lässt den Rest der
+  Zeile stehen — bei einem Connection-String Schema und Benutzer, bei einem Header das
+  Schema. Ein spurloses Löschen wäre die stille Variante, und ein Filter, der
+  Fehlermeldungen unlesbar macht, wird über kurz oder lang abgeschaltet.
+- Beim Bauen ein echter Fehler gefunden, der ohne Test durchgerutscht wäre: das
+  Schlüssel-Wert-Fangnetz kaute auf schon gefiltertem Text weiter. `Authorization: Bearer
+  <schlüssel>` wurde korrekt zu `… Bearer [redacted:authorization-header]`, danach nahm das
+  Fangnetz das Wort `Bearer` als Wert und ersetzte es gleich mit. Kein Leck, aber der
+  Ersatztext log über die Regel, die tatsächlich gegriffen hatte. Behoben mit drei
+  Absicherungen um die Wertgruppe (kein Ansetzen auf einem Ersatztext, Wert muss an einem
+  Trenner enden, nicht greifen wo dahinter schon gefiltert wurde) — die mittlere ist nötig,
+  weil das Backtracking sonst `Bearer` still zu `Beare` kürzte und *das* ersetzte.
+- `runtime/artifacts/store.ts`: Prüfung und Filter liegen jetzt zusammen in
+  `assertWriteInput`, in dieser Reihenfolge — erst gilt die Pflicht, dann läuft der Filter.
+  Umgekehrt käme eine Zusammenfassung durch, die nur aus einem Geheimnis bestand und nach
+  dem Filter zufällig nicht mehr leer ist. `source.sessionId` wird als einziger Wert **nicht**
+  ersetzt, sondern geprüft: er adressiert zusätzlich den physischen Pfad, und veränderte ihn
+  der Filter, zeigte die Zeile woandershin als die Datei. Trifft ihn doch ein Muster, ist das
+  ein Fehler und keine Stelle zum Weitermachen.
+- **Die Bytes eines Artefakts laufen nicht durch den Filter**, und das ist eine bewusste
+  Grenze, keine Lücke aus Versehen. Ein Artefakt ist die byteweise archivierte Wahrheit eines
+  Tool-Laufs; der S06-Test schreibt einen Binärpuffer mit Nullbytes und liest ihn bytegleich
+  zurück, und ein Textmuster über beliebige Bytes beschädigte genau diese Zusage samt der
+  SHA-256-Kette. Der Schutz greift an der anderen Stelle: aus dem Speicher heraus führt in
+  den Kontext kein Weg an `summary` und dem Handle vorbei, und wer die Bytes doch in ein
+  Tool-Ergebnis hebt, schreibt sie über `appendEventInTx` und den Prompt-Aufbau — beide
+  filtern. Dass ein Tool keine Secrets in ein Artefakt schreibt, bleibt damit eine Pflicht
+  des Tools und ist ab S08 beim Bau der Kern-Tools mitzuprüfen. In Abschnitt 4.7 vermerkt.
+- `context/prompt.ts` neu, weil es den dritten Pfad — "zusammengesetzter Prompt" — noch nicht
+  gab. Bewusst klein: die fünf Abschnitte aus Abschnitt 7 in bindender Reihenfolge, ein
+  einziges Filtertor (`render`), und die Kante zwischen stabilem Präfix (System-Prompt plus
+  Tool-Stubs, Personengedächtnis) und veränderlichem Rest. Alle fünf Abschnitte stehen immer
+  da, auch die leeren: ein Abschnitt, der mal fehlt und mal auftaucht, verschöbe den Text
+  darunter und entwertete bei jedem Auftauchen den Cache. Tool-Stubs werden nach Namen
+  sortiert, damit die Serialisierung nicht an der Aufrufreihenfolge hängt. Prompt-Caching,
+  Kompaktierung (Stufen 2 bis 4) und das Umschreiben alter Tool-Ergebnisse in Referenzen sind
+  **nicht** gebaut, das ist S09/S12.
+- Strukturierte Inhalte werden **vor** dem Serialisieren gefiltert, nicht danach. Im fertigen
+  JSON steht `"api_key": "hunter2"` — Feldname und Wert sind dort durch ein
+  Anführungszeichen getrennt, ein Textmuster sähe kein Schlüssel-Wert-Paar mehr. Über den
+  Baum gefiltert greift die Namensregel, über den Text nicht.
+- 21 neue Tests. `runtime/redaction/redact.test.ts` (17, ohne Datenbank): jedes bekannte
+  Format wird ersetzt und der Rest der Zeile bleibt lesbar; Connection-String verliert nur
+  das Passwort; alle Vorkommen statt nur des ersten; der Filter ist wiederholbar (mehrere
+  Tore hintereinander fressen den Text nicht weiter auf); PEM-Block im Ganzen; geheime
+  Feldnamen in jeder Schreibweise; die Felder des Protokolls bleiben unberührt; Wert eines
+  geheimen Feldes verschwindet unabhängig von seiner Form; `null` bleibt `null`; Rekursion
+  durch Objekte, Arrays und Objektschlüssel; Zahlen, Datumsangaben und Bytes bleiben; ein
+  geteilter Teilbaum ist erlaubt, ein Zyklus wirft; und ein echter Ereignis-Payload aus
+  S05/S06 (Stacktrace mit absoluten Pfaden, SHA-256, Handle, Idempotenzschlüssel) kommt
+  wörtlich unverändert heraus.
+- `runtime/redaction/write-paths.test.ts` (4, mit Datenbank) ist der geforderte Nachweis. Er
+  prüft nicht die Rückgabewerte der Schreibfunktionen, sondern was tatsächlich dasteht:
+  `payload::text` aus `kuronami.events`, die Artefaktzeile als Text, der zusammengesetzte
+  Prompt samt seiner einzelnen Abschnitte. Der vierte Test führt einen vollen Durchlauf
+  (Artefakt schreiben, Ergebnis protokollieren, ins nächste Prompt heben) und stellt fest,
+  dass derselbe Schlüssel in keinem der drei Pfade im Klartext auffindbar ist. Jeder Test
+  prüft zusätzlich, dass das Unverdächtige noch dasteht — ein Filter, der alles ersetzt,
+  bestünde die Hauptaussage sonst auch.
+- Fünf Gegenproben, alle bestätigt und danach zurückgesetzt:
+  * Filter in `log.ts` entfernt → 2 Tests rot (Ereignispfad und Volldurchlauf).
+  * Filter in `store.ts` entfernt → 2 Tests rot. Nebenbefund: das Ereignis
+    `artifact.created` blieb dabei sauber, weil das Protokoll sein eigenes Tor hat — die
+    Zeile in `kuronami.artifacts` leckte. Die Tore sind also wirklich unabhängig.
+  * Filter in `prompt.ts` entfernt → zunächst nur 1 Test rot. Der Volldurchlauf blieb grün,
+    weil sein Prompt-Inhalt aus `readEvents` kam und damit stromaufwärts schon gefiltert war
+    — der Prompt-Pfad war dort nur scheinbar mitgeprüft. Der Test speist jetzt zusätzlich
+    rohe Eingabe ein; mit derselben Gegenprobe sind es danach 2 rote Tests.
+  * Feldnamen-Regel entfernt → 3 Tests rot. `hunter2` unter `api_key` ist ausschließlich über
+    den Namen erreichbar.
+  * `g`-Flag eines Musters entfernt → das Modul lädt nicht mehr, `assertPatternsUsable`
+    wirft beim Import. Die Zusage "jedes Muster ist global" hängt nicht an Sorgfalt.
+
+### Teil 2 · S07 Tool-Router
+
+- `tools/types.ts`, `tools/registry.ts`, `tools/router.ts`, `tools/offload.ts`,
+  `tools/dummies.ts`. Keine Migration: S07 braucht keine Schemaänderung. `kuronami.steps`
+  hat seit S02 `kind = 'tool_call'` und `tool_name`, `kuronami.risk_level` trägt seit S02
+  genau die vier Risikostufen aus Abschnitt 10, und `sessions.tool_catalog_version` steht
+  seit S02 bereit. Der Router füllt, was das Datenmodell längst vorsieht.
+- **Jeder Tool-Aufruf läuft durch die Ausführungshülle aus S05.** Das ist die zentrale
+  Entscheidung dieser Session: ein Tool-Aufruf *ist* ein externer Seiteneffekt, und für den
+  verlangt Abschnitt 6 Checkpoint davor und danach. Damit bekommt jeder Aufruf ohne
+  Zusatzarbeit Idempotenzschlüssel, Zeitfenster, Wiederaufnahme und Replay. Der Schlüssel ist
+  `tool:<call_id>`: die Kennung, die später das Modell vergibt, und die ein
+  wiederaufnehmender Prozess aus seinem Plan wieder herleitet. Das Ergebnis des Schritts ist
+  die vollständige Rückgabehülle — deshalb liefert ein zweiter Aufruf mit derselben Kennung
+  dieselbe Hülle zurück, ohne den Effekt noch einmal auszulösen.
+- `repeatable` ist ein Pflichtfeld der Tool-Definition, ohne Vorgabewert, aus demselben Grund
+  wie in `StepSpec` (S05). Es aus der Risikostufe abzuleiten wäre naheliegend und falsch: ein
+  `soft_write` legt beim zweiten Lauf ein zweites Artefakt an. Das ist ein sechstes Feld über
+  die vom Auftrag genannten fünf hinaus, und es fehlte sonst genau die Angabe, die die Hülle
+  braucht.
+- **Abweichung vom Auftrag bei den Ereignissen**, die begründet werden muss: die Checkliste
+  nennt `tool.called` und `tool.returned`, geschrieben werden `tool.requested`,
+  `tool.completed` und `tool.failed`. Diese drei stehen seit Abschnitt 4.4 in der Taxonomie
+  und meinen dasselbe. `tool.called` daneben zu setzen hieße, das Protokoll in zwei
+  Schreibweisen desselben Ereignisses zerfallen zu lassen — genau das, wogegen S03 die
+  Namensprüfung eingebaut hat —, und `tool.returned` verlöre die Unterscheidung zwischen
+  geglückt und fehlgeschlagen, die schon dasteht. In Abschnitt 4.4 vermerkt, damit die
+  Notion-Checkliste sie nicht später doch noch einführt.
+- Vier Ereignisse je Aufruf, geschachtelt: `tool.requested`, `step.started`, `step.completed`,
+  `tool.completed`. Keine Doppelung, sondern zwei Schichten: `step.*` sagt, ob der
+  Seiteneffekt lief und ob er wiederaufnehmbar ist; `tool.*` sagt, welche Fähigkeit mit
+  welcher Risikostufe unter welcher Katalogversion angefragt wurde — das sind die Kennzahlen
+  aus Abschnitt 12. Auch ein Aufruf auf ein Tool, das es nicht gibt, wird protokolliert;
+  genau daraus besteht die Kennzahl "Tool-Auswahlgenauigkeit".
+- Die `tool.*`-Ereignisse liegen **nicht** in der Transaktion des Schritts. Ein Absturz
+  dazwischen hinterlässt ein `tool.requested` ohne Gegenstück, so wie seit S04 ein
+  abgeschossener Prozess ein `runtime.started` ohne `runtime.stopped` hinterlässt. Das ist
+  hinnehmbar, weil die maßgebliche Aussage — lief der Seiteneffekt oder nicht — im
+  Schritt-Paar steht, und das ist transaktional. Die Alternative wäre, `finishStep` die
+  Tool-Semantik beizubringen; dann wüsste die Ausführungshülle von Tools, und die
+  Schichtung stünde auf dem Kopf.
+- **Fehler kommen als Ergebnis zurück, nicht als Ausnahme**, mit einer einzigen Ausnahme.
+  Unbekannter Toolname, Schema-Verstoß, geworfener Handler, Zeitüberschreitung und auch die
+  Weigerung der Ausführungshülle, einen zweiten Versuch zuzulassen, werden zu
+  `status: "error"` mit vollem Fehlertext samt Stacktrace in `structured.error` und einem
+  maschinenlesbaren `structured.reason`. Das ist kein Verschlucken, sondern das Gegenteil:
+  der Fehler landet im Verlauf, wo ihn das Modell im selben Lauf noch lesen kann
+  (Abschnitt 7).
+- Die eine Ausnahme, die **wirft**: die Session trägt eine andere Katalogversion als der
+  aufrufende Prozess. Das kann das Modell mit keinem anderen Aufruf beheben; es ist die
+  Aussage, dass dieser Prozess diese Session nicht bedienen darf. Dieselbe Trennlinie wie in
+  der Hülle aus S05 — das Ergebnis eines Laufs kommt zurück, die Weigerung zu laufen fliegt.
+  Die Weigerung der Hülle selbst fällt bewusst auf die andere Seite dieser Linie: für den
+  Aufrufer des Routers ist auch sie eine Antwort auf seinen Aufruf, und `structured.refused`
+  benennt die Lage maschinenlesbar, damit die Schleife (S12) einen Abbruch von einem
+  erschöpften Wiederholungsbudget unterscheiden kann, ohne im Fehlertext zu suchen.
+- **Die Katalogversion ist ein Fingerabdruck über den Inhalt**, nicht eine gepflegte
+  Zeichenkette. Eine Version von Hand hochzuzählen wäre die Hoffnung darauf, dass es jemand
+  tut; dann wäre "eingefroren" eine Zusage der Anwendungslogik statt eine überprüfbare
+  Tatsache — dasselbe Argument wie beim UNIQUE-Index aus S03. Gerechnet wird über Name,
+  Beschreibung, Eingabeschema, Risikostufe und Wiederholbarkeit, also über alles, wonach das
+  Modell seinen Aufruf baut. Der Handler-Rumpf zählt **nicht** mit: eine Fehlerbehebung darin
+  soll keine laufende Session ungültig machen. Registrierreihenfolge und Feldreihenfolge im
+  Schema zählen ebenfalls nicht, beide Fälle sind getestet.
+- Registry und Katalog sind getrennte Typen, und das Einfrieren steht damit im Typ statt im
+  Kommentar: `ToolCatalog` hat keine schreibende Methode, `freeze()` kopiert. Wer danach noch
+  registriert, ändert die Registry und nicht den ausgegebenen Katalog — getestet.
+- Auslagerung (`tools/offload.ts`): gemessen wird die **vollständige serialisierte Hülle**,
+  nicht der Rohinhalt und nicht das, wofür ein Tool sich selbst hält. Ein Tool, das seine
+  Ausgabe für klein hält, sie aber nicht ist, wird trotzdem ausgelagert; Anti-Muster 3 lässt
+  sich nicht dadurch vermeiden, dass man jedem Tool zutraut, sich selbst zu bremsen. Der Test
+  "entscheidet an der gemessenen Größe, nicht am Tool" schickt dasselbe `dev.echo` einmal mit
+  vier und einmal mit 40 KB durch.
+- Ausgelagert wird `structured`, der einzige unbegrenzte Teil der Hülle. Zurück bleiben
+  `summary`, `preview` und das Handle samt den Feldern, mit denen sich das Artefakt beurteilen
+  lässt, ohne es aufzulösen — dieselben, die `headArtifact` seit S06 ohne Dateizugriff
+  liefert. Passt die Hülle danach immer noch nicht unter die Schwelle, sind `summary` oder
+  `preview` selbst zu groß: das ist ein Fehler des Tools und wird gemeldet, nicht durch
+  stilles Kürzen geheilt. Eine gekürzte Zusammenfassung sähe aus wie eine echte, und das
+  Modell hätte keine Möglichkeit zu merken, dass ihm etwas fehlt. Das Handle steht im
+  Fehlertext, die Bytes sind also nicht verloren.
+- Die Auslagerung läuft **innerhalb** des Schritts: sie braucht dessen `step_id` als Herkunft
+  (S06), und ihr Artefakt gehört zum Ergebnis dieses Versuchs — bricht der Schritt danach ab,
+  gehört auch das Artefakt zu dem, was nicht gilt. Im Protokoll steht `artifact.created`
+  entsprechend zwischen `step.started` und `step.completed`, getestet.
+- Schwelle 8000 Token-Äquivalent (unteres Ende von Abschnitt 13), vier Bytes je Token. Die
+  Architektur sagt bewusst "Token-Äquivalent": der genaue Wert hängt am Tokenizer des
+  jeweiligen Modells, und ihn hier exakt bestimmen zu wollen bände den Aktionsraum an ein
+  Modell. Die Näherung schätzt für deutschen Text und trennzeichenreiches JSON eher zu
+  niedrig, die Schwelle greift also eher zu spät — deshalb der Startwert am unteren Ende.
+- Eingabeschema bewusst winzig und ohne Bibliothek (verschachtelte Schemata, Aufzählungen und
+  Wertebereiche fehlen sichtbar). Geprüft werden Pflichtfelder, Typen und **unbekannte
+  Felder**; letztere werden abgewiesen statt stillschweigend fallen gelassen. Sonst führte der
+  Router einen Aufruf aus, den so niemand gemeint hat: das Modell glaubt, es habe `recursive`
+  mitgegeben, das Tool hat es nie gesehen, und beide halten das Ergebnis für richtig. Es
+  kommen immer *alle* Beanstandungen zurück, damit das Modell seinen Aufruf in einem Zug
+  reparieren kann und nicht in fünf.
+- Namensraum `dev` neu, mit Begründung in Abschnitt 4.8 (AGENTS.md verlangt sie in `docs/`)
+  und in AGENTS.md nachgezogen. Die Registry prüft jeden Namen gegen die Liste, und eine
+  Hintertür für Tests wäre dieselbe Hintertür für alles andere. `dev.*` gehört in keinen
+  produktiven Katalog — festgehalten in beiden Dateien.
+- `runtime/index.ts` baut jetzt einen Katalog (vorerst leer, echte Tools ab S08) und gibt
+  dessen Version als Startwert an die Session. Trägt eine wiederaufgenommene Session eine
+  andere Version, warnt der Start laut, statt es beim ersten Tool-Aufruf als Ausnahme zu
+  offenbaren. Startwerte gelten weiterhin nur bei der Neuanlage (S04).
+- 28 neue Tests, zusammen 107. `tools/registry.test.ts` (12, ohne Datenbank): Namensform und
+  Namensraum, doppelter Name, fehlende Beschreibung; Version unabhängig von Registrier- und
+  Feldreihenfolge, Version ändert sich bei Beschreibung, Risiko, Wiederholbarkeit, Schema und
+  bei einem zusätzlichen Tool, bleibt aber bei einem geänderten Handler; ein ausgegebener
+  Katalog bleibt von späteren Registrierungen unberührt; Stubs tragen keinen Handler; die
+  Token-Näherung rechnet nach Bytes und ordnet 50 KB über und 200 Byte unter die Schwelle.
+- `tools/router.test.ts` (16, mit Datenbank), darunter das **Fertig-Kriterium**: `dev.blob`
+  mit 50 KB liefert `offloaded`, ein Handle und eine Hülle unter 1000 Byte, und das Handle
+  löst auf die vollständigen Bytes samt korrekter Herkunft auf; `dev.echo` mit 200 Byte
+  liefert direkt zurück, und es entsteht kein Artefakt. Dazu: die Hülle hat immer genau die
+  fünf Felder aus Abschnitt 9, auch im Fehlerfall; die Ereignisfolge liest sich als
+  `session.created, tool.requested, step.started, step.completed, tool.completed` und im
+  ausgelagerten Fall mit `artifact.created` dazwischen; das Schritt-Ergebnis ist die Hülle,
+  und der Replay aus dem Protokoll ergibt denselben Zustand wie der Snapshot; unbekanntes
+  Tool nennt die vorhandenen; alle Schema-Verstöße auf einmal; falscher Feldtyp; geworfener
+  Handler behält Wortlaut und Stacktrace; Zeitüberschreitung wird zur Fehlerhülle; ein nicht
+  wiederholbares Tool läuft nach einem Fehlschlag kein zweites Mal, und die Weigerung kommt
+  als Hülle mit `refused: "StepNotRepeatableError"`; derselbe Aufruf zweimal führt den Effekt
+  einmal aus und meldet beim zweiten Mal `executed: false`; ein fremder Katalog und eine
+  Session mit der Vorgabeversion `v1` werden abgewiesen, ohne ein Ereignis zu hinterlassen.
+- Fünf Gegenproben, alle bestätigt und danach zurückgesetzt: Auslagerung nie (3 Tests rot,
+  darunter das Fertig-Kriterium), Auslagerung immer (4 rot, darunter der 200-Byte-Fall — der
+  Test hängt also an der Schwelle und nicht daran, dass irgendetwas ausgelagert wird),
+  Katalogprüfung entfernt (2 rot), Schema-Prüfung entfernt (2 rot), Idempotenzschlüssel um
+  einen Zufallswert erweitert (2 rot, der Seiteneffekt lief zweimal).
+- Nachweis außerhalb von vitest: eine Probe hat gegen die echte Datenbank eine Session mit
+  dem Katalog `v1-b71575f004d10d5e` eröffnet und beide Dummies aufgerufen. `dev.blob` mit
+  50 KB ergab 525 Zeilen, ein Artefakt von 65478 Byte auf der Platte und eine Hülle, die nur
+  Zusammenfassung, drei Vorschauzeilen und das Handle trug; `dev.echo` mit 180 Zeichen ergab
+  eine Hülle von 370 Byte ohne Artefakt; `fs.read` (nicht im Katalog) kam als Fehlerhülle
+  zurück, nicht als Ausnahme. Das Protokoll las sich über alle drei Aufrufe hinweg
+  lückenlos. Danach `runtime/index.ts` zweimal gestartet: dieselbe Session, dieselbe
+  Katalogversion; anschließend die Version der Session von Hand auf `v1` zurückgedreht, und
+  der Start meldete die Abweichung wie vorgesehen. Probedaten gelöscht, alle sechs Tabellen
+  sind nach dem Testlauf leer.
+
+### Bewusst nicht gebaut
+
+- Die Policy-Engine. Ihr Platz im Router steht fest und ist im Code vermerkt: zwischen
+  Schema-Prüfung und `executeStep` — nach der Prüfung steht fest, *was* aufgerufen würde, und
+  vor dem Schritt ist noch nichts geschehen. Der Router ruft sie dann, nicht umgekehrt
+  (Abschnitt 4.7). S11.
+- Echte Tools. `fs.*` ist S08, `web.*` S09; der Katalog in `runtime/index.ts` ist deshalb
+  vorerst leer.
+- Das Füllen von `steps.artifact_refs`. Es bleibt bei der Einschätzung aus S06 (S12): die
+  Spalte ist jetzt zwar erreichbar — ein ausgelagerter Aufruf erzeugt Handles —, aber sie zu
+  füllen verlangt, dass die Ausführungshülle die Referenzen eines Ergebnisses erkennt, und
+  damit wüsste sie von Tool-Hüllen. Verloren geht nichts: die Handles stehen in der Hülle,
+  die Hülle ist das `result` des Schritts, und das steht im `step.completed`. Wer die Spalte
+  füllt, muss sie im selben Zug ins Ereignis schreiben, sonst laufen Snapshot und Herleitung
+  auseinander — der Replay-Test in `session/replay.test.ts` fängt das ab.
+- Prompt-Caching, Kompaktierung und das Umschreiben alter Tool-Ergebnisse in Referenzen
+  (Kontextstufen 2 bis 4). `context/prompt.ts` markiert nur die Kante zwischen stabilem
+  Präfix und veränderlichem Rest. S09/S12.
+- Der Alias-Layer `artifact://<namensraum>/<name>` (S09/S14) und ein GC-Lauf für verwaiste
+  Artefaktdateien, beides seit S06 offen.
+- Die Schleife über Schritte samt Wiederholungsstrategie und Backoff (S12). Der Router führt
+  einen Aufruf aus, er plant keine Folge von Aufrufen.
+
+### Offene Befunde
+
+- `structured.reason` und `structured.refused` sind heute eine Verabredung zwischen Router und
+  künftiger Schleife, kein Typ. Sobald S12 darauf verzweigt, gehören sie in eine Aufzählung.
+- Die Katalogversion einer Session lässt sich nach der Neuanlage nicht mehr ändern, und das
+  ist so gewollt. Es heißt aber auch: nach jeder Änderung am Toolsatz sind alle laufenden
+  Sessions unbedienbar. Für einen Einzelnutzer ist das richtig; ab S16 (zwei Kanäle) ist zu
+  entscheiden, ob es dafür einen ausdrücklichen Migrationspfad braucht statt "neue Session".
+- `pnpm typecheck && pnpm lint && pnpm test` grün, 107 Tests.
+- `tasks.json`: S07 auf `done`, S08 von `queued` auf `ready`.
+
+Status: abgeschlossen. Nächste Session: S08 Kern-Tools `fs.*`.

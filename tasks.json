@@ -51,7 +51,7 @@
     "id": "S07",
     "title": "Tool-Router",
     "phase": 1,
-    "status": "ready",
+    "status": "done",
     "done_when": "Dummy-Tool antwortet in der einheitlichen Hülle",
     "depends_on": ["S06"]
   },
@@ -59,7 +59,7 @@
     "id": "S08",
     "title": "Kern-Tools fs.*",
     "phase": 1,
-    "status": "queued",
+    "status": "ready",
     "done_when": "Pfad-Traversal-Test wird abgewiesen",
     "depends_on": ["S07"]
   },

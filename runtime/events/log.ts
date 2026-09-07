@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import type { Pool, PoolClient } from "pg";
+import { redactValue } from "../redaction/redact.js";
 import { type EventType, assertEventType } from "./types.js";
 
 export type EventPayload = Record<string, unknown>;
@@ -88,7 +89,13 @@ export async function appendEventInTx(
     `event_${randomUUID()}`,
     sessionId,
     type,
-    JSON.stringify(payload),
+    // Der Redaction-Filter aus Abschnitt 4.7. Er steht hier und nicht bei den Aufrufern,
+    // weil dies das einzige Schreibtor des Protokolls ist: `appendEvent` läuft durch diese
+    // Funktion, und einen zweiten Weg in `kuronami.events` gibt es nicht. Ein Filter, den
+    // jede Aufrufstelle selbst anwenden müsste, wäre in der ersten vergessenen Zeile umgangen.
+    // Der zurückgegebene Record trägt die gefilterte Fassung, weil er aus dem RETURNING der
+    // Einfügung stammt — auch der Aufrufer sieht das Geheimnis danach nicht mehr.
+    JSON.stringify(redactValue(payload)),
   ]);
 
   return toRecord(inserted.rows[0]);
