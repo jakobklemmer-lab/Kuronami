@@ -840,3 +840,202 @@ unabhängig und stehen unten auch getrennt.
 - `tasks.json`: S07 auf `done`, S08 von `queued` auf `ready`.
 
 Status: abgeschlossen. Nächste Session: S08 Kern-Tools `fs.*`.
+
+## S08 · Kern-Tools `fs.*` · 2026-09-07
+
+- Tests der Vorsession vorab gelaufen: 107 grün (health, events, session, steps, artifacts,
+  redaction, tools/registry, tools/router), unverändert.
+- Keine Migration. `kuronami.artifacts` nimmt seit S06 `source.tool` als beliebige
+  Zeichenkette, `fs.read` schreibt seine ausgelagerten Dateien darüber als `"fs.read"` weg.
+  `fs.*` braucht keine Tabelle und keine Spalte, die nicht schon dasteht — wie bei S07.
+- Neues Verzeichnis `tools/fs/` mit `paths.ts` (Pfadabsicherung), `tools.ts` (die fünf
+  Definitionen und Handler), je einer Testdatei und `README.md`. Die Absicherung liegt
+  **getrennt** von den Tools und hat eine eigene Testdatei ohne Datenbank: ein Leck dort ist
+  ein Leck im ganzen Assistenten, und es soll sich in Millisekunden gegenprüfen lassen, ohne
+  dass erst eine Postgres-Verbindung stehen muss.
+
+### Die harte Pfadabsicherung (`paths.ts`)
+
+- **Zwei Zonen, beide mit absoluter, per `realpath` aufgelöster Wurzel.** `artifact` ist der
+  `ARTIFACT_ROOT` und frei beschreibbar — das ist der Arbeitsspeicher aus Abschnitt 8,
+  Risikostufe weiches Schreiben "automatisch im Arbeitsverzeichnis" (Abschnitt 10). `source`
+  ist die Workspace-Wurzel und nur lesbar. Der Auftrag sagt "Quellzone nur mit Freigabe";
+  die Freigabe erteilt die Policy-Engine (S11), und weil es die noch nicht gibt, heißt das
+  heute schlicht: `fs.write`/`fs.edit` in die Quellzone werfen `SourceZoneWriteError`. Der
+  Router hat den Platz für die Policy-Prüfung seit S07 markiert; kommt sie, läuft sie *vor*
+  diesem Wurf und kann eine erteilte Freigabe durchreichen. Eine halbe Freigabe-Mechanik
+  jetzt zu bauen, kollidierte mit S11 (dessen Fertig-Kriterium wörtlich "Schreibendes Tool
+  wird ohne Freigabe blockiert" ist).
+- **`realpath` auf die Wurzeln, nicht nur `path.resolve`.** `os.tmpdir()` ist unter Windows
+  und macOS selbst ein Symlink (`/var` → `/private/var`). Ohne die Kanonisierung vergliche
+  die Containment-Prüfung einen aufgelösten Ist-Pfad gegen eine nicht aufgelöste Wurzel und
+  wiese in den Tests jeden gültigen Pfad ab. Die Artefaktzone wird bei Bedarf angelegt (sie
+  gehört uns), die Quellzone nicht — fehlt sie, ist die Konfiguration falsch.
+- **Zwei Prüfungen in `resolvePath`, in dieser Reihenfolge.** Erst lexikalisch: `path.resolve`
+  gegen die Quellzonen-Wurzel, dann `contains()` über `path.relative` (fängt `..`, fängt ein
+  anderes Laufwerk unter Windows). Diese erste Prüfung fängt `../../etc/passwd` auch dann,
+  wenn nichts davon existiert, und hält `realpath` von Pfaden fern, die ohnehin außerhalb
+  liegen. Dann symlink-bewusst: `realpath` auf den **tiefsten existierenden Vorfahren**, der
+  noch nicht existierende Rest wird unverändert wieder angehängt, und `contains()` läuft
+  erneut über das Ergebnis. Ein Pfad, der eben noch drin lag, kann über einen Symlink nach
+  draußen zeigen — genau der zweite S08-Test.
+- Der tiefste-Vorfahr-Trick ist nötig, weil `fs.write` auf eine **neue** Datei zielt: `realpath`
+  auf den vollen Pfad wirft dann `ENOENT`, und die Symlink-Auflösung fände nicht statt. Die
+  Rekursion steigt komponentenweise auf, bis `realpath` greift, und setzt den Pfad wieder
+  zusammen. Ein Symlink *mitten* im Pfad (`<zone>/link/darunter/neu.txt`) wird damit genauso
+  enttarnt wie einer an der Spitze.
+- **Die Einstufung folgt dem aufgelösten Ziel, nicht dem Eingabepfad.** Ein Symlink aus der
+  Quellzone in die Artefaktzone wird zu `artifact` (frei) — harmlos, das ist die freie Zone.
+  Ein Symlink aus der Artefaktzone zurück in die Quellzone wird zu `source` (nur lesbar) und
+  **schützt** damit die Quellzone: der Versuch, über ein Link in der freien Zone Quellcode zu
+  überschreiben, landet im Verweigerungszweig. Beide Fälle sind in `paths.test.ts` festgehalten.
+- Bei verschachtelten Zonen (im Betrieb liegt `ARTIFACT_ROOT` unter der Workspace-Wurzel)
+  gewinnt die speziellere: die `ordered`-Liste ist absteigend nach Wurzeltiefe sortiert, und
+  `classify` nimmt den ersten Treffer. Ein Pfad unter `artifacts/` ist damit `artifact` und
+  nicht `source`.
+- `buildFsZones` wirft, wenn Quell- und Artefaktzone dieselbe Wurzel hätten — sonst wäre die
+  Quellzone über den Umweg der Artefaktzone frei beschreibbar.
+
+### Die fünf Tools (`tools.ts`)
+
+- `createFsTools({ pool, artifactRoot, zones })` gibt die fünf `ToolDefinition` mit ihren
+  Abhängigkeiten in den Handlern geschlossen zurück. Der `ToolInvocation` aus S07 trägt nur
+  `input`, `sessionId`, `stepId`, `attempt`, `signal` — Pool und Wurzel kommen über die
+  Closure, nicht über einen neuen Parameter der Handler-Signatur.
+- **`fs.read`**: kleine Dateien (Slice ≤ 64 KB und ≤ 2000 Zeilen und deckt die ganze Datei)
+  kommen als `structured.content` unverändert zurück. Alles darüber wird zu Ausschnitt (40
+  Zeilen, je auf 400 Zeichen gekürzt) plus einem Artefakt mit den **Rohbytes** der Datei —
+  `readArtifact` gibt sie bytegleich zurück, nicht JSON-verpackte Zeilen. Der Auftrag sagt
+  "Ausschnitt + Artefakt", und das heißt beides: der Ausschnitt bleibt sichtbar *und* die
+  vollständige Datei ist über das Handle da. Die Selbst-Auslagerung läuft **im Schritt** (wie
+  die Router-Auslagerung aus S07), weil sie die `step_id` als Herkunft braucht (S06) — im
+  Protokoll steht `artifact.created` zwischen `step.started` und `step.completed`.
+- Sich allein auf die Router-Auslagerung zu verlassen, hätte den Ausschnitt gekostet: der
+  Router verschiebt *ganz* `structured` ins Artefakt und lässt nur `summary`, `preview` und
+  das Handle stehen. Der Ausschnitt käme dann höchstens über `preview` durch, ungetypt. Die
+  `fs.read`-Hülle ist stattdessen von vornherein knapp (Kontextstufe 0) und bleibt mit ~3 KB
+  deutlich unter der Router-Schwelle von 8k Token — der Test prüft ausdrücklich, dass **kein
+  zweites** Offload passiert (`structured.offloaded` bleibt `undefined`).
+- `fs.read` gibt den `sha256` der Datei zurück. Den braucht `fs.edit`, und weil die
+  `fs.read`-Hülle bei großen Dateien nicht ausgelagert wird, steht er auch dann inline da.
+- Binärdateien (Nullbyte in den ersten 8 KB) werden nicht in Zeilen zerlegt, sondern ganz
+  ins Artefakt geschrieben, `structured.binary: true`, `preview` leer.
+- **`fs.write`**: atomar über `.tmp` + `fsync` + `rename` (Muster aus S06), nur in der
+  Artefaktzone. `repeatable: true` — ein unterbrochener Schreibvorgang mit denselben Bytes
+  ist der klassische gefahrlos wiederholbare Fall, der Rename hinterlässt keinen
+  Zwischenzustand. Optional `expect_absent`, um ein versehentliches Überschreiben abzufangen.
+- **`fs.edit`**: `expected_sha256` ist **Pflichtfeld** ohne Vorgabe. Ein optionaler
+  Stale-Check wäre einer, den man weglässt — und dann ist er weg. Der SHA-256 kommt aus dem
+  letzten `fs.read`; weicht der aktuelle ab, wirft `StaleFileError` mit beiden Prüfsummen im
+  Text, und die Datei bleibt unangetastet. Danach exakte Teilstring-Ersetzung mit
+  Eindeutigkeitsprüfung (mehr als ein Vorkommen ohne `replace_all` → `EditTargetAmbiguousError`).
+  `repeatable: false`: nach einem Abbruch ist unklar, ob der Edit schon angewandt wurde, und
+  ein zweiter Lauf träfe auf einen geänderten SHA-256 oder ein fehlendes `old_string` — diese
+  Lage entscheidet die Wiederaufnahme (S05), nicht die Hülle. Dieselbe Trennlinie wie bei den
+  nicht wiederholbaren Schritten aus S05.
+- **`fs.search`**: regulärer Ausdruck (JavaScript-Syntax), Treffer als `{ path, line, text }`
+  mit 1-basierter Zeilennummer, Zeile auf 240 Zeichen gekürzt — **nie ganze Dateien**.
+  Obergrenzen: 200 Treffer gesamt, 50 je Datei, 5000 Dateien; `.git` und `node_modules` und
+  Symlinks werden ausgelassen. Ein kaputter Ausdruck kommt als Fehlerhülle zurück, nicht als
+  Ausnahme. ReDoS ist für ein Ein-Nutzer-System mit dem 60-s-Zeitfenster als Fangnetz
+  hinnehmbar; die Musterlänge ist auf 1000 Zeichen begrenzt.
+- **`fs.list`**: Einträge mit Typ (`file`/`dir`/`symlink`/`other`) und Größe. Symlinks werden
+  **gemeldet, aber nie betreten** — ein Symlink-Verzeichnis, in das hineingelaufen würde, wäre
+  ein Weg an der Zonenprüfung vorbei. `recursive` optional, mit denselben Prune-Regeln wie
+  `fs.search`, Obergrenze 2000 Einträge.
+- **Fehler kommen als Fehlerhülle zurück, nicht als Ausnahme** (S07, Abschnitt 7). Die
+  Handler *werfen* — `PathEscapeError`, `SourceZoneWriteError`, `StaleFileError`,
+  `FsNotFoundError` und die übrigen —, und der Router macht daraus `status: "error"` mit dem
+  vollen Wortlaut samt Stacktrace in `structured.error` (`reason: "handler_failed"`).
+  Geglättet wird nichts. Die Tests keyen deshalb auf den Meldungstext, und die Meldungen sind
+  entsprechend eindeutig und stabil gehalten ("außerhalb der erlaubten Zonen", "verlässt die
+  erlaubten Zonen über einen Symlink", "wurde seit dem Lesen geändert").
+- Die Rohbytes einer per `fs.read` gelesenen Datei laufen **nicht** durch den
+  Redaction-Filter — bewusst, wie bei den Artefaktbytes seit S07. Ein Textmuster über
+  beliebige Bytes beschädigte die Datei und die SHA-256-Kette, und das Artefakt liegt auf
+  derselben lokalen Platte wie die Quelldatei, bringt also keine neue Exposition. Der Schutz
+  greift an der anderen Stelle: der **Ausschnitt** in `structured`/`preview` geht durch
+  `appendEventInTx` (Protokoll) und `buildPrompt` (Kontext), und beide filtern. Ein
+  `sk-ant-…` im Ausschnitt einer gelesenen Datei ist im Protokoll und im Prompt ersetzt,
+  bevor das Modell es sieht — ohne Zutun der `fs.*`-Handler. In Abschnitt 4.7 als Pflicht der
+  Tools notiert; hier ist sie eingelöst.
+
+### Verdrahtung
+
+- `runtime/index.ts` baut den Katalog jetzt aus `createFsTools` statt aus einer leeren
+  Registry (seit S07 offen: "echte Tools ab S08"). Die Katalogkonstruktion ist dafür von
+  Modulebene in `main()` gewandert — sie braucht jetzt `pool` und das asynchrone
+  `buildFsZones`. Die Zonen: Quellzone `process.cwd()`, Artefaktzone `artifactRootFromEnv()`.
+  Der Rest von `index.ts` (Signalbehandlung, `runtime.stopped`, Katalog-Warnung bei
+  abweichender Session-Version) bleibt unverändert.
+
+### Tests
+
+- 35 neue Tests, zusammen 142. `tools/fs/paths.test.ts` (17, **ohne Datenbank**): beide
+  Wurzeln über `realpath` aufgelöst; die verschachtelte Zone zuerst; `../../etc/passwd`,
+  `..`, `../nachbar`, `src/../../../etc` und ein absoluter Pfad außerhalb jeder Zone werden
+  abgewiesen; ein Symlink (Junction) nach außen wird abgewiesen, einer innerhalb der Zone
+  erlaubt und auf den aufgelösten Pfad zurückgeführt; Symlink Quell→Artefakt wird `artifact`,
+  Symlink Artefakt→Quell wird `source`; eine noch nicht existierende Datei unter einem
+  existierenden Verzeichnis geht durch (`existed: false`); leere Eingabe, Nicht-String und
+  ein Nullbyte werfen `PathInputError`.
+- `tools/fs/tools.test.ts` (18, mit Datenbank, über den echten Router): `../../etc/passwd`
+  und ein Symlink nach außen kommen als Fehlerhülle zurück, das Protokoll liest sich als
+  `session.created, tool.requested, step.started, step.failed, tool.failed`; kleine Datei
+  ganz ohne Artefakt; **große Datei (5000 Zeilen) als Ausschnitt plus genau ein Artefakt,
+  kein zweites Offload, und das Handle löst bytegleich auf**, mit `artifact.created` zwischen
+  den Checkpoints; ausdrücklicher Zeilenausschnitt; Binärdatei ganz ins Artefakt; fehlende
+  Datei als Fehlerhülle; `fs.search` gibt genau die zwei `foo`-Zeilen mit Nummer 2 und 3
+  zurück und nichts aus der dritten Zeile, `glob` plus `ignore_case` filtern korrekt, ein
+  kaputter Ausdruck ist eine Fehlerhülle; `fs.list` markiert einen Symlink als `symlink` und
+  zieht nichts aus dem Ziel herein; `fs.write` in die Artefaktzone gelingt (Checkpoints im
+  Protokoll), in die Quellzone wird verweigert (keine Datei entsteht), derselbe Aufruf zweimal
+  führt den Effekt einmal aus; **`fs.edit` auf einer zwischenzeitlich geänderten Datei wird
+  abgewiesen** und mit frischem SHA-256 geht derselbe Edit durch — das Fertig-Kriterium der
+  Session; mehrdeutiger Edit ohne `replace_all` abgewiesen; `fs.edit` in der Quellzone
+  verweigert; Replay aus dem Protokoll ergibt denselben Zustand wie der Snapshot.
+- Nachweis außerhalb von vitest (`_s08_probe.ts`, danach gelöscht): gegen die echte Datenbank
+  eine Session mit dem Katalog `v1-d40b46bd368e578b` (5 Tools) eröffnet und der Reihe nach
+  geprüft — `../../etc/passwd` abgewiesen; eine Junction auf `C:/Windows` in der Artefaktzone,
+  Lesen "durch" sie abgewiesen ("verlässt die erlaubten Zonen über einen Symlink"); eine
+  Datei mit 8000 Zeilen als Ausschnitt (`Protokollzeile 1` …) plus ein Artefakt von 158893
+  Byte auf der Platte, kein doppeltes Offload, `readArtifact` bytegleich; `fs.write` nach
+  `runtime/HACK.ts` verweigert; `fs.write` nach `artifacts/…` gelungen; `fs.read` → SHA-256,
+  Datei von außen geändert, `fs.edit` mit dem alten SHA-256 abgewiesen und die Datei
+  unverändert, dann mit frischem SHA-256 durch; `fs.search` nach `ARTIFACT_URI_SCHEME` unter
+  `runtime/artifacts` → 7 Treffer mit Zeilennummer, kein Datei-Inhalt am Stück. Das Protokoll
+  las sich über alle Aufrufe hinweg lückenlos (38 Ereignisse). Probedaten gelöscht, alle fünf
+  `kuronami`-Tabellen sind nach dem Lauf leer, `artifacts/` auf der Platte ebenfalls (die
+  eine verwaiste Artefaktdatei aus der `fs.read`-Probe von Hand entfernt — genau der
+  folgenlose Fall, den S06 beschreibt).
+
+### Bewusst nicht gebaut
+
+- Die Freigabe-Mechanik für Schreibzugriffe in die Quellzone. Das ist S11; heute wird sie
+  hart verweigert, und der Wurf steht an einer Stelle (`assertWritableZone`), vor die S11
+  seine Prüfung setzen kann.
+- `web.*` (S09) — der Katalog trägt nur die fünf `fs.*`.
+- Ein GC-Lauf für verwaiste Artefaktdateien nach einem Absturz zwischen `rename` und
+  `COMMIT` (seit S06 offen; die `fs.read`-Auslagerung erzeugt jetzt zusätzlich solche
+  Dateien).
+- `.gitignore`/`.claudeignore`-Auswertung in `fs.search`/`fs.list`. Vorerst nur eine feste
+  Prune-Liste (`.git`, `node_modules`). Nachrüstbar, wenn ein echter Lauf zeigt, dass es
+  fehlt.
+- Ein Alias-Layer `artifact://<namensraum>/<name>` (seit S06 offen).
+- Byte-genaues Lesen (`fs.read` ist zeilenorientiert und UTF-8); Ersetzung per regulärem
+  Ausdruck in `fs.edit` (nur exakte Teilstrings). Beides nachrüstbar, wenn ein Tool es braucht.
+
+### Offene Befunde
+
+- `PathEscapeError`, `StaleFileError` und die übrigen `fs.*`-Fehler kommen alle mit
+  `reason: "handler_failed"` zurück; der eigentliche Grund steht nur im Meldungstext. Sobald
+  die Schleife (S12) oder die Policy-Engine (S11) darauf verzweigen will, gehört das in eine
+  maschinenlesbare Aufzählung im Router — dieselbe Verabredung wie `structured.reason` /
+  `structured.refused` aus S07.
+- Die Zonen werden beim Prozessstart einmal aufgelöst. Ändert sich `ARTIFACT_ROOT` oder das
+  Arbeitsverzeichnis zur Laufzeit, greift das nicht — für einen langlebigen Runtime-Prozess
+  ist das richtig, aber es ist eine stille Annahme.
+- `pnpm typecheck && pnpm lint && pnpm test` grün, 142 Tests.
+- `tasks.json`: S08 auf `done`, S09 von `queued` auf `ready`.
+
+Status: abgeschlossen. Nächste Session: S09 `web.search` / `web.fetch`.

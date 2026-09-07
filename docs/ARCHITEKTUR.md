@@ -221,6 +221,22 @@ Risikostufe: hartes Schreiben, also immer Freigabe.
   Freigabe auf.
 * **`fs.*`** ist auf die Workspace-Wurzel beschränkt. Pfad-Traversal wird abgewiesen, das
   ist das Testkriterium von S08.
+
+  **Umsetzung (S08):** `tools/fs/paths.ts` und `tools/fs/tools.ts`. `resolvePath` löst jeden
+  Eingabepfad relativ zur Workspace-Wurzel auf, prüft ihn lexikalisch und danach ein zweites
+  Mal nach Auflösung aller Symlinks (`realpath` auf den tiefsten existierenden Vorfahren,
+  damit auch noch nicht existierende Zieldateien geprüft werden). Zwei Zonen mit absoluter,
+  `realpath`-aufgelöster Wurzel: `artifact` (`ARTIFACT_ROOT`) ist frei beschreibbar,
+  `source` (Workspace-Wurzel) nur lesbar — `fs.write`/`fs.edit` dorthin werfen
+  `SourceZoneWriteError`, bis die Policy-Engine (S11) eine Freigabe erteilen kann. Bei
+  verschachtelten Zonen gewinnt die speziellere. `fs.read` gibt kleine Dateien ganz zurück,
+  große als Ausschnitt plus Artefakt auf den vollständigen Inhalt (Selbst-Auslagerung im
+  Schritt, wie im Router), und liefert den `sha256`, den `fs.edit` als `expected_sha256`
+  gegen zwischenzeitliche Änderungen (stale read) verlangt. `fs.search` gibt Treffer als
+  Pfad, Zeilennummer und Trefferzeile zurück, nie ganze Dateien. `fs.list` meldet Symlinks,
+  folgt ihnen aber nie; `fs.search` und `fs.list --recursive` lassen `.git` und
+  `node_modules` aus. `runtime/index.ts` baut die fünf Tools jetzt in den Katalog (seit S07
+  war er leer).
 * **Der Tool-Router ruft die Policy-Engine**, nicht umgekehrt. Es gibt keinen Pfad, auf dem
   ein Tool ohne Policy-Prüfung ausgeführt wird.
 * **Fremde Skills** werden vor der Installation gelesen. Ein Skill ist fremder Code mit

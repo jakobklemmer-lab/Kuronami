@@ -45,6 +45,23 @@ Fehlgeschlagene Aktionen, Stacktraces und Ablehnungsgründe bleiben im Verlauf u
 Fehlertext erhalten. Kein Abfangen, das den Fehler in eine freundliche Zusammenfassung
 verwandelt.
 
+## `fs.*` bleibt in seinen Zonen
+
+Jeder `fs.*`-Pfad wird über `resolvePath` aus `tools/fs/paths.ts` aufgelöst — relativ zur
+Workspace-Wurzel, danach lexikalisch und nach Auflösung aller Symlinks gegen zwei Zonen
+geprüft. Ein Pfad außerhalb beider wird abgewiesen (`PathEscapeError`). Kein Handler öffnet
+je die rohe Eingabe.
+
+Zwei Zonen: die **Artefaktzone** (`ARTIFACT_ROOT`) ist frei beschreibbar, die **Quellzone**
+(Workspace-Wurzel) nur lesbar — ein Schreibzugriff dorthin braucht eine Freigabe, die erst
+die Policy-Engine (S11) erteilt. `..`, absolute Ausbrüche und Symlinks nach außen werden
+nicht toleriert; das ist keine Konfigurationsfrage.
+
+## Vor einem Edit erst lesen
+
+`fs.edit` verlangt `expected_sha256` aus dem letzten `fs.read` und bricht ab, wenn die Datei
+sich seither geändert hat. Ein Edit ohne frischen Lesestand ist ein stiller Überschreiber.
+
 ## Checkpoint vor und nach jedem Seiteneffekt
 
 Jeder externe Seiteneffekt läuft in einer Ausführungshülle mit `step_id` als

@@ -59,7 +59,7 @@
     "id": "S08",
     "title": "Kern-Tools fs.*",
     "phase": 1,
-    "status": "ready",
+    "status": "done",
     "done_when": "Pfad-Traversal-Test wird abgewiesen",
     "depends_on": ["S07"]
   },
@@ -67,7 +67,7 @@
     "id": "S09",
     "title": "web.search / web.fetch",
     "phase": 1,
-    "status": "queued",
+    "status": "ready",
     "done_when": "Große Antwort landet automatisch als Artefakt",
     "depends_on": ["S08"]
   },

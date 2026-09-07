@@ -1,16 +1,11 @@
+import { buildFsZones } from "../tools/fs/paths.js";
+import { createFsTools } from "../tools/fs/tools.js";
 import { ToolRegistry } from "../tools/registry.js";
+import { artifactRootFromEnv } from "./artifacts/store.js";
 import { createPool } from "./db/pool.js";
 import { type SessionChannel, startRuntime } from "./session/manager.js";
 
 const SIGNALS = ["SIGINT", "SIGTERM"] as const;
-
-/**
- * Der Tool-Katalog dieses Prozesses. Vorerst leer: die Prüf-Tools aus `tools/dummies.ts`
- * gehören nicht in einen produktiven Katalog, und echte Tools gibt es ab S08. Er wird
- * trotzdem hier gebaut, weil die Version in die Session gehört (S07) — eine Session weiß
- * damit von Anfang an, unter welchem Tool-Vertrag sie eröffnet wurde.
- */
-const CATALOG = new ToolRegistry().freeze();
 
 /**
  * Das Skelett bedient eine Session und tut sonst nichts. Woher Faden und Kanal wirklich
@@ -19,24 +14,36 @@ const CATALOG = new ToolRegistry().freeze();
  */
 async function main(): Promise<void> {
   const pool = createPool();
+  const artifactRoot = artifactRootFromEnv();
+
+  // Der Tool-Katalog dieses Prozesses. Seit S08 trägt er die fünf `fs.*`-Kern-Primitive;
+  // `web.*` folgt in S09. Die Version geht als Startwert in die Session (S07) — eine
+  // Session weiß damit von Anfang an, unter welchem Tool-Vertrag sie eröffnet wurde.
+  // Zwei Zonen: die Quellzone ist der Arbeitsordner des Prozesses, die Artefaktzone der
+  // ARTIFACT_ROOT. Ein `fs.*`-Pfad außerhalb beider wird abgewiesen (S08, Abschnitt 4.7).
+  const zones = await buildFsZones({ sourceRoot: process.cwd(), artifactRoot });
+  const catalog = new ToolRegistry()
+    .registerAll(createFsTools({ pool, artifactRoot, zones }))
+    .freeze();
+
   const runtime = await startRuntime(pool, {
     threadId: process.env.KURONAMI_THREAD_ID ?? "thread_dev_local",
     channel: (process.env.KURONAMI_CHANNEL as SessionChannel | undefined) ?? "web",
-    defaults: { toolCatalogVersion: CATALOG.version },
+    defaults: { toolCatalogVersion: catalog.version },
   });
 
   console.log(
     `${runtime.created ? "Session angelegt" : "Session wiederaufgenommen"}: ${runtime.session.sessionId}`,
   );
   console.log(`Lauf ${runtime.runtimeId}, Prozess ${process.pid}. Beenden mit Strg+C.`);
-  console.log(`Tool-Katalog ${CATALOG.version} mit ${CATALOG.tools.length} Tools.`);
+  console.log(`Tool-Katalog ${catalog.version} mit ${catalog.tools.length} Tools.`);
 
   // Startwerte gelten nur bei der Neuanlage (S04). Eine ältere Session trägt deshalb weiter
   // ihre eigene Version, und dieser Prozess darf sie nicht bedienen. Das laut zu sagen ist
   // besser, als es beim ersten Tool-Aufruf als Ausnahme zu erfahren.
-  if (runtime.session.toolCatalogVersion !== CATALOG.version) {
+  if (runtime.session.toolCatalogVersion !== catalog.version) {
     console.warn(
-      `Achtung: Session trägt Tool-Katalog ${runtime.session.toolCatalogVersion}, dieser Prozess hält ${CATALOG.version}. Tool-Aufrufe in dieser Session werden abgewiesen; für den neuen Toolsatz braucht es eine neue Session.`,
+      `Achtung: Session trägt Tool-Katalog ${runtime.session.toolCatalogVersion}, dieser Prozess hält ${catalog.version}. Tool-Aufrufe in dieser Session werden abgewiesen; für den neuen Toolsatz braucht es eine neue Session.`,
     );
   }
 
