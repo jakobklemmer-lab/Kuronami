@@ -28,12 +28,42 @@ Jedes Tool liefert genau diese Form zurück:
 
 `status` ist `ok` oder `error`.
 
+## Jedes Tool hat eine Risikostufe
+
+`read`, `soft_write`, `hard_write` oder `destructive` (Abschnitt 10). **Kein Tool ohne
+Zuordnung**, und keine Vorgabe für ein Tool, das keine angibt: eine geratene Stufe sieht aus
+wie eine entschiedene. Geprüft wird an zwei Toren, in der Registry und in der Policy-Engine.
+
+Ein Tool, das einen Pfad entgegennimmt, nennt das Feld `path`; eines mit einer Adresse `url`.
+Das ist keine Empfehlung, sondern eine Prüfung in der Registry: unter anderen Namen fände die
+Policy-Engine weder Pfad noch Domain, und der Aufruf liefe an jeder Zonen-, Geheimnis- und
+Domainregel vorbei — unbemerkt, weil er ja durchginge.
+
+## Kein Tool läuft ohne Policy-Prüfung
+
+Der Router ruft die Engine (`policy/engine.ts`) zwischen Schema-Prüfung und Ausführung, für
+beide Ausführungswege. Ein Handler bekommt seine Aufrufdaten nur mit einer `PolicyGrant`, und
+die stellt allein die Engine aus — der Weg daran vorbei ist nicht verboten, es gibt ihn nicht.
+
+Es gewinnt immer die schärfste Aussage aller Ebenen. Ein `allow` aus einer Regel oder einem
+Hook senkt nichts; nur der Sessionmodus darf den Boden senken, und nie bei `destructive`.
+
 ## Secrets laufen durch den Redaction-Filter
 
 Jeder Schreibpfad, der Text auf die Platte oder in den Modellkontext bringt, läuft durch
-`redact` aus `runtime/redaction/`. Heute sind das drei: Ereignisprotokoll, Artefaktmetadaten,
-Prompt-Aufbau. Kommt ein vierter dazu, wird er dort angeschlossen — nicht mit einer eigenen
-Prüfung an der Aufrufstelle.
+`redact` aus `runtime/redaction/`. Heute sind das vier: Ereignisprotokoll, Artefaktmetadaten,
+Prompt-Aufbau und die Freigabezeilen in `kuronami.approvals` (dort steht die Eingabe des
+freigegebenen Aufrufs). Kommt ein fünfter dazu, wird er dort angeschlossen — nicht mit einer
+eigenen Prüfung an der Aufrufstelle.
+
+Der Filter regelt das **Durchsickern**, nicht den **Zugriff**. Wer eine Datei öffnen darf,
+deren Inhalt per Bauart ein Geheimnis ist (`.env`, `*.pem`, `.ssh/`), entscheidet die
+Policy-Engine über die Geheimnisklassen in `policy/secrets.ts`, und jeder solche Zugriff
+hinterlässt ein `policy.secret_accessed`.
+
+Ein Wert, der als Schlüssel wieder nachgeschlagen wird — `idempotency_key`, `task_id`, der
+Subjektschlüssel einer Freigabe — darf vom Filter nicht verändert werden. Passiert es doch,
+wird abgewiesen statt einen kaputten Schlüssel entstehen zu lassen.
 
 Der Filter ist **nicht abschaltbar**, und er bekommt kein Flag. Die Reichweite ändert man
 über die Musterliste in `runtime/redaction/patterns.ts`, also durch eine sichtbare Änderung
@@ -53,9 +83,9 @@ geprüft. Ein Pfad außerhalb beider wird abgewiesen (`PathEscapeError`). Kein H
 je die rohe Eingabe.
 
 Zwei Zonen: die **Artefaktzone** (`ARTIFACT_ROOT`) ist frei beschreibbar, die **Quellzone**
-(Workspace-Wurzel) nur lesbar — ein Schreibzugriff dorthin braucht eine Freigabe, die erst
-die Policy-Engine (S11) erteilt. `..`, absolute Ausbrüche und Symlinks nach außen werden
-nicht toleriert; das ist keine Konfigurationsfrage.
+(Workspace-Wurzel) braucht zum Schreiben eine Freigabe — ein Schreibzugriff dorthin ist
+hartes Schreiben, und darüber entscheidet die Policy-Engine. `..`, absolute Ausbrüche und
+Symlinks nach außen werden nicht toleriert; das ist keine Konfigurationsfrage.
 
 ## Vor einem Edit erst lesen
 

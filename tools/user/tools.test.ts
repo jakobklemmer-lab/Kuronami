@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { afterAll, describe, expect, it } from "vitest";
+import { createPolicyEngine } from "../../policy/engine.js";
 import { createPool } from "../../runtime/db/pool.js";
 import { readEvents } from "../../runtime/events/log.js";
 import { createOrResumeSession } from "../../runtime/session/manager.js";
@@ -29,8 +30,15 @@ const threadIds: string[] = [];
 
 const catalog = new ToolRegistry().registerAll(createUserTools({ pool })).freeze();
 
+// `user.ask` ist `read` und nimmt keinen Pfad entgegen (S11).
+const policy = createPolicyEngine({
+  resolvePath: async () => {
+    throw new Error("Dieser Katalog kennt keine Pfad-Tools");
+  },
+});
+
 function deps(): ToolRouterDeps {
-  return { pool, artifactRoot: "/nicht/benutzt", catalog };
+  return { pool, artifactRoot: "/nicht/benutzt", catalog, policy };
 }
 
 const OPTIONS = [
@@ -82,6 +90,7 @@ describe("user.ask · Anhalten bei awaiting_user", () => {
     expect(await eventTypes(session.sessionId)).toEqual([
       "session.created",
       "tool.requested",
+      "policy.allowed",
       "approval.requested",
     ]);
 
@@ -133,9 +142,11 @@ describe("user.ask · Antwort und Fortsetzung", () => {
     expect(await eventTypes(session.sessionId)).toEqual([
       "session.created",
       "tool.requested",
+      "policy.allowed",
       "approval.requested",
       "approval.granted",
       "tool.requested",
+      "policy.allowed",
       "tool.completed",
     ]);
 

@@ -139,8 +139,17 @@ export const SECRET_PATTERNS: readonly SecretPattern[] = [
     //   (?![^\s"',;)}\]])    — der Wert endet an einem Trenner; ohne das kürzte das
     //                          Backtracking `Bearer` still zu `Beare` und ersetzte das
     //   (?!\s*\[redacted:)   — nicht greifen, wo direkt dahinter schon gefiltert wurde
+    //
+    // Vorne steht `(?<![A-Za-z0-9])` statt `\b`, und das ist eine in S11 nachgetragene
+    // Korrektur an einem gemessenen Leck: `\b` setzt keine Grenze zwischen `_` und einem
+    // Buchstaben, weil der Unterstrich selbst ein Wortzeichen ist. Damit griff das Fangnetz
+    // auf `api_key=…`, aber **nicht** auf `ANTHROPIC_API_KEY=…` — also ausgerechnet nicht auf
+    // die Schreibweise, in der Geheimnisse tatsächlich in `.env`-Dateien und Umgebungen
+    // stehen. Die Lookbehind-Fassung lässt einen führenden Namensteil zu (`FOO_API_KEY`,
+    // `db-password`) und weist einen Wortanfang weiterhin ab (`monkey:` bleibt in Ruhe, weil
+    // vor `key` ein Buchstabe steht).
     pattern:
-      /\b(password|passwd|passphrase|pwd|secret|api[_-]?key|api[_-]?secret|access[_-]?key(?:[_-]?id)?|secret[_-]?access[_-]?key|access[_-]?token|refresh[_-]?token|auth[_-]?token|id[_-]?token|client[_-]?secret|private[_-]?key|credentials?|authorization|token)(\s*[:=]\s*"?)(?!\[redacted:)([^\s"',;)}\]]{1,4096})(?![^\s"',;)}\]])(?!\s*\[redacted:)/gi,
+      /(?<![A-Za-z0-9])(password|passwd|passphrase|pwd|secret|api[_-]?key|api[_-]?secret|access[_-]?key(?:[_-]?id)?|secret[_-]?access[_-]?key|access[_-]?token|refresh[_-]?token|auth[_-]?token|id[_-]?token|client[_-]?secret|private[_-]?key|credentials?|authorization|token)(\s*[:=]\s*"?)(?!\[redacted:)([^\s"',;)}\]]{1,4096})(?![^\s"',;)}\]])(?!\s*\[redacted:)/gi,
     replacement: `$1$2${redactionMarker("credential-field")}`,
   },
 ] as const;

@@ -1,4 +1,5 @@
-import { buildFsZones } from "../tools/fs/paths.js";
+import { createPolicyEngine } from "../policy/engine.js";
+import { buildFsZones, policyResolver } from "../tools/fs/paths.js";
 import { createFsTools } from "../tools/fs/tools.js";
 import { ToolRegistry } from "../tools/registry.js";
 import { createTaskTools } from "../tools/task/tools.js";
@@ -45,6 +46,15 @@ async function main(): Promise<void> {
     .registerAll(createUserTools({ pool }))
     .freeze();
 
+  // Die Governance-Schicht (S11). Sie bekommt den Pfad-Resolver injiziert, damit `policy/`
+  // nicht auf `tools/fs/` zeigt — die Richtung ist `tools → policy` (Abschnitt 4.7). Regeln
+  // und Hooks sind die ausgelieferten Vorgaben; ein eigener Hook käme hier dazu.
+  //
+  // Die Sandbox bleibt bewusst unverdrahtet: `exec.run` und der Container aus Abschnitt 4.6
+  // stehen noch nicht, also gibt es nichts nachzuweisen, und der Sessionmodus
+  // `bypass_in_sandbox` fällt sichtbar auf `ask` zurück statt still zu wirken.
+  const policy = createPolicyEngine({ resolvePath: policyResolver(zones) });
+
   const runtime = await startRuntime(pool, {
     threadId: process.env.KURONAMI_THREAD_ID ?? "thread_dev_local",
     channel: (process.env.KURONAMI_CHANNEL as SessionChannel | undefined) ?? "web",
@@ -56,6 +66,14 @@ async function main(): Promise<void> {
   );
   console.log(`Lauf ${runtime.runtimeId}, Prozess ${process.pid}. Beenden mit Strg+C.`);
   console.log(`Tool-Katalog ${catalog.version} mit ${catalog.tools.length} Tools.`);
+  // Die Governance-Lage gehört beim Start sichtbar gesagt. Ein Betreiber, der nicht weiß,
+  // in welchem Freigabemodus seine Session läuft und ob die Sandbox-Ausnahme greift, kann
+  // eine Rückfrage später nicht einordnen — und ihr Ausbleiben schon gar nicht.
+  console.log(
+    `Policy: ${policy.rules.length} Regeln, ${policy.hooks.length} Hooks, Freigabemodus ${runtime.session.approvalMode}, Sandbox ${
+      policy.sandbox.active ? "nachgewiesen" : `nicht nachgewiesen (${policy.sandbox.reason})`
+    }.`,
+  );
 
   // Startwerte gelten nur bei der Neuanlage (S04). Eine ältere Session trägt deshalb weiter
   // ihre eigene Version, und dieser Prozess darf sie nicht bedienen. Das laut zu sagen ist

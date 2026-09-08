@@ -1,6 +1,7 @@
-import type { Pool, PoolClient } from "pg";
-import { type EventRecord, appendEventInTx, readEvents } from "../events/log.js";
+import type { Pool } from "pg";
+import { appendEventInTx, readEvents } from "../events/log.js";
 import { redactText } from "../redaction/redact.js";
+import { type AskTrace, lockSession, optionsOf, traceAsk } from "./approval-log.js";
 import { type AskOption, type PendingUserInput, deriveSessionState } from "./state.js";
 
 /**
@@ -66,48 +67,9 @@ export interface AnswerReport {
   choiceLabel: string;
 }
 
-const LOCK_SESSION_SQL = `
-  SELECT session_id FROM kuronami.sessions WHERE session_id = $1 FOR UPDATE
-`;
-
-interface AskTrace {
-  request?: EventRecord;
-  decision?: EventRecord;
-}
-
-/** Der Stand einer `ask_id` im Protokoll: die (letzte) Anfrage und eine ihr folgende Entscheidung. */
-function traceAsk(events: EventRecord[], askId: string): AskTrace {
-  const trace: AskTrace = {};
-  for (const event of events) {
-    if (event.payload.ask_id !== askId) continue;
-    if (event.type === "approval.requested") {
-      trace.request = event;
-      trace.decision = undefined;
-    } else if (event.type === "approval.granted" || event.type === "approval.denied") {
-      if (trace.request) trace.decision = event;
-    }
-  }
-  return trace;
-}
-
-function optionsOf(request: EventRecord): AskOption[] {
-  const value = request.payload.options;
-  if (!Array.isArray(value)) return [];
-  return value
-    .filter(
-      (entry): entry is AskOption =>
-        typeof entry === "object" &&
-        entry !== null &&
-        typeof (entry as AskOption).id === "string" &&
-        typeof (entry as AskOption).label === "string",
-    )
-    .map((entry) => ({ id: entry.id, label: entry.label }));
-}
-
-async function lockSession(client: PoolClient, sessionId: string): Promise<void> {
-  const found = await client.query(LOCK_SESSION_SQL, [sessionId]);
-  if (found.rowCount === 0) throw new Error(`Session ${sessionId} existiert nicht`);
-}
+// Sperre, Ablaufverfolgung und Optionslesen liegen seit S11 in `./approval-log.ts`: die
+// Policy-Engine benutzt dieselbe Mechanik für ihre Freigabe-Rückfragen, und zwei Kopien
+// wären zwei Formen desselben Ereignisses.
 
 function resolutionFrom(trace: AskTrace): AskResolution | null {
   if (trace.decision?.type === "approval.granted") {

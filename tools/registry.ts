@@ -1,4 +1,6 @@
 import { createHash } from "node:crypto";
+import { assertPolicyFieldNames } from "../policy/resource.js";
+import { assertRiskLevel } from "../policy/risk.js";
 import type { JsonValue } from "../runtime/steps/types.js";
 import {
   TOOL_NAMESPACES,
@@ -107,6 +109,18 @@ export class ToolRegistry {
         `Tool "${definition.name}" hat keine Beschreibung; sie ist der Teil des Katalogs, an dem das Modell die Auswahl trifft`,
       );
     }
+
+    // S11, Auftrag: "Jedes Tool bekommt eine Stufe, kein Tool ohne Zuordnung." TypeScript
+    // sichert das nur für Definitionen, die im Repo stehen; ein Tool, das aus JSON entsteht
+    // (n8n-Bridge, S13), kommt am Compiler vorbei. Die Registry ist das Tor, durch das jedes
+    // Tool muss — hier greift die Prüfung auch für die. Die zweite steht in der Engine.
+    assertRiskLevel(definition.risk, `Tool "${definition.name}"`);
+
+    // Und die Feldnamen, an denen die Policy Pfad und Domain findet. Ein Tool mit
+    // `target_path` statt `path` liefe an jeder Pfad-, Zonen- und Geheimnisregel vorbei, und
+    // zwar unbemerkt, weil sein Aufruf ja durchginge (siehe policy/resource.ts).
+    assertPolicyFieldNames(definition.name, Object.keys(definition.inputSchema.fields));
+
     this.#tools.set(definition.name, definition);
     return this;
   }

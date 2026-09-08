@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import { mkdir, open, readFile, readdir, rename, stat } from "node:fs/promises";
 import path from "node:path";
 import type { Pool } from "pg";
+import type { PolicyGrant } from "../../policy/engine.js";
 import { writeArtifact } from "../../runtime/artifacts/store.js";
 import type { ToolDefinition, ToolInvocation, ToolOutput } from "../types.js";
 import { type FsZones, type ResolvedPath, displayPath, resolvePath } from "./paths.js";
@@ -18,7 +19,12 @@ import { type FsZones, type ResolvedPath, displayPath, resolvePath } from "./pat
  * keiner öffnet je die rohe Eingabe.
  */
 
-/** Schreiben in die Quellzone ist ohne Freigabe verboten; die Freigabe erteilt S11. */
+/**
+ * Der Handler sieht einen Schreibzugriff außerhalb der Artefaktzone, die Policy-Engine hat
+ * ihn aber nicht als solchen freigegeben. Seit S11 heißt das nicht mehr "es gibt keine
+ * Freigabe" (bis S10 war das der einzige Grund), sondern: die beiden Einschätzungen weichen
+ * voneinander ab — siehe `assertWritableZone`.
+ */
 export class SourceZoneWriteError extends Error {}
 /** Ziel existiert nicht. */
 export class FsNotFoundError extends Error {}
@@ -129,17 +135,27 @@ async function atomicWrite(absPath: string, bytes: Buffer): Promise<void> {
 
 /**
  * Der eine Ort, an dem die Zonenregel für Schreibzugriffe hängt. Die Artefaktzone ist frei,
- * die Quellzone braucht eine Freigabe — und weil es die Policy-Engine (S11) noch nicht gibt,
- * heißt das heute schlicht: abgelehnt. Wenn S11 kommt, läuft ihre Prüfung *vor* diesem
- * Aufruf und kann eine erteilte Freigabe durchreichen; die Kaskade "Schreiben nur mit
- * Freigabe" bleibt trotzdem hier festgemacht.
+ * die Quellzone braucht eine Freigabe.
+ *
+ * Seit S11 gibt es die Freigabe wirklich, und die Prüfung hier ist keine zweite Policy,
+ * sondern ein **Abgleich zweier unabhängiger Einschätzungen**. Der Handler löst den Pfad über
+ * `resolvePath` auf, die Engine über ihren injizierten Resolver; stimmen beide überein, hat
+ * die Engine denselben Schreibzugriff außerhalb der Artefaktzone gesehen, den der Handler
+ * gleich ausführt, und ihn nach der Regel `write-outside-artifact-zone` als `hard_write`
+ * behandelt. Weichen sie ab — verschiedene Zonen, unterschiedlich konfiguriert —, wird nicht
+ * geschrieben. Ein Handler, der sich blind auf "der Router hat mich ja aufgerufen" verlässt,
+ * kann diesen Fall nicht bemerken.
+ *
+ * Die Kaskade "Schreiben nur mit Freigabe" bleibt damit hier festgemacht, so wie es der
+ * S08-Eintrag angekündigt hat.
  */
-function assertWritableZone(resolved: ResolvedPath, inputPath: string): void {
-  if (resolved.zone !== "artifact") {
-    throw new SourceZoneWriteError(
-      `Schreiben nach "${inputPath}" trifft die Quellzone. Die Quellzone ist ohne Freigabe nur lesbar; die Freigabe erteilt die Policy-Engine (S11). Die Artefaktzone (ARTIFACT_ROOT) ist frei beschreibbar.`,
-    );
-  }
+function assertWritableZone(resolved: ResolvedPath, inputPath: string, policy: PolicyGrant): void {
+  if (resolved.zone === "artifact") return;
+  if (policy.effectiveRisk === "hard_write" || policy.effectiveRisk === "destructive") return;
+
+  throw new SourceZoneWriteError(
+    `Schreiben nach "${inputPath}" trifft die Quellzone, aber die Policy hat diesen Aufruf als "${policy.effectiveRisk}" freigegeben (Subjekt ${policy.subject}). Ein Schreibzugriff außerhalb der Artefaktzone ist hartes Schreiben; die beiden Einschätzungen weichen voneinander ab, deshalb wird nicht geschrieben.`,
+  );
 }
 
 function toInt(value: unknown): number | undefined {
@@ -283,7 +299,7 @@ async function writeHandler(deps: FsToolDeps, inv: ToolInvocation): Promise<Tool
   const content = inv.input.content as string;
 
   const resolved = await resolvePath(deps.zones, inputPath);
-  assertWritableZone(resolved, inputPath);
+  assertWritableZone(resolved, inputPath, inv.policy);
 
   if (inv.input.expect_absent === true && resolved.existed) {
     throw new Error(`Datei existiert bereits: ${inputPath} (expect_absent ist gesetzt)`);
@@ -319,7 +335,7 @@ async function editHandler(deps: FsToolDeps, inv: ToolInvocation): Promise<ToolO
   const replaceAll = inv.input.replace_all === true;
 
   const resolved = await resolvePath(deps.zones, inputPath);
-  assertWritableZone(resolved, inputPath);
+  assertWritableZone(resolved, inputPath, inv.policy);
   if (!resolved.existed) throw new FsNotFoundError(`Datei nicht gefunden: ${inputPath}`);
 
   const info = await stat(resolved.path);

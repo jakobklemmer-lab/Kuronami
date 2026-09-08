@@ -1,3 +1,5 @@
+import type { PolicyGrant } from "../policy/engine.js";
+import type { RiskLevel } from "../policy/risk.js";
 import type { JsonValue } from "../runtime/steps/types.js";
 
 /**
@@ -27,8 +29,13 @@ export const TOOL_NAMESPACES = [
 
 export type ToolNamespace = (typeof TOOL_NAMESPACES)[number];
 
-/** Risikostufen aus Abschnitt 10. Entspricht `kuronami.risk_level` aus Migration 0001. */
-export type RiskLevel = "read" | "soft_write" | "hard_write" | "destructive";
+/**
+ * Risikostufen aus Abschnitt 10. Sie sind mit S11 nach `policy/risk.ts` gewandert, wo
+ * `policy/README.md` sie ohnehin verortet, und werden hier weiter re-exportiert: eine
+ * Tool-Definition soll ihre Stufe angeben können, ohne die Governance-Schicht zu kennen. Die
+ * Abhängigkeitsrichtung ist damit `tools → policy`, wie Abschnitt 4.7 sie vorgibt.
+ */
+export type { RiskLevel };
 
 export type ToolFieldType = "string" | "number" | "boolean" | "object" | "array";
 
@@ -95,6 +102,20 @@ export interface ToolInvocation {
   readonly attempt: number;
   /** Bricht bei Zeitüberschreitung und bei Abbruch von außen (S05). */
   readonly signal: AbortSignal;
+  /**
+   * Die Freigabe der Policy-Engine für genau diesen Aufruf (S11).
+   *
+   * Pflichtfeld, und das ist der eigentliche Punkt: `PolicyGrant` hat ein privates Feld und
+   * wird nur als Typ exportiert, also lässt sich außerhalb von `policy/engine.ts` keine
+   * herstellen — auch nicht als Objektliteral. Ein Handler kann damit gar nicht aufgerufen
+   * werden, ohne dass die Engine entschieden hat. Abschnitt 4.7 ("Es gibt keinen Pfad, auf
+   * dem ein Tool ohne Policy-Prüfung ausgeführt wird") steht so im Typsystem statt in einer
+   * Verabredung, an die sich jede künftige Aufrufstelle erinnern müsste.
+   *
+   * Die meisten Handler lesen sie nie. `fs.write`/`fs.edit` tun es: sie prüfen, ob die Engine
+   * denselben Schreibzugriff gesehen hat, den sie gleich ausführen (siehe `assertWritableZone`).
+   */
+  readonly policy: PolicyGrant;
 }
 
 export type ToolHandler = (invocation: ToolInvocation) => Promise<ToolOutput>;

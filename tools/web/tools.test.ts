@@ -3,6 +3,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { createPolicyEngine } from "../../policy/engine.js";
 import { readArtifact } from "../../runtime/artifacts/store.js";
 import { createPool } from "../../runtime/db/pool.js";
 import { readEvents } from "../../runtime/events/log.js";
@@ -81,7 +82,15 @@ function routerDeps(webOverrides: Partial<WebToolDeps> = {}): {
   version: string;
 } {
   const catalog = new ToolRegistry().registerAll(createWebTools(webDeps(webOverrides))).freeze();
-  return { deps: { pool, artifactRoot, catalog }, version: catalog.version };
+  // `web.*` ist `read` und adressiert über `url`, nicht über `path`: die Domain-Achse der
+  // Policy greift, der Pfad-Resolver wird nie gerufen (S11). Der Egress-Riegel aus S09 bleibt
+  // davon unberührt — er ist die Kontrolle, die Policy die Ebene darüber.
+  const policy = createPolicyEngine({
+    resolvePath: async () => {
+      throw new Error("Dieser Katalog kennt keine Pfad-Tools");
+    },
+  });
+  return { deps: { pool, artifactRoot, catalog, policy }, version: catalog.version };
 }
 
 async function newSession(version: string): Promise<SessionRecord> {
@@ -179,6 +188,7 @@ describe("web.fetch · Fertig-Kriterium (200-KB-Seite)", () => {
     expect(await eventTypes(session.sessionId)).toEqual([
       "session.created",
       "tool.requested",
+      "policy.allowed",
       "step.started",
       "artifact.created",
       "step.completed",
@@ -294,6 +304,7 @@ describe("web.fetch · Egress, Schema, Größe, Zeit", () => {
     expect(await eventTypes(session.sessionId)).toEqual([
       "session.created",
       "tool.requested",
+      "policy.allowed",
       "step.started",
       "step.failed",
       "tool.failed",
@@ -412,6 +423,7 @@ describe("web.fetch · Weiterleitungen werden mitgeprüft", () => {
     expect(await eventTypes(session.sessionId)).toEqual([
       "session.created",
       "tool.requested",
+      "policy.allowed",
       "step.started",
       "step.failed",
       "tool.failed",

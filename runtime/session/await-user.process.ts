@@ -1,3 +1,4 @@
+import { createPolicyEngine } from "../../policy/engine.js";
 import { ToolRegistry } from "../../tools/registry.js";
 import { type ToolRouterDeps, callTool } from "../../tools/router.js";
 import { createUserTools } from "../../tools/user/tools.js";
@@ -32,6 +33,13 @@ const deps: ToolRouterDeps = {
   pool,
   artifactRoot: "/nicht/benutzt",
   catalog,
+  // `user.ask` ist `read` und nimmt keinen Pfad entgegen: der Resolver wird nie gerufen, und
+  // er wirft, damit das auch so bleibt (S11).
+  policy: createPolicyEngine({
+    resolvePath: async () => {
+      throw new Error("Dieser Katalog kennt keine Pfad-Tools");
+    },
+  }),
   signal: runtime.signal,
 };
 const call = {

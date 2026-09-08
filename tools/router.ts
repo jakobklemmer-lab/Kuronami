@@ -1,4 +1,5 @@
 import type { Pool } from "pg";
+import type { PolicyEngine, PolicyGrant } from "../policy/engine.js";
 import { appendEvent } from "../runtime/events/log.js";
 import type { SessionRecord } from "../runtime/session/types.js";
 import { UserInputRequiredError } from "../runtime/session/user-input.js";
@@ -37,10 +38,12 @@ import type {
  * Schema-Prüfung mit und bekommen `tool.requested`/`tool.completed`, aber **nicht** die
  * Ausführungshülle: sie haben keinen externen Seiteneffekt. Siehe `callRuntimeTool`.
  *
- * Die Policy-Engine kommt mit S11 hierher und nicht andersherum (Abschnitt 4.7: "Der
- * Tool-Router ruft die Policy-Engine, nicht umgekehrt"). Der Platz dafür ist zwischen der
- * Schema-Prüfung und `executeStep`: nach der Prüfung steht fest, *was* aufgerufen würde,
- * und vor dem Schritt ist noch nichts geschehen.
+ * Seit S11 steht dazwischen die **Policy-Prüfung**, an der seit S07 vorgesehenen Stelle: nach
+ * der Schema-Prüfung steht fest, *was* aufgerufen würde, und vor dem Schritt ist noch nichts
+ * geschehen. Sie liegt **vor** der Weiche zwischen `executeStep` und `callRuntimeTool`, nicht
+ * in einem der beiden Zweige — sonst gäbe es zwei Tore, und eines davon würde beim nächsten
+ * neuen Ausführungsmodus vergessen. Der Router ruft die Engine, nicht umgekehrt
+ * (Abschnitt 4.7).
  */
 
 /** Die Session wurde unter einem anderen Tool-Katalog eröffnet als dem, der hier vorliegt. */
@@ -51,6 +54,13 @@ export interface ToolRouterDeps {
   /** Wurzel der Artefaktablage, für die Auslagerung. */
   artifactRoot: string;
   catalog: ToolCatalog;
+  /**
+   * Die Governance-Schicht (S11). **Pflichtfeld ohne Vorgabe.** Eine optionale Engine mit
+   * einer nachsichtigen Vorgabe wäre genau der Pfad, den Abschnitt 4.7 ausschließt — und sie
+   * entstünde nicht aus Nachlässigkeit, sondern beim ersten Test, dem die Verdrahtung zu
+   * umständlich ist.
+   */
+  policy: PolicyEngine;
   /** Vorgabe: 8k Token-Äquivalent (Abschnitt 13). */
   offloadThresholdTokens?: number;
   /** Vorgabe: das Zeitfenster der Ausführungshülle, 60 s. */
@@ -68,6 +78,16 @@ export interface ToolCall {
   callId: string;
   name: string;
   input?: Record<string, JsonValue>;
+  /**
+   * Wer den Aufruf abgesetzt hat — der "Auslöser" aus Abschnitt 10, erste der fünf Angaben,
+   * die jede ausgeführte Aktion hinterlassen muss. Vorgabe `"model"`, weil das der Normalfall
+   * ist; ein Betreiber, ein Heartbeat (S17) oder ein Test setzt etwas anderes.
+   *
+   * Die Herkunft ändert die Entscheidung **nicht**. Ein direkt abgesetzter Aufruf bekommt
+   * dieselben vier Ebenen wie einer aus dem Modell — sonst wäre "ohne Modell aufrufen" der
+   * Weg, an der Governance vorbeizukommen, und genau das prüft das Fertig-Kriterium von S11.
+   */
+  origin?: string;
 }
 
 function matchesType(value: JsonValue, type: ToolFieldType): boolean {
@@ -198,6 +218,7 @@ export async function callTool(
 
   const input = call.input ?? {};
   const tool = deps.catalog.get(call.name);
+  const origin = call.origin ?? "model";
 
   // Auch der Aufruf eines Tools, das es nicht gibt, wird protokolliert: die Kennzahl
   // "Tool-Auswahlgenauigkeit" (Abschnitt 12) besteht genau aus diesen Fällen.
@@ -206,6 +227,7 @@ export async function callTool(
     tool_name: call.name,
     known: tool !== undefined,
     risk: tool?.risk ?? null,
+    origin,
     tool_catalog_version: deps.catalog.version,
     input,
   });
@@ -229,11 +251,43 @@ export async function callTool(
     );
   }
 
+  // ---- Die Policy-Prüfung (S11). Ein Tor für beide Ausführungswege. ----
+  //
+  // `check` hat drei Ausgänge: Freigabe, Ablehnung, Haltepunkt. Der Haltepunkt kommt als
+  // geworfener `ApprovalRequiredError` und läuft hier bewusst **durch** — wie
+  // `UserInputRequiredError` (S10) und `ToolCatalogMismatchError` (S07): der Lauf ist nicht
+  // fehlgeschlagen, er wartet auf einen Menschen. Ein `tool.failed` dafür zu schreiben wäre
+  // eine Falschaussage, und die Fehlerhülle im Verlauf brächte das Modell dazu, es mit einem
+  // anderen Aufruf zu versuchen, statt die Antwort abzuwarten.
+  const verdict = await deps.policy.check(deps.pool, {
+    sessionId: session.sessionId,
+    callId: call.callId,
+    toolName: tool.name,
+    risk: tool.risk,
+    input,
+    approvalMode: session.approvalMode,
+    origin,
+  });
+
+  if (verdict.kind === "deny") {
+    // Eine Ablehnung ist dagegen eine Antwort auf den Aufruf: sie steht endgültig fest, das
+    // Modell soll sie im selben Lauf lesen und einen anderen Weg wählen (Abschnitt 7).
+    return await failTool(deps, session, call, tool, verdict.summary, {
+      reason: "policy_denied",
+      audit_id: verdict.auditId,
+      effective_risk: verdict.effectiveRisk,
+      subject: verdict.subject,
+      policy_path: verdict.path as unknown as JsonValue,
+    });
+  }
+
+  const grant = verdict.grant;
+
   // `execution: "runtime"`-Tools (task.*, user.ask) laufen ohne die Ausführungshülle: kein
   // externer Seiteneffekt, kein Schritt, keine Auslagerung. Der Katalog und das Schema sind
-  // schon geprüft, `tool.requested` steht schon im Protokoll.
+  // schon geprüft, `tool.requested` steht schon im Protokoll, die Policy hat entschieden.
   if (tool.execution === "runtime") {
-    return await callRuntimeTool(deps, session, call, tool, input);
+    return await callRuntimeTool(deps, session, call, tool, input, grant);
   }
 
   let outcome: StepOutcome;
@@ -259,6 +313,7 @@ export async function callTool(
           stepId: context.stepId,
           attempt: context.attempt,
           signal: context.signal,
+          policy: grant,
         });
         // Die Auslagerung läuft im Schritt, weil sie dessen `step_id` als Herkunft braucht
         // (S06) und weil ihr Artefakt zum Ergebnis dieses Versuchs gehört: bricht der Schritt
@@ -284,6 +339,7 @@ export async function callTool(
     // einem erschöpften Wiederholungsbudget unterscheiden kann, ohne im Text zu suchen.
     return await failTool(deps, session, call, tool, describeRefusal(error), {
       reason: "step_refused",
+      audit_id: grant.auditId,
       refused: error instanceof Error ? error.constructor.name : "unknown",
       error: describeError(error),
     });
@@ -292,6 +348,7 @@ export async function callTool(
   if (outcome.status === "error") {
     return await failTool(deps, session, call, tool, `Tool "${tool.name}" ist fehlgeschlagen`, {
       reason: "handler_failed",
+      audit_id: grant.auditId,
       step_id: outcome.step.stepId,
       error: outcome.error,
     });
@@ -306,6 +363,7 @@ export async function callTool(
       `Schritt ${outcome.step.stepId} zum Schlüssel "tool:${call.callId}" trägt kein Tool-Ergebnis`,
       {
         reason: "foreign_step_result",
+        audit_id: grant.auditId,
         step_id: outcome.step.stepId,
         result: outcome.result,
       },
@@ -317,6 +375,10 @@ export async function callTool(
     call_id: call.callId,
     tool_name: tool.name,
     risk: tool.risk,
+    // Verbindet den Ausgang mit dem Freigabepfad, den die Engine vor dem Lauf geschrieben
+    // hat. Ohne die Kennung ließen sich die beiden Hälften des Audit-Eintrags nur über die
+    // `call_id` und die Reihenfolge zusammensuchen (policy/audit.ts).
+    audit_id: grant.auditId,
     step_id: outcome.step.stepId,
     attempt: outcome.step.attempt,
     // false, wenn der Schlüssel schon abgeschlossen war: das Ergebnis kam aus der Zeile,
@@ -356,6 +418,7 @@ async function callRuntimeTool(
   call: ToolCall,
   tool: ToolDefinition,
   input: Record<string, JsonValue>,
+  grant: PolicyGrant,
 ): Promise<ToolResult> {
   let output: ToolOutput;
   try {
@@ -367,11 +430,13 @@ async function callRuntimeTool(
       stepId: null,
       attempt: 1,
       signal: deps.signal ?? new AbortController().signal,
+      policy: grant,
     });
   } catch (error) {
     if (error instanceof UserInputRequiredError) throw error;
     return await failTool(deps, session, call, tool, `Tool "${tool.name}" ist fehlgeschlagen`, {
       reason: "handler_failed",
+      audit_id: grant.auditId,
       error: describeError(error),
     });
   }
@@ -404,6 +469,7 @@ async function callRuntimeTool(
     call_id: call.callId,
     tool_name: tool.name,
     risk: tool.risk,
+    audit_id: grant.auditId,
     // Kein Schritt, keine Wiederaufnahme: ein Runtime-Tool läuft bei jedem Aufruf.
     step_id: null,
     executed: true,

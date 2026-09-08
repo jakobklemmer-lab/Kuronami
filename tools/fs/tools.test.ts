@@ -4,6 +4,8 @@ import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promis
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { ApprovalRequiredError } from "../../policy/approvals.js";
+import { createPolicyEngine } from "../../policy/engine.js";
 import { readArtifact } from "../../runtime/artifacts/store.js";
 import { createPool } from "../../runtime/db/pool.js";
 import { readEvents } from "../../runtime/events/log.js";
@@ -14,7 +16,7 @@ import type { JsonValue } from "../../runtime/steps/types.js";
 import { ToolRegistry } from "../registry.js";
 import { type ToolRouterDeps, callTool } from "../router.js";
 import type { ToolResult } from "../types.js";
-import { buildFsZones } from "./paths.js";
+import { buildFsZones, policyResolver } from "./paths.js";
 import { createFsTools } from "./tools.js";
 
 /**
@@ -53,7 +55,15 @@ beforeAll(async () => {
     .registerAll(createFsTools({ pool, artifactRoot, zones }))
     .freeze();
   catalogVersion = catalog.version;
-  deps = { pool, artifactRoot, catalog };
+  // Die Policy-Engine mit dem ausgelieferten Regelsatz und denselben Zonen wie die Tools
+  // (S11). Damit ist `fs.write`/`fs.edit` in die Quellzone hier ein `hard_write` ohne
+  // Freigabe und wird geblockt — der Nachfolger der harten Verweigerung aus S08.
+  deps = {
+    pool,
+    artifactRoot,
+    catalog,
+    policy: createPolicyEngine({ resolvePath: policyResolver(zones) }),
+  };
 });
 
 afterAll(async () => {
@@ -100,13 +110,17 @@ describe("fs.* · Pfad-Traversal wird abgewiesen", () => {
       input: { path: "../../etc/passwd" },
     });
     expect(result.status).toBe("error");
-    expect(String(structured(result).error)).toMatch(/außerhalb der erlaubten Zonen/);
-    // Kein Schritt: der Handler wirft vor jedem Seiteneffekt.
+    // Seit S11 fällt der Traversal eine Ebene früher: die Policy löst denselben Pfad auf,
+    // bekommt denselben `PathEscapeError` und lehnt ab, bevor der Handler überhaupt läuft
+    // (`unresolvable-resource`, fail closed). Der Wortlaut der Pfadprüfung steht unverändert
+    // im Freigabepfad — geglättet wird nichts, er steht nur an einer anderen Stelle.
+    expect(structured(result).reason).toBe("policy_denied");
+    expect(JSON.stringify(structured(result))).toMatch(/außerhalb der erlaubten Zonen/);
+    // Kein Schritt: es wird abgelehnt, bevor die Ausführungshülle anläuft.
     expect(await eventTypes(session.sessionId)).toEqual([
       "session.created",
       "tool.requested",
-      "step.started",
-      "step.failed",
+      "policy.denied",
       "tool.failed",
     ]);
   });
@@ -122,7 +136,7 @@ describe("fs.* · Pfad-Traversal wird abgewiesen", () => {
       input: { path: "escape/secret.txt" },
     });
     expect(result.status).toBe("error");
-    expect(String(structured(result).error)).toMatch(/Symlink|außerhalb/);
+    expect(JSON.stringify(structured(result))).toMatch(/Symlink|außerhalb/);
   });
 });
 
@@ -176,6 +190,7 @@ describe("fs.read", () => {
     expect(await eventTypes(session.sessionId)).toEqual([
       "session.created",
       "tool.requested",
+      "policy.allowed",
       "step.started",
       "artifact.created",
       "step.completed",
@@ -301,6 +316,7 @@ describe("fs.write · Zonen", () => {
     expect(await eventTypes(session.sessionId)).toEqual([
       "session.created",
       "tool.requested",
+      "policy.allowed",
       "step.started",
       "step.completed",
       "tool.completed",
@@ -309,14 +325,25 @@ describe("fs.write · Zonen", () => {
 
   it("verweigert fs.write in die Quellzone ohne Freigabe", async () => {
     const session = await newSession();
-    const result = await callTool(deps, session, {
-      callId: "c_write_denied",
-      name: "fs.write",
-      input: { path: "src/neu.ts", content: "// neu" },
-    });
-    expect(result.status).toBe("error");
-    expect(String(structured(result).error)).toMatch(/Quellzone|Freigabe/);
+    // Seit S11 endet dieser Aufruf nicht mehr in einer harten Verweigerung des Handlers,
+    // sondern eine Ebene davor: die Regel `write-outside-artifact-zone` hebt ihn auf
+    // `hard_write`, der Boden verlangt eine Freigabe, es gibt keine — der Lauf hält an.
+    // Die maßgebliche Aussage ist unverändert und steht in der letzten Zeile: **es wird
+    // nichts geschrieben.**
+    await expect(
+      callTool(deps, session, {
+        callId: "c_write_denied",
+        name: "fs.write",
+        input: { path: "src/neu.ts", content: "// neu" },
+      }),
+    ).rejects.toThrow(ApprovalRequiredError);
     expect(existsSync(path.join(sourceRoot, "src", "neu.ts"))).toBe(false);
+    // Kein Schritt: die Ausführungshülle ist nie angelaufen.
+    expect(await eventTypes(session.sessionId)).toEqual([
+      "session.created",
+      "tool.requested",
+      "approval.requested",
+    ]);
   });
 
   it("führt denselben fs.write-Aufruf nur einmal aus", async () => {
@@ -413,18 +440,18 @@ describe("fs.edit · stale read (Fertig-Kriterium)", () => {
     const sha = createHash("sha256")
       .update(await readFile(path.join(sourceRoot, "src", "two.ts")))
       .digest("hex");
-    const result = await callTool(deps, session, {
-      callId: "c_edit_src",
-      name: "fs.edit",
-      input: {
-        path: "src/two.ts",
-        old_string: "nichts",
-        new_string: "etwas",
-        expected_sha256: sha,
-      },
-    });
-    expect(result.status).toBe("error");
-    expect(String(structured(result).error)).toMatch(/Quellzone|Freigabe/);
+    await expect(
+      callTool(deps, session, {
+        callId: "c_edit_src",
+        name: "fs.edit",
+        input: {
+          path: "src/two.ts",
+          old_string: "nichts",
+          new_string: "etwas",
+          expected_sha256: sha,
+        },
+      }),
+    ).rejects.toThrow(ApprovalRequiredError);
     expect(await readFile(path.join(sourceRoot, "src", "two.ts"), "utf8")).toBe(
       "// nichts Besonderes hier\n",
     );

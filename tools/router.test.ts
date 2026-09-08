@@ -3,6 +3,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { createPolicyEngine } from "../policy/engine.js";
 import { readArtifact } from "../runtime/artifacts/store.js";
 import { createPool } from "../runtime/db/pool.js";
 import { readEvents } from "../runtime/events/log.js";
@@ -21,8 +22,19 @@ let root: string;
 
 const catalog = new ToolRegistry().register(DEV_ECHO).register(DEV_BLOB).freeze();
 
+/**
+ * Beide Dummies sind `read` und nehmen keinen Pfad entgegen; die Policy lässt sie durch, und
+ * der Resolver wird nie gerufen. Dass er wirft, hält das fest: käme hier je ein Pfad-Tool
+ * dazu, fiele es auf, statt still an den Pfadregeln vorbeizulaufen (S11).
+ */
+const policy = createPolicyEngine({
+  resolvePath: async () => {
+    throw new Error("Dieser Katalog kennt keine Pfad-Tools");
+  },
+});
+
 function deps(overrides: Partial<ToolRouterDeps> = {}): ToolRouterDeps {
-  return { pool, artifactRoot: root, catalog, ...overrides };
+  return { pool, artifactRoot: root, catalog, policy, ...overrides };
 }
 
 beforeAll(async () => {
@@ -181,6 +193,7 @@ describe("Tool-Router · Rückgabehülle und Ereignisse", () => {
     expect(await eventTypes(session.sessionId)).toEqual([
       "session.created",
       "tool.requested",
+      "policy.allowed",
       "step.started",
       "step.completed",
       "tool.completed",
@@ -195,7 +208,8 @@ describe("Tool-Router · Rückgabehülle und Ereignisse", () => {
       risk: "read",
       tool_catalog_version: catalog.version,
     });
-    const completed = events[4];
+    // events[2] ist seit S11 die Policy-Entscheidung, tool.completed rückt eins nach hinten.
+    const completed = events[5];
     expect(completed.payload).toMatchObject({
       tool_name: "dev.echo",
       risk: "read",
@@ -215,6 +229,7 @@ describe("Tool-Router · Rückgabehülle und Ereignisse", () => {
     expect(await eventTypes(session.sessionId)).toEqual([
       "session.created",
       "tool.requested",
+      "policy.allowed",
       "step.started",
       // Das Artefakt gehört zu diesem Versuch: es entsteht innerhalb des Schritts.
       "artifact.created",
@@ -328,6 +343,7 @@ describe("Tool-Router · Fehler als Ergebnis", () => {
     expect(await eventTypes(session.sessionId)).toEqual([
       "session.created",
       "tool.requested",
+      "policy.allowed",
       "step.started",
       "step.failed",
       "tool.failed",
@@ -363,7 +379,13 @@ describe("Tool-Router · Fehler als Ergebnis", () => {
     const once: ToolDefinition = {
       name: "dev.once",
       description: "Nicht wiederholbar.",
-      risk: "hard_write",
+      // Die Stufe ist hier Nebensache — geprüft wird die Ausführungshülle. Seit S11 wäre
+      // `hard_write` allerdings nicht mehr nebensächlich: der Aufruf käme gar nicht bis zur
+      // Hülle, weil die Policy vorher eine Freigabe verlangt. Das ist ein eigener Test und
+      // steht in policy/engine.test.ts. `soft_write` ohne Pfad ist genau der Fall, den S07
+      // als Begründung für ein eigenes `repeatable` nennt: ein zweiter Lauf legt ein zweites
+      // Artefakt an.
+      risk: "soft_write",
       repeatable: false,
       inputSchema: { fields: {} },
       handler: async () => {

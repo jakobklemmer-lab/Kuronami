@@ -83,7 +83,7 @@
     "id": "S11",
     "title": "Policy-Engine",
     "phase": 1,
-    "status": "ready",
+    "status": "done",
     "done_when": "Schreibendes Tool wird ohne Freigabe blockiert",
     "depends_on": ["S10"]
   },
@@ -91,7 +91,7 @@
     "id": "S12",
     "title": "Erster echter Loop",
     "phase": 1,
-    "status": "queued",
+    "status": "ready",
     "done_when": "Aufgabe mit 30 Schritten läuft vollständig durch",
     "depends_on": ["S11"]
   },

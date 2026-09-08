@@ -117,6 +117,7 @@ describe("user.ask · Pause überlebt den Prozess-Neustart", () => {
         "session.resumed",
         "runtime.started",
         "tool.requested",
+        "policy.allowed",
         "approval.requested",
         "runtime.stopped",
       ]);
@@ -143,12 +144,14 @@ describe("user.ask · Pause überlebt den Prozess-Neustart", () => {
         "session.resumed",
         "runtime.started",
         "tool.requested",
+        "policy.allowed",
         "approval.requested",
         "runtime.stopped",
         "approval.granted",
         "session.resumed",
         "runtime.started",
         "tool.requested",
+        "policy.allowed",
         "tool.completed",
         "runtime.stopped",
       ]);

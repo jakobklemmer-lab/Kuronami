@@ -1456,3 +1456,353 @@ in dieser Session gelaufen sind.
 - `tasks.json`: S10 auf `done`, S11 von `queued` auf `ready`.
 
 Status: abgeschlossen. Nächste Session: S11 Policy-Engine.
+
+## S11 · Policy-Engine · 2026-09-08
+
+- Tests der Vorsession vorab gelaufen: 222 grün (health, events, session, steps, artifacts,
+  redaction, tasks, tools/registry, tools/router, tools/fs, tools/web, tools/task, tools/user),
+  unverändert.
+- Neues Verzeichnis `policy/` mit neun Modulen (`risk`, `types`, `secrets`, `resource`,
+  `rules`, `hooks`, `engine`, `approvals`, `audit`), dazu Migration `0007_policy_approvals`.
+  `policy/` importiert **nichts** aus `tools/`: die Pfadauflösung kommt als injizierte
+  Funktion herein (`policyResolver` in `tools/fs/paths.ts`), und `RiskLevel` ist aus
+  `tools/types.ts` nach `policy/risk.ts` gewandert, wo `policy/README.md` die Risikostufen
+  ohnehin verortet. Die Richtung ist damit durchgängig `tools → policy → runtime`, wie
+  Abschnitt 4.7 sie vorgibt.
+
+### Der Kern: es gilt die schärfste Aussage
+
+- Die vier Ebenen aus Abschnitt 10 stimmen nicht ab, sie sprechen, und **`deny` schlägt `ask`
+  schlägt `allow`**. Daraus folgen drei Entscheidungen, die den ganzen Aufbau tragen und die
+  gegen die übliche Bauweise gehen:
+  1. **Die Reihenfolge der Regeln ist bedeutungslos** — es werden alle ausgewertet. Bei "erste
+     passende Regel gewinnt" hinge die Sicherheit an der Position in einer Liste: ein breites
+     `allow` weiter oben schaltete jede spätere Verschärfung ab, und man sieht es der Liste
+     nicht an, man muss sie von oben lesen und mitdenken, was vorher schon zugeschlagen hat.
+     Der Preis ist, dass eine Ausnahme sich nicht als `allow` schreiben lässt; sie gehört in
+     die Bedingung der schärferen Regel.
+  2. **Ein `allow` senkt nichts.** Es ist eine Abstention mit Namen: es steht im Freigabepfad,
+     damit sichtbar bleibt, dass die Ebene lief und nichts einzuwenden hatte. Könnte es den
+     Boden senken, wäre "hartes Schreiben nur mit Freigabe" genau einen zu breit geratenen
+     Glob weit vom Verschwinden entfernt — und zwar lautlos, weil sich ein zu breites `allow`
+     wie ein funktionierendes System anfühlt.
+  3. **Regeln heben die Risikostufe an, sie senken sie nie.** Eine Regel, die senken darf, ist
+     eine, mit der sich jede Stufe wegkonfigurieren lässt.
+- Unter den vier Ebenen liegt die Risikostufe als **Boden**: `read`/`soft_write` → erlaubt,
+  `hard_write`/`destructive` → Freigabe. Ohne diesen Boden wäre die Tabelle aus Abschnitt 10
+  nur die Vorgabe für einen leeren Regelsatz, und die Zusage hinge daran, dass niemand die
+  passende Regel löscht.
+- Die einzige Ebene, die senken darf, ist der **Sessionmodus**, und nur den Boden:
+  `accept_edits` erlaubt hartes Schreiben, **wenn der Aufruf einen Pfad betrifft** — genau das
+  ist die Trennlinie zwischen "Edits akzeptieren" und "Mail, Shell, Datenbank"; und
+  `bypass_in_sandbox` nur mit nachgewiesener Sandbox. Beide heben nie das Wort einer anderen
+  Ebene auf: mit `accept_edits` geht ein `fs.write` in die Quellzone durch, ein `fs.write` auf
+  `.env` weiterhin nicht.
+- **`bypass_in_sandbox` ist bewusst nicht über die Umgebung scharf zu schalten.** Der
+  Sandbox-Nachweis ist ein Feld der Engine-Konfiguration und in `runtime/index.ts` fest
+  `false`, weil `exec.run` und der Container aus Abschnitt 4.6 noch nicht stehen. Eine
+  Umgebungsvariable dafür wäre der Schalter, der irgendwann gesetzt ist — dasselbe Argument
+  wie beim nicht abschaltbaren Redaction-Filter (S07). Der Modus fällt sichtbar auf `ask`
+  zurück und schreibt den Grund in den Freigabepfad, statt still zu wirken.
+- **Abweichung von Abschnitt 10, die begründet werden muss:** bei `destructive` gibt es
+  ausschließlich die Einmalfreigabe. Die Tabelle sagt dort nicht "Freigabe nötig", sondern
+  **immer** Freigabe, und eine sessionweite oder dauerhafte Vorab-Erlaubnis hebt genau dieses
+  "immer" auf. `session` und `always` werden bei zerstörenden Aktionen deshalb gar nicht erst
+  als Option angeboten — was nicht angeboten wird, kann auch nicht versehentlich gewählt
+  werden. Kein Sessionmodus greift dort, auch `bypass_in_sandbox` nicht.
+
+### Kein Weg an der Engine vorbei, und zwar im Typsystem
+
+- Abschnitt 4.7 sagt: "Es gibt keinen Pfad, auf dem ein Tool ohne Policy-Prüfung ausgeführt
+  wird." Das steht jetzt im Typ und nicht in einem Kommentar über einem `if`:
+  `ToolInvocation.policy` ist ein Pflichtfeld vom Typ `PolicyGrant`, und die Klasse dahinter
+  wird **nur als Typ** exportiert und trägt ein privates Feld. Außerhalb von `policy/engine.ts`
+  lässt sich keine herstellen, auch nicht als Objektliteral. Ein Handler kann damit gar nicht
+  aufgerufen werden, ohne dass die Engine entschieden und den Audit-Eintrag geschrieben hat.
+- `ToolRouterDeps.policy` ist Pflichtfeld ohne Vorgabe. Eine optionale Engine mit einer
+  nachsichtigen Vorgabe wäre genau der Pfad, den 4.7 ausschließt — und sie entstünde nicht aus
+  Nachlässigkeit, sondern beim ersten Test, dem die Verdrahtung zu umständlich ist. Der Preis
+  ist, dass fünf bestehende Testdateien und `await-user.process.ts` eine Engine bauen müssen;
+  das ist die richtige Seite des Handels.
+- Die Prüfung steht **vor** der Weiche zwischen `executeStep` und `callRuntimeTool`, nicht in
+  einem der beiden Zweige. Damit ist der in S10 offen notierte Punkt geschlossen (die Policy
+  muss auch den `execution: "runtime"`-Pfad erreichen), und ein künftiger dritter
+  Ausführungsmodus bekommt sie ohne Zutun.
+- Drei Ausgänge, und nur einer führt zur Ausführung. **Freigabe** → `PolicyGrant`.
+  **Ablehnung** → Fehlerhülle mit `reason: "policy_denied"`: sie ist eine Antwort auf den
+  Aufruf, das Modell soll sie im selben Lauf lesen und einen anderen Weg wählen (Abschnitt 7).
+  **Haltepunkt** → `ApprovalRequiredError`, den der Router durchlässt wie
+  `UserInputRequiredError` (S10) und `ToolCatalogMismatchError` (S07): der Lauf ist nicht
+  fehlgeschlagen, er wartet, die Session steht auf `awaiting_user`. Dass der dritte Fall wirft
+  statt zurückzukommen, ist Absicht — ein Rückgabewert "bräuchte noch eine Freigabe" wäre
+  einer, den ein Aufrufer versehentlich ignorieren kann.
+
+### Kein Tool ohne Zuordnung
+
+- Zwei Tore. `ToolRegistry.register` prüft die Risikostufe (`assertRiskLevel`), und die Engine
+  prüft sie noch einmal, bevor sie entscheidet. TypeScript sichert nur das erste ab; ein Tool,
+  das aus JSON entsteht (n8n-Bridge, S13), kommt am Compiler vorbei. Eine fehlende Stufe wird
+  **nicht** mit einer Vorgabe gefüllt: geraten sähe aus wie entschieden.
+- Dazu eine Prüfung, die im Auftrag nicht steht und ohne die die Pfad- und Domainregeln eine
+  stille Umgehung hätten: die Engine sucht Pfad und Adresse unter festen Feldnamen (`path`,
+  `url`). Ein Tool mit `target_path` bekäme **keine einzige** Pfad-, Zonen- oder
+  Geheimnisregel zu sehen, und niemand merkte es, weil der Aufruf ja durchliefe — der Fehler
+  wäre eine Lücke, die wie eine Erlaubnis aussieht. `assertPolicyFieldNames` weist an der
+  Registriergrenze jedes pfad- oder adressartige Feld ab, das anders heißt.
+
+### Freigaben mit Geltungsbereich
+
+- Migration `0007`: der Enum `kuronami.approval_scope` bekommt `always` (Umbenennen und
+  Neuanlegen statt `ADD VALUE`, damit die Rücknahme den Zustand von `0001` wirklich
+  wiederherstellt und nicht nur ungefähr). Dazu `subject`, `call_id`, `decided_by`, zwei
+  CHECKs, zwei Indizes für die beiden Lesepfade und ein **partieller UNIQUE-Index**: eine
+  dauerhafte Freigabe je Subjekt, strukturell statt per Anwendungslogik, nach dem Muster von
+  S03/S04.
+- **Abweichung von Abschnitt 10**, ausdrücklich: dort steht nur "für diese Session erlauben",
+  der Sessionauftrag verlangt drei Bereiche. `once` und `session` bleiben in Bedeutung und
+  Schreibweise unverändert, es kommt einer dazu.
+- Zeile und Ereignis entstehen in **einer** Transaktion — Muster aus S05 (Schritte), S06
+  (Artefakte), S10 (Aufgaben). Das Ereignis ist die Wahrheit; deshalb ist eine
+  sessiongebundene Freigabe nach einem Neustart einfach wieder da, sie lag nie im Speicher.
+  Die Zeile ist der Schnappschuss und der einzige Weg an eine **dauerhafte** Freigabe, denn
+  das Protokoll ist je Session geführt und eine dauerhafte gilt darüber hinaus.
+- **`once` heißt genau dieser Aufruf**, nicht "die nächste Gelegenheit": eine Freigabe, die
+  ein anderer Aufruf abgreifen kann, ist an einer Stelle wirksam, an der niemand sie erteilt
+  hat. Weil `call_id` stabil aus dem Plan folgt (S07), findet ein wiederaufgenommener Lauf
+  seine eigene Einmalfreigabe wieder. Eine **Ablehnung** wird aus demselben Grund ebenfalls an
+  die `call_id` gebunden — sonst fragte ein wiederaufgenommener Lauf denselben Menschen
+  dieselbe Frage noch einmal, und ein abgelehnter Aufruf käme so lange wieder, bis jemand aus
+  Versehen zustimmt. Sie ist aber bewusst **keine** Dauersperre: wer dauerhaft sperren will,
+  schreibt eine Regel, und die steht in einer versionierten Datei statt in einer Zeile.
+- Wofür eine Freigabe gilt, steht als **Subjektschlüssel** in Zeile und Ereignis. Die Körnung
+  ist absichtlich verschieden: Geheimnisse **je Datei**, Pfade **je Zone**, Adressen **je
+  Host**. Eine Freigabe je Datei sähe strenger aus, führte aber zu einer Rückfrage pro Datei —
+  und ein Mensch, der zwanzigmal hintereinander gefragt wird, klickt beim einundzwanzigsten
+  Mal durch. Das ist die schlechtere Sicherheit, nicht die bessere. Umgekehrt deckt eine
+  Zonenfreigabe ausdrücklich **nicht** das Lesen einer `.env`: anderes Subjekt, eigene
+  Freigabe.
+- Zwei gleichzeitig offene Rückfragen zum selben Subjekt, beide mit "dauerhaft" beantwortet,
+  liefen in den UNIQUE-Index. Statt eines Constraint-Fehlers, den der Betreiber als Absturz
+  sähe, benutzt die zweite Entscheidung die bestehende Freigabe und nennt deren Kennung im
+  Ereignis. Kein zweiter Eintrag, keine Frage, welcher von beiden gilt.
+
+### Geheimnisse: Zugriff und Durchsickern sind zwei verschiedene Dinge
+
+- `policy/secrets.ts` erkennt am **Pfad**, welche Dateien per Bauart Zugangsdaten tragen. Das
+  ist die Ergänzung zum Redaction-Filter, nicht sein Ersatz: der Filter sieht Werte, die schon
+  gelesen wurden, und verhindert das Durchsickern; er kann den Zugriff nicht verhindern und
+  kennt nicht jedes Format. Ohne die zweite Hälfte wäre "Secrets erreichen nie den Prompt"
+  eine Aussage über die Vollständigkeit der Musterliste.
+- Bewusst **keine** Inhaltsheuristik: eine Datei, die erst gelesen werden muss, um als geheim
+  zu gelten, ist zum Zeitpunkt der Entscheidung schon gelesen.
+- Lesen eines Trägers → `ask` (eigenes Subjekt je Datei). Schreiben → `deny`, ohne Rückfrage:
+  ein Assistent, der `.env` oder einen privaten Schlüssel überschreibt, macht aus einem
+  Fehlgriff einen Verlust, den kein Replay zurückholt. Wer das ändern will, ändert die Regel —
+  sichtbar und versioniert.
+- **Vorlagen sind ausgenommen** (`.env.example` und Geschwister). Der Test hat das erzwungen:
+  `.env.example` liegt seit S01 in diesem Repo und trägt keinen einzigen Wert. Eine Rückfrage
+  dafür wäre offensichtlich unnötig, und offensichtlich unnötige Rückfragen bringen dem
+  Menschen bei, die nächste auch wegzuklicken.
+- Jeder freigegebene Zugriff auf einen Träger schreibt `policy.secret_accessed` — neuer
+  Ereignistyp, aber kein neuer Namensraum, die Zahl 13 aus dem S03/S04-Test bleibt. Als Feld
+  in `policy.allowed` wäre "wer hat wann welche Zugangsdatei geöffnet" nur über einen Filter
+  auf einem Payload zu beantworten, also genau die Frage, die nach einem Vorfall als erste
+  gestellt wird. Geschrieben wird beim Freigeben, nicht nach dem Lauf: ein protokollierter
+  Zugriff, der nicht stattfand, ist harmlos; einer, der stattfand und nicht protokolliert ist,
+  ist der Fall, den es zu verhindern gilt. Ob er durchlief, sagt das `tool.completed` unter
+  derselben `call_id`.
+- `kuronami.approvals` ist das **vierte Schreibtor des Redaction-Filters** (nach Protokoll,
+  Artefaktmetadaten und Prompt-Aufbau): `requested_input` trägt die Eingabe des freigegebenen
+  Aufrufs. Die Eingabe wird dabei **nicht** ins `approval.requested` dupliziert, sondern beim
+  Entscheiden aus dem `tool.requested` derselben `call_id` gelesen — bei einem `fs.write` wäre
+  die Verdopplung der komplette Dateiinhalt ein zweites Mal.
+
+### Audit-Eintrag für jede ausgeführte Aktion
+
+- Die fünf Angaben aus Abschnitt 10 stehen **nicht** in einer eigenen Tabelle und nicht in
+  einem einzigen Ereignis, sondern werden über die `call_id` gefaltet: `tool.requested`
+  (Auslöser, Eingaben, Zeitstempel), `policy.allowed`/`policy.denied` (Freigabepfad, wirksame
+  Stufe, Freigabe), `policy.secret_accessed`, `tool.completed`/`tool.failed` (Ausgaben,
+  Zeitstempel). Ein sechstes Ereignis, das alles noch einmal zusammen trägt, wäre eine zweite
+  Wahrheit neben dem Protokoll — es könnte abweichen, und dann wäre offen, welche der beiden
+  Fassungen der Audit ist. Die Faltung kann das nicht, sie hat keine eigenen Daten.
+- Der **Freigabepfad** ist nicht eine Begründung, sondern die Kette: was jede Ebene gesagt hat.
+  Ohne sie ließe sich hinterher nicht unterscheiden, ob ein Aufruf durchging, weil eine Regel
+  ihn erlaubte, oder weil keine ihn verbot.
+- `ToolCall.origin` neu (Vorgabe `"model"`) — der "Auslöser" aus Abschnitt 10. Die Herkunft
+  ändert die Entscheidung **nicht**: ein direkt abgesetzter Aufruf bekommt dieselben vier
+  Ebenen wie einer aus dem Modell, sonst wäre "ohne Modell aufrufen" der Weg an der Governance
+  vorbei — und genau das ist das Fertig-Kriterium dieser Session.
+- `auditGaps` findet Einträge mit Ausgang, aber ohne Entscheidung. Die Ausnahme sind die beiden
+  Fehler **vor** der Policy (unbekanntes Tool, Schemaverstoß): dort wurde nichts ausgeführt und
+  nichts freigegeben, ein fehlender Freigabepfad ist die richtige Auskunft und kein Loch. Die
+  Prüfung ist die Kontrolle, nicht die Absicherung — getragen wird die Zusage vom `PolicyGrant`.
+
+### Umbau an bestehendem Code
+
+- `runtime/session/approval-log.ts` neu: Sessionsperre, Ablaufverfolgung einer `ask_id` und
+  das Lesen der Optionen sind aus `user-input.ts` (S10) herausgezogen, weil die Policy
+  dieselbe Mechanik für ihre Freigabe-Rückfragen benutzt. Zwei Kopien wären über kurz oder
+  lang zwei Formen desselben Ereignisses, und `deriveSessionState` müsste beide falten.
+  Geschrieben wird weiterhin getrennt: die Ereignisse tragen verschiedene Felder, und die
+  Freigabe schreibt zusätzlich eine Zeile.
+- `tools/fs/tools.ts`: `assertWritableZone` bekommt die `PolicyGrant` und ist damit kein
+  hartes Verbot mehr (S08), sondern ein **Abgleich zweier unabhängiger Einschätzungen** —
+  Handler und Engine lösen denselben Pfad getrennt auf, und geschrieben wird nur, wenn beide
+  ihn als Schreibzugriff außerhalb der Artefaktzone sehen. Ein Handler, der sich blind auf
+  "der Router hat mich ja aufgerufen" verlässt, könnte eine Fehlkonfiguration nicht bemerken.
+  Die in S08 angekündigte Stelle ist damit eingelöst und die Kaskade bleibt dort festgemacht.
+- `runtime/index.ts` baut die Engine mit dem ausgelieferten Regelsatz und gibt beim Start die
+  Governance-Lage aus (Regeln, Hooks, Freigabemodus, Sandbox). Ein Betreiber, der nicht weiß,
+  in welchem Modus seine Session läuft, kann eine Rückfrage später nicht einordnen — und ihr
+  Ausbleiben schon gar nicht.
+
+### Geänderte Erwartungen in bestehenden Tests
+
+Alle drei Änderungen sind Folge der Sache, nicht Anpassung an sie, und stehen hier, damit sie
+nicht als stille Korrektur durchgehen:
+
+- **Ereignisfolgen** tragen jetzt `policy.allowed` zwischen `tool.requested` und
+  `step.started`. Elf Zusicherungen in fünf Dateien angepasst; `router.test.ts` liest
+  `tool.completed` entsprechend an Position 5 statt 4.
+- **`fs.write`/`fs.edit` in die Quellzone** endet nicht mehr in einer Fehlerhülle des
+  Handlers, sondern im Haltepunkt der Policy. Die maßgebliche Zusicherung ist unverändert und
+  steht weiterhin da: **es wird nichts geschrieben.**
+- **Pfad-Traversal** (`../../etc/passwd`, Symlink nach außen) fällt eine Ebene früher: die
+  Engine löst denselben Pfad auf, bekommt denselben `PathEscapeError` und lehnt ab, bevor der
+  Handler läuft (`unresolvable-resource`, fail closed). Der Wortlaut der Pfadprüfung steht
+  unverändert im Freigabepfad — geglättet wird nichts, er steht nur an anderer Stelle.
+- `dev.once` in `router.test.ts` ist von `hard_write` auf `soft_write` gewechselt. Die Stufe
+  war dort schon immer Nebensache (geprüft wird die Ausführungshülle), seit S11 wäre sie es
+  nicht mehr: der Aufruf käme gar nicht bis zur Hülle.
+
+### Zwei Fehler, die die Tests gefunden haben
+
+- **Der Subjektschlüssel wurde vom Redaction-Filter gefressen.** Er hieß zuerst
+  `fs.read|secret:dotenv:.env`, und das Fangnetz für Schlüssel-Wert-Paare aus S07 liest
+  `secret:dotenv` als Zuweisung: im Protokoll stand `fs.read|secret:[redacted:…]`, während die
+  Engine beim Nachschlagen den ungefilterten Schlüssel benutzte. Eine erteilte Freigabe wurde
+  nie wiedergefunden, der Lauf fragte bei jedem Aufruf erneut — und niemand hätte das für eine
+  Redaction gehalten. Behoben mit `/` als Trenner, dazu eine Prüfung in der Engine: ein
+  Subjekt, das der Filter verändern würde, wird abgewiesen statt als kaputter Schlüssel
+  benutzt. Dieselbe Haltung wie bei `task_id` in S10 und aus demselben Grund — ein Wert, der
+  wieder nachgeschlagen wird, ist eine Identität.
+- **Der Redaction-Filter griff nicht auf `ANTHROPIC_API_KEY=…`.** Das Fangnetz begann mit
+  `\b`, und `\b` setzt keine Grenze zwischen `_` und einem Buchstaben — der Unterstrich ist
+  selbst ein Wortzeichen. `api_key=…` wurde ersetzt, `ANTHROPIC_API_KEY=…` nicht, also
+  ausgerechnet nicht die Schreibweise, in der Geheimnisse in `.env`-Dateien und Umgebungen
+  tatsächlich stehen. Gefunden hat es der S11-Test, der eine echte `.env` liest. Ersetzt durch
+  `(?<![A-Za-z0-9])`, dazu zwei Tests in `redact.test.ts`: die Präfix-Schreibweise wird
+  ersetzt, `monkey:` bleibt in Ruhe.
+
+### Tests
+
+- 58 neue Tests, zusammen 280. `policy/rules.test.ts` (26, **ohne Datenbank**): die vier
+  Stufen und ihre Ordnung, eine fehlende Stufe wird abgewiesen statt geraten, `destructive`
+  lässt nur `once` zu; Geheimnisklassen erkennen die üblichen Träger, lassen gewöhnliche
+  Dateien in Ruhe, nehmen Vorlagen aus und erkennen denselben Pfad auch beim zweiten Mal
+  (Gegenprobe zum `lastIndex`-Fehler); Tool-, Pfad-, Host- und Zonenbedingungen samt
+  `**`-Glob; ein breites `allow` schaltet ein `deny` in **beiden** Reihenfolgen nicht ab; eine
+  Regel kann nicht senken; der ausgelieferte Regelsatz hebt Schreiben außerhalb der
+  Artefaktzone an und lässt Lesen dort unangetastet; Hooks: Enthaltung, Verschärfung, ein
+  geworfener Hook gilt als Ablehnung und behält den Wortlaut, nach dem ersten `deny` wird
+  abgebrochen; Ressourcenerkennung, Subjektkörnung, Überleben des Redaction-Filters, und die
+  erzwungene Feldnamenkonvention.
+- `policy/engine.test.ts` (17, mit Datenbank, über den echten Router), darunter das
+  **Fertig-Kriterium**: ein `hard_write`-Tool direkt aufgerufen (`origin: "direct"`), ohne
+  Modell, ohne Freigabe → `ApprovalRequiredError`, **nichts verschickt, keine Datei auf der
+  Platte**, kein Schritt, Session auf `awaiting_user`, und die Rückfrage nennt Tool, Stufe,
+  Subjekt und die angebotenen Geltungsbereiche. Dazu dasselbe für `fs.write` in die Quellzone
+  (echtes hartes Schreiben über die Regel) und der Gegenbeweis, dass derselbe Aufruf nach der
+  Freigabe durchläuft und den Freigabepfad mitschreibt. Weiter: Hook-Ablehnung, abstürzender
+  Hook, Hook verschärft ein Lesen; `.env` lesen fragt und protokolliert den Zugriff, während
+  das Protokoll den Wert nicht im Klartext trägt; `.env.example` fragt nicht; `.env`
+  überschreiben wird endgültig abgelehnt, ohne Rückfrage; eine Zonenfreigabe deckt das Lesen
+  eines Trägers nicht; `accept_edits` lässt Dateiänderungen durch, deckt hartes Schreiben ohne
+  Pfad nicht und hebt keine Regel auf; `bypass_in_sandbox` greift nur mit Nachweis; **kein
+  Modus** hebt die Freigabepflicht für zerstörende Aktionen auf, und dort werden nur `once`
+  und `deny` angeboten; ein Tool ohne Stufe wird von der Registry **und** von der Engine
+  abgewiesen.
+- `policy/approvals.test.ts` (10, mit Datenbank): `once` deckt genau seinen Aufruf und findet
+  sich bei einer Wiederholung wieder; `session` deckt weitere Aufrufe derselben Session, aber
+  keine andere; `always` gilt über Sessiongrenzen und legt je Subjekt nur eine Zeile an; eine
+  Ablehnung haftet an ihrem Aufruf; eine zweite Entscheidung und eine nicht angebotene Option
+  werden abgewiesen; Protokoll-Faltung und Tabellen-Schnappschuss stimmen überein. Und der
+  **Neustart-Nachweis** mit einem echten zweiten Betriebssystem-Prozess
+  (`policy-resume.process.ts`, Muster aus S05/S10): Lauf 1 hält sauber an und schreibt nichts,
+  der Mensch erteilt zwischen den Prozessen eine Session-Freigabe, ein **frisch gestarteter**
+  Prozess mit **anderer** `call_id` und **anderer** Datei läuft durch. Die Freigabe kann damit
+  nicht aus einem Speicher im Prozess gekommen sein; zusätzlich wird sie allein aus dem
+  Protokoll gefaltet.
+- `policy/audit.test.ts` (3, mit Datenbank): ein Lauf aus sechs Aufrufen — erlaubtes Lesen,
+  weiches Schreiben, freigegebener Geheimniszugriff, Ablehnung durch eine Regel, unbekanntes
+  Tool, Schemaverstoß — ergibt sechs Einträge, **keine Lücke**, und jeder Eintrag, der die
+  Policy erreicht hat, trägt alle fünf Angaben; `audit_id` verbindet Entscheidung und Ausgang;
+  eine Gegenprobe, die eine echte Lücke konstruiert, wird gefunden.
+- `runtime/redaction/redact.test.ts` um 2 auf 19 gewachsen (siehe oben).
+- Sechs Gegenproben, alle bestätigt und danach zurückgesetzt:
+  * Boden für `hard_write` auf `allow` gesenkt → 19 Tests rot, darunter beide Hälften des
+    Fertig-Kriteriums und der Neustart-Nachweis.
+  * Ablehnungszweig im Router entfernt → 8 rot.
+  * Hooks fail-open statt fail-closed → 2 rot.
+  * `destructive` darf sessionweit freigegeben werden → 2 rot.
+  * Subjekt-Trenner zurück auf `:` → 5 rot; die neue Engine-Prüfung fängt es jetzt als
+    Ablehnung ab, statt still weiterzufragen.
+  * Risikoprüfung aus der Registry entfernt → 1 rot.
+- Migration verifiziert: `down` (nimmt nur 0007 zurück; `approvals` steht wieder in exakt der
+  0001-Form — 11 Spalten, 4 Indizes, Enum `once, session`, keine der drei neuen Constraints),
+  danach `up` (14 Spalten, 7 Indizes darunter `idx_approvals_persistent_subject`,
+  Enum `once, session, always`, Tracking-Zeilen 0001 bis 0007).
+- Nachweis außerhalb von vitest (`_s11_probe.ts`, danach gelöscht): gegen die echte Datenbank
+  den Katalog wie `runtime/index.ts` gebaut (10 Tools, `v1-53a18ba0cb4e49c8`, 4 Regeln, Sandbox
+  aus) und eine echte Session eröffnet. `fs.write` in die Quellzone direkt aufgerufen →
+  blockiert, keine Datei, Sessionstatus `awaiting_user`; nach `once` durchgelaufen und die
+  Datei da; ein zweiter Schreibzugriff in derselben Zone fragt erneut; `.env` lesen fragt,
+  läuft nach der Freigabe durch und schreibt `policy.secret_accessed`; `.env` überschreiben →
+  `policy_denied` ohne Rückfrage. 23 Ereignisse, lückenlos; Audit mit 4 Einträgen und 0 Lücken;
+  keiner der Werte aus der echten `.env` steht im Klartext im Protokoll. Danach
+  `runtime/index.ts` gestartet: Session angelegt, Katalog und Governance-Lage ausgegeben.
+  Probedaten und Probedateien gelöscht, alle sechs Tabellen nach dem Lauf leer.
+- **Ein Beinahe-Fehlalarm, festgehalten weil er wiederkommt:** die erste Fassung der
+  Leck-Prüfung im Probelauf meldete ein Geheimnis im Protokoll. Es war keins. Der
+  Entwicklungs-`DATABASE_URL` hat Benutzer, Passwort und Datenbanknamen identisch, und der
+  Filter lässt Schema und Benutzer bewusst stehen (S07) — eine Teilstring-Suche findet das
+  Passwort dann in der Benutzerstelle. Die Prüfung sucht das Passwort jetzt **an seiner
+  Stelle** in der URL; das Passwortfeld selbst trägt `[redacted:url-credentials]`.
+
+### Bewusst nicht gebaut
+
+- Ein Editor oder eine Oberfläche für Regeln. `DEFAULT_RULES` ist eine versionierte Datei, und
+  das ist der Punkt: eine Regeländerung soll in einem Diff auftauchen.
+- Zeitlich begrenzte Freigaben ("für die nächste Stunde"). Der Geltungsbereich ist heute
+  `once`/`session`/`always`; eine Ablauffrist wäre eine vierte Achse und braucht einen Grund
+  aus dem Betrieb, nicht aus der Vorstellung.
+- Der Sandbox-Nachweis. Er kommt mit `exec.run` und dem Container (Abschnitt 4.6); bis dahin
+  ist `bypass_in_sandbox` sichtbar wirkungslos statt still wirksam.
+- Ein Widerruf von Freigaben (`approval.revoked`). Heute löscht man die Zeile; sobald es dafür
+  eine Oberfläche gibt, gehört der Widerruf ins Protokoll wie alles andere.
+- Domain-Regeln im ausgelieferten Satz. Die Achse ist gebaut und getestet, aber der
+  Egress-Riegel aus S09 ist die schärfere Kontrolle; ein zweiter Vorgabesatz an derselben
+  Stelle wäre Rauschen.
+- Die Schleife über Schritte (S12), der Alias-Layer für Artefakt-URIs (seit S06 offen) und ein
+  GC-Lauf für verwaiste Artefaktdateien (seit S06 offen).
+
+### Offene Befunde
+
+- Die Rückfrage erreicht bis S16 keinen Kanal. `decidePolicyApproval` ruft der Betreiber bzw.
+  der Test direkt, wie schon `answerUserInput` in S10. Der Wartezustand ist im Protokoll
+  vollständig da; es fehlt nur der Weg nach draußen.
+- `policy.allowed` wird für **jeden** Aufruf geschrieben, auch für jedes Lesen. Das ist die
+  Zusage "Audit-Eintrag für jede ausgeführte Aktion" wörtlich genommen und verdoppelt die
+  Ereigniszahl eines lesenden Laufs ungefähr. Sollte das Protokoll dadurch unhandlich werden,
+  ist die Antwort eine Aufbewahrungsfrist, nicht ein selektives Protokollieren.
+- Der Subjektschlüssel schneidet Pfade je Zone. Für einen Einzelnutzer ist das richtig; sobald
+  ein Agent im Auftrag mehrerer Menschen schreibt (S19/S20), ist zu entscheiden, ob die
+  Zonenfreigabe je Agent getrennt gehört.
+- `structured.reason` ist weiterhin eine Verabredung und kein Typ (offen seit S07); mit
+  `policy_denied` ist ein weiterer Wert dazugekommen. Sobald S12 darauf verzweigt, gehört die
+  Liste in eine Aufzählung.
+- `pnpm typecheck && pnpm lint && pnpm test` grün, 280 Tests.
+- `tasks.json`: S11 auf `done`, S12 von `queued` auf `ready`.
+
+Status: abgeschlossen. Nächste Session: S12 Erster echter Loop.

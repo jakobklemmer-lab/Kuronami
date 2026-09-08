@@ -152,6 +152,13 @@ bzw. `tool.failed`. Die in der Notion-Checkliste zu S07 genannten `tool.called` 
 bereits vergebene Typen, und `tool.returned` verlöre die Unterscheidung zwischen geglückt und
 fehlgeschlagen, die `tool.completed`/`tool.failed` schon tragen.
 
+**Ergänzung (S11):** `policy.secret_accessed`. Kein neuer Namensraum — `policy.*` steht oben —,
+aber eine andere Aussage als `policy.allowed`: die beiden sagen, ob ausgeführt werden darf,
+dieses sagt, dass ein **Geheimnisträger angefasst** wurde, und zwar auch dann, wenn der Aufruf
+ganz normal erlaubt war. Als Feld in `policy.allowed` wäre "wer hat wann welche Zugangsdatei
+geöffnet" nur noch über einen Filter auf einem Payload zu beantworten — die Frage, die nach
+einem Vorfall als erste gestellt wird.
+
 ### 4.5 Artefakt-URI und Ablage
 
 Logische Form: `artifact://<namensraum>/<name>`
@@ -204,6 +211,15 @@ Risikostufe: hartes Schreiben, also immer Freigabe.
   des Wertes (`sk-ant-…`, `postgres://u:p@…`) und über den Namen des Feldes (`api_key`,
   `password`), weil ein Geheimnis ohne erkennbare Form nur über den Namen auffindbar ist.
   Die Musterliste liegt als eigene, erweiterbare Datei in `runtime/redaction/patterns.ts`.
+  Seit S11 kommt ein viertes Tor dazu: die Freigabezeilen in `kuronami.approvals`, die mit
+  `requested_input` die Eingabe des freigegebenen Aufrufs tragen.
+
+  **Nachtrag (S11), ein gemessenes Leck:** das Fangnetz für Schlüssel-Wert-Paare begann mit
+  `\b`, und `\b` setzt keine Grenze zwischen `_` und einem Buchstaben — der Unterstrich ist
+  selbst ein Wortzeichen. Damit griff es auf `api_key=…`, aber **nicht** auf
+  `ANTHROPIC_API_KEY=…`, also ausgerechnet nicht auf die Schreibweise, in der Geheimnisse in
+  `.env`-Dateien und Umgebungen tatsächlich stehen. Ersetzt durch `(?<![A-Za-z0-9])`: ein
+  führender Namensteil ist erlaubt, ein Wortanfang weiterhin nicht (`monkey:` bleibt in Ruhe).
 
   **Der Filter ist nicht abschaltbar.** Kein Flag, kein Parameter, keine Umgebungsvariable.
   Eine Ausnahme wäre irgendwann gesetzt — beim Debuggen, "nur kurz", in genau dem Lauf,
@@ -262,6 +278,26 @@ Risikostufe: hartes Schreiben, also immer Freigabe.
   war er leer).
 * **Der Tool-Router ruft die Policy-Engine**, nicht umgekehrt. Es gibt keinen Pfad, auf dem
   ein Tool ohne Policy-Prüfung ausgeführt wird.
+
+  **Umsetzung (S11):** `policy/`. Der Router ruft `engine.check()` zwischen Schema-Prüfung und
+  Ausführung — **vor** der Weiche zwischen `executeStep` und `callRuntimeTool`, damit es ein
+  Tor gibt und nicht zwei. Dass es keinen Weg daran vorbei gibt, steht im Typsystem und nicht
+  in einer Verabredung: ein Handler bekommt seine Aufrufdaten nur mit einer `PolicyGrant`
+  (`ToolInvocation.policy`), deren Klasse ausschließlich als Typ exportiert wird und ein
+  privates Feld trägt — außerhalb von `engine.ts` ist keine herstellbar, auch nicht als
+  Objektliteral. Die Engine hat drei Ausgänge: Freigabe (mit Audit-Eintrag im Protokoll),
+  Ablehnung (kommt als Fehlerhülle zurück, damit das Modell sie liest) und Haltepunkt (wirft
+  `ApprovalRequiredError`, den der Router durchlässt — der Lauf wartet, er ist nicht
+  fehlgeschlagen). `policy/` importiert nichts aus `tools/`; die Pfadauflösung wird als
+  Funktion injiziert.
+* **Geheimnisträger** sind eine eigene Achse neben dem Redaction-Filter. Der Filter sieht
+  Werte, die schon gelesen wurden, und verhindert das Durchsickern; er kann den Zugriff nicht
+  verhindern und kennt nicht jedes Format. `policy/secrets.ts` erkennt am **Pfad**, welche
+  Dateien per Bauart Zugangsdaten tragen (`.env`, `*.pem`, `.ssh/`, `.aws/`, …). Lesen braucht
+  dann eine eigene Freigabe — je Datei, nicht je Zone —, Schreiben wird abgelehnt, und jeder
+  freigegebene Zugriff hinterlässt ein `policy.secret_accessed`. Vorlagen (`.env.example` und
+  Geschwister) sind ausdrücklich ausgenommen: eine offensichtlich unnötige Rückfrage bringt
+  dem Menschen bei, die nächste auch wegzuklicken.
 * **Fremde Skills** werden vor der Installation gelesen. Ein Skill ist fremder Code mit
   dauerhaften Zugangsdaten auf dem eigenen Host.
 
@@ -538,6 +574,31 @@ einzige Kontrollinstanz zu sein.
 3. **Permission Mode**: grober Sessionmodus (`ask`, `accept_edits`, `bypass_in_sandbox`)
 4. **Laufzeit-Rückfrage**: der Mensch entscheidet
 
+**Umsetzung (S11):** `policy/`, aufgerufen vom Tool-Router. Die Ebenen stimmen nicht ab, sie
+sprechen — und es gilt die **schärfste** Aussage, nicht die letzte und nicht die
+spezifischste (`deny` > `ask` > `allow`). Daraus folgen drei Dinge, die keine Detailfragen
+sind:
+
+* **Die Reihenfolge der Regeln ist bedeutungslos.** Es werden alle ausgewertet. Bei "erste
+  passende Regel gewinnt" hinge die Sicherheit an der Position in einer Liste, und ein breites
+  `allow` weiter oben schaltete jede spätere Verschärfung ab, ohne dass man es der Liste ansieht.
+* **Ein `allow` senkt nichts.** Es ist eine Abstention mit Namen: es steht im Freigabepfad,
+  damit sichtbar bleibt, dass die Ebene gelaufen ist und nichts einzuwenden hatte, aber es hebt
+  keine Freigabepflicht auf. Sonst wäre die stärkste Zusage des Systems einen zu breit
+  geratenen Glob weit vom Verschwinden entfernt — lautlos, weil sich ein zu breites `allow`
+  wie ein funktionierendes System anfühlt.
+* **Regeln heben die Risikostufe an, sie senken sie nie.** Eine Regel, die senken darf, ist
+  eine, mit der sich jede Stufe wegkonfigurieren lässt; dann stünde die Tabelle unten unter dem
+  Vorbehalt der Regeldatei.
+
+Unter allen vier Ebenen liegt die Risikostufe als **Boden**: was die Tabelle verlangt, verlangt
+sie auch bei leerem Regelsatz. Die einzige Ebene, die den Boden senken darf, ist der
+Sessionmodus — `accept_edits` für Aufrufe, die einen Pfad betreffen, `bypass_in_sandbox` nur
+mit nachgewiesener Sandbox (die es bis `exec.run` nicht gibt, weshalb der Modus sichtbar auf
+`ask` zurückfällt statt still zu wirken). Er hebt nie das Wort einer anderen Ebene auf und
+greift nie bei `destructive`. Ein Hook, der wirft, gilt als Ablehnung; eine Ressource, die die
+Engine nicht einordnen kann, ebenfalls (fail closed).
+
 ### Risikostufen
 
 | Stufe | Beispiele | Default |
@@ -568,7 +629,30 @@ Weitere Regeln:
   zweiten Betriebssystem-Prozess, nicht nur einen zweiten Testlauf im selben Modul.
 * Freigaben der Form "für diese Session erlauben" werden gespeichert und bei Wiederaufnahme
   wiederhergestellt
+
+  **Umsetzung (S11):** drei Geltungsbereiche — `once`, `session`, `always` (der dritte ist
+  eine Erweiterung gegenüber dem Satz oben und in Migration `0007` begründet). Freigabe und
+  Ereignis (`approval.granted`/`approval.denied`) entstehen in **einer** Transaktion; das
+  Ereignis ist die Wahrheit, die Zeile in `kuronami.approvals` der Schnappschuss. Deshalb ist
+  eine sessiongebundene Freigabe nach einem Neustart einfach wieder da — sie lag nie im
+  Speicher. Nachgewiesen mit einem echten zweiten Betriebssystem-Prozess. `once` ist an die
+  `call_id` gebunden und nicht an "die nächste Gelegenheit"; eine Ablehnung ebenso, damit ein
+  wiederaufgenommener Lauf nicht dieselbe Frage noch einmal stellt. Wofür eine Freigabe gilt,
+  steht als **Subjektschlüssel** in der Zeile (`fs.write|zone/source`,
+  `fs.read|secret/dotenv/.env`, `web.fetch|host/example.com`) — Geheimnisse je Datei, Pfade je
+  Zone, Adressen je Host. Bei `destructive` gibt es ausschließlich `once`: "immer Freigabe"
+  heißt jedes Mal, und `session`/`always` werden dort gar nicht erst angeboten.
 * Jede ausgeführte Aktion hinterlässt: Auslöser, Eingaben, Freigabepfad, Ausgaben, Zeitstempel
+
+  **Umsetzung (S11):** `policy/audit.ts`. Die fünf Angaben stehen nicht in einer eigenen
+  Tabelle und nicht in einem einzigen Ereignis, sondern werden über die `call_id` aus
+  `tool.requested` (Auslöser, Eingaben, Zeitstempel), `policy.allowed`/`policy.denied`
+  (Freigabepfad) und `tool.completed`/`tool.failed` (Ausgaben) **gefaltet** — wie der
+  Sessionzustand seit S05. Ein sechstes Ereignis, das alles noch einmal zusammen trägt, wäre
+  eine zweite Wahrheit neben dem Protokoll und könnte von ihm abweichen. Der Freigabepfad ist
+  dabei nicht eine Begründung, sondern die Kette: was jede Ebene gesagt hat und warum. Dass es
+  keinen Ausgang ohne Entscheidung gibt, prüft `auditGaps` über einen ganzen Lauf — getragen
+  wird die Zusage aber vom Typsystem (siehe 4.7), nicht vom Test.
 
 ---
 

@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { afterAll, describe, expect, it } from "vitest";
+import { createPolicyEngine } from "../../policy/engine.js";
 import { createPool } from "../../runtime/db/pool.js";
 import { readEvents } from "../../runtime/events/log.js";
 import { createOrResumeSession } from "../../runtime/session/manager.js";
@@ -23,8 +24,17 @@ const threadIds: string[] = [];
 
 const catalog = new ToolRegistry().registerAll(createTaskTools({ pool })).freeze();
 
+// `task.*` ist soft_write ohne Pfad und ohne Adresse: die Policy lässt es durch, der
+// Resolver wird nie gerufen (S11). Wichtig ist trotzdem, dass die Prüfung überhaupt
+// stattfindet — auch der `execution: "runtime"`-Zweig läuft durch dasselbe Tor.
+const policy = createPolicyEngine({
+  resolvePath: async () => {
+    throw new Error("Dieser Katalog kennt keine Pfad-Tools");
+  },
+});
+
 function deps(): ToolRouterDeps {
-  return { pool, artifactRoot: "/nicht/benutzt", catalog };
+  return { pool, artifactRoot: "/nicht/benutzt", catalog, policy };
 }
 
 async function newSession(): Promise<SessionRecord> {
@@ -82,6 +92,7 @@ describe("task.set / task.update über den Router", () => {
     expect(await eventTypes(session.sessionId)).toEqual([
       "session.created",
       "tool.requested",
+      "policy.allowed",
       "task.created",
       "task.created",
       "tool.completed",

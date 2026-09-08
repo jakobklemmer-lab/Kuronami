@@ -48,6 +48,15 @@ export const EVENT_TYPES = [
   // wäre der Snapshot nicht mehr aus dem Protokoll herleitbar (Abschnitt 4.4). step.failed
   // dafür zu benutzen, hieße einen bestehenden Typ umzudeuten.
   "step.canceled",
+
+  // Seither dazugekommen (S11). Kein neuer Namensraum: policy.* steht seit Abschnitt 4.4 mit
+  // allowed und denied, aber beide sagen nur, ob ausgeführt werden darf. Der Auftrag von S11
+  // verlangt zusätzlich, den **Zugriff auf einen Geheimnisträger** zu protokollieren, und das
+  // ist eine andere Aussage: sie gilt auch dann, wenn der Aufruf ganz normal erlaubt war.
+  // Sie in policy.allowed als Feld zu führen hieße, "wer hat wann welche Zugangsdatei
+  // angefasst" nur noch über einen Filter auf einem Payload beantworten zu können — genau die
+  // Frage, die nach einem Vorfall als erste gestellt wird.
+  "policy.secret_accessed",
 ] as const;
 
 export type EventType = (typeof EVENT_TYPES)[number];

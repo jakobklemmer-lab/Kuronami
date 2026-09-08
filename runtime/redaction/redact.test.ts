@@ -76,6 +76,30 @@ describe("Redaction-Filter · Muster", () => {
     );
   });
 
+  it("greift auch auf Umgebungsvariablen-Schreibweise mit Präfix", () => {
+    // In S11 gemessenes Leck: `\b` setzt keine Grenze zwischen `_` und einem Buchstaben, weil
+    // der Unterstrich ein Wortzeichen ist. `api_key=…` wurde ersetzt, `ANTHROPIC_API_KEY=…`
+    // nicht — also ausgerechnet die Schreibweise, in der Geheimnisse in .env-Dateien stehen.
+    // Gefunden hat es der S11-Test, der eine echte .env liest.
+    for (const line of [
+      "ANTHROPIC_API_KEY=abc123nichtsBesonderes",
+      "OPENAI_API_KEY: abc123",
+      "DB_PASSWORD=hunter2",
+      "MY_ACCESS_TOKEN=xyz",
+    ]) {
+      const filtered = redactText(line);
+      expect(filtered).toContain("[redacted:credential-field]");
+      expect(filtered).not.toMatch(/abc123|hunter2|xyz/);
+    }
+  });
+
+  it("lässt ein Wort in Ruhe, das nur zufällig auf einen Feldnamen endet", () => {
+    // Die Gegenprobe zur Lockerung oben: die Grenze fällt nur für `_` und `-`, nicht für
+    // Buchstaben. Sonst wäre `monkey:` ein Geheimnis.
+    expect(redactText("monkey: banane")).toBe("monkey: banane");
+    expect(redactText("Turmfalke: Vogel")).toBe("Turmfalke: Vogel");
+  });
+
   it("nimmt einen PEM-Block im Ganzen", () => {
     const pem = [
       "-----BEGIN RSA PRIVATE KEY-----",

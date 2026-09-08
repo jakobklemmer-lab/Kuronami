@@ -178,3 +178,21 @@ export function displayPath(zones: FsZones, absPath: string): string {
   const rel = path.relative(zones.sourceRoot, absPath);
   return rel === "" ? "." : rel.split(path.sep).join("/");
 }
+
+/**
+ * Der Adapter zwischen diesen Zonen und der Policy-Engine (S11).
+ *
+ * Die Engine braucht dieselbe Auflösung, darf aber nicht auf `tools/` zeigen — die Richtung
+ * ist `tools → policy` (Abschnitt 4.7). Deshalb bekommt sie eine Funktion injiziert, und
+ * diese hier ist sie. Sie steht neben den Zonen und nicht in der Verdrahtung, weil sonst
+ * jede Aufrufstelle (Runtime, jeder Test) ihre eigene Fassung schriebe — und die eine, die
+ * `displayPath` vergisst, ließe jede Pfad- und Geheimnisregel ins Leere laufen.
+ */
+export function policyResolver(
+  zones: FsZones,
+): (input: string) => Promise<{ absolute: string; zone: FsZoneName; display: string }> {
+  return async (input: string) => {
+    const found = await resolvePath(zones, input);
+    return { absolute: found.path, zone: found.zone, display: displayPath(zones, found.path) };
+  };
+}
