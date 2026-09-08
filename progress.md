@@ -1039,3 +1039,276 @@ Status: abgeschlossen. Nächste Session: S08 Kern-Tools `fs.*`.
 - `tasks.json`: S08 auf `done`, S09 von `queued` auf `ready`.
 
 Status: abgeschlossen. Nächste Session: S09 `web.search` / `web.fetch`.
+
+## S09 · `web.search` / `web.fetch` · 2026-09-07
+
+- Tests der Vorsession vorab gelaufen: 142 grün (health, events, session, steps, artifacts,
+  redaction, tools/registry, tools/router, tools/fs), unverändert.
+- Keine Migration. `kuronami.artifacts` nimmt seit S06 `source.tool` als beliebige
+  Zeichenkette; `web.fetch` schreibt seinen Rohinhalt als `"web.fetch"` weg, `web.search`
+  seine Trefferliste als `"web.search"`. `web.*` braucht keine Tabelle und keine Spalte,
+  die nicht schon dasteht — wie bei S07 und S08.
+- Neues Verzeichnis `tools/web/` mit `egress.ts` (Egress-Riegel), `normalize.ts`
+  (HTML→Text und Injection-Scan), `tools.ts` (die zwei Definitionen und Handler), je einer
+  Testdatei und `README.md`. Die ersten beiden liegen **getrennt** von `tools.ts` und haben
+  Testdateien ohne Datenbank: ein Loch im Egress-Riegel ist ein Loch im ganzen Assistenten,
+  und der Injection-Scan ist reine Textarbeit, die sich in Millisekunden gegenprüfen lässt.
+
+### Der Egress-Riegel (`egress.ts`)
+
+- **Deny-by-default, drei Prüfungen.** `assertEgressAllowed(policy, url)` parst die URL und
+  wirft, wenn: (a) das Schema nicht `http`/`https` ist — kein `file:`, `ftp:`, `data:`,
+  `ws:`; (b) Zugangsdaten in der URL stehen (`user:pass@host`) — die liefen sonst
+  ungefiltert ins Protokoll; (c) der Host nicht auf der Allowlist steht. Eine **leere**
+  Allowlist erlaubt nichts. Ein Allowlist-Eintrag `example.com` deckt `example.com` und
+  jede Subdomain mit ab, aber nur auf Punktgrenze — `notexample.com` ist nicht gedeckt.
+- **SSRF-Riegel, unabhängig von der Allowlist.** Literale Adressen aus dem Loopback-,
+  RFC-1918-, CGNAT-, Link-Local- oder Multicast-Bereich (IPv4 und, konservativ, IPv6)
+  werden immer abgewiesen — auch wenn jemand `127.0.0.1` auf die Allowlist setzt. `web.fetch`
+  ruft Webseiten ab; es hat im lokalen Netz nichts zu suchen, und das Modell wählt die URL,
+  womöglich beeinflusst von einem zuvor abgerufenen, nicht vertrauenswürdigen Inhalt. Dazu:
+  `localhost` und `*.localhost` fliegen ebenfalls raus.
+- **Bewusst nicht gebaut, dokumentierte Grenze:** die erneute Prüfung der IP *nach* der
+  DNS-Auflösung. Ein öffentlicher Name, der zur Verbindungszeit auf `127.0.0.1` zeigt
+  (DNS-Rebinding), käme durch. Das abzufangen bräuchte einen eigenen `undici`-Agent mit
+  `lookup`-Hook; für ein Ein-Nutzer-System ist die Namens-Allowlist plus IP-Literal-Riegel
+  die verhältnismäßige Stufe. In Abschnitt 4.7 vermerkt.
+- Die Allowlist kommt aus `WEB_EGRESS_ALLOWLIST` (kommagetrennt), von `runtime/index.ts`
+  eingelesen; Tests bauen ihre eigene. `.env.example` um den Schlüssel ergänzt, mit der
+  Notiz "leer = web.* ruft nichts ab".
+
+### Normalisierung und Injection-Scan (`normalize.ts`)
+
+- **`normalizeContent(raw, contentType)`** macht aus rohem HTML eine tag-freie Fassung:
+  `script`/`style`/`noscript`/`template`/`head`/`svg` samt Inhalt raus, Kommentare raus,
+  Blockgrenzen (`</p>`, `<br>`, `</div>` …) zu Zeilenumbrüchen, dann alle Tags weg, ein
+  kleiner Satz HTML-Entities dekodiert, Whitespace eingedampft. Der `<title>` wird gezogen.
+  Nicht-HTML (`text/plain`, `application/json`, …) läuft ungestrippt durch. Bewusst
+  regex-basiert und unvollständig (keine DOM-Analyse, keine Lesbarkeits-Heuristik): die
+  tag-freie Fassung ist nur eine *Zusammenfassung*, die Wahrheit ist der Rohinhalt im
+  Artefakt.
+- **`scanForInjection(text)`** sucht bekannte Prompt-Injection-Muster und gibt sie als Liste
+  `{ pattern, snippet, index }` zurück — **es entfernt nichts und verändert den Text nicht**
+  (Auftrag "kennzeichnen, nicht still entfernen"; Abschnitt 4.7 "Eine Anweisung aus externem
+  Inhalt hebt nie eine Freigabe auf"). Ein still gelöschtes Muster wäre ein verstecktes
+  Signal; ein markiertes ist eins, das das Modell und der Betreiber sehen. Muster für
+  Instruktions-Übersteuerung, Rollen-Neuzuweisung, System-Prompt-Sonden,
+  Geheimhaltungs-Aufforderungen, Exfiltration, Tool-Injection, Chat-Rollen-Marker
+  (`system:` am Zeilenanfang), Fence-Marker (`<|...|>`, `[INST]`) und **versteckte
+  Steuerzeichen** (Zero-Width, Bidi) — jeweils Deutsch und Englisch. Die Quantoren sind
+  bewusst schmal (`[^.\n]{0,N}`), damit kein katastrophales Backtracking entsteht; eine
+  Ladezeit-Prüfung (`assertInjectionPatternsUsable`) stellt sicher, dass jedes Muster
+  global ist — sonst bräche `matchAll`, und ein ohne `g` durchgerutschtes Muster fände nur
+  den ersten Treffer je Seite (dieselbe Zusage-in-einer-Prüfung wie in
+  `runtime/redaction/patterns.ts`).
+- Die Fundstellen sind nach Offset sortiert und auf `INJECTION_FLAGS_MAX` (12) begrenzt,
+  jeder `snippet` auf 120 Zeichen: eine Seite, die aus nichts als Injection-Phrasen
+  besteht, soll die Rückgabehülle nicht sprengen. Der Scan läuft über den **vollständigen**
+  normalisierten Text, nicht nur über den Kontext-Ausriss — ein Muster tief in einer großen
+  Seite wird also markiert, auch wenn der Ausriss es nicht mehr zeigt; der `snippet` trägt
+  den Wortlaut, damit nichts verloren geht (im Probelauf unten belegt).
+
+### Die zwei Tools (`tools.ts`)
+
+- `createWebTools({ pool, artifactRoot, egress, fetchImpl?, search? })` gibt die zwei
+  `ToolDefinition` mit ihren Abhängigkeiten in den Handlern geschlossen zurück — Muster von
+  `createFsTools` (S08). `fetchImpl` ist per Vorgabe das globale `fetch`, `search` ist per
+  Vorgabe nicht gesetzt. Tests injizieren beides.
+- **`web.fetch`** — der Ablauf und seine Reihenfolge:
+  1. **Egress-Prüfung zuerst.** Kein Socket wird geöffnet, bevor der Host freigegeben ist.
+  2. Abruf gegen eine **Uhr** und eine **Größengrenze**. Ein einziger `AbortController`,
+     an den Zeitfenster (Vorgabe 20 s) und das äußere Abbruchsignal der Session hängen. Der
+     Abruf läuft als `Promise.race` gegen einen Verlierer, der bei Timeout/Abbruch
+     abgelehnt wird — so gewinnt das Zeitfenster auch dann, wenn ein (Test-)`fetch` das
+     Signal ignoriert. Der Body wird **gestreamt** und beim Überschreiten von
+     `WEB_FETCH_MAX_BYTES` (5 MiB) abgebrochen, ohne den Rest herunterzuladen — **bevor**
+     ein Artefakt entsteht.
+  3. **Rohinhalt → Artefakt, immer und byteweise.** `readArtifact` gibt ihn bytegleich
+     zurück. Das ist die nicht vertrauenswürdige Rohfassung.
+  4. **Normalisierte Fassung → nur in den Kontext.** `structured.excerpt` ist die tag-freie
+     Fassung, auf `FETCH_EXCERPT_MAX_CHARS` (600) gekürzt. Dazu Metadaten (finale URL,
+     Status, Content-Type, Titel, Bytezahl, SHA-256) und `injection_flags`.
+  - **Rohinhalt und normalisierte Fassung teilen sich kein Feld.** Es gibt in der Hülle
+    keinen Weg an den vollständigen Rohinhalt — nur das Handle. Genau das ist die strikte
+    Trennung aus dem Auftrag.
+  - `structured.trust: "untrusted"`, `content_kind: "normalized-summary"`, und die `summary`
+    beginnt mit `[nicht vertrauenswürdig · externer Inhalt]`.
+  - Die Selbst-Auslagerung läuft **im Schritt** (wie `fs.read` in S08, wie der Router in
+    S07): das Artefakt braucht die `step_id` als Herkunft (S06) und gehört zum Ergebnis
+    dieses Versuchs. Im Protokoll steht `artifact.created` zwischen `step.started` und
+    `step.completed`.
+  - Die `web.fetch`-Hülle ist von vornherein knapp (Kontextstufe 0) und bleibt mit ~1,9 KB
+    weit unter der Router-Schwelle von 8k Token — der Test prüft ausdrücklich, dass **kein
+    zweites** Offload passiert (`structured.offloaded` bleibt `undefined`). Sich auf die
+    Router-Auslagerung zu verlassen, hätte den typisierten Ausriss gekostet: der Router
+    verschiebt *ganz* `structured` ins Artefakt.
+- **`web.search`** — knappe Trefferliste (`SEARCH_CONTEXT_MAX_RESULTS` = 5, Titel/Ausriss
+  gekürzt) in den Kontext, **alle** Treffer plus Anbieter-Rohantwort als Artefakt
+  ("Volltreffer als Artefakt"). `structured.trust: "untrusted"`, und der Injection-Scan
+  läuft über die Titel und Ausrisse — Suchtreffer sind ebenso angreiferkontrolliert wie ein
+  abgerufener Text.
+- **`web.search` braucht ein injiziertes Backend** (`WebSearchBackend`). Fehlt es, ist das
+  Tool registriert (Kern-Primitiv, Teil des eingefrorenen Katalogs), aber nicht bedienbar
+  und meldet eine Fehlerhülle — dieselbe Haltung wie bei der Policy-Engine in S07: der
+  Platz ist da, die Umsetzung kommt später (Anbieter über die n8n-Bridge, S13). Ein echtes
+  `web.search` jetzt an einen Anbieter zu binden, hieße die Vendor-Entscheidung in S09
+  vorwegzunehmen.
+- Beide Tools sind Risikostufe `read` (Abschnitt 10: `web.search` steht dort ausdrücklich
+  unter "Lesen"), `repeatable: true` — ein GET hat keinen beobachtbaren Seiteneffekt nach
+  draußen. Der Egress-Riegel ist die Kontrolle, nicht eine Freigabe je Aufruf; die
+  Policy-Engine (S11) kann später eine Domain-abhängige Freigabe davor setzen, der Router
+  hat den Platz seit S07 markiert.
+- **Fehler kommen als Fehlerhülle zurück, nicht als Ausnahme** (S07, Abschnitt 7). Die
+  Handler *werfen* — `EgressBlockedError`, `EgressUrlError`, `WebFetchTimeoutError`,
+  `WebFetchTooLargeError`, `WebSearchUnavailableError` —, und der Router macht daraus
+  `status: "error"` mit dem vollen Wortlaut in `structured.error` (`reason:
+  "handler_failed"`). Die Meldungen sind eindeutig und stabil gehalten ("steht nicht auf
+  der Egress-Allowlist", "Schema … ist nicht erlaubt", "überschreitet die
+  Größenbegrenzung", "Zeitfenster … überschritten").
+- Die **Bytes** eines abgerufenen Inhalts laufen **nicht** durch den Redaction-Filter —
+  bewusst, wie bei den Artefaktbytes seit S07 und den `fs.read`-Rohbytes seit S08. Ein
+  Textmuster über beliebige Bytes beschädigte die SHA-256-Kette, und das Artefakt liegt auf
+  derselben lokalen Platte. Der Schutz greift am `excerpt`: der geht durch
+  `appendEventInTx` (Protokoll) und `buildPrompt` (Kontext), und beide filtern. Ein
+  `sk-ant-…` im Text einer Seite ist im Protokoll und im Prompt ersetzt, bevor das Modell
+  es sieht — ohne Zutun der `web.*`-Handler. In Abschnitt 4.7 vermerkt.
+
+### Verdrahtung
+
+- `runtime/index.ts` baut den Katalog jetzt aus `createFsTools` **und** `createWebTools`
+  (seit S08 offen: "`web.*` folgt in S09"). Die Egress-Policy entsteht aus
+  `WEB_EGRESS_ALLOWLIST`; ohne gesetzte Hosts ruft `web.*` nichts ab (deny-by-default). Ein
+  Suchanbieter wird nicht verdrahtet — `web.search` meldet bis zur n8n-Bridge (S13) eine
+  Fehlerhülle. Der Rest von `index.ts` bleibt unverändert.
+- Der Katalog trägt jetzt sieben Tools (`fs.*` × 5, `web.fetch`, `web.search`); im Probelauf
+  war die Version `v1-b8a2cb6ccc7a663e`.
+
+### Tests
+
+- 42 neue Tests, zusammen 184. `tools/web/egress.test.ts` (14, **ohne Datenbank**):
+  http/https auf freigegebenem Host durch, andere Schemata und Zugangsdaten und Müll
+  abgewiesen; Subdomain-Deckung, aber nur auf Punktgrenze (`notexample.com` nicht);
+  exakter Unterhost frei, Elternhost dadurch nicht; leere Allowlist erlaubt nichts;
+  Normalisierung der Einträge; Loopback/RFC-1918/CGNAT/Link-Local/`localhost` und
+  IPv6-Loopback/ULA abgewiesen — auch wenn sie auf der Allowlist stünden; eine freigegebene
+  öffentliche IP bleibt in Ruhe.
+- `tools/web/normalize.test.ts` (14, **ohne Datenbank**): Titel gezogen und eingedampft;
+  Tags, script-/style-Inhalt und Kommentare raus; Blockgrenzen zu Zeilenumbrüchen; HTML
+  auch ohne Content-Type erkannt; Nur-Text und JSON ungestrippt durch; englische und
+  deutsche Instruktions-Übersteuerung mit Offset; System-Prompt-Sonde,
+  Geheimhaltung, Exfiltration, Rollen-Marker; versteckte Steuerzeichen (zwei Stück
+  gezählt, Snippet nennt `U+200B`); harmloser Text und Leerstring ergeben nichts; die Zahl
+  der Fundstellen ist begrenzt; **die markierte Phrase bleibt in der normalisierten Fassung
+  stehen** (nicht entfernt).
+- `tools/web/tools.test.ts` (14, mit Datenbank, über den echten Router), darunter das
+  **Fertig-Kriterium**: eine **200-KB-Seite** abrufen → die Rückgabehülle liegt unter 500
+  Token (`estimateResultTokens` und `JSON.stringify(...).length < 2000`), `offloaded` bleibt
+  `undefined`, genau ein Artefakt, und das Handle löst **bytegleich auf die vollständige
+  Seite** auf; `artifact.created` zwischen den Checkpoints. Dazu: script-Inhalt (ein
+  Marker `RAWONLY_…`) steht im Artefakt, aber **nirgends in der Rückgabehülle** — strikte
+  Trennung; `trust: "untrusted"` und die `summary`-Markierung; Nicht-HTML (JSON) wird als
+  Text behandelt, Tags nicht gestrippt; **Injection-Phrase wird markiert und bleibt in
+  Ausriss und Artefakt stehen**, die `summary` nennt die Markierung; nicht freigegebener
+  Host → Fehlerhülle mit `/Allowlist/`, `step.failed`, **kein Artefakt**; verbotenes Schema
+  abgewiesen; **Größengrenze bricht ab, kein Artefakt**; **Zeitfenster** wird zur
+  Fehlerhülle; derselbe Aufruf zweimal führt den Effekt einmal aus (ein Artefakt, ein
+  `step.started`); Replay aus dem Protokoll ergibt denselben Zustand wie der Snapshot.
+  `web.search`: 12 Treffer vom Backend → 5 im Kontext (Ausriss gekürzt), alle 12 im
+  Artefakt, `trust: "untrusted"`; Injection-Scan über die Ausrisse; ohne Backend eine
+  Fehlerhülle.
+- Vier Gegenproben, alle bestätigt und danach zurückgesetzt:
+  * `excerpt` aus dem Rohtext statt aus `normalizeContent` → "strikt getrennt" rot: der
+    `<script>`-Marker landet in der Hülle.
+  * Egress-Prüfung entfernt (`new URL(...)` direkt) → "nicht freigegebener Host" rot: die
+    Meldung `/Allowlist/` fehlt.
+  * Größengrenze ausgehebelt (`if (false)`) → "Größenbegrenzung" rot: `status` ist `ok`
+    statt `error`.
+  * (Frühere Iteration) `FETCH_EXCERPT_MAX_CHARS` auf 1000 → Fertig-Kriterium rot bei 584
+    statt < 500 Token; daraufhin auf 600 gesenkt und Vorschauzeilen von 6 auf 3 gekürzt.
+- Nachweis außerhalb von vitest (`_s09_probe.ts`, danach gelöscht): den Katalog wie
+  `runtime/index.ts` gebaut (7 Tools, `v1-b8a2cb6ccc7a663e`), eine echte Session eröffnet.
+  `web.fetch` auf eine 269-KB-Seite → Hülle **1903 Byte ≈ 479 Token**, `offloaded`
+  undefined, `trust` untrusted, Titel gezogen; zwei `injection_flags`
+  (`instruction-override`, `system-prompt-probe`) — die Phrase steckt am Seitenende jenseits
+  des 600-Zeichen-Ausrisses, wird aber trotzdem markiert und der `snippet` trägt den
+  Wortlaut; der `RAWONLY_…`-Marker aus dem `<script>` ist **nicht** in der Hülle, **wohl**
+  im Artefakt; das Artefakt ist 269040 Byte groß und bytegleich. `web.search` → 5 im
+  Kontext, 9 im Artefakt. `evil.test` → Fehlerhülle "steht nicht auf der Egress-Allowlist".
+  Protokoll über alle drei Aufrufe hinweg lückenlos (15 Ereignisse). Probedaten gelöscht,
+  alle fünf `kuronami`-Tabellen nach dem Lauf leer.
+
+### Bewusst nicht gebaut
+
+- Ein echter Suchanbieter. `web.search` nimmt ein injiziertes Backend; `runtime/index.ts`
+  verdrahtet keins, das Tool meldet bis S13 eine Fehlerhülle.
+- Die Prüfung der tatsächlich verbundenen IP *nach* der DNS-Auflösung (ein öffentlicher
+  Name, der zur Verbindungszeit auf eine interne IP zeigt — DNS-Rebinding). Bräuchte einen
+  eigenen `undici`-Agent mit `lookup`-Hook. Dokumentierte Grenze (Abschnitt 4.7). Die
+  **Weiterleitungs-Variante** derselben Lücke ist seit dem Nachtrag unten geschlossen.
+- Die Policy-Engine (S11). Ihr Platz im Router steht seit S07: zwischen Schema-Prüfung und
+  `executeStep`. Sie kann eine Domain-abhängige Freigabe vor den Egress-Riegel setzen.
+- JS-Rendering (Headless-Browser), robots.txt, Rate-Limiting, ein Cache abgerufener Seiten.
+  `web.fetch` macht rohes HTTP.
+- Lesbarkeits-Extraktion (Readability), HTML→Markdown, Zeichensatz-Erkennung über den
+  Content-Type hinaus (UTF-8-Vorgabe, Latin-1/Windows-1252 nur, wenn ausdrücklich benannt).
+- Der Alias-Layer `artifact://<namensraum>/<name>` (seit S06 offen).
+- Ein GC-Lauf für verwaiste Artefaktdateien (seit S06 offen; `web.fetch` erzeugt jetzt
+  zusätzlich solche Dateien, wenn der Prozess zwischen `rename` und `COMMIT` abstürzt).
+
+### Offene Befunde
+
+- `EgressBlockedError`, `WebFetchTimeoutError` und die übrigen `web.*`-Fehler kommen alle
+  mit `reason: "handler_failed"` zurück; der eigentliche Grund steht nur im Meldungstext.
+  Sobald die Schleife (S12) oder die Policy-Engine (S11) darauf verzweigen will, gehört das
+  in eine maschinenlesbare Aufzählung im Router — dieselbe Verabredung wie
+  `structured.reason` / `structured.refused` aus S07 und die `fs.*`-Fehler aus S08.
+- Der Injection-Scan über den vollständigen Text kann bei einer sehr großen, sehr
+  injection-dichten Seite bis zu `INJECTION_FLAGS_MAX` (12) Fundstellen mit je 120 Zeichen
+  Snippet liefern — die Hülle wächst dann auf ~3 KB (~750 Token), bleibt aber unter der
+  Router-Schwelle und wird nicht ausgelagert. Das ist gewollt: die Markierungen sind das
+  Signal, um das es geht.
+- `web.fetch` bei einer Nicht-2xx-Antwort (404, 500) gibt weiterhin `status: "ok"` zurück,
+  mit dem HTTP-Status prominent in `summary` und `structured` und dem Body im Artefakt —
+  der Abruf ist im HTTP-Sinn geglückt, und eine 403/429-Seite trägt oft die einzige
+  brauchbare Auskunft. Erst ein Netzwerkfehler (DNS, Verbindung) wird zur Fehlerhülle.
+- `pnpm typecheck && pnpm lint && pnpm test` grün, 184 Tests.
+- `tasks.json`: S09 auf `done`, S10 von `queued` auf `ready`.
+
+### Nachtrag nach Review · Weiterleitungen (SSRF über 302)
+
+- **Befund (aus dem Review):** `web.fetch` folgte Weiterleitungen mit `redirect: "follow"`,
+  aber die Egress-Prüfung lief nur einmal, auf die ursprünglich angefragte Adresse. Eine
+  freigegebene, harmlose Seite konnte mit einem `302` auf eine interne Adresse antworten
+  (Heimnetz, Cloud-Metadaten unter `169.254.169.254`, Server-Verwaltung), und der eingebaute
+  Follower ging brav hin — der Egress-Riegel war mit einem einzigen `Location`-Header
+  umgangen. Dieselbe Kategorie wie das dokumentierte DNS-Rebinding, aber ohne manipuliertes
+  DNS auszunutzen und im Protokoll bis dahin nicht erwähnt. Für ein Ein-Nutzer-System kein
+  Weltuntergang, aber eine bewusste Entscheidung wert.
+- **Entscheidung:** geschlossen, nicht vertagt. Der Auftrag von S09 nennt "Egress-Allowlist"
+  ausdrücklich, und eine Allowlist, die ein `302` umgeht, ist keine. Der Fix ist klein und
+  gut testbar; die Alternative (Weiterleitungen ganz abschalten) hätte `web.fetch` im Alltag
+  unbrauchbar gemacht — `http`→`https`, nackte Domain→`www`, Schrägstrich-Normalisierung
+  sind Standard.
+- **Umsetzung:** `web.fetch` folgt Weiterleitungen jetzt **von Hand**
+  (`followWithGuardedRedirects`, `redirect: "manual"`): jede Zwischenadresse — Start *und*
+  jeder `Location` — geht erneut durch `assertEgressAllowed` (Schema, Zugangsdaten,
+  Allowlist, SSRF-Riegel), bevor ihr gefolgt wird. Relative `Location` werden gegen die
+  aktuelle Adresse aufgelöst. Obergrenze `WEB_FETCH_MAX_REDIRECTS` = 5 (http→https→www→
+  Schrägstrich sind schon drei), danach `WebFetchTooManyRedirectsError`. Zwischenantworten
+  werden verworfen (`res.body?.cancel()`), das Zeitfenster und die Größengrenze gelten für
+  die Kette als Ganzes bzw. die finale Antwort. `structured.final_url` trägt jetzt die
+  Adresse, die den Inhalt tatsächlich geliefert hat (aus der Schleife, nicht aus `res.url` —
+  bei `redirect: "manual"` wäre das für konstruierte Antworten leer).
+- **Was das nicht schließt:** DNS-Rebinding (öffentlicher Name → interne IP zur
+  Verbindungszeit). Bleibt die dokumentierte Grenze, bräuchte den eigenen undici-Agent.
+- 5 neue Tests (`tools/web/tools.test.ts`, jetzt 19): Weiterleitung innerhalb der Allowlist
+  wird gefolgt; relative Weiterleitung korrekt aufgelöst; **Weiterleitung auf einen nicht
+  freigegebenen Host → Fehlerhülle, kein Artefakt, `step.failed`**; **Weiterleitung auf
+  `169.254.169.254` → abgewiesen (SSRF über 302), kein Artefakt**; Selbst-Schleife bricht
+  nach `maxRedirects` ab. Gegenprobe: das Weiterleitungsziel *nicht* erneut prüfen (wie der
+  eingebaute Follower) → beide SSRF-Tests rot (`expected 'ok' to be 'error'`), danach
+  zurückgesetzt.
+- `pnpm typecheck && pnpm lint && pnpm test` grün, 189 Tests.
+
+Status: abgeschlossen. Nächste Session: S10 `task.*` und `user.ask`.
+

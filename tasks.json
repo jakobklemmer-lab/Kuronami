@@ -67,7 +67,7 @@
     "id": "S09",
     "title": "web.search / web.fetch",
     "phase": 1,
-    "status": "ready",
+    "status": "done",
     "done_when": "Große Antwort landet automatisch als Artefakt",
     "depends_on": ["S08"]
   },
@@ -75,7 +75,7 @@
     "id": "S10",
     "title": "task.* und user.ask",
     "phase": 1,
-    "status": "queued",
+    "status": "ready",
     "done_when": "Lauf pausiert sauber bei awaiting_user",
     "depends_on": ["S09"]
   },

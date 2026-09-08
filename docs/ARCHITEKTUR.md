@@ -219,6 +219,29 @@ Risikostufe: hartes Schreiben, also immer Freigabe.
   grundsätzlich nicht vertrauenswürdig. Rohinhalt geht ins Artefakt, in den Kontext geht
   nur eine normalisierte Zusammenfassung. Eine Anweisung aus externem Inhalt hebt nie eine
   Freigabe auf.
+
+  **Umsetzung (S09):** `tools/web/`. `web.fetch` schreibt den Rohinhalt **immer und
+  ausschließlich** byteweise ins Artefakt (`readArtifact` gibt ihn bytegleich zurück); in
+  den Kontext geht nur `structured.excerpt` — eine tag-freie, gekürzte Fassung
+  (`normalize.ts`). Rohinhalt und normalisierte Fassung teilen sich kein Feld der
+  Rückgabehülle. `structured.trust` ist `"untrusted"`, die `summary` trägt eine Markierung,
+  und Prompt-Injection-Muster werden in `structured.injection_flags` **gekennzeichnet, nicht
+  entfernt** (`scanForInjection`, Deutsch und Englisch plus versteckte Steuerzeichen). Der
+  Egress ist deny-by-default (`egress.ts`): nur http/https, keine Zugangsdaten in der URL,
+  keine lokalen/privaten Adressen, Host muss auf `WEB_EGRESS_ALLOWLIST` stehen.
+  Weiterleitungen werden **von Hand** gefolgt (`redirect: "manual"`, höchstens 5 Sprünge),
+  und **jede** Zwischenadresse geht erneut durch dieselbe Prüfung — ein `302` von einer
+  freigegebenen Seite auf eine interne Adresse wird abgewiesen, nicht verfolgt. Dazu ein
+  Zeitfenster (20 s) und eine harte Größenbegrenzung (5 MiB), die den Download abbricht,
+  bevor ein Artefakt entsteht. `web.search` gibt eine knappe Trefferliste in den Kontext und
+  die vollständige Liste als Artefakt; es braucht ein injiziertes Backend und ist bis dahin
+  registriert, aber nicht bedienbar (Anbieter kommt mit der n8n-Bridge, S13). Die **Bytes**
+  laufen wie die Artefaktbytes (S07) und `fs.read`-Rohbytes (S08) bewusst nicht durch den
+  Redaction-Filter; der `excerpt` tut es über `appendEventInTx` und `buildPrompt`.
+  **Nicht** gebaut: die Prüfung der tatsächlich verbundenen IP *nach* der DNS-Auflösung
+  (ein öffentlicher Name, der zur Verbindungszeit auf eine interne IP zeigt — DNS-Rebinding).
+  Das bräuchte einen eigenen undici-Agent mit `lookup`-Hook; die Weiterleitungs-Variante
+  derselben Lücke ist mit der Handprüfung oben geschlossen.
 * **`fs.*`** ist auf die Workspace-Wurzel beschränkt. Pfad-Traversal wird abgewiesen, das
   ist das Testkriterium von S08.
 

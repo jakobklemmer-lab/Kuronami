@@ -1,6 +1,8 @@
 import { buildFsZones } from "../tools/fs/paths.js";
 import { createFsTools } from "../tools/fs/tools.js";
 import { ToolRegistry } from "../tools/registry.js";
+import { buildEgressPolicy } from "../tools/web/egress.js";
+import { createWebTools } from "../tools/web/tools.js";
 import { artifactRootFromEnv } from "./artifacts/store.js";
 import { createPool } from "./db/pool.js";
 import { type SessionChannel, startRuntime } from "./session/manager.js";
@@ -16,14 +18,27 @@ async function main(): Promise<void> {
   const pool = createPool();
   const artifactRoot = artifactRootFromEnv();
 
-  // Der Tool-Katalog dieses Prozesses. Seit S08 trägt er die fünf `fs.*`-Kern-Primitive;
-  // `web.*` folgt in S09. Die Version geht als Startwert in die Session (S07) — eine
-  // Session weiß damit von Anfang an, unter welchem Tool-Vertrag sie eröffnet wurde.
+  // Der Tool-Katalog dieses Prozesses. Seit S08 trägt er die fünf `fs.*`-Kern-Primitive, seit
+  // S09 dazu `web.search` und `web.fetch`. Die Version geht als Startwert in die Session
+  // (S07) — eine Session weiß damit von Anfang an, unter welchem Tool-Vertrag sie eröffnet
+  // wurde.
   // Zwei Zonen: die Quellzone ist der Arbeitsordner des Prozesses, die Artefaktzone der
   // ARTIFACT_ROOT. Ein `fs.*`-Pfad außerhalb beider wird abgewiesen (S08, Abschnitt 4.7).
   const zones = await buildFsZones({ sourceRoot: process.cwd(), artifactRoot });
+
+  // Egress ist deny-by-default: ohne freigegebene Hosts in WEB_EGRESS_ALLOWLIST ruft
+  // `web.fetch`/`web.search` nichts ab (S09, Abschnitt 4.7). Ein Suchanbieter ist noch
+  // nicht verdrahtet — `web.search` meldet bis dahin eine Fehlerhülle (n8n-Bridge, S13).
+  const egress = buildEgressPolicy({
+    allowlist: (process.env.WEB_EGRESS_ALLOWLIST ?? "")
+      .split(",")
+      .map((entry) => entry.trim())
+      .filter((entry) => entry.length > 0),
+  });
+
   const catalog = new ToolRegistry()
     .registerAll(createFsTools({ pool, artifactRoot, zones }))
+    .registerAll(createWebTools({ pool, artifactRoot, egress }))
     .freeze();
 
   const runtime = await startRuntime(pool, {
