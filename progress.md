@@ -2162,3 +2162,251 @@ Sechs, alle bestätigt und danach zurückgesetzt:
 - `tasks.json`: S12 auf `done`, S13 von `queued` auf `ready`.
 
 Status: abgeschlossen. Nächste Session: S13 n8n-Brücke.
+
+## S13 · n8n-Brücke · 2026-09-08
+
+Der Anfang von Phase 2: n8n kommt dazu, aber als **Tool-Schicht, nicht als Loop**. Jeder
+Workflow wird zu genau einem Tool; Loop, Sessions, Checkpoints, Kontext und Policy bleiben
+in der Runtime.
+
+- Tests der Vorsession vorab gelaufen: 325 grün, unverändert. `pnpm typecheck` und
+  `pnpm lint` ebenfalls.
+- **Keine Migration.** Die Brücke braucht keine Tabelle und keine Spalte. n8n bringt sein
+  eigenes Schema mit (siehe unten). Ein n8n-Tool schreibt seine Ereignisse
+  (`tool.requested`/`tool.completed`/`tool.failed`) und seinen Schritt über denselben Weg
+  wie `fs.*` und `web.*` — der Router und die Ausführungshülle stehen seit S07/S05.
+- **Keine neue Abhängigkeit.** Die Brücke ist ein `fetch`-Aufruf mit Timeout und Retry;
+  kein SDK, kein n8n-Client-Paket. Ein Workflow ist von außen ein HTTP-Endpunkt, und den
+  spricht man mit dem an, was Node schon hat.
+
+### `docker-compose.yml` — n8n intern, mit eigenem Port und eigenem Login
+
+- **Bild gepinnt** auf `n8nio/n8n:2.38.4` statt `latest`. Alles hier ist gepinnt
+  (`postgres:16-alpine`, exakte npm-Versionen); `latest` wäre die Hoffnung, dass ein
+  Update nichts bricht.
+- **Nur intern erreichbar.** Der veröffentlichte Port ist `127.0.0.1:5678:5678` statt
+  `5678:5678` — der Editor hängt auf Loopback, auf diesem Rechner im Browser erreichbar,
+  aber nicht aus dem Netz. Die Runtime spricht n8n über das Compose-Netz als
+  `http://n8n:5678` an und braucht dafür keinen veröffentlichten Port; der `runtime`-Dienst
+  bekommt `N8N_BASE_URL: http://n8n:5678` und `depends_on: n8n`.
+- **Eigenes Login.** n8n 2.x kennt keine Basic Auth mehr (`N8N_BASIC_AUTH_*` sind ersatzlos
+  weg — die drei Zeilen im Platzhalter von S01 waren auf einem aktuellen Bild ohnehin tot).
+  Das Login ist jetzt der Owner-Account, der beim ersten Aufruf einmalig im Browser
+  angelegt wird. Dazu `N8N_ENCRYPTION_KEY` aus der Umgebung, damit gespeicherte Credentials
+  über Neustarts lesbar bleiben, und `N8N_WEBHOOK_URL: http://n8n:5678/`, damit n8n im
+  internen Netz gültige Webhook-URLs erzeugt (`WEBHOOK_URL` ist in 2.x zugunsten von
+  `N8N_WEBHOOK_URL` veraltet — der Container sagt es im Log).
+- **Eigenes Schema.** `DB_POSTGRESDB_SCHEMA: n8n` — n8n legt seine Tabellen unter `n8n` an,
+  nicht neben `public.kuronami_schema_migrations`. Das ist dieselbe Trennung, die die
+  Runtime mit ihrem Schema `kuronami` hält (S02). Nachgeprüft im laufenden Container: nach
+  dem Start liegen 136 Tabellen im Schema `n8n`, `public` hat weiterhin genau eine
+  (`kuronami_schema_migrations`), das Schema `kuronami` unverändert sechs. n8n 2.x erzeugt
+  das Schema selbst; für ein bestehendes Volume, in dem das nicht greift, ist der Einzeiler
+  `docker compose exec postgres psql -U kuronami -c 'CREATE SCHEMA IF NOT EXISTS n8n'`.
+- Dazu ein Healthcheck auf `/healthz` (der `runtime`-Dienst wartet darüber nicht, aber
+  `docker compose ps` zeigt den Zustand).
+- **Bewusst nicht angefasst:** der veröffentlichte Postgres-Port (`0.0.0.0:5432`). Die
+  Tests laufen vom Host gegen die Datenbank; das zuzumachen wäre eine eigene Entscheidung
+  und gehört nicht in eine n8n-Session.
+
+### Die Brücke: `tools/n8n/bridge.ts`
+
+- Eine Operation: einen Webhook aufrufen (`POST ${baseUrl}/webhook/${path}`, JSON rein,
+  JSON raus) oder mit einem **benannten** Fehler scheitern. Die Datei kennt kein Tool, keine
+  Hülle, keine Session — die Übersetzung steht eine Ebene höher.
+- **`fetch` injiziert, nicht importiert** — dieselbe Überlegung wie bei `fetchImpl` in
+  `web.fetch` (S09) und `ModelClient` im Loop (S12). Der Test stellt ein `fetchImpl`, das
+  einen n8n-Webhook nachbildet; kein Test braucht einen laufenden Container.
+- **Timeout auf Brückenebene**, Vorgabe 30 s — deutlich unter dem 60-s-Fenster der
+  Ausführungshülle (S05). Der Grund ist derselbe wie bei `WEB_FETCH_TIMEOUT_MS` (S09): ein
+  hängender Workflow soll als sauberer Tool-Fehler enden (`reason: "error"`), nicht als
+  "unbekannter Ausgang" der Hülle, bei dem der Effekt weiterläuft. Beim Timeout und bei
+  Abbruch von außen (`inv.signal`) wird **nicht** wiederholt — beides heißt "aufhören".
+- **Retry mit exponentiellem Backoff auf Brückenebene**, Vorgabe drei Versuche (ein erster
+  plus zwei Wiederholungen). Wiederholt wird nur bei **vorübergehenden** Fehlern: ein
+  Netzfehler ohne Antwort (DNS, Verbindung abgelehnt, Socket-Reset vor der Antwort — der
+  Workflow lief nicht) und HTTP 429/502/503/504. **Nicht** bei 4xx außer 429: das ist
+  deterministisch (falsche Eingabe, Workflow fehlt), ein zweiter Anlauf ergäbe dasselbe.
+  **Nicht** bei 500: n8n gibt 500 zurück, wenn der Workflow lief und in einem Knoten
+  scheiterte — ein Retry führte den Seiteneffekt ein zweites Mal aus.
+- **Retry nur bei `repeatable`-Workflows.** Ein nicht wiederholbarer Workflow bekommt genau
+  einen Versuch. Ob ein zweiter Anlauf sicher wäre, weiß nur der, der den Workflow schreibt,
+  nicht die Brücke — dieselbe Haltung wie in der Ausführungshülle ("nicht wiederholbar
+  heißt nicht wiederholbar, auch bei einem sauber geworfenen Fehler", S05). At-least-once
+  bleibt die Zusage: ein 502/503/504 *kann* heißen, dass der Workflow lief und nur die
+  Antwort verlorenging. Der Retry setzt darauf, dass ein `repeatable`-Workflow das aushält —
+  genau die Verabredung, die der Autor mit dem Flag eingeht.
+- Der Hülle-Retry (über Prozessgrenzen, `attempt` in `kuronami.steps`, S05) und der
+  Brücken-Retry (HTTP-Versuche innerhalb eines Hülle-Versuchs) sind verschiedene
+  Fehlerdomänen und beide begrenzt. Sie zählen getrennt.
+- **Harte Größenbegrenzung** für den Antwortkörper, Vorgabe 5 MiB, mit Stream-Reader und
+  Abbruch mitten im Lesen (Muster aus `readBodyCapped`, S09). Das ist der Schutz gegen einen
+  ausufernden Workflow, unabhängig von der Auslagerung.
+- **Nur JSON.** Ein nicht-JSON-Körper wird zu `N8nResponseFormatError`; ein leerer Körper
+  zu `{}`. Sechs benannte Fehlerklassen (`N8nUnavailableError`, `…WebhookTimeoutError`,
+  `…WebhookAbortedError`, `…ResponseTooLargeError`, `…WorkflowHttpError`,
+  `…ResponseFormatError`), alle mit vollem Wortlaut — der Router macht daraus Fehlerhüllen
+  mit Stacktrace (AGENTS.md, "Fehler nie glätten").
+
+### Warum die Brücke **keine** eigene Auslagerung baut
+
+- "Große Antworten automatisch auslagern" steht im Auftrag — und passiert, aber im
+  **Router**. `materializeResult` (S07) misst die fertige Hülle jedes `execution: "step"`-
+  Tools und schreibt `structured` in ein Artefakt, sobald sie über der Schwelle liegt. Ein
+  n8n-Tool ist ein solches Schritt-Tool, also greift das ohne eine Zeile Extra-Code.
+- `fs.read` (S08) und `web.fetch` (S09) lagern **selbst** aus, weil sie einen *typisierten*
+  Ausschnitt behalten wollen (Rohbytes bzw. excerpt) und ihre Hülle absichtlich unter der
+  Router-Schwelle halten. Ein n8n-Ergebnis hat **keine bekannte Form**, aus der sich so ein
+  Ausschnitt schneiden ließe — der generische Weg des Routers (ganzes `structured` ins
+  Artefakt, `summary` + `preview` + Handle bleiben) ist hier genau der richtige. Der Handler
+  sorgt nur dafür, dass `summary` und `preview` auch nach der Auslagerung etwas aussagen
+  (synthetische `summary` aus den Feldnamen, `preview` aus den ersten Feldern).
+- Im Test nachgewiesen: ein Workflow, der ~76 KB zurückgibt, ergibt eine Hülle unter 2 KB
+  mit `offloaded: true`, und das Handle löst auf den vollständigen Körper auf.
+
+### Jeder Workflow ist ein natives Tool: `tools/n8n/workflows.ts`
+
+- `N8nWorkflowDef` trägt Name, Beschreibung, Risikostufe, Wiederholbarkeit, Webhook-Pfad
+  und Eingabeschema. `createN8nTools()` macht daraus `ToolDefinition`s. Von da an ist ein
+  Workflow von einem `fs.*`-Tool nicht mehr zu unterscheiden:
+  * Die **Registry** prüft Namensform, Risikostufe und die Feldnamen
+    (`assertPolicyFieldNames`). Genau das ist das zweite Tor, das `policy/risk.ts` seit S11
+    für "ein Tool, das aus JSON entsteht (n8n-Bridge, S13)" angekündigt hat — der Compiler
+    sichert nur Definitionen im Repo.
+  * Der **Router** ruft die **Policy-Engine** vor der Ausführung. Ein schreibender Workflow
+    (`mail.send`, S14) wird ohne Freigabe blockiert, ohne dass die Brücke etwas dafür tut.
+  * Die **Ausführungshülle** (`execution: "step"`, Vorgabe) gibt Checkpoint davor/danach,
+    Idempotenzschlüssel aus der `call_id`, Zeitfenster und Wiederaufnahme nach einem Absturz.
+  * Die **einheitliche Rückgabehülle** macht der Router; der Handler liefert nur `summary`,
+    `structured`, `preview`.
+- **Übersetzung der Antwort.** n8n gibt oft ein Array mit einem Element je Durchlauf zurück;
+  ein einzelnes Element wird ausgepackt. `structured` trägt einen Umschlag
+  (`{ workflow, http_status, attempts, duration_ms, body }`), `body` den ausgepackten
+  Körper. `summary` ist der `summary`-String des Körpers, falls einer da ist, sonst
+  synthetisch. So bleibt ein Workflow eine **dumme Integration** — er muss die Hülle nicht
+  kennen.
+
+### Abweichung: kein `n8n`-Namensraum, der Testworkflow ist `dev.uppercase`
+
+- Abschnitt 4.8 ordnet die n8n-Workflows den Namensräumen `mail`, `cal`, `github`, `server`
+  zu; einen `n8n`-Namensraum gibt es in `TOOL_NAMESPACES` nicht und die Architektur nennt
+  keinen. Ein Workflow **ist** ein Tool unter einem dieser Namensräume, kein eigener.
+- Der Testworkflow aus dem Auftrag ("nimmt Text entgegen, gibt ihn großgeschrieben zurück")
+  ist ein **Prüf-Tool des Harness** und heißt deshalb `dev.uppercase` — Namensraum `dev`,
+  der laut Abschnitt 4.8 genau für solche Tools da ist und "in keinen produktiven
+  Tool-Katalog" gehört. `HARNESS_N8N_WORKFLOWS` steht neben `DUMMY`-Tools (`dummies.ts`)
+  und wird **nicht** in `buildCatalog` verdrahtet.
+- Folge: der **ausgelieferte Katalog-Fingerabdruck bleibt `v1-53a18ba0cb4e49c8` mit zehn
+  Tools** — S13 fügt dem Katalog kein Tool hinzu. `buildCatalog` bekommt eine **optionale
+  Naht** (`config.n8n.workflows`, Vorgabe leer): ist sie leer, ändert sich nichts; S14
+  reicht dort die ersten echten (`mail.*`) durch. Zwei Tests halten beides fest — leer →
+  `v1-53a18ba0cb4e49c8`/10 Tools, mit `[UPPERCASE_WORKFLOW]` → anderer Fingerabdruck/11
+  Tools/`dev.uppercase` drin.
+- `runtime/index.ts` sagt beim Start eine Zeile dazu ("n8n-Brücke: <URL oder nicht
+  konfiguriert>, 0 Workflows im Katalog") — dieselbe Haltung wie bei der Governance-Lage
+  (S11/S12): der Betreiber soll sehen, ob eine Instanz hinterlegt ist.
+
+### `tools/n8n/workflows/uppercase.json`
+
+- Importierbarer n8n-Workflow: Webhook (`POST /webhook/uppercase`, `responseMode:
+  responseNode`) → Code-Knoten (`text.toUpperCase()`, dazu eine `summary`) → Respond to
+  Webhook (`firstIncomingItem`). Zielversion n8n 2.x.
+- **Gefundene Hürde:** `n8n import:workflow` in 2.x erzeugt **keine** `id` mehr, wenn die
+  Datei keine hat — der Import scheitert an `null value in column "id"`. Deshalb trägt die
+  Datei eine feste `id` (`kuronamiUppercase01`), wie ein Export aus dem Editor sie hätte.
+- Zweite Hürde, nur beim manuellen Einspielen: Git Bash wandelt `/tmp/uppercase.json` als
+  Argument in einen Windows-Pfad um (`MSYS_NO_PATHCONV=1` davor setzen). Steht in der
+  README, nicht im Code.
+
+### Tests
+
+- 22 neue, zusammen **347**.
+- `tools/n8n/bridge.test.ts` (15, **ohne Netz, ohne DB**): POST mit geparstem Körper und
+  Header; Token als `x-kuronami-token`; leerer Körper → `{}`; Retry bei 503, bei 429, bei
+  Netzfehler; **kein** Retry bei 400, bei nicht wiederholbarem Workflow; Aufgeben nach drei
+  Versuchen; Backoff wird eingehalten (gemessen); Timeout endet ohne Retry und schnell;
+  Abbruch vor dem ersten Versuch (`calls === 0`) und mitten im Aufruf; Größenbegrenzung;
+  Nicht-JSON abgewiesen.
+- `tools/n8n/tools.test.ts` (7, **mit DB, echtem Router, echter Policy**), darunter das
+  **Fertig-Kriterium**: `callTool(deps, session, { name: "dev.uppercase", input: { text:
+  "hallo welt" } })` → `status: "ok"`, `structured.body` = `{ text: "HALLO WELT", summary:
+  … }`, `summary` durchgereicht, Ereignisfolge `tool.requested, policy.allowed,
+  step.started, step.completed, tool.completed`, kein `tool.failed`, und **Replay ergibt
+  denselben Zustand wie der Schnappschuss** (S05).
+  Dazu: große Antwort → automatische Auslagerung (Hülle < 2 KB, `offloaded: true`, Handle
+  löst auf 900 Zeilen auf, Herkunft `dev.uppercase`); dauerhafter 503 → Fehlerhülle
+  (`reason: "handler_failed"`, Text enthält "503", `fetchImpl.calls === 3`); 500 wird
+  **nicht** wiederholt (`calls === 1`); Schemafehler → `reason: "invalid_input"` und die
+  Brücke wird **nie** gerufen (`calls === 0`, kein `step.started`).
+- Zwei Katalog-Tests (siehe Abweichung oben).
+
+### Gegenproben
+
+Drei, alle bestätigt und danach zurückgesetzt:
+
+- **`repeatable`-Gate in der Brücke entfernt** (immer `maxAttempts`) → "wiederholt nichts,
+  wenn der Workflow nicht wiederholbar ist" rot: ein 503 für einen nicht wiederholbaren
+  Workflow wird jetzt zweimal versucht.
+- **400 in `RETRYABLE_STATUS` aufgenommen** → "wiederholt einen 4xx-Fehler nicht" rot.
+- **`unwrapBody` deaktiviert** (Array nicht auspacken) → das Fertig-Kriterium rot:
+  `structured.body` ist `[{…}]` statt `{…}`, und die synthetische `summary` ("… — 1
+  Einträge") tritt an die Stelle der durchgereichten.
+
+### Nachweis gegen ein echtes n8n (im Gegensatz zu S12 durchgeführt)
+
+- `docker compose up -d n8n` auf dem gepinnten Bild `2.38.4`: Container nach ~11 s
+  `healthy`, Port nur auf `127.0.0.1:5678`, Migrationen im Schema `n8n`.
+- Workflow eingespielt: `docker compose cp` der `uppercase.json` in den Container,
+  `n8n import:workflow`, `n8n update:workflow --active=true` (in 2.x als "publish"
+  bezeichnet), Container neu gestartet — Log: `Activated workflow "dev.uppercase"`.
+- Drei Aufrufe:
+  * `curl` direkt auf `http://localhost:5678/webhook/uppercase` mit `{"text":"hallo welt
+    aus curl"}` → `{"text":"HALLO WELT AUS CURL","summary":"n8n hat 19 Zeichen
+    grossgeschrieben"}`, HTTP 200.
+  * die echte Brücke (`createN8nBridge({ baseUrl: "http://localhost:5678" }).invoke(...)`) →
+    `{ status: 200, body: { text: "DURCH DIE ECHTE BRUECKE", … }, attempts: 1, durationMs:
+    136 }`; ein Aufruf auf einen unbekannten Pfad → `N8nWorkflowHttpError` (HTTP 404), **ohne
+    Retry**.
+  * durch den **echten Router** als Tool `dev.uppercase` → einheitliche Hülle `{ status:
+    "ok", summary: "n8n hat 20 Zeichen großgeschrieben", structured: { workflow:
+    "dev.uppercase", http_status: 200, body: { text: "HALLO AUS DEM ROUTER", … } },
+    artifact_refs: [], preview: [...] }`. Das ist das Fertig-Kriterium, live.
+  Probe-Session und -Ereignisse danach gelöscht.
+- **n8n läuft nach der Session nicht weiter.** Der Container wurde mit `docker compose stop
+  n8n` angehalten; das Volume `n8n-data` und das Schema `n8n` bleiben, `docker compose up -d
+  n8n` bringt alles samt dem eingespielten Workflow zurück. Grund: der volle
+  vitest-Lauf gegen dieselbe Postgres-Instanz reißt zeitweise die Verbindungsgrenze, während
+  n8n seinen eigenen Pool hält (einmal beobachtet: 19 Fehlschläge quer über unbeteiligte
+  Testdateien, ein zweiter Lauf unmittelbar danach wieder 347 grün). Das ist eine
+  Umgebungsfrage, kein Codefehler — aber der Normalfall `pnpm test` soll nicht daran hängen,
+  ob gerade ein Container mitläuft.
+
+### Bewusst nicht gebaut
+
+- **Die echten Assistenz-Tools** (`mail.*`, `cal.*`, `github.*`, `server.*`). Das ist S14
+  und danach — S13 baut den Mechanismus und weist ihn mit `dev.uppercase` nach.
+- **Workflow-seitige Header-Auth.** Die Brücke *schickt* `x-kuronami-token`, wenn
+  `N8N_WEBHOOK_TOKEN` gesetzt ist; den Knoten "Header Auth" im Workflow scharf zu schalten
+  ist eine Umgebungsentscheidung und im Compose-Netz nicht nötig (die Netzgrenze trägt die
+  Kontrolle). Dokumentiert in `tools/n8n/README.md`.
+- **Ein Suchanbieter für `web.search`** über eine n8n-Bridge (seit S09 offen notiert). Der
+  Platz dafür ist `WebSearchBackend`; er anzuschließen wäre ein eigener Workflow plus die
+  Verdrahtung, und `web.search` meldet bis dahin weiterhin eine Fehlerhülle.
+- **Ein GC-Lauf** für n8n-Antwort-Artefakte — dieselbe offene Frage wie für alle Artefakte
+  seit S06.
+
+### Offene Befunde
+
+- Der **Postgres-Port ist weiterhin öffentlich** (`0.0.0.0:5432`). Für S13 bewusst nicht
+  angefasst (die Tests hängen daran); es bleibt der naheliegende nächste Schritt, wenn die
+  Erreichbarkeit als Ganzes drankommt.
+- **`N8N_ENCRYPTION_KEY` hat im Compose eine Dev-Vorgabe** (`kuronami-dev-encryption-key-…`).
+  Das ist für lokale Arbeit richtig und für alles andere falsch; `.env.example` sagt es.
+- Die Brücke misst `durationMs` und legt es in `structured` ab. Eine Kennzahl
+  "Tool-Latenz" (Abschnitt 12) entsteht daraus noch nicht — die gehört in dieselbe
+  Beobachtbarkeits-Session wie die offenen Punkte aus S12.
+- `structured.reason` ist weiterhin eine Verabredung und kein Typ (offen seit S07).
+- `pnpm typecheck && pnpm lint && pnpm test` grün, 347 Tests.
+- `tasks.json`: S13 auf `done`, S14 von `queued` auf `ready`.
+
+Status: abgeschlossen. Nächste Session: S14 Mail-Tools.

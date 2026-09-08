@@ -5,6 +5,8 @@ import { decidePolicyApproval, policyAskId } from "../../policy/approvals.js";
 import { createPolicyEngine } from "../../policy/engine.js";
 import { buildFsZones, policyResolver } from "../../tools/fs/paths.js";
 import { createFsTools } from "../../tools/fs/tools.js";
+import { createN8nBridge } from "../../tools/n8n/bridge.js";
+import { type N8nWorkflowDef, createN8nTools } from "../../tools/n8n/workflows.js";
 import { ToolRegistry } from "../../tools/registry.js";
 import { createTaskTools } from "../../tools/task/tools.js";
 import type { ToolCatalog } from "../../tools/types.js";
@@ -45,6 +47,17 @@ export interface CatalogConfig {
   sourceRoot?: string;
   /** Kommagetrennte Hosts. Vorgabe: `WEB_EGRESS_ALLOWLIST`, leer heißt: nichts abrufbar. */
   egressAllowlist?: readonly string[];
+  /**
+   * n8n-Workflows, die als Tools in den Katalog kommen (S13). Ohne Angabe: keine — dann
+   * bleibt der Katalog-Fingerabdruck unverändert. `baseUrl`/`token` fallen auf
+   * `N8N_BASE_URL`/`N8N_WEBHOOK_TOKEN` zurück. S14 reicht hier die ersten echten
+   * (`mail.*`) durch.
+   */
+  n8n?: {
+    baseUrl?: string;
+    token?: string;
+    workflows?: readonly N8nWorkflowDef[];
+  };
 }
 
 export interface BuiltCatalog {
@@ -73,7 +86,7 @@ export async function buildCatalog(config: CatalogConfig): Promise<BuiltCatalog>
       .map((entry) => entry.trim())
       .filter((entry) => entry.length > 0);
 
-  const catalog = new ToolRegistry()
+  const registry = new ToolRegistry()
     .registerAll(createFsTools({ pool: config.pool, artifactRoot: config.artifactRoot, zones }))
     .registerAll(
       createWebTools({
@@ -83,8 +96,20 @@ export async function buildCatalog(config: CatalogConfig): Promise<BuiltCatalog>
       }),
     )
     .registerAll(createTaskTools({ pool: config.pool }))
-    .registerAll(createUserTools({ pool: config.pool }))
-    .freeze();
+    .registerAll(createUserTools({ pool: config.pool }));
+
+  // n8n-Workflows als Tools (S13). Nur wenn welche konfiguriert sind — sonst bleibt der
+  // Fingerabdruck des ausgelieferten Katalogs unverändert (`v1-53a18ba0cb4e49c8`, 10 Tools).
+  const n8nWorkflows = config.n8n?.workflows ?? [];
+  if (n8nWorkflows.length > 0) {
+    const bridge = createN8nBridge({
+      baseUrl: config.n8n?.baseUrl ?? process.env.N8N_BASE_URL,
+      token: config.n8n?.token ?? process.env.N8N_WEBHOOK_TOKEN,
+    });
+    registry.registerAll(createN8nTools({ bridge, workflows: n8nWorkflows }));
+  }
+
+  const catalog = registry.freeze();
 
   return { catalog, policy: createPolicyEngine({ resolvePath: policyResolver(zones) }) };
 }

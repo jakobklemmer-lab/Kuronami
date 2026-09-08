@@ -12,25 +12,49 @@ services:
       - postgres-data:/var/lib/postgresql/data
 
   n8n:
-    image: n8nio/n8n:latest
+    # Gepinnt wie alles hier (postgres:16-alpine, exakte npm-Versionen). "latest" wäre die
+    # Hoffnung darauf, dass ein Update nichts bricht.
+    image: n8nio/n8n:2.38.4
     restart: unless-stopped
     environment:
-      N8N_BASIC_AUTH_ACTIVE: "true"
-      N8N_BASIC_AUTH_USER: kuronami
-      N8N_BASIC_AUTH_PASSWORD: kuronami
-      N8N_HOST: localhost
+      # Eigenes Login: n8n 2.x kennt keine Basic Auth mehr. Das Login ist der Owner-Account,
+      # der beim ersten Aufruf im Browser (http://127.0.0.1:5678) einmalig angelegt wird.
+      # Er wird nur auf Loopback angeboten (siehe ports), nicht im Netz.
+      N8N_HOST: "127.0.0.1"
       N8N_PORT: "5678"
+      N8N_PROTOCOL: http
+      # Damit n8n im internen Netz gültige Webhook-URLs erzeugt: die Runtime erreicht n8n
+      # als http://n8n:5678 über das Compose-Netz.
+      N8N_WEBHOOK_URL: "http://n8n:5678/"
+      N8N_ENCRYPTION_KEY: "${N8N_ENCRYPTION_KEY:-kuronami-dev-encryption-key-change-me}"
+      GENERIC_TIMEZONE: "${TZ:-Europe/Berlin}"
+      N8N_DIAGNOSTICS_ENABLED: "false"
+      N8N_HIRING_BANNER_ENABLED: "false"
+      N8N_RUNNERS_ENABLED: "true"
       DB_TYPE: postgresdb
       DB_POSTGRESDB_HOST: postgres
       DB_POSTGRESDB_DATABASE: kuronami
+      # Eigenes Schema in der geteilten Datenbank — so wie die Runtime ihr Schema `kuronami`
+      # hält (S02). n8n legt seine Tabellen unter `n8n` an, nicht neben
+      # public.kuronami_schema_migrations. n8n 2.x erzeugt das Schema selbst; für ein
+      # bestehendes Volume steht der Einzeiler in docs/ (progress.md, S13).
+      DB_POSTGRESDB_SCHEMA: n8n
       DB_POSTGRESDB_USER: kuronami
       DB_POSTGRESDB_PASSWORD: kuronami
     ports:
-      - "5678:5678"
+      # Nur Loopback: der n8n-Editor ist auf diesem Rechner unter http://127.0.0.1:5678
+      # erreichbar, aber nicht aus dem Netz. Die Runtime spricht n8n über das Compose-Netz
+      # als http://n8n:5678 an und braucht dafür keinen veröffentlichten Port.
+      - "127.0.0.1:5678:5678"
     volumes:
       - n8n-data:/home/node/.n8n
     depends_on:
       - postgres
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1:5678/healthz || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
 
   runtime:
     build:
@@ -39,8 +63,13 @@ services:
     restart: unless-stopped
     env_file:
       - .env
+    environment:
+      # Die Runtime erreicht n8n nur über das Compose-Netz.
+      N8N_BASE_URL: "http://n8n:5678"
+      N8N_WEBHOOK_TOKEN: "${N8N_WEBHOOK_TOKEN:-}"
     depends_on:
       - postgres
+      - n8n
     volumes:
       - ./artifacts:/app/artifacts
 
