@@ -14,13 +14,34 @@ import {
  * Der Lebenslauf einer Session. Bewusst ohne Spalte in `kuronami.sessions`: Abschnitt 4.4
  * sagt, der Snapshot ist abgeleitet und das Protokoll ist die Wahrheit. Für den Zustand
  * der Session ist das hier wörtlich gemeint — es gibt nur die Herleitung.
+ *
+ * `awaiting_user` (S10): der Lauf hat an einem `user.ask` angehalten. Es ist kein eigener
+ * Ereignistyp und keine Spalte — der Zustand *ist* ein `approval.requested` ohne folgendes
+ * `approval.granted`/`approval.denied`, so wie `canceled` ein `session.canceled` *ist*. Ein
+ * neu gestarteter Prozess faltet das Protokoll und weiß damit ohne Weiteres, dass er wartet
+ * und worauf.
  */
-export type SessionStatus = "running" | "completed" | "failed" | "canceled";
+export type SessionStatus = "running" | "awaiting_user" | "completed" | "failed" | "canceled";
+
+/** Eine strukturierte Antwortmöglichkeit eines `user.ask` (Abschnitt 10: kein Fließtext). */
+export interface AskOption {
+  id: string;
+  label: string;
+}
+
+/** Eine offene Rückfrage an den Nutzer, aus dem Protokoll gefaltet. */
+export interface PendingUserInput {
+  askId: string;
+  question: string;
+  options: AskOption[];
+}
 
 export interface SessionState {
   sessionId: string;
   status: SessionStatus;
   steps: StepState[];
+  /** Offene `user.ask`-Rückfragen. Leer, solange der Lauf nicht wartet. */
+  pendingUserInput: PendingUserInput[];
 }
 
 function requireString(payload: EventPayload, field: string, type: string): string {
@@ -33,6 +54,27 @@ function requireString(payload: EventPayload, field: string, type: string): stri
   return value;
 }
 
+/** Prüft die `options` eines `approval.requested`. Strukturierte Optionen, kein Fließtext. */
+function requireOptions(payload: EventPayload): AskOption[] {
+  const value = payload.options;
+  if (
+    !Array.isArray(value) ||
+    value.length === 0 ||
+    value.some(
+      (entry) =>
+        typeof entry !== "object" ||
+        entry === null ||
+        typeof (entry as AskOption).id !== "string" ||
+        typeof (entry as AskOption).label !== "string",
+    )
+  ) {
+    throw new Error(
+      `Ereignis approval.requested ohne verwertbare "options": ${JSON.stringify(value)}. Eine Rückfrage ohne strukturierte Optionen ist aus dem Protokoll nicht herleitbar.`,
+    );
+  }
+  return (value as AskOption[]).map((entry) => ({ id: entry.id, label: entry.label }));
+}
+
 /**
  * Faltet das Protokoll zum Zustand. Nimmt Ereignisse entgegen und sonst nichts: es gibt
  * keinen Parameter, über den ein Seiteneffekt hereinkäme, und keinen Aufruf, der einen
@@ -42,6 +84,10 @@ function requireString(payload: EventPayload, field: string, type: string): stri
 export function deriveSessionState(sessionId: string, events: EventRecord[]): SessionState {
   let status: SessionStatus = "running";
   const steps = new Map<string, StepState>();
+  // Offene Rückfragen, per `ask_id`. Ein `approval.requested` legt eine an, das zugehörige
+  // `approval.granted`/`approval.denied` nimmt sie wieder heraus. Bleibt am Ende eine übrig,
+  // wartet der Lauf (siehe unten).
+  const asks = new Map<string, PendingUserInput>();
 
   function step(event: EventRecord): StepState {
     const stepId = requireString(event.payload, "step_id", event.type);
@@ -134,15 +180,43 @@ export function deriveSessionState(sessionId: string, events: EventRecord[]): Se
         break;
       }
 
-      // Alles Übrige — runtime.*, turn.*, model.*, tool.*, policy.*, approval.* — sagt
-      // nichts über Schritte oder Sessionzustand. Ein unbekannter Typ ist hier kein
-      // Fehler: die Taxonomie wächst, die Herleitung muss das aushalten.
+      case "approval.requested": {
+        const askId = requireString(event.payload, "ask_id", event.type);
+        asks.set(askId, {
+          askId,
+          question: requireString(event.payload, "question", event.type),
+          options: requireOptions(event.payload),
+        });
+        break;
+      }
+
+      case "approval.granted":
+      case "approval.denied": {
+        // Eine Entscheidung schließt die Rückfrage. Ein `ask_id` ohne vorheriges
+        // `approval.requested` ist hier kein Fehler (das Protokoll könnte beschnitten sein) —
+        // die maßgebliche Aussage ist, dass danach nichts mehr offen ist.
+        asks.delete(requireString(event.payload, "ask_id", event.type));
+        break;
+      }
+
+      // Alles Übrige — runtime.*, turn.*, model.*, tool.*, policy.*, task.* — sagt nichts
+      // über Schritte oder Sessionzustand. Ein unbekannter Typ ist hier kein Fehler: die
+      // Taxonomie wächst, die Herleitung muss das aushalten.
       default:
         break;
     }
   }
 
-  return { sessionId, status, steps: [...steps.values()].sort(compareSteps) };
+  // `awaiting_user` ist keine eigene Marke im Protokoll, sondern die Lage "ein Lauf, der
+  // sonst liefe, hat eine offene Rückfrage". Ein Terminalzustand (completed/failed/canceled)
+  // gewinnt: eine abgebrochene Session wartet nicht, auch wenn zufällig noch ein
+  // `approval.requested` ohne Gegenstück im Protokoll steht.
+  const pendingUserInput = [...asks.values()].sort((a, b) => a.askId.localeCompare(b.askId));
+  if (status === "running" && pendingUserInput.length > 0) {
+    status = "awaiting_user";
+  }
+
+  return { sessionId, status, steps: [...steps.values()].sort(compareSteps), pendingUserInput };
 }
 
 /**
@@ -173,11 +247,14 @@ export async function readStepSnapshot(pool: Pool, sessionId: string): Promise<S
  */
 export async function readSessionState(pool: Pool, sessionId: string): Promise<SessionState> {
   await assertSessionExists(pool, sessionId);
-  const events = await readEvents(pool, sessionId);
+  const derived = deriveSessionState(sessionId, await readEvents(pool, sessionId));
   return {
     sessionId,
-    status: deriveSessionState(sessionId, events).status,
+    status: derived.status,
     steps: await readStepSnapshot(pool, sessionId),
+    // Aus dem Protokoll gefaltet, nicht aus einer Tabelle: es gibt keine, und Abschnitt 10
+    // will die Rückfrage strukturiert, nicht als Zeile, die jemand nachpflegt.
+    pendingUserInput: derived.pendingUserInput,
   };
 }
 

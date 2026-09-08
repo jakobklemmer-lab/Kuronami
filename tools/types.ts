@@ -84,8 +84,14 @@ export interface ToolOutput {
 export interface ToolInvocation {
   readonly input: Record<string, JsonValue>;
   readonly sessionId: string;
-  /** Der Schritt, in dem dieser Aufruf läuft. Wird zur Herkunft eines Artefakts. */
-  readonly stepId: string;
+  /** Die Aufrufkennung (S07). Ein `execution: "runtime"`-Tool leitet daraus seinen stabilen Schlüssel ab. */
+  readonly callId: string;
+  /**
+   * Der Schritt, in dem dieser Aufruf läuft — die Herkunft eines Artefakts. `null` für ein
+   * `execution: "runtime"`-Tool: das läuft ohne Ausführungshülle und ohne Schritt (siehe
+   * `ToolDefinition.execution`).
+   */
+  readonly stepId: string | null;
   readonly attempt: number;
   /** Bricht bei Zeitüberschreitung und bei Abbruch von außen (S05). */
   readonly signal: AbortSignal;
@@ -105,8 +111,27 @@ export interface ToolDefinition {
    * demselben Grund wie in `StepSpec` (S05): das ist eine Aussage über die Außenwelt, und
    * treffen kann sie nur, wer das Tool schreibt. Aus der Risikostufe abzuleiten wäre
    * naheliegend und falsch — ein `soft_write` legt beim zweiten Lauf ein zweites Artefakt an.
+   *
+   * Für `execution: "runtime"`-Tools ohne Belang: sie laufen ohne Schritt, es gibt keinen
+   * unterbrochenen Versuch zu wiederholen.
    */
   repeatable: boolean;
+  /**
+   * Wie der Router diesen Aufruf ausführt. Vorgabe `"step"`: durch die Ausführungshülle aus
+   * S05 — Checkpoint davor und danach, Idempotenzschlüssel, Zeitfenster, automatische
+   * Auslagerung. Das ist richtig für jedes Tool mit einem **externen** Seiteneffekt.
+   *
+   * `"runtime"` für Tools, die nur **lokalen** Zustand ändern und ihre eigenen Ereignisse in
+   * einer Transaktion schreiben — `task.set`/`task.update` (Plan in `kuronami.tasks` +
+   * `task.*`) und `user.ask` (`approval.requested`). Sie brauchen keine Schritt-Idempotenz
+   * (ihr Determinismus folgt aus der Form der Operation, nicht aus einem Schlüssel gegen ein
+   * Wiederverschicken) und dürfen keinen Schritt stundenlang parken, während ein Mensch
+   * überlegt. Der Router prüft weiter den Katalog, das Schema und schreibt
+   * `tool.requested`/`tool.completed`, ruft den Handler aber direkt.
+   *
+   * Zählt **nicht** in den Katalog-Fingerabdruck (interne Weiche, wie der Handler-Rumpf).
+   */
+  execution?: "step" | "runtime";
   handler: ToolHandler;
 }
 

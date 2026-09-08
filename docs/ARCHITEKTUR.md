@@ -510,6 +510,20 @@ Neuanlage in `sessions.tool_catalog_version` festgehalten. Eine von Hand gepfleg
 wäre die Hoffnung darauf, dass jemand sie beim Ändern hochzählt; der Handler-Rumpf zählt
 bewusst nicht mit, damit eine Fehlerbehebung keine laufende Session ungültig macht.
 
+**Umsetzung (S10):** `task.set`/`task.update` (`runtime/tasks/`, `tools/task/tools.ts`) und
+`user.ask` (`runtime/session/user-input.ts`, `tools/user/tools.ts`) haben keinen externen
+Seiteneffekt und laufen deshalb **nicht** durch die Ausführungshülle aus S05 — ein neues
+Feld `ToolDefinition.execution` (Vorgabe `"step"`, neu `"runtime"`) markiert das im Router.
+`callRuntimeTool` prüft Katalog und Schema wie jedes Tool und schreibt weiter
+`tool.requested`/`tool.completed`, ruft den Handler aber direkt statt über `executeStep`.
+`execution` zählt bewusst **nicht** in `fingerprintTools` — dieselbe Begründung wie beim
+Handler-Rumpf: es ist eine interne Weiche, kein Teil des Vertrags, den das Modell sieht.
+`task.set` schreibt den kompletten Plan neu (kein Anhängen), `task.update` patcht eine
+Aufgabe; beide halten Zeile (`kuronami.tasks`, seit S10 mit `session_id` und `position`,
+Migration `0006`) und Ereignis (`task.created`/`task.updated`) in derselben Transaktion
+identisch — dieselbe Snapshot-gleich-Replay-Disziplin wie bei Schritten (S05) und
+Artefakten (S06).
+
 ---
 
 ## 10. Governance und Freigaben
@@ -537,6 +551,21 @@ Weitere Regeln:
 
 * `user.ask` ist ein synchroner Haltepunkt mit **strukturierten Optionen**, kein Fließtext,
   auf dessen Parsbarkeit man hofft
+
+  **Umsetzung (S10):** Der Mechanismus steckt vollständig im Ereignisprotokoll, ohne eigene
+  Tabelle und ohne eigene Spalte. `user.ask` schreibt `approval.requested` mit Frage und
+  strukturierten Optionen unter dem stabilen Schlüssel `ask:<call_id>`; solange kein
+  `approval.granted`/`approval.denied` mit derselben `ask_id` folgt, faltet
+  `deriveSessionState` (`runtime/session/state.ts`) den Sessionstatus zu `awaiting_user` —
+  neu in `SessionStatus`, kein eigener Ereignistyp, dieselbe Lesart wie bei `canceled`. Ein
+  offener Aufruf lässt `UserInputRequiredError` **durch** den Router (wie
+  `ToolCatalogMismatchError`): der Lauf ist nicht fehlgeschlagen, er wartet, und
+  `runtime.stopped` wird trotzdem sauber geschrieben. `answerUserInput` schreibt
+  `approval.granted` mit dem vollständigen Freigabepfad (gewählte Option, `decided_by`,
+  Zeitstempel); ein erneuter `user.ask` mit derselben `call_id` — die ein wiederaufnehmender
+  Lauf aus seinem Plan wieder herleitet — findet die Antwort und läuft weiter. Der
+  Neustart-Nachweis (`runtime/session/user-input.test.ts`) spawnt dafür einen echten
+  zweiten Betriebssystem-Prozess, nicht nur einen zweiten Testlauf im selben Modul.
 * Freigaben der Form "für diese Session erlauben" werden gespeichert und bei Wiederaufnahme
   wiederhergestellt
 * Jede ausgeführte Aktion hinterlässt: Auslöser, Eingaben, Freigabepfad, Ausgaben, Zeitstempel

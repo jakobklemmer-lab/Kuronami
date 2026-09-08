@@ -1,14 +1,22 @@
 import type { Pool } from "pg";
 import { appendEvent } from "../runtime/events/log.js";
 import type { SessionRecord } from "../runtime/session/types.js";
+import { UserInputRequiredError } from "../runtime/session/user-input.js";
 import { type StepOutcome, describeError, executeStep } from "../runtime/steps/hull.js";
 import type { JsonValue } from "../runtime/steps/types.js";
-import { DEFAULT_OFFLOAD_THRESHOLD_TOKENS, materializeResult } from "./offload.js";
+import {
+  DEFAULT_OFFLOAD_THRESHOLD_TOKENS,
+  ToolOutputError,
+  ToolOutputTooLargeError,
+  estimateResultTokens,
+  materializeResult,
+} from "./offload.js";
 import type {
   ToolCatalog,
   ToolDefinition,
   ToolFieldType,
   ToolInputSchema,
+  ToolOutput,
   ToolResult,
 } from "./types.js";
 
@@ -18,11 +26,16 @@ import type {
  * Was hier zusammenläuft und warum an genau dieser Stelle:
  *   * die **einheitliche Rückgabehülle** (Abschnitt 9) — der Router ist die einzige Stelle,
  *     die sie herstellt, deshalb kann kein Tool eine andere Form zurückgeben;
- *   * die **Ausführungshülle** aus S05 — jeder Aufruf ist ein Schritt mit Checkpoint davor
- *     und danach, mit Idempotenzschlüssel und Zeitfenster (Abschnitt 6);
+ *   * die **Ausführungshülle** aus S05 — jeder Aufruf mit externem Seiteneffekt ist ein
+ *     Schritt mit Checkpoint davor und danach, mit Idempotenzschlüssel und Zeitfenster
+ *     (Abschnitt 6);
  *   * die **automatische Auslagerung** (Abschnitt 4.5) — gemessen an der fertigen Hülle;
  *   * der **eingefrorene Katalog** — eine Session wird nur von dem Prozess bedient, der
  *     denselben Tool-Vertrag hält.
+ *
+ * `execution: "runtime"`-Tools (`task.*`, `user.ask`, seit S10) laufen die Katalog- und
+ * Schema-Prüfung mit und bekommen `tool.requested`/`tool.completed`, aber **nicht** die
+ * Ausführungshülle: sie haben keinen externen Seiteneffekt. Siehe `callRuntimeTool`.
  *
  * Die Policy-Engine kommt mit S11 hierher und nicht andersherum (Abschnitt 4.7: "Der
  * Tool-Router ruft die Policy-Engine, nicht umgekehrt"). Der Platz dafür ist zwischen der
@@ -216,6 +229,13 @@ export async function callTool(
     );
   }
 
+  // `execution: "runtime"`-Tools (task.*, user.ask) laufen ohne die Ausführungshülle: kein
+  // externer Seiteneffekt, kein Schritt, keine Auslagerung. Der Katalog und das Schema sind
+  // schon geprüft, `tool.requested` steht schon im Protokoll.
+  if (tool.execution === "runtime") {
+    return await callRuntimeTool(deps, session, call, tool, input);
+  }
+
   let outcome: StepOutcome;
   try {
     outcome = await executeStep(
@@ -235,6 +255,7 @@ export async function callTool(
         const output = await tool.handler({
           input,
           sessionId: session.sessionId,
+          callId: call.callId,
           stepId: context.stepId,
           attempt: context.attempt,
           signal: context.signal,
@@ -314,6 +335,83 @@ function describeRefusal(error: unknown): string {
   return error instanceof Error
     ? `Der Schritt wurde nicht ausgeführt: ${error.message}`
     : `Der Schritt wurde nicht ausgeführt: ${String(error)}`;
+}
+
+/**
+ * Führt ein `execution: "runtime"`-Tool aus: Handler direkt, ohne Schritt, ohne Auslagerung.
+ *
+ * `UserInputRequiredError` (aus `user.ask`, wenn die Rückfrage noch offen ist) läuft hier
+ * **durch** — wie `ToolCatalogMismatchError` in `callTool`: der Lauf ist nicht
+ * fehlgeschlagen, er hält an. Kein `tool.completed`, kein `tool.failed`; das schon
+ * geschriebene `tool.requested` bleibt ohne Gegenstück stehen, so wie ein `step.started`
+ * eines abgestürzten Prozesses (S07). Der nächste Aufruf mit derselben `call_id` findet die
+ * Antwort und schreibt dann `tool.completed`.
+ *
+ * Jeder andere geworfene Fehler wird zur Fehlerhülle (`handler_failed`), Wortlaut und
+ * Stacktrace bleiben erhalten (AGENTS.md).
+ */
+async function callRuntimeTool(
+  deps: ToolRouterDeps,
+  session: SessionRecord,
+  call: ToolCall,
+  tool: ToolDefinition,
+  input: Record<string, JsonValue>,
+): Promise<ToolResult> {
+  let output: ToolOutput;
+  try {
+    output = await tool.handler({
+      input,
+      sessionId: session.sessionId,
+      callId: call.callId,
+      // Kein Schritt: ein Runtime-Tool schreibt kein Artefakt (dafür fehlte die Herkunft).
+      stepId: null,
+      attempt: 1,
+      signal: deps.signal ?? new AbortController().signal,
+    });
+  } catch (error) {
+    if (error instanceof UserInputRequiredError) throw error;
+    return await failTool(deps, session, call, tool, `Tool "${tool.name}" ist fehlgeschlagen`, {
+      reason: "handler_failed",
+      error: describeError(error),
+    });
+  }
+
+  if (typeof output?.summary !== "string" || output.summary.trim() === "") {
+    throw new ToolOutputError(
+      `Runtime-Tool "${tool.name}" hat keine summary geliefert (Abschnitt 9, Pflichtfeld).`,
+    );
+  }
+
+  const result: ToolResult = {
+    status: "ok",
+    summary: output.summary,
+    structured: output.structured ?? {},
+    artifact_refs: [...(output.artifact_refs ?? [])],
+    preview: [...(output.preview ?? [])],
+  };
+
+  // Ein Runtime-Tool wird nicht ausgelagert (kein Schritt als Artefaktherkunft). Gibt es
+  // trotzdem eine übergroße Hülle zurück, ist das ein Fehler des Tools und keine Stelle für
+  // stilles Kürzen — dieselbe Haltung wie in `materializeResult` (S07).
+  const threshold = deps.offloadThresholdTokens ?? DEFAULT_OFFLOAD_THRESHOLD_TOKENS;
+  if (estimateResultTokens(result) > threshold) {
+    throw new ToolOutputTooLargeError(
+      `Runtime-Tool "${tool.name}": die Hülle liegt über der Schwelle von ${threshold} Token. Ein Runtime-Tool muss von vornherein knapp bleiben (Kontextstufe 0).`,
+    );
+  }
+
+  await appendEvent(deps.pool, session.sessionId, "tool.completed", {
+    call_id: call.callId,
+    tool_name: tool.name,
+    risk: tool.risk,
+    // Kein Schritt, keine Wiederaufnahme: ein Runtime-Tool läuft bei jedem Aufruf.
+    step_id: null,
+    executed: true,
+    summary: result.summary,
+    artifact_refs: result.artifact_refs,
+  });
+
+  return result;
 }
 
 async function failTool(

@@ -254,3 +254,113 @@ describe("Herleitung des Zustands aus dem Protokoll", () => {
     ).toThrow(/ohne verwertbares Feld "step_id"/);
   });
 });
+
+describe("Rückfragen an den Nutzer (awaiting_user)", () => {
+  const OPTIONS = [
+    { id: "a", label: "Variante A" },
+    { id: "b", label: "Variante B" },
+  ];
+
+  function requested(askId: string, question = "Welche Variante?"): EventPayload {
+    return { ask_id: askId, kind: "user_ask", question, options: OPTIONS };
+  }
+
+  it("faltet einen offenen approval.requested zu awaiting_user samt der Frage", () => {
+    const state = deriveSessionState(
+      SESSION_ID,
+      log(["session.created", {}], ["approval.requested", requested("ask:1")]),
+    );
+
+    expect(state.status).toBe("awaiting_user");
+    expect(state.pendingUserInput).toEqual([
+      { askId: "ask:1", question: "Welche Variante?", options: OPTIONS },
+    ]);
+    // Kein Schritt: user.ask läuft nicht über die Hülle.
+    expect(state.steps).toEqual([]);
+  });
+
+  it("kehrt nach approval.granted zu running zurück", () => {
+    const state = deriveSessionState(
+      SESSION_ID,
+      log(
+        ["session.created", {}],
+        ["approval.requested", requested("ask:1")],
+        ["approval.granted", { ask_id: "ask:1", choice: "b", choice_label: "Variante B" }],
+      ),
+    );
+
+    expect(state.status).toBe("running");
+    expect(state.pendingUserInput).toEqual([]);
+  });
+
+  it("kehrt auch nach approval.denied zu running zurück", () => {
+    const state = deriveSessionState(
+      SESSION_ID,
+      log(
+        ["session.created", {}],
+        ["approval.requested", requested("ask:1")],
+        ["approval.denied", { ask_id: "ask:1", reason: "verworfen" }],
+      ),
+    );
+    expect(state.status).toBe("running");
+    expect(state.pendingUserInput).toEqual([]);
+  });
+
+  it("führt mehrere offene Rückfragen, sortiert nach ask_id", () => {
+    const state = deriveSessionState(
+      SESSION_ID,
+      log(
+        ["session.created", {}],
+        ["approval.requested", requested("ask:z", "Zuerst?")],
+        ["approval.requested", requested("ask:a", "Dann?")],
+      ),
+    );
+    expect(state.pendingUserInput.map((entry) => entry.askId)).toEqual(["ask:a", "ask:z"]);
+    expect(state.status).toBe("awaiting_user");
+  });
+
+  it("lässt einen Terminalzustand gewinnen: eine abgebrochene Session wartet nicht", () => {
+    const state = deriveSessionState(
+      SESSION_ID,
+      log(
+        ["session.created", {}],
+        ["approval.requested", requested("ask:1")],
+        ["session.canceled", { reason: "user_request" }],
+      ),
+    );
+    // Der Status ist canceled, nicht awaiting_user — aber die offene Rückfrage bleibt sichtbar.
+    expect(state.status).toBe("canceled");
+    expect(state.pendingUserInput).toHaveLength(1);
+  });
+
+  it("verträgt ein approval.granted ohne vorheriges approval.requested", () => {
+    const state = deriveSessionState(
+      SESSION_ID,
+      log(["session.created", {}], ["approval.granted", { ask_id: "ask:weg", choice: "a" }]),
+    );
+    expect(state.status).toBe("running");
+    expect(state.pendingUserInput).toEqual([]);
+  });
+
+  it("wirft, wenn ein approval.requested die Felder für eine Rückfrage nicht trägt", () => {
+    expect(() =>
+      deriveSessionState(
+        SESSION_ID,
+        log(["approval.requested", { question: "?", options: OPTIONS }]),
+      ),
+    ).toThrow(/ohne verwertbares Feld "ask_id"/);
+    expect(() =>
+      deriveSessionState(
+        SESSION_ID,
+        log(["approval.requested", { ask_id: "ask:1", options: OPTIONS }]),
+      ),
+    ).toThrow(/ohne verwertbares Feld "question"/);
+    // Fließtext-Optionen sind keine strukturierten Optionen (Abschnitt 10).
+    expect(() =>
+      deriveSessionState(
+        SESSION_ID,
+        log(["approval.requested", { ask_id: "ask:1", question: "?", options: ["a", "b"] }]),
+      ),
+    ).toThrow(/verwertbare "options"/);
+  });
+});

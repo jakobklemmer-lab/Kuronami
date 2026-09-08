@@ -1,6 +1,8 @@
 import { buildFsZones } from "../tools/fs/paths.js";
 import { createFsTools } from "../tools/fs/tools.js";
 import { ToolRegistry } from "../tools/registry.js";
+import { createTaskTools } from "../tools/task/tools.js";
+import { createUserTools } from "../tools/user/tools.js";
 import { buildEgressPolicy } from "../tools/web/egress.js";
 import { createWebTools } from "../tools/web/tools.js";
 import { artifactRootFromEnv } from "./artifacts/store.js";
@@ -18,10 +20,10 @@ async function main(): Promise<void> {
   const pool = createPool();
   const artifactRoot = artifactRootFromEnv();
 
-  // Der Tool-Katalog dieses Prozesses. Seit S08 trägt er die fünf `fs.*`-Kern-Primitive, seit
-  // S09 dazu `web.search` und `web.fetch`. Die Version geht als Startwert in die Session
-  // (S07) — eine Session weiß damit von Anfang an, unter welchem Tool-Vertrag sie eröffnet
-  // wurde.
+  // Der Tool-Katalog dieses Prozesses. Seit S08 die fünf `fs.*`-Kern-Primitive, seit S09
+  // dazu `web.search` und `web.fetch`, seit S10 `task.set`/`task.update` und `user.ask`. Die
+  // Version geht als Startwert in die Session (S07) — eine Session weiß damit von Anfang an,
+  // unter welchem Tool-Vertrag sie eröffnet wurde.
   // Zwei Zonen: die Quellzone ist der Arbeitsordner des Prozesses, die Artefaktzone der
   // ARTIFACT_ROOT. Ein `fs.*`-Pfad außerhalb beider wird abgewiesen (S08, Abschnitt 4.7).
   const zones = await buildFsZones({ sourceRoot: process.cwd(), artifactRoot });
@@ -39,6 +41,8 @@ async function main(): Promise<void> {
   const catalog = new ToolRegistry()
     .registerAll(createFsTools({ pool, artifactRoot, zones }))
     .registerAll(createWebTools({ pool, artifactRoot, egress }))
+    .registerAll(createTaskTools({ pool }))
+    .registerAll(createUserTools({ pool }))
     .freeze();
 
   const runtime = await startRuntime(pool, {

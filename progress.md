@@ -1312,3 +1312,147 @@ Status: abgeschlossen. Nächste Session: S09 `web.search` / `web.fetch`.
 
 Status: abgeschlossen. Nächste Session: S10 `task.*` und `user.ask`.
 
+## S10 · `task.*` und `user.ask` · 2026-09-08
+
+**Vorbemerkung zur Entstehung dieses Eintrags:** Die Session, in der S10 gebaut wurde, ist
+durch ein Nutzungslimit unterbrochen worden, danach fiel der Strom aus — der Gesprächskontext
+war weg, `progress.md` und `tasks.json` sahen noch nach "S10 nicht begonnen" aus. Eine
+Bestandsaufnahme zu Beginn dieser Session ergab: der Code stand bereits vollständig im
+Arbeitsverzeichnis (`runtime/tasks/`, `tools/task/`, `tools/user/`, `runtime/session/
+user-input.ts`, `await-user.process.ts`, Migration `0006`), war aber weder committet noch
+gegen `pnpm lint` gelaufen, und ein Testbug im Neustart-Nachweis stand offen. Dieser Eintrag
+dokumentiert den Code, wie er vorgefunden und in dieser Session zu Ende gebracht wurde —
+ohne die Gegenproben-Erzählung der Sessions davor nachzustellen, wo sie nicht tatsächlich
+in dieser Session gelaufen sind.
+
+- Tests der Vorsession: 189 (S01–S09) liefen nach Wiederherstellung der Datenbank
+  (Docker Desktop war nicht gestartet) unverändert grün, bevor an S10 etwas geändert wurde.
+- Migration `0006_task_plan`: erweitert `kuronami.tasks` (seit S02 ohne Session-Bezug) um
+  `session_id` (Fremdschlüssel auf `kuronami.sessions`) und `position`. Primärschlüssel wird
+  zusammengesetzt (`session_id, task_id`) statt `task_id` allein — Abweichung von Abschnitt 5,
+  weil `task.set` Aufgaben über eine vom Aufrufer stabil gewählte `id` adressiert
+  ("summarize-mails" statt eine generierte Kennung), damit ein `task.update` nach einem
+  Neustart dieselbe Aufgabe trifft; solche Schlüssel sind nur innerhalb einer Session
+  eindeutig. `position` trägt die Planreihenfolge, weil `created_at` sie nicht trägt: ein
+  einziges `task.set` schreibt alle Zeilen in derselben Transaktion und damit mit praktisch
+  gleichem Zeitstempel. Zwei Indizes (`session_id`, `session_id, position`). War schon vor
+  dem Stromausfall angewendet (2026-09-07), Schema und Code stimmen überein.
+- `runtime/tasks/{types,store}.ts`: `task.set` und `task.update` (Abschnitt 9). Derselbe
+  Snapshot-gleich-Replay-Zwang wie bei Schritten (S05) und Artefakten (S06): jede Änderung
+  schreibt Zeile (`kuronami.tasks`) und Ereignis (`task.created`/`task.updated`) in **einer**
+  Transaktion mit `now()` als gemeinsamem Zeitstempel, `derivePlan`/`replayPlan` falten das
+  Protokoll unabhängig davon zum selben Plan. `task.set` schreibt den **kompletten** Plan neu
+  (kein Anhängen): Aufgaben, die in der neuen Liste fehlen, werden gelöscht und ihr
+  `task.updated` trägt `dropped: true`, damit die Faltung sie fallen lässt. Ein unveränderter
+  Re-`set` schreibt kein Ereignis (Vergleich über `sameFields`), wie `beginStep` bei einem
+  schon fertigen Schritt. Beide Operationen laufen **nicht** durch die Ausführungshülle aus
+  S05: kein externer Seiteneffekt, ihr Determinismus folgt aus der Form der Operation
+  (deklaratives Neuschreiben bzw. gezielter Patch), nicht aus einem Idempotenzschlüssel gegen
+  Wiederverschicken — dasselbe Argument wie bei `writeArtifact` (S06). Der Redaction-Filter
+  (S07) läuft am selben Schreibtor wie bei `writeArtifact`, auf jedes Textfeld außer `task_id`/
+  `session_id` (die sind Identität, wie `idempotency_key` in S07). Eine `id`, die der Filter
+  verändern würde, wird abgewiesen (`TaskInputError`) statt einen kaputten Schlüssel
+  entstehen zu lassen.
+- `tools/task/tools.ts`: `task.set`/`task.update` als dünner Tool-Mantel um `store.ts`.
+  Eingabeprüfung ohne Bibliothek nach dem Muster von S07/S08: Pflichtfelder, Typen und
+  **unbekannte Schlüssel** werden abgewiesen statt stillschweigend fallen gelassen (`TASK_KEYS`/
+  `OPTION_KEYS`), sonst führte der Router einen Aufruf aus, den so niemand gemeint hat.
+- `runtime/session/user-input.ts` + `tools/user/tools.ts`: `user.ask` (Abschnitt 9/10), der
+  synchrone Haltepunkt mit **strukturierten** Optionen (mindestens zwei, `{ id, label }`,
+  kein Fließtext, auf dessen Parsbarkeit man hofft). Der Mechanismus steckt vollständig im
+  Ereignisprotokoll, ohne eigene Tabelle und ohne eigene Spalte: der Aufruf schreibt
+  `approval.requested` unter dem stabilen Schlüssel `ask:<call_id>`; ist die Rückfrage noch
+  offen, wirft der Handler `UserInputRequiredError`, die der Router **durchlässt** — wie
+  `ToolCatalogMismatchError` (S07): der Lauf ist nicht fehlgeschlagen, er wartet, und
+  `runtime.stopped` wird trotzdem sauber geschrieben. `answerUserInput` schreibt
+  `approval.granted` mit dem vollständigen Freigabepfad (gewählte Option, `decided_by`,
+  Zeitstempel, Abschnitt 10); `dismissUserInput` schreibt `approval.denied`, ohne eine Option
+  zu wählen. Ein zweiter `approval.requested` zur selben `ask_id` wird nicht geschrieben —
+  Idempotenz kommt aus dem Protokoll, nicht aus der Ausführungshülle, durch die `user.ask`
+  bewusst nicht läuft (kein externer Seiteneffekt; einen Schritt stundenlang auf `running`
+  zu parken, während ein Mensch überlegt, wäre falsch).
+- `runtime/session/state.ts`: neuer `SessionStatus`-Wert `awaiting_user`, kein eigener
+  Ereignistyp und keine Spalte — dieselbe Lesart wie `canceled`: der Zustand *ist* ein
+  `approval.requested` ohne folgendes `approval.granted`/`approval.denied`. `PendingUserInput`/
+  `AskOption` neu, `deriveSessionState` faltet offene Rückfragen aus `approval.*` und markiert
+  die Session als `awaiting_user`, aber nur wenn kein Terminalzustand (`completed`/`failed`/
+  `canceled`) schon gewonnen hat — eine abgebrochene Session wartet nicht, auch wenn zufällig
+  noch ein offenes `approval.requested` im Protokoll steht.
+- `tools/router.ts`/`tools/types.ts`: neues Feld `ToolDefinition.execution` (Vorgabe `"step"`,
+  neu `"runtime"`). `task.*` und `user.ask` haben keinen externen Seiteneffekt und laufen
+  deshalb ohne die Ausführungshülle aus S05 — `callRuntimeTool` prüft Katalog und Schema wie
+  jeder Aufruf und schreibt `tool.requested`/`tool.completed`, ruft den Handler aber direkt.
+  `execution` zählt bewusst **nicht** in `fingerprintTools` (`tools/registry.ts` musste dafür
+  nicht angefasst werden: der Fingerabdruck zählt explizit aufgezählte Felder auf, keine
+  Ausschlussliste) — dieselbe Begründung wie beim Handler-Rumpf seit S07: eine interne
+  Weiche, kein Teil des Vertrags, den das Modell sieht. `ToolInvocation.stepId` ist jetzt
+  `string | null` (ein Runtime-Tool schreibt kein Artefakt, ihm fehlt die Herkunft dafür),
+  dazu ein neues Feld `callId`, aus dem `user.ask` seinen stabilen `ask:<call_id>`-Schlüssel
+  ableitet.
+- `runtime/index.ts`: baut den Katalog jetzt zusätzlich aus `createTaskTools`/
+  `createUserTools` (nach `fs.*` und `web.*`).
+- **Gefundener und behobener Fehler:** Der Neustart-Nachweis
+  (`runtime/session/user-input.test.ts`) legte die Session vor dem Spawnen eines echten
+  Kindprozesses mit `createOrResumeSession(pool, { threadId, channel: "web" })` an — **ohne**
+  `defaults.toolCatalogVersion`. Die Session bekam damit die Vorgabe `"v1"`, während der
+  gespawnte Prozess seinen eigenen echten Katalog-Fingerabdruck (`createUserTools({ pool })`
+  allein) berechnete und ihn nur beim *Neuanlegen* setzen kann — beim *Wiederfinden* greifen
+  Vorgabewerte laut S04 bewusst nicht. Jeder Tool-Aufruf im Kindprozess brach deshalb sofort
+  mit `ToolCatalogMismatchError` ab, bevor er `user.ask` erreichte: das Fertig-Kriterium der
+  Session war rot. Der Schwestertest `tools/user/tools.test.ts` macht es korrekt
+  (`defaults: { toolCatalogVersion: catalog.version }`) und war deshalb grün — der
+  zugrundeliegende Mechanismus war also nachweislich in Ordnung, nur der Testaufbau nicht.
+  Im echten Betrieb (`runtime/index.ts`) träte das nicht auf, weil dort immer der volle
+  Katalog beim allerersten Anlegen einer Session gesetzt wird. Fix: der Test baut jetzt
+  denselben Katalog wie `await-user.process.ts` (`createUserTools({ pool })`) und legt die
+  Session mit dessen Fingerabdruck als Vorgabe an.
+- `pnpm exec biome check --fix .` über sechs Dateien angewendet (reine Formatierung und eine
+  Import-Sortierung in `await-user.process.ts`, `state.test.ts`, `store.test.ts`,
+  `tools/task/tools.test.ts`, `tools/user/tools.test.ts`) — `--unsafe` war entgegen der
+  ersten Einschätzung nicht nötig, der einfache Fix reichte für die Import-Reihenfolge.
+- 33 neue Tests, zusammen 222. `runtime/tasks/store.test.ts` (12, mit Datenbank): Plan
+  anlegen mit Positionen und `task.created` je Aufgabe, Snapshot == Faltung; unveränderter
+  Re-`set` schreibt kein Ereignis; Aktualisieren, Entfernen (`dropped: true`, Aufgabe fällt
+  aus Snapshot und Faltung); `task.update` auf unbekannte `task_id` wirft
+  `TaskNotFoundError`; leerer Patch wirft `TaskInputError`; ungültiger Status wirft
+  `TaskStatusError`, ohne ein Ereignis zu hinterlassen; Redaction greift auf Titel/Blocker
+  (Secret in einem Blocker-Kurztext verschwindet aus Zeile **und** Ereignis); doppelte `id`
+  in einem `task.set` wirft. `tools/task/tools.test.ts` (5, über den echten Router):
+  `task.set` und `task.update` über `callTool`, unbekanntes Feld in einer Aufgabe abgewiesen,
+  `execution: "runtime"` erzeugt kein `step.*`-Ereignis, nur `tool.requested`/`tool.completed`.
+  `tools/user/tools.test.ts` (8, über den echten Router): `user.ask` hält beim ersten Aufruf
+  an (`UserInputRequiredError`, Session `awaiting_user`); derselbe `call_id` nach der Antwort
+  liefert die Wahl zurück und der Sessionstatus kehrt auf `running`; ein zweiter Aufruf vor
+  der Antwort schreibt kein zweites `approval.requested`; `dismissUserInput` liefert
+  `dismissed: true`; unbekannte Options-`id` bei `answerUserInput` wirft
+  `UnknownAskOptionError`; bereits entschiedene Rückfrage erneut beantworten wirft
+  `UserInputNotPendingError`; weniger als zwei Optionen wird abgewiesen; Replay ergibt
+  denselben Zustand wie der Snapshot. `runtime/session/state.test.ts` um 7 auf 17 gewachsen:
+  `awaiting_user` aus offenem `approval.requested`, `approval.granted`/`approval.denied`
+  schließt die Rückfrage, ein Terminalzustand gewinnt gegen eine offene Rückfrage, mehrere
+  offene Rückfragen gleichzeitig, `approval.requested` ohne verwertbare Felder wirft.
+  `runtime/session/user-input.test.ts` (1, **echter Betriebssystem-Prozess**, das
+  Fertig-Kriterium): Lauf 1 hält sauber bei `user.ask` an (kein `step.*`, kein `tool.failed`,
+  `runtime.stopped` geschrieben, Prozess beendet sich mit Code 0), ein frisch gestarteter
+  Prozess liest den Wartezustand ausschließlich aus der Datenbank, nach `answerUserInput`
+  setzt Lauf 2 mit derselben `call_id` fort und schreibt `tool.completed`; Replay aus dem
+  Protokoll ergibt denselben Zustand wie der Snapshot.
+- Bewusst nicht gebaut: die Policy-Engine (S11, unverändert der nächste Schritt — ihr Platz
+  im Router steht seit S07 fest); eine Verzahnung von `task.*` mit einer echten Planungs-
+  schleife (S12, hier gibt es nur den Speicher und die Werkzeuge, keine Schleife, die ihn
+  liest und danach handelt); ein Gateway, das `answerUserInput` an einen echten Kanal
+  bindet (bis S16 ruft das der Betreiber bzw. der Test direkt, wie in `user-input.ts`
+  vermerkt).
+- Offene Befunde: `tools/registry.test.ts` hat kein Gegenstück zum Handler-Test ("Version
+  bleibt bei geändertem Handler unverändert") für das neue Feld `execution` — dass es nicht
+  in den Fingerabdruck eingeht, ist durch die Bauart von `fingerprintTools` sichergestellt
+  (explizite Feldliste statt Ausschlussliste) und durch die grüne Testsuite nicht widerlegt,
+  aber auch nicht durch einen eigenen Test wie bei `risk`/`repeatable`/`description`
+  ausdrücklich festgehalten. Für S11 relevant: `callRuntimeTool` prüft aktuell keine Policy
+  vor dem Ausführen von `task.*`/`user.ask` (beide sind `risk: "soft_write"`/`"read"`, also
+  nach Abschnitt 10 ohnehin automatisch erlaubt) — die Policy-Engine muss auch den
+  `execution: "runtime"`-Pfad erreichen, nicht nur `executeStep`.
+- `pnpm typecheck && pnpm lint && pnpm test` grün, 222 Tests.
+- `tasks.json`: S10 auf `done`, S11 von `queued` auf `ready`.
+
+Status: abgeschlossen. Nächste Session: S11 Policy-Engine.
