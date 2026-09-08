@@ -113,6 +113,14 @@ werden nie umbenannt und nie in ihrer Bedeutung verändert.
 Ein bestehender Artefaktname wird nie überschrieben, bei Kollision hängt der Speicher
 `-2`, `-3` an.
 
+## Jede Session endet mit einem Commit
+
+Sobald `pnpm typecheck && pnpm lint && pnpm test` grün sind, wird committet — ohne
+Rückfrage, ohne Ausnahme. Commit-Message im Format `S<Nr>: <Thema>`, wie die bisherige
+Historie. Kein Zwischenzustand bleibt uncommittet liegen, auch nicht "bis zur nächsten
+Freigabe". Das Fertig-Kriterium einer Session ist erst erfüllt, wenn Tests grün UND der
+Commit geschrieben ist.
+
 ## Testbefehl
 
 ```

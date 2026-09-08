@@ -3,7 +3,12 @@ import type { PolicyEngine, PolicyGrant } from "../policy/engine.js";
 import { appendEvent } from "../runtime/events/log.js";
 import type { SessionRecord } from "../runtime/session/types.js";
 import { UserInputRequiredError } from "../runtime/session/user-input.js";
-import { type StepOutcome, describeError, executeStep } from "../runtime/steps/hull.js";
+import {
+  SessionCanceledError,
+  type StepOutcome,
+  describeError,
+  executeStep,
+} from "../runtime/steps/hull.js";
 import type { JsonValue } from "../runtime/steps/types.js";
 import {
   DEFAULT_OFFLOAD_THRESHOLD_TOKENS,
@@ -173,6 +178,27 @@ function errorResult(summary: string, structured: JsonValue): ToolResult {
 }
 
 /**
+ * Liegt das Ergebnis (auch) hinter einem Handle statt vollständig im Kontext?
+ *
+ * Zwei Wege führen dorthin, und die Kennzahl aus Abschnitt 12 meint beide: der Router lagert
+ * eine zu große Hülle aus (`materializeResult` setzt `structured.offloaded`), oder das Tool
+ * hat es selbst getan und gibt einen Ausschnitt plus Handle zurück — so machen es `fs.read`
+ * (S08) und `web.fetch` (S09), und ihre Hüllen bleiben deshalb absichtlich unter der
+ * Router-Schwelle. Nur den Router zu zählen ergäbe für einen Lauf, der eine 400-KB-Datei
+ * liest, einen Anteil von null: die Auslagerung fand statt, nur eben eine Ebene tiefer.
+ */
+function isOffloadedResult(result: ToolResult): boolean {
+  if (result.artifact_refs.length > 0) return true;
+  const structured = result.structured;
+  return (
+    typeof structured === "object" &&
+    structured !== null &&
+    !Array.isArray(structured) &&
+    structured.offloaded === true
+  );
+}
+
+/**
  * Der Katalog ist pro Session eingefroren (Anti-Muster 2, Abschnitt 7). Diese Prüfung ist
  * die einzige Stelle im Router, die **wirft** statt eine Fehlerhülle zurückzugeben, und das
  * mit Absicht: eine Katalogabweichung ist nichts, was das Modell mit einem anderen Aufruf
@@ -332,11 +358,21 @@ export async function callTool(
       },
     );
   } catch (error) {
-    // Die Hülle hat sich geweigert zu starten: Session abgebrochen, Schritt offen, nicht
-    // wiederholbar, Versuche verbraucht. Für den Aufrufer des Routers ist auch das eine
-    // Antwort auf seinen Aufruf, und der Vertrag "immer die Hülle" gilt gerade hier.
-    // `refused` benennt die Lage maschinenlesbar, damit die Schleife (S12) einen Abbruch von
-    // einem erschöpften Wiederholungsbudget unterscheiden kann, ohne im Text zu suchen.
+    // Ein Abbruch der Session ist **keine** Antwort auf diesen Aufruf, sondern die Aussage,
+    // dass der Lauf vorbei ist. Er läuft deshalb seit S12 durch — wie
+    // `ToolCatalogMismatchError`, `UserInputRequiredError` und `ApprovalRequiredError`.
+    //
+    // Bis S12 wurde er zur Fehlerhülle, und das war falsch, wenn auch nicht sichtbar falsch:
+    // das Modell las "Schritt nicht ausgeführt", wählte einen anderen Weg, bekam dieselbe
+    // Auskunft — und der Lauf verbrannte nach dem Abbruch durch den Nutzer noch so viele
+    // Modellaufrufe, bis die Fehlerhäufung griff. Der Loop-Test hat genau das gefunden.
+    if (error instanceof SessionCanceledError) throw error;
+
+    // Die übrigen Weigerungen der Hülle bleiben Fehlerhüllen: offener Schritt, nicht
+    // wiederholbar, Versuche verbraucht. Für den Aufrufer sind sie eine Antwort auf seinen
+    // Aufruf, und der Vertrag "immer die Hülle" gilt gerade hier. `refused` benennt die Lage
+    // maschinenlesbar, damit die Schleife ein erschöpftes Wiederholungsbudget von einem
+    // Schemafehler unterscheiden kann, ohne im Text zu suchen.
     return await failTool(deps, session, call, tool, describeRefusal(error), {
       reason: "step_refused",
       audit_id: grant.auditId,
@@ -386,8 +422,13 @@ export async function callTool(
     executed: outcome.executed,
     summary: result.summary,
     artifact_refs: result.artifact_refs,
+    // Kennzahl "Anteil ausgelagerter Tool-Ergebnisse" (Abschnitt 12). Ein Auszug wie
+    // `summary` und `artifact_refs`, kein zweites Ergebnis: die Auskunft *dass* ausgelagert
+    // wurde, ohne dafür die Hülle des Schritts aufmachen zu müssen.
+    offloaded: isOffloadedResult(result),
     // Die vollständige Hülle steht im `result` des zugehörigen step.completed. Sie hier zu
-    // wiederholen verdoppelte das Protokoll, ohne etwas herzuleiten.
+    // wiederholen verdoppelte das Protokoll, ohne etwas herzuleiten — die Faltung der
+    // Historie (S12) verbindet beide über die `step_id`.
   });
 
   return result;
@@ -475,6 +516,13 @@ async function callRuntimeTool(
     executed: true,
     summary: result.summary,
     artifact_refs: result.artifact_refs,
+    // Ein Runtime-Tool wird nie ausgelagert (siehe oben, kein Schritt als Herkunft).
+    offloaded: false,
+    // **Hier** steht die vollständige Hülle, und nur hier: zu diesem Aufruf gibt es keinen
+    // Schritt, der sie tragen könnte. Die Regel ist damit in beiden Zweigen dieselbe — die
+    // Hülle steht genau einmal im Protokoll, nämlich in dem Ereignis, das den Ausgang trägt.
+    // Ohne sie verlöre die Historie nach einem Neustart die Antwort eines `user.ask`.
+    result,
   });
 
   return result;

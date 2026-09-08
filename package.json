@@ -8,6 +8,7 @@
   },
   "scripts": {
     "dev": "tsx watch --env-file=.env runtime/index.ts",
+    "run:task": "tsx --env-file=.env runtime/index.ts",
     "build": "tsc -p tsconfig.json",
     "test": "vitest run",
     "lint": "biome check .",
@@ -16,6 +17,7 @@
     "migrate": "tsx --env-file=.env runtime/db/migrate.ts"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.124.0",
     "pg": "^8.13.1"
   },
   "devDependencies": {

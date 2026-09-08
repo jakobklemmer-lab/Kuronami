@@ -1806,3 +1806,359 @@ nicht als stille Korrektur durchgehen:
 - `tasks.json`: S11 auf `done`, S12 von `queued` auf `ready`.
 
 Status: abgeschlossen. Nächste Session: S12 Erster echter Loop.
+
+## S12 · Erster echter Loop · 2026-09-08
+
+Der Meilenstein von Phase 1: Modellanbindung und Plan-Handeln-Prüfen-Schleife.
+
+- Tests der Vorsession vorab gelaufen: 280 grün (health, events, session, steps, artifacts,
+  redaction, tasks, tools/registry, tools/router, tools/fs, tools/web, tools/task, tools/user,
+  policy), unverändert. `pnpm typecheck` und `pnpm lint` ebenfalls.
+- Keine Migration. Die Schleife braucht keine Tabelle und keine Spalte, die nicht schon
+  dasteht — sie schreibt ausschließlich Ereignisse, und `type` ist seit S03 offen. Vier Typen
+  aus der Taxonomie (Abschnitt 4.4) werden damit zum ersten Mal wirklich benutzt:
+  `turn.started`, `turn.completed`, `model.requested`, `model.responded`. Dazu die beiden
+  Schreiber für `session.completed` und `session.failed`, die seit S05 offen notiert waren.
+- Neue Verzeichnisse `runtime/model/` (Vertrag und Anbieter) und `runtime/loop/` (Schleife und
+  API-Oberfläche), dazu vier Module in `context/`. **Kein neuer Ordner auf oberster Ebene**:
+  Abschnitt 3 nennt fünf Schichten, und beide neuen Verzeichnisse sind Unterordner von
+  `runtime/` nach dem Muster von `steps/`, `session/`, `artifacts/`.
+- Eine neue Abhängigkeit, die erste seit `pg`: `@anthropic-ai/sdk`. Begründung unten.
+
+### Die eine Entscheidung, an der alles hängt: der Kontext ist eine Faltung
+
+- `context/transcript.ts`: `deriveLoopState(events)` baut die **gesamte Gesprächshistorie** aus
+  dem Ereignisprotokoll — dieselbe Bauart wie `deriveSessionState` (S05) und `derivePlan`
+  (S10), eine reine Funktion über Ereignisse.
+- Der naheliegende Weg wäre gewesen, die Nachrichten im Prozess mitzuführen und bei jedem Zug
+  anzuhängen: zwanzig Zeilen, kostet nichts. Er hat nur eine Eigenschaft, die ihn ausschließt —
+  der Kontext läge im Arbeitsspeicher, und ein abgeschossener Prozess nähme ihn mit. Das
+  Fertig-Kriterium sagt aber wörtlich "einen erzwungenen Neustart in der Mitte überleben", und
+  überleben kann nur, was nie im Prozess lag.
+- Drei Zusagen folgen daraus aus der **Bauart** statt aus Sorgfalt:
+  * Die Wiederaufnahme braucht keinen Sonderweg. Ein frisch gestarteter Prozess faltet und
+    steht da, wo der abgeschossene stand.
+  * **Fehlgeschlagene Schritte bleiben im Kontext sichtbar** (Auftrag, Abschnitt 7). Sie stehen
+    im Protokoll, also stehen sie in der Historie — es gibt keinen Zweig, der sie überspringen
+    könnte, und damit auch keinen, den jemand versehentlich einbaut.
+  * **Kein ungefilterter Text erreicht den Prompt.** Die Signatur nimmt Ereignisse entgegen und
+    sonst nichts, und die sind am Schreibtor des Protokolls gefiltert (S03). Dasselbe Argument
+    wie bei `headArtifact`, das kein `root` bekommt (S06).
+- Der Preis: bei jedem Zyklus wird das Protokoll neu gelesen und gefaltet, also O(Züge × Log).
+  Bewusst so. Eine mitlaufende Fassung im Speicher wäre eine zweite Herleitung neben der
+  Faltung, und genau solche Paare laufen auseinander — es ist die Fehlerklasse, gegen die seit
+  S05 jeder Replay-Test steht. Wird es zu langsam, ist die Antwort ein Zwischenstand mit einem
+  Ereignis dahinter, nicht ein Zähler ohne.
+
+### Wo die Ergebnis-Hülle steht, und warum genau einmal
+
+- Für die Historie braucht der Loop die vollständige Rückgabehülle jedes Aufrufs. S07 hatte sie
+  bewusst nur ins `step.completed` geschrieben und nicht ins `tool.completed` ("verdoppelte das
+  Protokoll, ohne etwas herzuleiten") — jetzt wird etwas daraus hergeleitet, die Begründung
+  trägt also nicht mehr unverändert.
+- **Die Regel lautet ab S12: die Hülle steht in dem Ereignis, das den Ausgang trägt, und nur
+  dort.** Bei einem Schritt-Tool ist das `step.completed`; bei einem `execution: "runtime"`-Tool
+  (`task.*`, `user.ask`) gibt es keinen Schritt, also steht sie im `tool.completed`. Die
+  Faltung verbindet beide über die `step_id`. Sie in beide zu schreiben wäre eine zweite
+  Wahrheit, die abweichen kann; sie in keines zu schreiben, hieße nach einem Neustart die
+  Antwort eines `user.ask` zu verlieren.
+- Dazu ein zweites Feld im `tool.completed`: `offloaded`. Ein Auszug wie `summary` und
+  `artifact_refs`, keine zweite Wahrheit — die Auskunft *dass* ausgelagert wurde, ohne dafür die
+  Hülle des Schritts aufzumachen. Es trägt die Kennzahl "Anteil ausgelagerter Tool-Ergebnisse"
+  aus Abschnitt 12.
+
+### Prompt-Aufbau: sechs Abschnitte, drei Sendeplätze, drei Haltepunkte
+
+- Der Auftrag nennt sechs Teile in bindender Reihenfolge, die API kennt drei Plätze. Die
+  Zuordnung steht in `context/request.ts`: Tool-Stubs in `tools`, statischer System-Prompt und
+  AGENTS.md-Konventionen in `system`, Sessionzustand + Historie + aktuelle Eingabe in
+  `messages`.
+- Dass die Stubs damit **vor** dem System-Prompt liegen, ist keine Umsortierung des Auftrags,
+  sondern seine Umsetzung: Abschnitt 7 sagt wörtlich "Die Cache-Hierarchie läuft von Tools über
+  System-Prompt zu Nachrichten". Die Liste ordnet die Inhalte, die Hierarchie ordnet die Bytes;
+  wo beide sich berühren, gewinnt die Hierarchie, denn sie ist die Aussage über den Cache.
+  Innerhalb jedes Platzes bleibt die Reihenfolge des Auftrags.
+- **Drei ausdrücklich gesetzte Haltepunkte**, nicht als Nebenwirkung im Client, sondern als Feld
+  im Anfragetyp: hinter dem letzten Tool (der Katalog ändert sich in einer Session nie), hinter
+  dem letzten System-Block (einmal beim Start gelesen), hinter der letzten Nachricht (die
+  Historie ist append-only). Der vierte mögliche bleibt **frei**: ihn zu setzen hieße, eine
+  zweite Stelle in einer wachsenden Historie zu markieren, und die läge nach jedem Zug woanders
+  — also genau die Cache-Entwertung, die zu vermeiden der Zweck der Übung ist.
+- Der Sessionzustand steht in der **Nachricht** und nicht im System-Prompt. Abschnitt 7 sagt es
+  ausdrücklich; ein Zustand im System-Prompt entwertete bei jedem Zug alles darunter. Er wird
+  einmal je Zug gerendert (Plan aus `kuronami.tasks`) und wandert dann unveränderlich in die
+  Historie.
+- `loadConventions()` liest AGENTS.md **einmal beim Start** und nicht bei jedem Zug. Das ist
+  kein Zierrat: das Modell darf die Datei mit `fs.edit` verändern, und ein Prompt-Aufbau, der
+  sie jedes Mal neu läse, bräche nach einer solchen Bearbeitung lautlos den ganzen Cache.
+  Dieselbe Zusage wie beim eingefrorenen Tool-Katalog (S07).
+- **Gefundene Hürde, die keine Vermutung war:** die API erlaubt in Toolnamen `[a-zA-Z0-9_-]` und
+  **keinen Punkt**. Unsere Konvention ist `namensraum.aktion` (Abschnitt 4.8) und steht in
+  AGENTS.md, im Protokoll, in den Policy-Regeln und in jedem bisherigen Test. Also wird
+  übersetzt, an genau einer Stelle: `fs.read` wird zu `fs__read`. Eindeutig, weil ein Namensraum
+  nur Buchstaben enthält — das erste `__` ist immer der Trenner. `toolNameDecoder` baut die
+  Rückübersetzung aus dem Katalog und wirft bei einer Kollision, die es heute nicht geben kann;
+  sie kostet nichts und fällt an dem Tag, an dem ein Namensraum einen Unterstrich bekommt.
+- `strict: true` auf jedem Tool. Unser Schema wird zu JSON Schema mit
+  `additionalProperties: false` und `required` — was genau das wiedergibt, was
+  `validateToolInput` seit S07 ohnehin durchsetzt. Der Router prüft weiter selbst (er ist das
+  Tor, nicht der Anbieter), aber ein Zug, der nur an einem fehlenden Feld scheitert, kostet
+  damit keinen Schritt aus dem Budget.
+
+### Die Modellanbindung
+
+- `runtime/model/types.ts` ist der Vertrag, `anthropic.ts` die einzige Datei im Projekt, die das
+  SDK kennt. Injiziert und nicht importiert — dieselbe Überlegung wie bei `fetchImpl` in
+  `web.fetch` (S09): ein Loop, der fest an einem HTTP-Aufruf hängt, ist nicht prüfbar, weil er
+  Geld kostet, Netz braucht und bei jedem Lauf anders antwortet.
+- **Neue Abhängigkeit `@anthropic-ai/sdk`, und warum das kein Bruch mit Abschnitt 4.2 ist.**
+  "Kein ORM" ist eine Aussage über Abstraktionen, die sich zwischen den Code und sein
+  Datenmodell stellen, keine über Anbieter-Clients — `pg` steht seit S01 aus demselben Grund da.
+  Das Drahtformat der Messages-API ist nichts, was man nebenbei nachbaut: Blocktypen,
+  `cache_control`, Werkzeugaufrufe, Fehlerklassen. Der Vertrag darüber macht die Abhängigkeit
+  außerdem austauschbar: ein zweites Modell (Abschnitt 11) kostet eine Datei neben dieser.
+- **`ModelResponse.content` trägt die Antwort roh**, und das `model.responded` schreibt sie so
+  ins Protokoll. Grund: Denken bleibt an (auf dieser Modellklasse ist es die Vorgabe), und ein
+  `thinking`-Block trägt eine **Signatur**, die der Anbieter beim Fortsetzen eines Werkzeuglaufs
+  prüft. Ein neu gebauter Block bräche den nächsten Zug. Also gehen die Blöcke unverändert
+  hinein und unverändert wieder hinaus.
+  Das Denken abzuschalten wäre die Alternative gewesen und ist verworfen: auf dieser Klasse hat
+  es zwei bekannte Fehlbilder, darunter ein Werkzeugaufruf, der als Fließtext statt als
+  `tool_use` erscheint — der Aufruf läuft dann nie, ohne dass irgendwo ein Fehler entsteht. In
+  einer Schleife über dreißig Schritte ist das besonders teuer.
+- Damit kommt der Redaction-Filter an eine Stelle, an der er etwas kaputt machen **könnte**: er
+  sieht die Blöcke auf dem Weg ins Protokoll. `assertReplayable` prüft deshalb nach jedem
+  Schreiben, dass drei Dinge unverändert geblieben sind — `tool_use.id` (er wird zum
+  Idempotenzschlüssel), `tool_use.name` (er wählt das Tool) und die `signature`. Text darf der
+  Filter ersetzen, dafür ist er da. Dieselbe Haltung wie bei `task_id` (S10) und beim
+  Subjektschlüssel der Policy (S11): lieber abweisen als mit einem kaputten Schlüssel
+  weiterlaufen, denn der Bruch fiele sonst erst beim nächsten Zug auf und sähe dort nach einem
+  Anbieterfehler aus.
+
+### Die Schleife und ihre vier Abbruchbedingungen
+
+- `runtime/loop/loop.ts` ist absichtlich klein, und die Größe ist die Aussage: Idempotenz steht
+  in der Ausführungshülle (S05), Auslagerung im Router (S07), Freigaben in der Engine (S11),
+  Kontext in der Faltung. Was bleibt, ist die Frage, wann gefragt, gehandelt und aufgehört wird.
+- **Offene Aufrufe zuerst, dann erst das Modell.** Das ist der Wiederaufnahmepunkt und keine
+  Optimierung: nach einem Absturz zwischen `model.responded` und dem Werkzeugaufruf stünde sonst
+  eine zweite Modellantwort in der Historie, während die erste `tool_use`-Blöcke ohne Ergebnis
+  hinterließe — und eine solche Historie weist der Anbieter ab. `assertSendable` macht daraus
+  einen benannten Fehler an der Stelle, an der er entsteht, statt einer 400, die man
+  zurückverfolgen muss.
+- **fertig** — das Modell antwortet ohne Werkzeugaufruf. **Freigabe nötig** — die Policy oder
+  `user.ask` hält an; der Zug wird **nicht** abgeschlossen, er bleibt offen, damit die Antwort
+  ihn an derselben Stelle fortsetzt. **Schrittobergrenze** — Vorgabe 50, unteres Ende von
+  Abschnitt 13. **Fehlerhäufung** — Vorgabe 5 Fehlschläge **in Folge**.
+- Dass die Fehlerhäufung in Folge zählt und nicht insgesamt, ist der ganze Gehalt der Kennzahl.
+  Ein Lauf mit fünf Fehlschlägen auf dreißig Schritte arbeitet — er stößt an Grenzen und findet
+  Wege daran vorbei, und genau dafür bleiben Fehler im Kontext sichtbar. Ein Lauf mit fünf
+  Fehlschlägen nacheinander lernt nichts aus ihnen. Eine Gesamtzahl beendete den erfolgreichen
+  langen Lauf und ließe den kurzen im Kreis laufen, also genau verkehrt herum.
+- Nur der erste Ausgang ist ein Erfolg. `turn.completed` trägt immer den Grund; die
+  API-Oberfläche schreibt darüber hinaus `session.completed` bei `done` und `session.failed` bei
+  Schrittobergrenze und Fehlerhäufung — ein Lauf, der an einer Grenze endet und nichts
+  hinterließe, sähe später aus wie einer, an dem gerade niemand weiterarbeitet.
+
+### Die kleine API-Oberfläche
+
+- `runtime/loop/api.ts`: fünf Verben, keines davon neu — `run`, `answer`, `cancel`, `status`,
+  `stop`. Alle fünf sind Verdrahtung über Bausteine aus S04 bis S11. `answer` nimmt beide Arten
+  von Rückfrage entgegen und unterscheidet am Präfix der `ask_id` (`policy:` aus S11, `ask:` aus
+  S10): der Aufrufer hat die Kennung aus dem Wartezustand bekommen und muss die Unterscheidung
+  nicht selbst treffen.
+- Was hier **nicht** steht, ist ebenso Absicht: kein HTTP, kein Port, keine Authentifizierung.
+  Die Oberfläche nach draußen ist die Surface-Schicht, und die ist austauschbar (Abschnitt 3,
+  harte Regel) — eine Runtime, die schon einen Server mitbrächte, wäre von ihr abhängig.
+- Die Verdrahtung des ausgelieferten Katalogs ist aus `runtime/index.ts` hierher gewandert
+  (`buildCatalog`). Damit bekommen Prozess, Test und Probelauf denselben Katalog, und der
+  eingefrorene Katalog ist nur so viel wert, wie er an allen Stellen derselbe ist. Der
+  Fingerabdruck ist unverändert `v1-53a18ba0cb4e49c8` mit zehn Tools — S12 fügt kein Tool hinzu,
+  und das soll man sehen können.
+- `runtime/index.ts` kann jetzt zweierlei: ohne Argument das Skelett aus S04, mit einer Eingabe
+  als Argument einen vollständigen Lauf (`pnpm run:task "<Aufgabe>"`).
+
+### Kompaktierung Stufe 0 und 1
+
+- Beide waren bereits gebaut (Stufe 0 in jedem Tool seit S08/S09, Stufe 1 im Router seit S07)
+  und mussten in der Schleife nur nicht kaputtgehen. Nachgewiesen wird das jetzt am fertigen
+  Prompt: eine 418-KB-Datei gelesen ergibt eine Historie unter 8 KB, mit Ausschnitt und Handle
+  und ohne den Rumpf.
+- **Dabei ein Zählfehler gefunden.** Die Kennzahl "Anteil ausgelagerter Tool-Ergebnisse" hing
+  zuerst allein an der Marke, die der Router setzt (`structured.offloaded`). Damit ergab ein
+  Lauf, der eine 418-KB-Datei liest, einen Anteil von **null** — denn `fs.read` (S08) und
+  `web.fetch` (S09) lagern **selbst** aus und halten ihre Hülle absichtlich unter der
+  Router-Schwelle, damit der typisierte Ausschnitt erhalten bleibt. Die Auslagerung fand statt,
+  nur eine Ebene tiefer. Gezählt wird jetzt beides, an derselben Definition in Router und
+  Faltung: ein Ergebnis gilt als ausgelagert, wenn es hinter einem Handle liegt.
+- Stufe 2 bis 4 sind **nicht** gebaut (siehe unten). `context.compacted` bleibt deshalb
+  ungeschrieben: die Auslagerung nach Stufe 1 steht bereits als `artifact.created` im Protokoll,
+  und ein zweiter Name für dasselbe Ereignis wäre genau die Doppelschreibweise, die Abschnitt
+  4.4 verbietet.
+
+### Ein Fehler, den die Tests gefunden haben
+
+- **Ein Abbruch der Session verbrannte fünf Modellaufrufe.** `SessionCanceledError` kam aus der
+  Ausführungshülle und wurde vom Router zur Fehlerhülle gemacht (`step_refused`). Das Modell las
+  "Schritt nicht ausgeführt", wählte einen anderen Weg, bekam dieselbe Auskunft — und der Lauf
+  lief nach dem Abbruch durch den Nutzer weiter, bis die Fehlerhäufung griff. Sichtbar wurde das
+  nie, weil jeder einzelne Schritt sich korrekt verhielt.
+- Der Abbruch läuft jetzt **durch** den Router, wie `ToolCatalogMismatchError` (S07),
+  `UserInputRequiredError` (S10) und `ApprovalRequiredError` (S11). Er ist keine Antwort auf den
+  Aufruf, sondern die Aussage, dass der Lauf vorbei ist. Die übrigen Weigerungen der Hülle
+  (offener Schritt, nicht wiederholbar, Versuche verbraucht) bleiben Fehlerhüllen — sie sind
+  eine Antwort, und das Modell kann etwas anderes versuchen.
+- Damit ist auch der seit S08 offene Befund zur Hälfte eingelöst: die Schleife verzweigt jetzt
+  tatsächlich auf eine Lage, und zwar nicht über den Meldungstext, sondern über den Typ.
+
+### Tests
+
+- 45 neue Tests, zusammen 325.
+- `context/transcript.test.ts` (19, **ohne Datenbank**): Eröffnungsnachricht mit Zustand und
+  Eingabe in dieser Reihenfolge; Blöcke einer Antwort unverändert durchgereicht samt Denkblock;
+  Hülle eines Schritt-Tools aus dem `step.completed`, die eines Runtime-Tools aus dem
+  `tool.completed`; ein Fehlschlag bleibt mit Grund und Stacktrace sichtbar; mehrere Ergebnisse
+  werden zu **einer** Nachricht zusammengefasst (auf zwei verteilt brächte es dem Modell bei,
+  keine nebenläufigen Aufrufe mehr zu machen); offene Aufrufe nach einem Absturz mitten in einer
+  Runde; Zähler und offene Aufrufe beim neuen Zug zurückgesetzt, Historie bleibt vollständig;
+  Fehler in Folge gegen Fehler insgesamt; ausgelagerte Ergebnisse gezählt; unbekannte Typen
+  übersprungen; zwei Fälle, in denen die Faltung zu Recht wirft. Dazu `assertSendable` (2) und
+  `assertReplayable` (4).
+- `context/request.test.ts` (9, **ohne Datenbank**): Namensübersetzung hin und zurück über den
+  ganzen Katalog, Kollision abgewiesen; genau drei Haltepunkte an den drei genannten Stellen und
+  der vierte frei; Reihenfolge System-Prompt vor Konventionen; **byteweise gleicher Präfix bei
+  gleichem Inhalt** und Sortierung von Tools und Schemafeldern — die Bedingung, unter der
+  Prompt-Caching überhaupt greift; `required` und `additionalProperties: false`; Redaction über
+  System-Prompt, Konventionen und Tool-Beschreibungen samt Gegenprobe, dass das Unverdächtige
+  stehen bleibt.
+- `runtime/model/anthropic.test.ts` (8, **ohne Datenbank und ohne Netz**): der SDK-Aufruf wird
+  abgefangen und die **Abbildung** geprüft — Werkzeugnamen ohne Punkt, geschlossenes Schema mit
+  `strict`, `cache_control` an genau drei Stellen, `thinking: adaptive`, `max_tokens`
+  durchgereicht, kein `output_config` ohne ausdrückliche Angabe; ein Denkblock geht samt Signatur
+  unverändert wieder hinein; eine Antwort wird in Text, Aufrufe und rohe Blöcke zerlegt;
+  fehlende Cache-Angaben werden null und nicht erfunden; der Wortlaut des Anbieters bleibt im
+  Fehler erhalten.
+- `runtime/loop/loop.test.ts` (8, mit Datenbank, echtem Router, echter Policy und echten
+  `fs.*`-Tools; nur das Modell ist ein Drehbuch), darunter das **Fertig-Kriterium**: eine Aufgabe
+  mit **30 Schritten** (Plan setzen, 28 Dateien schreiben, eine wieder lesen) läuft vollständig
+  durch — 30 `tool.completed`, kein `tool.failed`, 31 Modellaufrufe, 29 Schritt-Zeilen
+  (`task.set` läuft als Runtime-Tool ohne Schritt), die Dateien liegen mit dem richtigen Inhalt
+  auf der Platte, das Protokoll ist lückenlos und endet auf `session.completed`, und Replay
+  ergibt denselben Zustand wie der Schnappschuss.
+  Dazu: **Freigabestelle** — ein Schreibzugriff in die Quellzone hält den Lauf an, es wird
+  **nichts** geschrieben, die Session steht auf `awaiting_user`, die Rückfrage bietet
+  `once/session/always/deny`, und der Zug bleibt **offen** (kein `turn.completed`); nach `once`
+  läuft derselbe Zug weiter und endet auf `done`.
+  Weiter: der Tool-Katalog ist über alle neun Aufrufe **byteweise** unverändert und die Historie
+  wächst nur hinten an (Append-only als Zusicherung, nicht als Absicht); drei Haltepunkte je
+  Aufruf und eine messbare Trefferquote; Schrittobergrenze und Fehlerhäufung enden ohne
+  `session.completed`, und der letzte Prompt trägt dabei jeden Fehlschlag mitsamt Grund; Abbruch
+  mitten im Lauf; Kontextstufe 1 mit einer 418-KB-Datei.
+- `runtime/loop/loop-restart.test.ts` (1, **echter Betriebssystem-Prozess**): der zweite Teil des
+  Fertig-Kriteriums. Ein Prozess läuft die 30-Schritt-Aufgabe, bleibt beim 13. Aufruf im Werkzeug
+  hängen und wird mit `SIGKILL` abgeschossen. Geprüft im Zwischenzustand: zwölf Aufrufe erledigt,
+  der dreizehnte **offen**, sein Schritt auf `running`, kein `runtime.stopped`, kein
+  `turn.completed`. Danach ein **frisch gestarteter** Prozess, der nur die Datenbank kennt: er
+  läuft bis 30 durch, **ein** Zug (kein zweiter), 30 verschiedene Aufrufkennungen, 29
+  Schritt-Zeilen, der unterbrochene Schritt ist derselbe mit Versuch 2 — also kein zweiter
+  Schritt für dieselbe Arbeit —, und jedes doppelte `tool.completed` trägt `executed: false`, das
+  Ergebnis kam aus der Zeile. Replay gleich Schnappschuss über den Absturz hinweg.
+
+### Gegenproben
+
+Sechs, alle bestätigt und danach zurückgesetzt:
+
+- **Offene Aufrufe ignorieren** (erst fragen, dann handeln) → Neustart-Nachweis und
+  Freigabe-Test rot, mit genau der Meldung, für die `assertSendable` da ist.
+- **Cache-Haltepunkt hinter den Tools entfernt** → "genau drei Haltepunkte" rot (2 statt 3).
+- **Fehler insgesamt statt in Folge gezählt** → "zählt Fehler in Folge" rot (2 statt 1).
+- **`SessionCanceledError` wieder als Fehlerhülle** (der Zustand vor S12) → der Abbruch-Test rot
+  mit `error_rate` statt `canceled`. Der oben beschriebene Fehler hängt also wirklich an dieser
+  Zeile.
+- **Fehlgeschlagene Aufrufe nicht in die Historie aufnehmen** → drei Faltungstests rot **und** der
+  Fehlerhäufungs-Test läuft in den 60-Sekunden-Timeout. Das ist der aussagekräftigste Befund der
+  Reihe: ohne sichtbare Fehlschläge sieht das Modell die Ergebnisse nie, die offenen Aufrufe
+  werden nie leer, und die Schleife dreht sich endlos. "Fehler nicht verstecken" ist hier keine
+  Haltung, sondern eine Abbruchbedingung.
+- **Aufrufkennungen zufällig statt fest** im Drehbuch → der Neustart-Nachweis wird rot, aber nur
+  an der Namenszusicherung. Festgehalten, weil es das Gegenteil dessen zeigt, was man vermuten
+  würde: die feste Kennung ist eine Eigenschaft des Prüf-Drehbuchs und **nicht** tragend. Die
+  Wiederaufnahme hängt daran, dass die offenen Aufrufe aus dem **Protokoll** kommen; deren
+  Kennungen sind dort schon vergeben, gleich wie sie entstanden sind.
+
+### Ein Befund beim Gegenproben, der den Nachweis erst tragfähig gemacht hat
+
+- Die erste Fassung des Neustart-Tests schoss den Prozess ab, nachdem er zwölf Aufrufe gemeldet
+  hatte. Die Gegenprobe "offene Aufrufe ignorieren" blieb dabei **grün** — der Abschuss war
+  zwischen zwei Zyklen gelandet, also in dem Fenster, in dem gar nichts offen ist. Der Nachweis
+  prüfte die Wiederaufnahme damit gar nicht, und niemand hätte es gemerkt.
+- Behoben mit einem Prüf-Werkzeug `dev.hang` im Absturzprozess, das im ersten Lauf hängen bleibt
+  und im Wiederaufnahmelauf zurückkommt. Der Abschuss trifft jetzt **deterministisch** das
+  Fenster nach `model.responded` und `step.started` und vor `step.completed` — also genau die
+  Lücke, die ein abgestürzter Prozess hinterlässt. Danach ist die Gegenprobe rot.
+
+### Ein Fehler in `runtime/index.ts`, den der Probelauf gefunden hat
+
+- Beim Umbau war `clearInterval` für den Lebendhalte-Anker in den `exit`-Behandler gewandert
+  statt ins Herunterfahren. Ein sauberer Stop hätte den Prozess damit ewig weiterlaufen lassen:
+  `runtime.stopped` geschrieben, Pool geschlossen, und der Timer hielte ihn am Leben.
+  Zurückgelegt ins Herunterfahren, wo er seit S04 hingehört.
+
+### Probelauf und was daran nicht nachgewiesen ist
+
+- Der Probelauf gegen die **echte Claude API** konnte **nicht** stattfinden: `ANTHROPIC_API_KEY`
+  ist leer und die `ant`-CLI ist auf diesem Rechner nicht installiert. Das ist der einzige Teil
+  des Auftrags, der unbewiesen bleibt, und er wird hier benannt statt weggelassen. Nachweisbar
+  wäre damit: dass die API diese Anfrage annimmt (Namensform, `strict`, die Blockfolge mit
+  Denkblöcken) und dass der Cache wirklich greift.
+  Der Befehl dafür ist die gebaute Oberfläche selbst — Schlüssel in `.env` eintragen, dann
+  `pnpm run:task "Lege einen Plan an, schreibe zwei Dateien nach artifacts/ und lies eine wieder
+  ein."`; die Trefferquote steht danach in der Schlusszeile und je Aufruf im `model.responded`.
+  Bis dahin deckt `runtime/model/anthropic.test.ts` alles ab, was diesseits des Netzes liegt.
+- Nachweis außerhalb von vitest, der ohne Schlüssel geht: `runtime/index.ts` gegen die echte
+  Datenbank gestartet. Session angelegt, Katalog `v1-53a18ba0cb4e49c8` mit zehn Tools,
+  Governance-Lage ausgegeben (4 Regeln, 0 Hooks, Freigabemodus `ask`, Sandbox nicht
+  nachgewiesen), Modell sichtbar als "kein Modell (ANTHROPIC_API_KEY fehlt)" statt als Absturz
+  beim ersten Zug. Probedaten gelöscht.
+- Der volle Testlauf hinterlässt nichts: alle sechs `kuronami`-Tabellen sind danach leer, eigens
+  nachgesehen. (Ein Zwischenstand mit acht Waisen-Sessions kam aus den absichtlich
+  fehlschlagenden Gegenproben, darunter eine mit Timeout — dort läuft `afterAll` nicht mehr
+  vollständig. Aufgeräumt.)
+
+### Bewusst nicht gebaut
+
+- **Kontextstufen 2 bis 4** (alte Tool-Ein/Ausgaben in Referenzen umschreiben, Historie
+  zusammenfassen, frisches Fenster). Der Auftrag nennt ausdrücklich Stufe 0 und 1. Die Stufen
+  darüber greifen ab 80 bis 90 % Fensterauslastung, und dieses Fenster ist eine Million Token —
+  bevor man dafür baut, will man einen echten Lauf gesehen haben, der dorthin kommt. Der Platz
+  dafür ist die Faltung: sie ist die einzige Stelle, die die Historie herstellt.
+- **Streaming.** Die Antworten dieser Schleife sind kurz (etwas Text und ein bis drei Aufrufe);
+  16k `max_tokens` bleiben sicher unter dem HTTP-Zeitfenster. Nötig wird es mit der Sprachschicht
+  (S23/S24), wo die erste Silbe zählt.
+- **Modell-Routing nach Schritt-Typ** (Abschnitt 11: klein für Klassifikation, stark für Planen).
+  Der Vertrag lässt es zu — eine zweite `ModelClient`-Instanz —, aber die Auswahl gehört zu S21
+  (Kosten-Tracking) und braucht Messwerte, nicht eine Vermutung.
+- **Kosten je Lauf.** Die Token stehen im `model.responded`, der Preis nicht. Das ist S21.
+- Ein Kanal, der `answer` von außen erreichbar macht (S16, seit S10 offen), ein Suchanbieter für
+  `web.search` (S13), der Alias-Layer für Artefakt-URIs und ein GC-Lauf für verwaiste
+  Artefaktdateien (beide seit S06 offen).
+
+### Offene Befunde
+
+- **Der Probelauf gegen die echte API fehlt** (siehe oben). Der wichtigste offene Punkt.
+- Die Faltung liest bei jedem Zyklus das ganze Protokoll. Für dreißig Schritte ist das belanglos,
+  für einen Lauf über Stunden nicht. Die Antwort wäre ein mitgeschriebener Zwischenstand mit
+  einem Ereignis dahinter — nicht ein Zähler im Prozess.
+- `deriveRunMetrics` deckt vier der Kennzahlen aus Abschnitt 12 ab. Die übrigen (Freigaben pro
+  Aufgabe, Wartezeit auf Freigabe, Tool-Latenz) brauchen Zeitmessungen über Ereignispaare hinweg
+  und gehören in eine Beobachtbarkeits-Session.
+- `structured.reason` ist weiterhin eine Verabredung und kein Typ (offen seit S07). S12 verzweigt
+  jetzt zwar — aber über den **Fehlertyp** und nicht über das Feld; der Befund bleibt damit für
+  den Fall bestehen, dass eine Aufrufstelle doch einmal auf `reason` sehen will.
+- Der Sessionzustand im Prompt ist heute nur der Plan. Freigabestatus und Artefakt-Refs gehören
+  nach Abschnitt 8 ebenfalls ins Kurzzeitgedächtnis; sie stehen im Protokoll und wären eine
+  Ergänzung an derselben Stelle, sobald ein echter Lauf zeigt, dass sie fehlen.
+- `pnpm typecheck && pnpm lint && pnpm test` grün, 325 Tests.
+- `tasks.json`: S12 auf `done`, S13 von `queued` auf `ready`.
+
+Status: abgeschlossen. Nächste Session: S13 n8n-Brücke.

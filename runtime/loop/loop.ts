@@ -1,0 +1,357 @@
+import { randomUUID } from "node:crypto";
+import type { Pool } from "pg";
+import { type RunMetrics, deriveRunMetrics } from "../../context/metrics.js";
+import {
+  buildModelRequest,
+  countCacheBreakpoints,
+  toolNameDecoder,
+} from "../../context/request.js";
+import { SYSTEM_PROMPT } from "../../context/system-prompt.js";
+import {
+  type LoopState,
+  type PendingToolCall,
+  assertReplayable,
+  assertSendable,
+  deriveLoopState,
+  renderTurnOpening,
+} from "../../context/transcript.js";
+import { ApprovalRequiredError } from "../../policy/approvals.js";
+import type { PolicyEngine } from "../../policy/engine.js";
+import { type ToolRouterDeps, callTool } from "../../tools/router.js";
+import type { ToolCatalog } from "../../tools/types.js";
+import { appendEvent, readEvents } from "../events/log.js";
+import { DEFAULT_MAX_TOKENS } from "../model/anthropic.js";
+import type { ModelClient } from "../model/types.js";
+import { type PendingUserInput, deriveSessionState } from "../session/state.js";
+import type { SessionRecord } from "../session/types.js";
+import { UserInputRequiredError } from "../session/user-input.js";
+import { SessionCanceledError } from "../steps/hull.js";
+import { readPlanSnapshot } from "../tasks/store.js";
+
+/**
+ * Die Plan-Handeln-Prüfen-Schleife (S12) — der Meilenstein von Phase 1.
+ *
+ * Sie ist absichtlich klein, und ihre Größe ist die eigentliche Aussage: alles, was eine
+ * Agentenschleife üblicherweise umfangreich macht, steht schon woanders. Die Idempotenz in
+ * der Ausführungshülle (S05), die Auslagerung im Router (S07), die Freigaben in der Engine
+ * (S11), der Kontext in der Faltung (`context/transcript.ts`). Was hier bleibt, ist die
+ * Frage, **wann** gefragt, gehandelt und aufgehört wird.
+ *
+ * ## Der Zyklus
+ *
+ *   1. Zustand aus dem Protokoll falten.
+ *   2. Abbrechen, wenn eine der vier Bedingungen greift.
+ *   3. Stehen Aufrufe offen? Dann **die zuerst** — nicht das Modell fragen.
+ *   4. Sonst das Modell fragen und seine Antwort protokollieren.
+ *   5. Keine Aufrufe in der Antwort → fertig. Sonst ausführen und zurück zu 1.
+ *
+ * Schritt 3 vor Schritt 4 ist der Wiederaufnahmepunkt und keine Optimierung: nach einem
+ * Absturz zwischen `model.responded` und dem Werkzeugaufruf stünde sonst eine zweite
+ * Modellantwort in der Historie, während die erste `tool_use`-Blöcke ohne Ergebnis
+ * hinterließe. Der Anbieter weist eine solche Historie ab, und zwar zu Recht.
+ *
+ * ## Die vier Abbruchbedingungen
+ *
+ *   * **fertig** — das Modell antwortet ohne Werkzeugaufruf.
+ *   * **Freigabe nötig** — die Policy oder `user.ask` hält an. Der Zug wird **nicht**
+ *     abgeschlossen; er bleibt offen, damit die Antwort ihn an derselben Stelle fortsetzt.
+ *   * **Schrittobergrenze** — Abschnitt 13.
+ *   * **Fehlerhäufung** — siehe `DEFAULT_MAX_CONSECUTIVE_ERRORS`.
+ *
+ * Nur die erste ist ein Erfolg. Die anderen drei enden ohne Ergebnis, und keine davon wird
+ * als Erfolg protokolliert — ein Lauf, der an der Schrittobergrenze endet und `turn.completed`
+ * ohne Grund schriebe, sähe im Protokoll aus wie einer, der fertig wurde.
+ */
+
+/** "Max. Schritte pro Turn: 50 bis 100" (Abschnitt 13), unteres Ende der Spanne. */
+export const DEFAULT_MAX_STEPS = 50;
+
+/**
+ * Fehlerhäufung: so viele fehlgeschlagene Aufrufe **hintereinander** beenden den Zug.
+ *
+ * Gezählt wird in Folge und nicht insgesamt, und das ist der ganze Gehalt der Kennzahl. Ein
+ * Lauf mit fünf Fehlschlägen auf dreißig Schritte arbeitet — er stößt an Grenzen und findet
+ * Wege daran vorbei, und genau dafür bleiben Fehler im Kontext sichtbar (Abschnitt 7). Ein
+ * Lauf mit fünf Fehlschlägen **nacheinander** lernt nichts aus ihnen; er wiederholt eine
+ * Vorstellung, die nicht zutrifft, und jeder weitere Versuch kostet einen Modellaufruf für
+ * dasselbe Ergebnis. Eine Gesamtzahl beendete stattdessen den erfolgreichen langen Lauf und
+ * ließe den kurzen im Kreis laufen — also genau verkehrt herum.
+ */
+export const DEFAULT_MAX_CONSECUTIVE_ERRORS = 5;
+
+export type LoopStop = "done" | "awaiting_user" | "step_limit" | "error_rate" | "canceled";
+
+export interface LoopDeps {
+  pool: Pool;
+  artifactRoot: string;
+  /** Eingefroren für die Dauer der Session (S07, Anti-Muster 2). */
+  catalog: ToolCatalog;
+  policy: PolicyEngine;
+  model: ModelClient;
+  /** Einmal beim Start gelesen, danach unverändert — sonst bricht der Cache-Präfix. */
+  conventions: string;
+  systemPrompt?: string;
+  maxSteps?: number;
+  maxConsecutiveErrors?: number;
+  maxTokens?: number;
+  offloadThresholdTokens?: number;
+  timeoutMs?: number;
+  signal?: AbortSignal;
+}
+
+export interface TurnRequest {
+  /**
+   * Die Eingabe eines neuen Zugs. Fehlt sie, wird der offene Zug fortgesetzt — das ist der
+   * Fall nach einem Neustart und nach einer erteilten Freigabe.
+   */
+  input?: string;
+}
+
+export interface LoopOutcome {
+  stop: LoopStop;
+  turnId: string;
+  /** Warum der Zug endete, in einem Satz. Steht so auch im `turn.completed`. */
+  reason: string;
+  /** Abgeschlossene Werkzeugaufrufe in diesem Zug. */
+  toolCalls: number;
+  /** Der letzte Text des Modells. Leer, wenn der Zug vorher abbrach. */
+  text: string;
+  metrics: RunMetrics;
+  /** Bei `awaiting_user`: worauf gewartet wird. */
+  pendingUserInput: PendingUserInput[];
+}
+
+/** Es gibt keinen offenen Zug und keine Eingabe, mit der einer beginnen könnte. */
+export class NoOpenTurnError extends Error {}
+
+/**
+ * Der Sessionzustand als Text für den Zugbeginn (Abschnitt 7.3).
+ *
+ * Der Plan ist das Kurzzeitgedächtnis (Abschnitt 8) und die einzige Zusammenfassung, die es
+ * in Phase 1 gibt. Er wird **einmal je Zug** gerendert und wandert dann als unveränderliche
+ * Nachricht in die Historie — nicht bei jedem Modellaufruf neu, denn dann läge veränderlicher
+ * Text am Ende des Präfixes und entwertete den Cache bei jedem Zyklus.
+ */
+async function renderSessionState(pool: Pool, sessionId: string): Promise<string> {
+  const plan = await readPlanSnapshot(pool, sessionId);
+  if (plan.length === 0) return "Kein Plan gesetzt. Lege bei mehrschrittigen Aufgaben einen an.";
+  return [
+    `Plan (${plan.length} Aufgaben):`,
+    ...plan.map((task) => {
+      const blockers = task.blockers.length > 0 ? ` — blockiert: ${task.blockers.join("; ")}` : "";
+      return `- [${task.status}] ${task.taskId}: ${task.title}${blockers}`;
+    }),
+  ].join("\n");
+}
+
+async function finishTurn(
+  pool: Pool,
+  sessionId: string,
+  turnId: string,
+  stop: LoopStop,
+  reason: string,
+  state: LoopState,
+): Promise<void> {
+  await appendEvent(pool, sessionId, "turn.completed", {
+    turn_id: turnId,
+    stop,
+    reason,
+    tool_calls: state.toolCalls,
+    consecutive_errors: state.consecutiveErrors,
+  });
+}
+
+async function outcome(
+  pool: Pool,
+  sessionId: string,
+  turnId: string,
+  stop: LoopStop,
+  reason: string,
+  state: LoopState,
+  text: string,
+): Promise<LoopOutcome> {
+  const events = await readEvents(pool, sessionId);
+  return {
+    stop,
+    turnId,
+    reason,
+    toolCalls: state.toolCalls,
+    text,
+    metrics: deriveRunMetrics(events),
+    pendingUserInput: deriveSessionState(sessionId, events).pendingUserInput,
+  };
+}
+
+/**
+ * Führt einen Zug aus: entweder einen neuen (mit `input`) oder den offenen weiter.
+ *
+ * Kommt **immer** mit einem Ergebnis zurück, außer bei einer Lage, die von außen entschieden
+ * werden muss — ein Katalog, der nicht zur Session passt (S07), oder ein Modellaufruf, der
+ * scheitert. Dieselbe Trennlinie wie in der Ausführungshülle (S05) und im Router (S07): das
+ * Ergebnis eines Laufs kommt zurück, die Weigerung zu laufen fliegt.
+ */
+export async function runTurn(
+  deps: LoopDeps,
+  session: SessionRecord,
+  request: TurnRequest = {},
+): Promise<LoopOutcome> {
+  const { pool } = deps;
+  const sessionId = session.sessionId;
+  const maxSteps = deps.maxSteps ?? DEFAULT_MAX_STEPS;
+  const maxErrors = deps.maxConsecutiveErrors ?? DEFAULT_MAX_CONSECUTIVE_ERRORS;
+  const decodeToolName = toolNameDecoder(deps.catalog);
+
+  const router: ToolRouterDeps = {
+    pool,
+    artifactRoot: deps.artifactRoot,
+    catalog: deps.catalog,
+    policy: deps.policy,
+    offloadThresholdTokens: deps.offloadThresholdTokens,
+    timeoutMs: deps.timeoutMs,
+    signal: deps.signal,
+  };
+
+  let state = deriveLoopState(await readEvents(pool, sessionId));
+  let turnId = state.turnId;
+
+  if (request.input !== undefined) {
+    if (turnId) {
+      // Ein offener Zug und eine neue Eingabe schlössen sich aus: entweder wird der alte
+      // still verworfen (samt seiner offenen Aufrufe) oder die Eingabe landet mitten in ihm.
+      // Beides wäre eine Entscheidung, die der Aufrufer treffen muss.
+      throw new NoOpenTurnError(
+        `Session ${sessionId} hat noch den offenen Zug ${turnId}. Eine neue Eingabe würde ihn überschreiben — erst fortsetzen (ohne input) oder abbrechen.`,
+      );
+    }
+    turnId = `turn_${randomUUID()}`;
+    await appendEvent(pool, sessionId, "turn.started", {
+      turn_id: turnId,
+      input: request.input,
+      // Was das Modell wirklich zu lesen bekommt, steht als ein Feld im Protokoll. Nur so
+      // ergibt die Faltung dieselbe Nachricht wie der Lauf sie geschickt hat.
+      prompt: renderTurnOpening(await renderSessionState(pool, sessionId), request.input),
+      model: deps.model.model,
+      tool_catalog_version: deps.catalog.version,
+    });
+    state = deriveLoopState(await readEvents(pool, sessionId));
+  }
+
+  if (!turnId) {
+    throw new NoOpenTurnError(
+      `Session ${sessionId} hat keinen offenen Zug und es wurde keine Eingabe übergeben.`,
+    );
+  }
+
+  let text = "";
+
+  for (;;) {
+    if (state.toolCalls >= maxSteps) {
+      const reason = `Schrittobergrenze erreicht: ${state.toolCalls} von ${maxSteps} Werkzeugaufrufen in diesem Zug.`;
+      await finishTurn(pool, sessionId, turnId, "step_limit", reason, state);
+      return await outcome(pool, sessionId, turnId, "step_limit", reason, state, text);
+    }
+
+    if (state.consecutiveErrors >= maxErrors) {
+      const reason = `Fehlerhäufung: ${state.consecutiveErrors} Werkzeugaufrufe in Folge fehlgeschlagen (Grenze ${maxErrors}).`;
+      await finishTurn(pool, sessionId, turnId, "error_rate", reason, state);
+      return await outcome(pool, sessionId, turnId, "error_rate", reason, state, text);
+    }
+
+    let calls: PendingToolCall[] = state.pending;
+
+    if (calls.length === 0) {
+      assertSendable(state.messages);
+      const modelRequest = buildModelRequest({
+        systemPrompt: deps.systemPrompt ?? SYSTEM_PROMPT,
+        conventions: deps.conventions,
+        catalog: deps.catalog,
+        messages: state.messages,
+        maxTokens: deps.maxTokens ?? DEFAULT_MAX_TOKENS,
+        signal: deps.signal,
+      });
+
+      await appendEvent(pool, sessionId, "model.requested", {
+        turn_id: turnId,
+        model: deps.model.model,
+        tool_catalog_version: deps.catalog.version,
+        messages: modelRequest.messages.length,
+        tools: modelRequest.tools.length,
+        // Die Haltepunkte stehen im Protokoll, damit die Trefferquote daneben deutbar ist:
+        // eine Quote von null bei drei gesetzten Haltepunkten ist ein Befund, eine Quote von
+        // null ohne Haltepunkte ist eine Selbstverständlichkeit.
+        cache_breakpoints: countCacheBreakpoints(modelRequest),
+      });
+
+      const response = await deps.model.complete(modelRequest);
+      text = response.text;
+
+      const toolCalls = response.toolCalls.map((call) => ({
+        callId: call.callId,
+        toolName: decodeToolName(call.name),
+        input: call.input,
+      }));
+
+      const stored = await appendEvent(pool, sessionId, "model.responded", {
+        turn_id: turnId,
+        model: response.model,
+        stop_reason: response.stopReason,
+        text: response.text,
+        // Die Antwort unverändert. Sie geht bei jedem folgenden Zug so wieder hinaus — nur
+        // damit überlebt ein Werkzeuglauf mit Denkblöcken den Prozessneustart.
+        content: response.content,
+        tool_calls: toolCalls.map((call) => ({
+          call_id: call.callId,
+          tool_name: call.toolName,
+          input: call.input,
+        })),
+        usage: {
+          input_tokens: response.usage.inputTokens,
+          output_tokens: response.usage.outputTokens,
+          cache_read_input_tokens: response.usage.cacheReadTokens,
+          cache_creation_input_tokens: response.usage.cacheCreationTokens,
+        },
+      });
+      assertReplayable(response.content, stored.payload.content);
+
+      if (toolCalls.length === 0) {
+        state = deriveLoopState(await readEvents(pool, sessionId));
+        const reason = `Das Modell hat ohne Werkzeugaufruf geantwortet (stop_reason ${response.stopReason}).`;
+        await finishTurn(pool, sessionId, turnId, "done", reason, state);
+        return await outcome(pool, sessionId, turnId, "done", reason, state, text);
+      }
+
+      calls = toolCalls;
+    }
+
+    for (const call of calls) {
+      try {
+        await callTool(router, session, {
+          callId: call.callId,
+          name: call.toolName,
+          input: call.input,
+          origin: "model",
+        });
+      } catch (error) {
+        // Die drei Fehler, die der Router bewusst durchlässt (S07/S10/S11). Zwei davon sind
+        // Haltepunkte und kein Fehlschlag: der Zug bleibt offen, damit die Antwort ihn an
+        // genau dieser Stelle fortsetzt. Deshalb steht hier kein `turn.completed`.
+        if (error instanceof ApprovalRequiredError || error instanceof UserInputRequiredError) {
+          const reason =
+            error instanceof ApprovalRequiredError
+              ? `Freigabe nötig für ${call.toolName} (${error.subject}).`
+              : `Rückfrage an den Nutzer offen: ${error.question}`;
+          state = deriveLoopState(await readEvents(pool, sessionId));
+          return await outcome(pool, sessionId, turnId, "awaiting_user", reason, state, text);
+        }
+        if (error instanceof SessionCanceledError) {
+          const reason = `Die Session wurde abgebrochen: ${error.message}`;
+          state = deriveLoopState(await readEvents(pool, sessionId));
+          return await outcome(pool, sessionId, turnId, "canceled", reason, state, text);
+        }
+        throw error;
+      }
+    }
+
+    state = deriveLoopState(await readEvents(pool, sessionId));
+  }
+}

@@ -91,7 +91,7 @@
     "id": "S12",
     "title": "Erster echter Loop",
     "phase": 1,
-    "status": "ready",
+    "status": "done",
     "done_when": "Aufgabe mit 30 Schritten läuft vollständig durch",
     "depends_on": ["S11"]
   },
@@ -99,7 +99,7 @@
     "id": "S13",
     "title": "n8n-Brücke",
     "phase": 2,
-    "status": "queued",
+    "status": "ready",
     "done_when": "Ein n8n-Workflow antwortet im Tool-Schema",
     "depends_on": ["S12"]
   },
