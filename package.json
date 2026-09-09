@@ -14,7 +14,8 @@
     "lint": "biome check .",
     "format": "biome format --write .",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "migrate": "tsx --env-file=.env runtime/db/migrate.ts"
+    "migrate": "tsx --env-file=.env runtime/db/migrate.ts",
+    "devui": "tsx --env-file=.env runtime/devui/server.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.124.0",
@@ -22,8 +23,11 @@
   },
   "devDependencies": {
     "@biomejs/biome": "^1.9.4",
+    "@tauri-apps/cli": "^2.11.4",
+    "@types/express": "^5.0.6",
     "@types/node": "^24.0.0",
     "@types/pg": "^8.11.10",
+    "express": "^5.2.1",
     "tsx": "^4.19.2",
     "typescript": "^5.7.2",
     "vitest": "^2.1.8"

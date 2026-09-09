@@ -2410,3 +2410,134 @@ Drei, alle bestätigt und danach zurückgesetzt:
 - `tasks.json`: S13 auf `done`, S14 von `queued` auf `ready`.
 
 Status: abgeschlossen. Nächste Session: S14 Mail-Tools.
+
+## S12b · Dev-Oberfläche (Tauri, read-mostly) · 2026-09-08
+
+Außerplanmäßig, zwischen S13 und S14 eingeschoben. Zweck: ein Fenster, um beim Bauen des
+restlichen Plans einer laufenden Session zusehen und eine Freigabe per Klick erteilen zu
+können. **Wegwerf-Werkzeug** — Design, Auth und die 3D-Welt sind ausdrücklich nicht Teil
+davon, Phase 6 ersetzt es.
+
+- S13 vorab geprüft: sauber committet (`bc45e55`, Arbeitsbaum rein), `pnpm typecheck`,
+  `pnpm lint` und alle **347 Tests** grün. S13 hat nichts kaputt gemacht.
+- **Keine Migration, kein neuer Zustand in der Datenbank, keine Änderung an bestehendem
+  Runtime-/Context-/Tool-/Policy-Code.** Die Testzahl bleibt deshalb bei 347 — S12b fügt
+  keinen Test hinzu, weil es selbst ein Prüf-Werkzeug ist. Dieselbe Linie wie bei
+  `runtime/loop/scripted.ts` und `tools/dummies.ts`: die werden durch die Loop-Tests
+  ausgeübt, nicht einzeln geprüft. Die drei Endpunkte sind dünner Leim über schon geprüfte
+  Funktionen (`deriveLoopState` S12, `deriveSessionState` S05, `createRunner`/`answer` S12);
+  ein eigener DB-gestützter HTTP-Test prüfte den Loop ein zweites Mal.
+
+### Drei neue Abhängigkeiten, alle als `devDependencies`
+
+- `express`, `@types/express`, `@tauri-apps/cli`. **Abweichung von der sonst strengen
+  Abhängigkeitsdisziplin** (Runtime kennt nur `pg` und `@anthropic-ai/sdk`, jede mit einem
+  Absatz Begründung). Sie trägt, weil die DevUI ein Entwicklungswerkzeug ist — dieselbe
+  Kategorie wie `vitest` und `biome` — und von `runtime/index.ts` **nie** importiert wird.
+  `devDependencies` ist der ehrliche Ort dafür; ein `pnpm install --prod` lässt `runtime/devui`
+  weg, und das ist richtig so.
+- `express` statt `node:http`: der Auftrag nennt es ausdrücklich, und für ein Wegwerf-Werkzeug
+  ist es die pragmatische Wahl (Body-Parsing, Routing, Fehler-Middleware in fünf Zeilen).
+
+### `runtime/devui/server.ts` — drei Endpunkte, ein Schreibpfad
+
+- `GET /sessions` und `GET /sessions/:id/events` sind **reine Leser**: eine Abfrage auf
+  `kuronami.sessions`, dann `deriveSessionState` bzw. `deriveLoopState` über das gelesene
+  Protokoll. Kein Cache, kein mitgeführter Zustand. `/events` gibt zusätzlich die rohe
+  Ereignisliste (`seq`, `type`, `createdAt`) als dünnen Zeitstrahl für die Anzeige.
+- **Die eine Stelle, an der „reiner Leser“ nicht reicht:** `Runner.answer()` schreibt nur die
+  Entscheidung (`decidePolicyApproval`/`answerUserInput`, S11/S10) — der offene Zug läuft
+  davon nicht weiter. Fertig-Kriterium ist aber „Lauf läuft weiter“. Also stößt
+  `POST /sessions/:id/answer` nach `answer()` den Zug mit `run()` (ohne `input`) erneut an —
+  genau das Muster aus dem S12-Freigabetest („nach `once` läuft derselbe Zug weiter“).
+- Dafür hält der Server die Läufer, **die er selbst gestartet hat**, in einer flüchtigen
+  `Map`. Das ist **kein Datenbank-Zustand und muss keinen Neustart überleben**: ein Neustart
+  lässt die Map leer, und `resumeRunner` baut bei Bedarf über `createRunner` aus
+  `thread_id`/`channel` der Session einen neuen Läufer. Der `catalog` ist derselbe
+  (`v1-53a18ba0cb4e49c8`), sonst wiese die Session Tool-Aufrufe ab (S07).
+- **Modell: das Drehbuch aus S12** (`createScriptedModel`), kein Anbieter. Grund: die
+  Oberfläche soll ohne `ANTHROPIC_API_KEY` und ohne Netz einen echten Lauf zeigen, samt
+  Freigabestelle. Ein Pausen-Wrapper (1,2 s je Zug, `DEVUI_STEP_DELAY_MS`) macht den
+  Fortschritt beim Polling sichtbar.
+- **Demo-Aufgabe** (startet beim Booten, abschaltbar mit `DEVUI_NO_DEMO=1`): Plan setzen,
+  drei Notizen in den Artefaktbereich schreiben, einen Bericht **in die Quellzone** (das ist
+  die Freigabestelle nach Abschnitt 10), eine Notiz gegenlesen. Sechs Werkzeugaufrufe, Halt
+  bei Aufruf 4.
+- Quellzone und Artefaktbereich der Demo zeigen auf ein `mkdtemp`-Verzeichnis, **nicht** auf
+  den Repo-Baum — sonst entstünde bei jedem Lauf ein `bericht.txt` im Arbeitsverzeichnis. Es
+  wird beim Herunterfahren (SIGINT/SIGTERM) gelöscht, zusammen mit `pool.end()` und dem Stopp
+  aller Läufer.
+
+### `runtime/devui/index.html` — eine Datei
+
+- Eingebettetes CSS/JS, Vanilla, kein Build. Polling alle 1,5 s. Zweispaltig: Sessionliste
+  links, Detail rechts (Status-Badge, Loop-Stand aus `deriveLoopState` — offener Zug,
+  Aufrufzahl, Fehler in Folge, ausgelagerte Ergebnisse —, Schritt-Tabelle, Ereignis-
+  Zeitstrahl, Roh-Verlauf der Nachrichten einklappbar).
+- Der **awaiting_user-Block** rendert die vier Knöpfe `once/session/always/deny` aus den
+  `options` des `approval.requested` (nicht fest verdrahtet — kommen aus dem Protokoll), Klick
+  → `POST /sessions/:id/answer`. Theme-fähig über `prefers-color-scheme`.
+
+### `src-tauri/` — Fenster um `localhost:8787`
+
+- Mit `pnpm exec tauri init --ci` erzeugt (Tauri 2.11), dann angepasst: `identifier`
+  `com.kuronami.devui`, Fenster 1120×760, `devUrl`/`frontendDist` auf `http://localhost:8787`.
+- `src-tauri/src/lib.rs` startet den Server **als Kindprozess beim App-Start**
+  (`node --env-file=.env --import tsx runtime/devui/server.ts`, Arbeitsverzeichnis =
+  Projektwurzel über `CARGO_MANIFEST_DIR/..`, unter Windows mit `CREATE_NO_WINDOW`) und nimmt
+  ihn bei `RunEvent::Exit` mit (`child.kill()` über einen `Mutex<Option<Child>>` im managed
+  state). **Kein `beforeDevCommand`** — der Server gehört zur App, nicht zum Dev-Setup, und
+  soll auch aus einem gebauten Binary heraus starten (die Paketierung selbst ist S22).
+- `.gitignore`/`.claudeignore`: `!src-tauri/Cargo.lock` — die Lock-Datei einer **Anwendung**
+  gehört ins Repo, `*.lock` (seit S01) hätte sie mitgenommen. Beide Dateien synchron
+  gehalten. `src-tauri/target/` und `gen/schemas` deckt das von `tauri init` erzeugte
+  `src-tauri/.gitignore` ab.
+
+### Nachweis
+
+- Server gestartet, Demolauf im Polling beobachtet: läuft an (Plan, zwei Notizen), **hält bei
+  `awaiting_user`** auf `policy:call_step_4` mit den Optionen `once/session/always/deny`,
+  Quellzonen-`bericht.txt` ist zu diesem Zeitpunkt **nicht** geschrieben, der Zug bleibt
+  offen (kein `turn.completed`). `POST /sessions/:id/answer {"choiceId":"once"}` → der Zug
+  läuft weiter → `session.completed`, sechs Werkzeugaufrufe, fünf Schritt-Zeilen alle
+  `completed`, Ereignisfolge lückenlos bis `turn.completed, session.completed`. Das ist das
+  Fertig-Kriterium, über die HTTP-Oberfläche.
+- Tauri: `cargo build` in `src-tauri/` grün (erster Lauf ~2 min, danach ~18 s), Binary
+  `target/debug/kuronami-devui.exe`. `pnpm exec tauri dev` gestartet: die CLI führt das
+  Binary aus, `setup()` startet den `node`-Kindprozess (`[tauri] devui-Server gestartet
+  (pid …)`), wartet über einen TCP-Connect-Loop auf Port 8787 und öffnet dann das Fenster
+  auf `http://localhost:8787`. Der Demolauf lief an, hielt bei `awaiting_user`;
+  `POST …/answer {"choiceId":"once"}` → `session.completed`, sechs Werkzeugaufrufe. Beim
+  Beenden des Fensters nimmt `RunEvent::Exit` den Server-Kindprozess mit.
+- **Gefundene Hürde:** `tauri dev` blockiert, solange `build.devUrl` gesetzt ist — es wartet
+  auf einen Frontend-Dev-Server, den in unserem Fall erst das noch nicht gestartete Binary
+  hochfährt (Henne/Ei). Lösung: `devUrl` raus, das Fenster lädt `build.frontendDist` bzw.
+  `app.windows[0].url` = `http://localhost:8787` direkt, ohne Warteschleife. Der TCP-Loop in
+  `setup()` schließt die kurze Lücke bis der Server antwortet.
+- Der Repo-Arbeitsbaum bleibt sauber (nur die neuen Dateien plus `package.json`/Lockfile und
+  die `.gitignore`-Ergänzung); das Demo-Scratch-Verzeichnis liegt unter dem OS-Temp und wird
+  beim Stopp gelöscht. `tauri init`/`tauri dev` normalisieren `src-tauri/Cargo.toml`
+  (leere `features = []` an `tauri`/`tauri-build`) — so belassen.
+
+### Bewusst nicht gebaut
+
+- **Design, Auth, 3D-Welt** — Phase 6, bzw. wird dort ersetzt (Auftrag).
+- **Ein Endpunkt zum Starten eines Laufs.** Der Server startet einen Demolauf beim Booten;
+  ein echter, von außen angestoßener Lauf kommt über den Kanal (S16).
+- **Das reale Anbieter-Modell.** Kein Schlüssel gesetzt; `pnpm run:task` deckt den Pfad ab.
+  Die transiente `resumeRunner`-Bahn ist für einen Lauf gedacht, den das Drehbuch fortsetzen
+  kann — ein mit dem echten Modell gestarteter Lauf ließe sich so nicht sinnvoll weiterführen.
+- **Paketierung der Tauri-App** zu einem Installer und ein aus dem Binary heraus auffindbarer
+  Projektpfad — das ist S22 (Tauri-Desktop-Wrapper).
+
+### Offene Befunde
+
+- Ein voller `pnpm test`-Lauf parallel zum ersten `cargo build` reißt zeitweise die CPU
+  (Testdauer ~20 s statt ~6 s), 347 blieben grün. Umgebungsfrage, kein Codefehler.
+- Die Sessionliste faltet je Zeile das ganze Protokoll (`deriveSessionState` über
+  `readEvents`). Für die Handvoll Sessions eines Entwicklungsrechners belanglos; ein echter
+  Verlaufsstand käme aus einem mitgeschriebenen Snapshot (dieselbe offene Frage wie in S12).
+- `pnpm typecheck && pnpm lint && pnpm test` grün, 347 Tests.
+- `tasks.json`: S12b als `done` ergänzt (Phase 1, hängt an S12).
+
+Status: abgeschlossen. Nächste Session: S14 Mail-Tools.

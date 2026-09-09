@@ -6,6 +6,9 @@ coverage/
 /artifacts/
 *.log
 *.lock
+!src-tauri/Cargo.lock
+src-tauri/target/
+src-tauri/gen/
 __pycache__/
 venv/
 .env
