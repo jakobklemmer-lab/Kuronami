@@ -17,6 +17,8 @@ import {
 } from "../../context/transcript.js";
 import { ApprovalRequiredError } from "../../policy/approvals.js";
 import type { PolicyEngine } from "../../policy/engine.js";
+import { recallForTurn } from "../../tools/memory/recall.js";
+import type { MemoryStore } from "../../tools/memory/store.js";
 import { type ToolRouterDeps, callTool } from "../../tools/router.js";
 import type { ToolCatalog } from "../../tools/types.js";
 import { appendEvent, readEvents } from "../events/log.js";
@@ -90,6 +92,14 @@ export interface LoopDeps {
   model: ModelClient;
   /** Einmal beim Start gelesen, danach unverändert — sonst bricht der Cache-Präfix. */
   conventions: string;
+  /**
+   * Das Langzeitgedächtnis (S18). Ist es gesetzt, sucht der Loop **bei jedem Zugbeginn** nach
+   * thematisch passenden Notizen und legt sie in die Eröffnungsnachricht — ohne dass das
+   * Modell danach fragen müsste (siehe `tools/memory/recall.ts`). Optional, weil eine Session
+   * ohne Gedächtnis laufen können muss: Tests, Probeläufe und jede Verdrahtung, die es nicht
+   * konfiguriert hat.
+   */
+  memory?: MemoryStore;
   systemPrompt?: string;
   maxSteps?: number;
   maxConsecutiveErrors?: number;
@@ -224,12 +234,43 @@ export async function runTurn(
       );
     }
     turnId = `turn_${randomUUID()}`;
+
+    // Das Langzeitgedächtnis, **bevor** der Zug beginnt (S18). Die Suche läuft mit der
+    // Eingabe des Nutzers als Anfrage; was sie findet, steht in der Eröffnungsnachricht und
+    // damit ab dem ersten Modellaufruf im Kontext. Das Ereignis kommt vor `turn.started`,
+    // damit die Reihenfolge im Protokoll die des Geschehens ist: erst nachgeschlagen, dann
+    // den Zug eröffnet.
+    let memoryBlock: string | null = null;
+    if (deps.memory) {
+      const recall = recallForTurn(deps.memory, request.input);
+      memoryBlock = recall.block;
+      await appendEvent(pool, sessionId, "memory.recalled", {
+        turn_id: turnId,
+        query: recall.query,
+        found: recall.notes.length,
+        total: recall.total,
+        notes: recall.notes.map((note) => ({
+          id: note.id,
+          date: note.date,
+          title: note.title,
+          tags: note.tags,
+          score: note.score,
+          why: note.why,
+        })),
+      });
+    }
+
     await appendEvent(pool, sessionId, "turn.started", {
       turn_id: turnId,
       input: request.input,
       // Was das Modell wirklich zu lesen bekommt, steht als ein Feld im Protokoll. Nur so
-      // ergibt die Faltung dieselbe Nachricht wie der Lauf sie geschickt hat.
-      prompt: renderTurnOpening(await renderSessionState(pool, sessionId), request.input),
+      // ergibt die Faltung dieselbe Nachricht wie der Lauf sie geschickt hat — und deshalb
+      // steht der Gedächtnisblock hier mit drin und wird beim Replay nicht neu gesucht.
+      prompt: renderTurnOpening(
+        await renderSessionState(pool, sessionId),
+        request.input,
+        memoryBlock,
+      ),
       model: deps.model.model,
       tool_catalog_version: deps.catalog.version,
     });

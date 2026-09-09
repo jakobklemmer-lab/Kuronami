@@ -147,7 +147,7 @@
     "id": "S18",
     "title": "Langzeitgedächtnis",
     "phase": 3,
-    "status": "ready",
+    "status": "done",
     "done_when": "Alte Notiz wird bei neuem Lauf automatisch gefunden",
     "depends_on": ["S17"]
   },
@@ -155,7 +155,7 @@
     "id": "S19",
     "title": "Agenten-Registry und agent.create",
     "phase": 5,
-    "status": "queued",
+    "status": "ready",
     "done_when": "Neuer Agent per Sprachbefehl anlegbar, sofort aktiv",
     "depends_on": ["S18"]
   },

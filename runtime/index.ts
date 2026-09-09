@@ -37,11 +37,17 @@ async function main(): Promise<void> {
   // der aus S12/S13 (`v1-53a18ba0cb4e49c8`, 10 Tools).
   const n8nBaseUrl = process.env.N8N_BASE_URL?.trim();
   const obsidianVault = process.env.OBSIDIAN_VAULT_PATH?.trim();
-  const { catalog, policy } = await buildCatalog({
+  // Das Langzeitgedächtnis (S18) ist **immer** dabei und hängt an keiner Umgebungsvariablen:
+  // es ist kein Anschluss nach draußen wie n8n oder der Vault, sondern ein Teil des Systems,
+  // und ein Assistent ohne Gedächtnis ist die schlechtere Vorgabe. `MEMORY_ROOT` verschiebt
+  // nur den Ort. Der Ordner wird angelegt, wenn er fehlt — ein leeres Gedächtnis beim ersten
+  // Start ist der Normalfall.
+  const { catalog, policy, memory } = await buildCatalog({
     pool,
     artifactRoot,
     n8n: n8nBaseUrl ? { mail: true, cal: true, server: true } : undefined,
     obsidian: obsidianVault ? {} : undefined,
+    memory: {},
   });
 
   // Ohne Eingabe wird kein Modell gebraucht, und ein fehlender Schlüssel darf das Skelett
@@ -64,6 +70,7 @@ async function main(): Promise<void> {
     catalog,
     policy,
     model,
+    memory,
   });
 
   console.log(
@@ -97,6 +104,11 @@ async function main(): Promise<void> {
   console.log(
     `Obsidian-Vault: ${obsidianVault ?? "nicht konfiguriert (OBSIDIAN_VAULT_PATH leer)"}, ${assistCount("notes.")} notes.*-Tools im Katalog.`,
   );
+  console.log(
+    `Langzeitgedächtnis: ${memory?.root ?? "—"}, ${memory?.count() ?? 0} Notizen, Git ${
+      memory?.gitEnabled ? "an" : "aus (kein Repo)"
+    }, ${assistCount("memory.")} memory.*-Tools im Katalog.`,
+  );
 
   // Startwerte gelten nur bei der Neuanlage (S04). Eine ältere Session trägt deshalb weiter
   // ihre eigene Version, und dieser Prozess darf sie nicht bedienen.
@@ -117,6 +129,8 @@ async function main(): Promise<void> {
     stopped = true;
     clearInterval(alive);
     await runner.stop(reason);
+    // Wer den Store geöffnet hat, schließt ihn — dasselbe Eigentumsmuster wie beim Pool (S03).
+    memory?.close();
     await pool.end();
     console.log(`Runtime beendet (${reason}).`);
   }

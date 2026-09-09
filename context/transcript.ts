@@ -78,16 +78,27 @@ function requireString(payload: EventPayload, field: string, type: string): stri
 }
 
 /**
- * Der Text, mit dem ein Zug beginnt: Sessionzustand (Abschnitt 4 des Auftrags) und aktuelle
- * Eingabe (Abschnitt 6), in dieser Reihenfolge und in denselben Marken wie in `prompt.ts`.
+ * Der Text, mit dem ein Zug beginnt: Langzeitgedächtnis (S18), Sessionzustand (Abschnitt 4 des
+ * Auftrags) und aktuelle Eingabe (Abschnitt 6), in dieser Reihenfolge und in denselben Marken
+ * wie in `prompt.ts`.
  *
- * Beide stehen **in der Nachricht** und nicht im System-Prompt. Abschnitt 7 sagt es
+ * Alle drei stehen **in der Nachricht** und nicht im System-Prompt. Abschnitt 7 sagt es
  * ausdrücklich: "System-Prompt nicht für dynamische Zustandsänderungen umschreiben, Zustand
  * als Nachricht schicken". Ein Zustand im System-Prompt entwertete bei jedem Zug den
  * gesamten Cache darunter — also alles.
+ *
+ * Das Gedächtnis steht **vor** dem Sessionzustand, weil es der ältere Kontext ist: erst was
+ * aus früheren Läufen gilt, dann wo dieser Lauf steht, dann was jetzt gefragt ist. Fehlt es
+ * (leeres Gedächtnis, kein Treffer), fällt der Block ersatzlos weg — ein `<memory>`-Abschnitt
+ * mit „nichts gefunden" wäre eine Zeile, die das Modell bei jedem Zug liest und die nie etwas
+ * aussagt.
  */
-export function renderTurnOpening(state: string, input: string): string {
-  return [
+export function renderTurnOpening(state: string, input: string, memory?: string | null): string {
+  const parts: string[] = [];
+  if (memory && memory.trim() !== "") {
+    parts.push("<memory>", memory.trim(), "</memory>", "");
+  }
+  parts.push(
     "<session_state>",
     state.trim(),
     "</session_state>",
@@ -95,7 +106,8 @@ export function renderTurnOpening(state: string, input: string): string {
     "<user_input>",
     input.trim(),
     "</user_input>",
-  ].join("\n");
+  );
+  return parts.join("\n");
 }
 
 /** Die Fehlerhülle eines `tool.failed` zurückbauen. `failTool` legt sie flach ins Payload. */

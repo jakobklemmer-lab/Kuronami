@@ -3469,3 +3469,392 @@ einem echten Port nachgewiesen, mit gestelltem `Heartbeat`.
 - `tasks.json`: S17 auf `done`, S18 von `queued` auf `ready`.
 
 Status: abgeschlossen. Nächste Session: S18 Langzeitgedächtnis.
+
+## S18 · Langzeitgedächtnis · 2026-09-09
+
+Personenbezogenes Langzeitgedächtnis: Markdown-Notizen in `memory/` als **eigenes Git-Repo**,
+daneben ein SQLite-Volltextindex (**keine Vektordatenbank**). Zwei Werkzeuge, dazu die beiden
+Hälften, die **ohne** Werkzeugaufruf laufen — Notizen vor jedem Zug automatisch laden, nach
+jedem Lauf eine strukturierte Zusammenfassung ziehen. Neuer Code unter `tools/memory/`, dazu
+kleine Erweiterungen an Loop, Runner, Policy und Kontext.
+
+- Tests der Vorsession vorab gelaufen: 488 grün (S17 + Vorlauf), `pnpm typecheck` und
+  `pnpm lint` ebenfalls. Arbeitsbaum sauber bis auf die `_tmp_52_*`-Dateien, die schon vorher
+  dalagen.
+- **Keine Postgres-Migration.** Drei neue Ereignistypen, ein neuer Tool-Namensraum, ein neuer
+  Regelsatzeintrag — sonst neue Dateien.
+
+### Die tragende Entscheidung: `memory.*` statt `notes.*`
+
+Der Sessionauftrag nennt die Werkzeuge `notes.search(query)` und `notes.write(inhalt, tags)`.
+**Die Namen sind seit S15 vergeben**: `notes.read`/`notes.write` greifen direkt auf den
+Obsidian-Vault des Nutzers zu. Gebaut wurden deshalb `memory.search` und `memory.write`; die
+vollständige Abwägung steht in `docs/GEDAECHTNIS.md` (die von AGENTS.md verlangte Begründung
+für einen neuen Namensraum), kurz:
+
+- **`notes.write` überladen** (Vault bei `note`, Gedächtnis bei `tags`) hieße: ein Tool, zwei
+  Ziele, zwei Risikostufen, zwei Zonen — und das Modell entscheidet über den Speicherort,
+  indem es ein Feld wegässt. Beide Aufrufe wären gültig, der Fehlgriff bliebe stumm.
+- **Nur `notes.search` bauen** hieße, dass `search` und `read` in einem Namensraum
+  verschiedene Korpora meinen. Schlimmer als zwei Namensräume.
+- **Obsidian-Tools umbenennen** kostet dieselbe Namensraum-Erweiterung *plus* Umbenennung
+  ausgelieferter Tools, neuen Fingerabdruck und eine Abweichung zu Abschnitt 9.
+
+Sachlich trägt der eigene Namensraum, weil es zwei Ablagen mit verschiedenen **Eigentümern**
+sind: der Vault gehört dem Menschen (fremdes Gebiet, `hard_write`, jede Änderung mit
+Freigabe), `memory/` dem Assistenten (eigene Ablage, `soft_write`, eigenes Repo). Und das
+Gedächtnis wird **ohne Werkzeugaufruf** in jeden Zug geladen — ein Speicher mit dieser
+Eigenschaft ist etwas anderes als einer, den man aufruft. S17 hatte den Namensraum bereits
+vorgezeichnet.
+
+### Der Index: SQLite mit FTS5, und warum kein Vektorindex
+
+`node:sqlite` ist seit Node 22.5 an Bord, in Node 24.19 mit SQLite 3.53.3 und **FTS5**
+(geprüft: `bm25`, `snippet`, `unicode61 remove_diacritics 2`, Präfixsuche, auch `trigram`).
+**Keine neue Abhängigkeit.**
+
+Gegen einen Vektorindex spricht nicht die Sparsamkeit, sondern die Nachvollziehbarkeit: wenn
+eine alte Notiz beim neuen Lauf **nicht** auftaucht, muss man sagen können warum. Bei BM25
+über nachlesbare Wörter kann man das, bei einer Einbettung nicht. Dazu wäre ein
+Einbettungsmodell eine zweite versionierte Abhängigkeit, deren Wechsel den ganzen Index stumm
+entwertet. Der Preis wird bezahlt und ist benannt: wer „Zeitzone" schreibt, findet keine
+Notiz, die nur von „Sommerzeit" spricht. Der Ausgleich sind Tags, die der Schreiber vergibt
+und die bei der Suche am schwersten wiegen (BM25-Gewichte 10/6/1 für Tags/Titel/Rumpf).
+
+- **Der Index ist abgeleitet, die Dateien sind die Wahrheit** — dieselbe Aussage wie „der
+  Snapshot ist aus dem Protokoll herleitbar" (S05) und aus demselben Grund: das Gedächtnis ist
+  Markdown in einem Git-Repo, das ein Mensch im Editor bearbeitet und per `git pull`
+  fortschreibt. `syncFromDisk` gleicht bei **jedem** Öffnen ab (mtime und Größe), eine
+  abweichende `SCHEMA_VERSION` verwirft den Index ganz, `index.sqlite` steht in
+  `memory/.gitignore`. Eine kaputte Notiz wird übersprungen (mit Warnung) statt den Start
+  scheitern zu lassen — sie bleibt auf der Platte, wo man sie reparieren kann.
+- **Die Anfrage wird aufbereitet, nicht durchgereicht.** Die Eingabe ist die Frage eines
+  Menschen, keine Suchsyntax; `cal.list AND NOT "foo"` wäre roh entweder ein Syntaxfehler oder
+  — schlimmer — stumm eine andere Anfrage. Also zerlegen, deutsche Füllwörter weg, jeden Term
+  quoten, mit `OR` verbinden. `OR` und nicht `AND`, weil eine thematisch verwandte Notiz sonst
+  durchfiele, sobald ein Wort der Frage in ihr fehlt — genau der Fall, den S18 lösen soll.
+- **Kein Stemming.** Für Deutsch ohne Bibliothek nicht seriös zu machen, und ein falsch
+  gekürzter Stamm verhindert Treffer, statt welche zu schaffen. Stattdessen Präfixsuche.
+
+### Der Befund aus dem Nachweis: deutsche Komposita
+
+Der Nachweis am echten Gedächtnis fand die Kalendernotiz **nicht**, als die Frage
+„Terminkalender" statt „Kalender" sagte. Präfixsuche trägt im Deutschen nur in eine Richtung:
+`kalender*` findet „Kalenderfenster", aber „Terminkalender" findet „Kalender" nicht — Komposita
+hängen hinten an. FTS5 kann den Fall grundsätzlich nicht, sein Index kennt die Wörter der
+Notiz, nicht ihre Bestandteile.
+
+Deshalb ein **zweiter Durchgang mit Teilwortsuche in beiden Richtungen** (Term im Notizwort
+*und* Notizwort im Term), aber **nur wenn der erste leer blieb**. So zahlt der Normalfall
+nichts und die unschärferen Treffer verwässern kein Ranking, das es sonst gäbe; ein
+Trigram-Index wäre die Lösung für einen Bestand, den dieses Gedächtnis nie erreicht. Der
+Treffer trägt `matched: "teilwort"` — woher er kommt, bleibt sichtbar. Ohne den Live-Nachweis
+wäre das nicht aufgefallen: alle Tests waren grün, weil sie das Wort wörtlich benutzten.
+
+### Widersprüche sichtbar machen, nicht still überschreiben
+
+Es gibt **keinen** Schreibpfad, der eine bestehende Notizdatei ersetzt.
+
+- Kollidiert eine Kennung (`<datum>-<slug>`), hängt der Speicher `-2`/`-3` an — die Regel, die
+  AGENTS.md für Artefakte aufstellt. Zwei Erkenntnisse am selben Tag zum selben Thema sind
+  keine Doppelung, sondern zwei Notizen.
+- **`supersedes` löscht nichts und ändert keinen Text.** Die alte Notiz bekommt im Frontmatter
+  ein `ersetzt_durch` und behält ihren Rumpf wortgleich, die neue ein `ersetzt`. Beide bleiben
+  auffindbar, und wer die alte findet, sieht den Verweis. Welche gilt, entscheidet der Leser
+  mit beiden Daten vor Augen.
+- **Der bloße Verdacht wird auch gemeldet**: ältere Notizen mit überlappenden Tags, die
+  niemand als überholt markiert hat. Gemeldet, nicht entschieden — gleiche Tags heißen
+  gleiches Thema, nicht gegenteilige Aussage. Beides steht als `memory.conflicted` im
+  Protokoll, mit getrennten Feldern für ausgesprochen (`supersedes`) und vermutet (`related`).
+- **Der Recall lädt die Gegennotiz mit**, auch wenn das Limit schon voll ist. Sonst wäre die
+  Suche der Ort, an dem ein Widerspruch doch still verschwindet: das Modell läse die alte
+  Fassung, fände sie plausibel und wüsste nichts von der Korrektur.
+
+### Die Trennung zu AGENTS.md
+
+Technisch festgemacht am Feld `art`: es kennt genau `ereignis` und `erkenntnis`, **für eine
+Konvention gibt es bewusst keinen Wert**. Wer eine ablegen will, stößt an und liest im
+Fehlertext, wohin sie gehört. Vollständig erzwingen lässt sich das nicht (ob ein Satz eine
+Dauerregel ist, sieht man ihm nicht an), deshalb daneben `conventionSmell`: ein Hinweis im
+Ergebnis, **keine Ablehnung** — eine Erkenntnis darf das Wort „immer" enthalten.
+
+`memory/README.md` aus S01 sagte das Gegenteil („Hierhin gehört … Konventionen, Vorlieben,
+wiederkehrende Regeln"). Die Datei ist ersetzt, und der Widerspruch ist in ihr benannt statt
+stillschweigend korrigiert — dieselbe Haltung, die die Notizen selbst verlangen.
+
+### Kein Pfadfeld, und warum das die Risikostufe rettet
+
+`memory.write` nimmt **keinen Pfad** entgegen; der Dateiname folgt aus Datum und Titel. Das ist
+die Umkehrung der Überlegung zum Feld `note` aus S15: läge hier ein `path`, ginge der Aufruf
+über den `fs`-Zonen-Resolver, `memory/` läge in der **Quellzone**, und
+`write-outside-artifact-zone` höbe jede Notiz auf `hard_write` an — auch die automatische nach
+dem Lauf, für die niemand mehr da ist, um freizugeben. Ohne Pfadfeld bleibt die Ressource
+`none`, der Boden `soft_write` greift, der Aufruf läuft durch.
+
+Der Nebeneffekt ist der eigentliche Gewinn: **der Aufrufer kann gar nicht bestimmen, wohin
+geschrieben wird.** `memory.write` schreibt strukturell nur ins Gedächtnis.
+
+`soft_write` und nicht `hard_write` wie `notes.write`: das Gedächtnis ist die eigene Ablage
+dieses Systems, sie liegt in Git (jede Änderung rückholbar), und ein Assistent, der für jede
+Notiz nachfragen muss, führt kein Gedächtnis, sondern ein Formular.
+
+### Die Schreibgrenze aus S17 war lautlos offen
+
+`BACKGROUND_RULES` bekommt eine vierte Regel, `background-memory-tool-write`
+(`when: { tool: "memory.write" }` → `deny`). S17 hatte das als „eine Zeile" vorhergesagt — sie
+war **nötiger als gedacht**: die bestehende Regel `background-longterm-memory-write` greift
+über `when: { path: "memory/**" }` und verlangt `resource.kind === "path"`. `memory.write` hat
+bewusst kein Pfadfeld, also trifft sie ihn **nicht**. Ohne die neue Regel hätte ein
+Hintergrundlauf ins Gedächtnis geschrieben, während die alte Regel dastand und den Eindruck
+erweckte, sie greife. Als Gegenprobe bestätigt.
+
+Dazu, in der Tiefe gestaffelt wie in S17: `memory.search` steht im `BACKGROUND_TOOLSET`
+(lesen ist erlaubt und erwünscht — ein Digest, der nicht weiß, was letzte Woche entschieden
+wurde, wiederholt sich), `memory.write` nicht. Der Katalog ist die Obergrenze, die Regel die
+Zusage.
+
+### Vor dem Lauf: der Recall
+
+`recallForTurn` sucht mit der Eingabe des Nutzers und legt die Treffer in die
+**Zugeröffnungsnachricht**, neben den Sessionzustand — nicht in den System-Prompt. Zwei Gründe
+aus Abschnitt 7: der System-Prompt ist der Cache-Präfix (ein Gedächtnisblock dort entwertete
+bei jedem Zug alles darunter), und „Zustand als Nachricht schicken" ist die ausdrückliche
+Regel. Der Block wird einmal je Zug gerendert und steht im `turn.started` — beim Replay wird
+nicht neu gesucht, sonst wäre der Kontext nicht mehr aus dem Protokoll herleitbar.
+
+**Warum automatisch und nicht als Werkzeugaufruf:** `memory.search` gibt es, und das Modell
+kann es rufen. Das reicht nicht — das Modell ruft nur, wonach es fragt. Wer nicht weiß, dass
+es zu diesem Thema schon eine Erkenntnis gibt, sucht nicht danach; er macht den Fehler noch
+einmal und merkt nicht, dass er ihn wiederholt.
+
+Höchstens fünf Notizen, je 600 Zeichen. Das ganze Gedächtnis in jeden Zug zu legen wäre
+einfacher und falsch: es wüchse mit der Zeit und machte jede alte Notiz so wichtig wie die
+Aufgabe von heute. Was ausgewählt wurde, steht als `memory.recalled` im Protokoll — die enge
+Auswahl ist damit prüfbar.
+
+### Nach dem Lauf: die Zusammenfassung, und die bewusste Auswahl
+
+„Nicht alles wird gespeichert" ist eine Anforderung **gegen** die naheliegende Bauweise. Ein
+Nachlauf, der jeden Lauf protokolliert, wäre in zwanzig Zeilen geschrieben und wertlos: nach
+einem Monat stünden dort dreihundert Notizen, von denen 290 „Aufgabe erledigt" heißen, und der
+Recall legte fünf davon in jeden Zug. Ein Gedächtnis, das alles behält, erinnert an nichts.
+
+Die Auswahl steht an drei Stellen: `NICHTS` ist der im Prompt benannte **Normalfall** und wird
+vom Parser als Erfolg behandelt; es gibt genau **einen** Notizblock in der Antwortform (mehr
+schreibt das Modell während des Laufs selbst); und die Mindesthürden des Speichers greifen auch
+hier (Länge, mindestens ein Tag). Eine bewusste Nicht-Ablage steht als `memory.skipped` im
+Protokoll — sonst sähe sie aus wie eine vergessene Zusammenfassung. Eine **halb** erkannte
+Antwort wirft dagegen: sie stumm zu verwerfen hieße, einen Verlust als Auswahl auszugeben.
+
+**Der Schreibweg führt durch den Router**, nicht daran vorbei: `summarizeRun` ruft
+`memory.write` über `callTool` mit `origin: "run_summary"` — Katalogprüfung, Schemaprüfung,
+Policy, Ausführungshülle, Protokoll. Der bequemere Weg (`store.write` direkt) wäre das Loch,
+durch das die Schreibgrenze aus S17 fiele. `summarizeRun` wirft nie: ein Lauf, der erfolgreich
+war, ist nicht nachträglich fehlgeschlagen, weil seine Nachbereitung es war; der Fehler landet
+als `error.raised` im Protokoll.
+
+Gezogen wird nur bei `stop: "done"` — nicht bei `awaiting_user` (der Lauf ist offen), nicht bei
+`canceled` (aus einem abgebrochenen Lauf eine Erkenntnis abzuleiten hieße, ein halbes Ergebnis
+als ganzes zu erinnern), nicht an einer Grenze. Vorgabe ist `completeOnDone`: dort, wo ein
+fertiger Zug ein fertiger Auftrag ist.
+
+### `memory/` ist ein eigenes Git-Repo
+
+- `git rm --cached memory/README.md`, `/memory/` in `.gitignore`. Ohne diese Zeile sähe das
+  Hauptrepo `memory/` als Gitlink ohne `.gitmodules` — weder Inhalt noch Verweis wären
+  brauchbar versioniert. Und das Gedächtnis ist persönliche Ablage: es soll nicht mit einem
+  `git push` des Projekts irgendwo landen.
+- **Bewusst nicht in `.claudeignore`**, die seit S01 synchron gehalten wird. Die beiden Dateien
+  beantworten verschiedene Fragen: `.gitignore` sagt, was nicht in die Historie gehört,
+  `.claudeignore`, was der Assistent nicht sehen soll. Das Gedächtnis soll er sehen. Die
+  Abweichung steht als Kommentar in beiden Dateien.
+- **Ein Fund aus dem Live-Nachweis, den kein Test hatte:** `isGitRepo` prüfte mit
+  `rev-parse --is-inside-work-tree`, und das antwortet für **jedes Unterverzeichnis** eines
+  Repos mit `true`. `memory/` liegt im Quellbaum — der Speicher hielt also das Code-Repo für
+  sein eigenes, `git init` unterblieb, und jede Notiz wäre als Commit **in der Code-Historie**
+  gelandet. Genau das, was die Trennung verhindern soll. Behoben über
+  `rev-parse --show-toplevel` mit Pfadvergleich; der Fall steht jetzt als Test da (verschachtelte
+  Repos) und wurde als Gegenprobe bestätigt.
+- **Eine eigene Git-Identität, aber nur ersatzweise.** Auf dieser Maschine ist global keine
+  gesetzt (die des Projekts ist lokal) — jeder Commit im Gedächtnis-Repo wäre gescheitert, und
+  zwar jeder einzelne, mit einer Fehlermeldung pro Notiz. `ensureGitIdentity` setzt deshalb
+  **lokal in diesem Repo** `Kuronami <kuronami@localhost>`, und nur wenn `git var
+  GIT_COMMITTER_IDENT` nichts auflösen kann. Hat der Mensch eine Identität, gewinnt seine.
+- **Grundcommit beim Anlegen**: `.gitignore` und README kommen in die Historie, bevor die erste
+  Notiz entsteht. Ohne ihn bliebe die `.gitignore` ungetrackt — und genau sie hält den
+  abgeleiteten Index aus der Historie. Fehlertolerant wie jeder Commit hier.
+- Ein fehlgeschlagener Commit macht die Notiz **nicht** ungültig: die Datei liegt und steht im
+  Index, sie ist das Gedächtnis. Der Fehler wird im Ergebnis gemeldet statt geworfen —
+  verschwiegen wird er nicht.
+
+### Der fünfte und sechste Schreibpfad des Redaction-Filters
+
+`store.write` filtert Notiztext und Titel, `buildSummaryPrompt` den Verlauf. AGENTS.md ist von
+vier auf sechs Pfade fortgeschrieben. Der Gedächtnispfad ist der **heikelste von allen**: eine
+Notiz mit einem Zugangsschlüssel läge nicht nur im Klartext auf der Platte, sondern dauerhaft
+in einer Git-Historie, aus der sie sich nicht mehr entfernen lässt, und der Recall legte sie
+bei jedem thematisch verwandten Lauf erneut in den Modellkontext. Tags und Kennungen bleiben
+ungefiltert, weil sie als Schlüssel nachgeschlagen werden (AGENTS.md).
+
+Der Prompt-Pfad ist dagegen schon gedeckt: der Recall-Block geht über `turn.started` ins
+Protokoll (dort gefiltert) und wird aus `readEvents` gefaltet.
+
+### `memory.*` — ein sechzehnter Namensraum
+
+Drei Typen. Die Begründung ist eine andere als bei `gateway.*` und `heartbeat.*`: **beide
+Hälften des Gedächtnisses laufen ohne Werkzeugaufruf.** Der Recall ist eine Entscheidung der
+Runtime, die bewusste Nicht-Ablage überhaupt keine Handlung — ohne eigene Typen hinterließen
+sie keine Spur. Genau sie muss man später lesen können: „warum hat er das nicht gewusst" wird
+zu „welche Notizen lagen im Zug", „warum steht dazu nichts im Gedächtnis" zu „wurde bewusst
+nichts abgelegt oder ist die Zusammenfassung gescheitert".
+
+- `memory.recalled` — was vor einem Zug geladen wurde, mit Anfrage, Rang und Grund.
+- `memory.skipped` — bewusst nichts abgelegt (`decided_by`: `model` oder `runtime`).
+- `memory.conflicted` — ausgesprochener Widerspruch und/oder vermuteter.
+
+Die Zahl im S03-Namensraumtest steht jetzt auf 16.
+
+### `node:sqlite` und der Testrunner
+
+Ein Umweg, der begründet gehört: das Modul wird über `createRequire` geholt, nicht mit einem
+`import`-Statement. `sqlite` ist **nur** unter seinem `node:`-Präfix ladbar und steht deshalb
+nicht in `module.builtinModules` (`node -e` bestätigt es). Die Werkzeuge um Vite herum
+erkennen ein Builtin an einer **hartkodierten** Namensliste, in der `sqlite` fehlt; ein
+statischer Import scheitert dort mit „Failed to load url sqlite", obwohl Node das Modul
+mitbringt. Über die Konfiguration ist das nicht zu heilen — die Liste ist keine Einstellung
+(ein Plugin und `server.deps.external` blieben wirkungslos, beide probiert). `createRequire`
+lädt in allen drei Wegen gleich (`tsc`, `tsx`, vitest), die Typen bleiben über
+`typeof import(...)` vollständig. Der Typalias steht dabei in einer eigenen Zeile: als
+Inline-Ausdruck bricht der Formatierer ihn um, und die mehrzeilige Form versteht der
+Transformator des Testrunners nicht.
+
+### Tests
+
+- 83 neue, zusammen **571** (54 Dateien).
+- **`tools/memory/frontmatter.test.ts`** (15, ohne DB): Zerlegen samt CRLF, Doppelpunkt im
+  Wert, leere Liste; Roundtrip; ein Titel, der ganz wie eine Liste aussieht, wird gequotet, ein
+  bloß angefangener nicht; abgewiesen werden fehlendes/unabgeschlossenes Frontmatter,
+  Nicht-Zuweisungen, doppelte Felder, mehrzeilige Werte und Listeneinträge mit Komma.
+- **`tools/memory/index-db.test.ts`** (19, ohne DB): Füllwörter raus und Präfixsuche;
+  FTS5-Syntax wird entschärft statt zu scheitern; Umlautfaltung (`offentlich` findet
+  `öffentlich`); Treffer bei teilweiser Überschneidung (der Zweck des `OR`); die
+  Spaltengewichte in der Reihenfolge Tag → Titel → Rumpf; **das deutsche Kompositum**
+  („Terminkalender" trifft „Kalender", mit `matched: "teilwort"`), der Rückfall greift **nur**
+  bei leerem Volltextergebnis und nicht bei zu kurzen Termen; Ersetzen führt keine Doppelung,
+  Entfernen räumt beide Tabellen, Tags treffen exakt (`cal` ≠ `calendar`).
+- **`tools/memory/store.test.ts`** (21, ohne DB, mit echtem Git): Umlaute werden ausgeschrieben;
+  Kennung aus Datum und Titel; `-2` bei Kollision und **beide** Notizen bleiben; der
+  Widerspruchsvermerk lässt den alten Rumpf wortgleich; der bloße Verdacht wird gemeldet, nicht
+  entschieden; keine Notizart für Konventionen, keine Notiz ohne Tags, keine zu kurze;
+  Konventionssprache wird gemeldet statt abgelehnt; **der Schlüssel steht nicht in der
+  Notizdatei**; eine von Hand geschriebene Notiz kommt beim Öffnen hinein, eine geänderte wird
+  neu gelesen, eine gelöschte fliegt raus, eine kaputte wird übersprungen; `reindex`; Git
+  (Repo anlegen, jede Notiz committen, Widerspruch in der Commit-Nachricht, beide Dateien in
+  einem Commit, `index.sqlite` ungetrackt, Arbeitsbaum sauber); **ein umgebendes Repo wird nicht
+  für das eigene gehalten**; ohne Repo bleibt die Notiz trotzdem liegen.
+- **`tools/memory/tools.test.ts`** (15, DB, echter Router/Policy): zwei Tools, `search` `read`,
+  `write` `soft_write`, kein `path`/`url`-Feld; `memory.write` **pausiert nicht** und die Datei
+  trägt Frontmatter und Herkunft, Replay = Schnappschuss; Fehlerhüllen für fehlende Tags,
+  erfundene Notizart (mit Verweis auf AGENTS.md) und `supersedes` ins Leere;
+  `memory.conflicted` mit ausgesprochenem Widerspruch; der Verdacht steht im `summary`;
+  `memory.search` findet über eine Frage in natürlicher Sprache, meldet einen Fehlschlag als
+  **Auskunft** (`status: "ok"`) und kennzeichnet bestrittene Treffer; **Schreibgrenze im
+  Hintergrundlauf** (`policy.denied`, `background-memory-tool-write` im Pfad, keine Datei, kein
+  `step.started`, kein Hänger), `memory.search` bleibt erlaubt, Gegenprobe mit
+  `DEFAULT_RULES` läuft durch.
+- **`tools/memory/recall.test.ts`** (13, DB, echter Loop) — **das Fertig-Kriterium**: Lauf 1
+  legt auf Faden A eine Erkenntnis ab, Lauf 2 auf **Faden B** (neue Session, alles was sie
+  verbindet ist die Platte) stellt eine thematisch verwandte Frage, die **nicht** die Worte der
+  Notiz benutzt. Geprüft werden fünf Dinge: `memory.recalled` trägt die Notiz als `treffer`;
+  der Recall steht **vor** `turn.started`; die Notiz steht in der Eröffnungsnachricht; sie ist
+  **beim Modell angekommen** (mitgeschriebene Anfragen — nicht „steht im Protokoll", sondern
+  „ging hinaus"); und der zweite Lauf hat **null Werkzeugaufrufe** gemacht, also nicht danach
+  gesucht. Zwei Gegenproben im Test selbst: ohne Gedächtnis kein Block, bei fremdem Thema
+  `found: 0` und kein Block. Dazu die Widerspruchsfälle im Recall und die Zusammenfassung
+  (`NICHTS` als Auswahl, vollständige Antwort, halbe Antwort wirft, `memory.skipped` mit
+  `decided_by`, Ablage über den Router mit `origin: "run_summary"`, ein Fehler beschädigt den
+  Lauf nicht, ohne `memory.write` im Katalog wird das Modell gar nicht erst gefragt).
+- **`runtime/events/log.test.ts`**: Namensraumzahl 15 → 16.
+
+### Gegenproben
+
+Sieben, alle bestätigt und danach zurückgesetzt:
+
+- **Recall aus dem Loop entfernt** → das Fertig-Kriterium und die Fremdthema-Probe rot.
+- **Block nur ins Ereignis, nicht in den Prompt** → das Fertig-Kriterium rot. Der Test hängt
+  also am gesendeten Prompt und nicht am Protokolleintrag.
+- **`background-memory-tool-write` entfernt** → die Hintergrundsperre rot. Damit ist belegt,
+  dass die alte Pfadregel aus S17 `memory.write` **nicht** trifft.
+- **Redaction im Notiztext entfernt** → der Schlüssel steht in der Datei.
+- **Widerspruchsvermerk nicht geschrieben** → die alte Notiz kennt die neue nicht.
+- **Gegennotiz nicht mitgeladen** → der Widerspruch verschwindet aus dem Recall.
+- **`isGitRepo` prüft wieder nur Zugehörigkeit** → der Test für verschachtelte Repos rot.
+
+### Nachweis außerhalb von vitest
+
+Am **echten** `memory/`, mit `tsx`: zwei Notizen abgelegt (die zweite widerspricht der ersten),
+beide committet; die alte Datei auf der Platte gezeigt — Rumpf wortgleich, `ersetzt_durch`
+ergänzt; Suche mit einer Frage, die keines der Notizworte benutzt (hier fiel der
+Komposita-Befund auf, nach der Behebung trifft sie beide); der Recall-Block so, wie er in den
+Zug ginge, samt „ACHTUNG"-Zeile an der überholten Notiz; und die Probe „die Datei ist die
+Wahrheit" — eine Notiz von Hand geändert, neu geöffnet, der Index zieht nach.
+
+Dazu `runtime/index.ts` gestartet: „Langzeitgedächtnis: P:\\Kuronami\\memory, 0 Notizen, Git an,
+2 memory.\*-Tools im Katalog." Probe-Notizen und -Session anschließend gelöscht, das
+Gedächtnis-Repo steht wieder auf dem Grundcommit.
+
+`ANTHROPIC_API_KEY` ist in dieser Umgebung weiterhin leer (wie in S16/S17 notiert), ein Lauf
+mit echtem Modell war also nicht möglich; die Schleife ist über das Drehbuchmodell nachgewiesen.
+
+### Der Katalog-Fingerabdruck ändert sich
+
+`runtime/index.ts` schaltet das Gedächtnis **immer** ein — anders als n8n und Obsidian hängt es
+an keiner Umgebungsvariablen, weil es kein Anschluss nach draußen ist, sondern Teil des
+Systems. Der ausgelieferte Katalog hat damit 12 Tools und den Fingerabdruck
+`v1-0a61b161d7114035` statt `v1-53a18ba0cb4e49c8`/10. **Bestehende Sessions kann dieser Prozess
+nicht mehr bedienen** — das ist die Regel aus S07 und richtig so, aber es heißt: für die neue
+Toolmenge braucht es eine neue Session. Ohne `memory`-Feld in `CatalogConfig` bleibt der alte
+Fingerabdruck unverändert, die S14/S15-Tests halten das weiter fest.
+
+### Bewusst nicht gebaut
+
+- **Zusammenfassung für Gateway-Sessions.** Der Nachlauf hängt an `completeOnDone`, und das
+  Gateway setzt es ab (S16): dort ist ein fertiger Zug kein fertiger Auftrag. Wann eine
+  **Unterhaltung** endet, weiß dieses System noch nicht — eine Notiz nach jeder Antwort
+  beschriebe einen Zwischenstand als Ergebnis. Damit bekommt der Hauptkanal heute keine
+  automatische Notiz; das Modell kann dort `memory.write` selbst rufen.
+- **Ein Vektorindex oder ein Hybrid.** Begründet oben.
+- **Verdichtung alter Notizen.** Bei Hunderten Notizen trägt der Bestand; der Tag, an dem
+  „fünf von tausend" die falsche Auswahl ist, braucht eine eigene Entscheidung (Zusammenfassen?
+  Verfallsdatum? Nur nach Tags?) und keinen Schnellschuss.
+- **Personenbezogene Struktur** (wer ist wer, Beziehungen). Der Auftrag sagt
+  „personenbezogenes Langzeitgedächtnis", und das ist heute über Tags abgebildet. Ein
+  Personenmodell wäre eine zweite Datenstruktur neben den Notizen.
+- **Löschen und Vergessen.** Es gibt kein `memory.delete`. Eine Notiz verschwindet, indem ein
+  Mensch die Datei löscht — der Index zieht beim nächsten Öffnen nach. Ein Werkzeug dafür wäre
+  der erste Weg, auf dem das Gedächtnis sich selbst beschneiden könnte.
+- **Ein GC-Lauf** für den Index bei sehr großem Bestand; `syncFromDisk` liest heute jede
+  geänderte Datei neu.
+
+### Offene Befunde
+
+- **Der Nachlauf kostet einen zusätzlichen Modellaufruf je Lauf.** Er ist klein (Verlauf
+  gekürzt auf 6 kB, 1024 Ausgabetoken), aber er ist da, und bei einem Lauf, der ohnehin nichts
+  hinterlässt, ist er vergebens. Eine billigere Vorentscheidung (gar nicht erst fragen, wenn
+  der Lauf keine Werkzeugaufrufe hatte) wäre eine naheliegende Ergänzung.
+- **Zwei Git-Prozessstarts je Notiz** (~300 ms unter Windows). Bei einer Notiz je Lauf
+  unkritisch; wer viele Notizen in einem Zug schreibt, merkt es.
+- **Die Teilwortsuche läuft über den ganzen Bestand.** Nicht messbar bei Hunderten Notizen,
+  aber es ist ein Full-Scan, und er greift genau dann, wenn der Volltext nichts fand — also
+  bei jeder erfolglosen Suche.
+- **`ensureGitIdentity` greift nur beim Anlegen.** Ein von Hand angelegtes Gedächtnis-Repo
+  ohne Identität bekommt keine; dort scheitert jeder Commit sichtbar.
+- **Der `web.search`-Anbieter fehlt weiterhin** (offen seit S09).
+- **Zeitzonen**: `cal.list`-Vorgabefenster (S15), Heartbeat-Tagesgrenze (S17) und jetzt auch
+  das Notizdatum rechnen in der lokalen Zeit des Prozesses.
+- **Der Postgres-Port ist weiterhin öffentlich** (`0.0.0.0:5432`, offen seit S13).
+- `pnpm typecheck && pnpm lint && pnpm test` grün, 571 Tests.
+- `tasks.json`: S18 auf `done`, S19 von `queued` auf `ready`.
+
+Status: abgeschlossen. **Damit ist Phase 3 abgeschlossen** (S16 Gateway, S17 Heartbeat,
+S18 Langzeitgedächtnis). Nächste Session: S19 Agenten-Registry und `agent.create` (Phase 5).

@@ -204,7 +204,7 @@ export const DEFAULT_RULES: PolicyRule[] = [
 
 /**
  * Der Zusatzregelsatz für **Hintergrundläufe** (Heartbeat, S17). Er wird `DEFAULT_RULES`
- * vorangestellt, nicht ersetzt — die vier Standardregeln gelten weiter, diese drei kommen
+ * vorangestellt, nicht ersetzt — die vier Standardregeln gelten weiter, diese vier kommen
  * obendrauf.
  *
  * Ein Hintergrundlauf ist eine Session ohne Menschen am anderen Ende: der Heartbeat stößt sie
@@ -226,6 +226,13 @@ export const DEFAULT_RULES: PolicyRule[] = [
  * schreiben dürfte.
  */
 export const BACKGROUND_RULES: PolicyRule[] = [
+  {
+    id: "background-memory-tool-write",
+    description:
+      "Ein Hintergrundlauf schreibt nicht mit memory.write ins Langzeitgedächtnis. Dieselbe Grenze wie background-longterm-memory-write, nur über den Toolnamen statt über den Pfad: memory.write nimmt seit S18 bewusst kein Pfadfeld entgegen (der Dateiname folgt aus Datum und Titel), also hat die Engine keinen Pfad, an dem die Zonenregel greifen könnte. Ohne diese Regel wäre die Schreibgrenze aus S17 mit dem neuen Werkzeug lautlos umgangen.",
+    when: { tool: "memory.write" },
+    effect: { decision: "deny" },
+  },
   {
     id: "background-longterm-memory-write",
     description:

@@ -11,6 +11,13 @@ import type { JsonValue } from "../runtime/steps/types.js";
  * Erlaubte Namensräume (Abschnitt 4.8). `dev` ist seit S07 dabei und in Abschnitt 4.8 der
  * Architektur begründet: Prüf-Tools des Harness, die nie in einem echten Tool-Katalog
  * stehen. Ein neuer Namensraum braucht eine Begründung in `docs/` (AGENTS.md).
+ *
+ * `memory` ist seit S18 dabei, begründet in `docs/GEDAECHTNIS.md`. Kurz: `notes.*` greift seit
+ * S15 auf den **Obsidian-Vault des Nutzers** zu (fremdes Gebiet, `hard_write`, jede Änderung
+ * mit Freigabe), `memory.*` auf das **Langzeitgedächtnis des Assistenten** (eigene Ablage,
+ * `soft_write`, eigenes Git-Repo). Zwei Ablagen mit verschiedenen Eigentümern, verschiedenen
+ * Risikostufen und verschiedenen Zonen — sie in einem Namensraum zu führen hieße, den
+ * Speicherort davon abhängig zu machen, welches Feld das Modell gerade füllt.
  */
 export const TOOL_NAMESPACES = [
   "fs",
@@ -22,6 +29,7 @@ export const TOOL_NAMESPACES = [
   "mail",
   "cal",
   "notes",
+  "memory",
   "github",
   "server",
   "dev",

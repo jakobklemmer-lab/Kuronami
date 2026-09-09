@@ -8,9 +8,14 @@ Codeschreiben.
 
 `namensraum.aktion`, kleingeschrieben, Punkt als Trenner, Aktion englisch.
 Erlaubte Namensräume: `fs`, `web`, `exec`, `task`, `user`, `agent`, `mail`, `cal`,
-`notes`, `github`, `server`, `dev`. Ein neuer Namensraum braucht eine Begründung
+`notes`, `memory`, `github`, `server`, `dev`. Ein neuer Namensraum braucht eine Begründung
 in `docs/`. `dev.*` sind Prüf-Tools des Harness und gehören in keinen produktiven
 Tool-Katalog.
+
+`notes.*` und `memory.*` sind **nicht dasselbe** und werden es auch nicht: `notes.*` greift
+auf den Obsidian-Vault des Nutzers zu (fremdes Gebiet, `hard_write`, jede Änderung mit
+Freigabe), `memory.*` auf das Langzeitgedächtnis des Assistenten (eigene Ablage, `soft_write`,
+eigenes Git-Repo). Begründung in `docs/GEDAECHTNIS.md`.
 
 ## Einheitliche Rückgabehülle
 
@@ -51,10 +56,15 @@ Hook senkt nichts; nur der Sessionmodus darf den Boden senken, und nie bei `dest
 ## Secrets laufen durch den Redaction-Filter
 
 Jeder Schreibpfad, der Text auf die Platte oder in den Modellkontext bringt, läuft durch
-`redact` aus `runtime/redaction/`. Heute sind das vier: Ereignisprotokoll, Artefaktmetadaten,
-Prompt-Aufbau und die Freigabezeilen in `kuronami.approvals` (dort steht die Eingabe des
-freigegebenen Aufrufs). Kommt ein fünfter dazu, wird er dort angeschlossen — nicht mit einer
-eigenen Prüfung an der Aufrufstelle.
+`redact` aus `runtime/redaction/`. Heute sind das sechs: Ereignisprotokoll, Artefaktmetadaten,
+Prompt-Aufbau, die Freigabezeilen in `kuronami.approvals` (dort steht die Eingabe des
+freigegebenen Aufrufs), der Notiztext im Langzeitgedächtnis und die Nachlauf-Zusammenfassung,
+die es füllt. Kommt ein siebter dazu, wird er dort angeschlossen — nicht mit einer eigenen
+Prüfung an der Aufrufstelle.
+
+Der Gedächtnispfad ist der heikelste: eine Notiz mit einem Zugangsschlüssel läge nicht nur im
+Klartext auf der Platte, sondern **dauerhaft in einer Git-Historie**, und der Recall legte sie
+bei jedem thematisch verwandten Lauf erneut in den Modellkontext.
 
 Der Filter regelt das **Durchsickern**, nicht den **Zugriff**. Wer eine Datei öffnen darf,
 deren Inhalt per Bauart ein Geheimnis ist (`.env`, `*.pem`, `.ssh/`), entscheidet die
@@ -107,6 +117,22 @@ Schemaänderungen an der laufenden Datenbank.
 
 Namensform `namensraum.vergangenheitsform`. Neue Ereignistypen kommen dazu, bestehende
 werden nie umbenannt und nie in ihrer Bedeutung verändert.
+
+## Konventionen hierher, Erkenntnisse ins Gedächtnis
+
+Was **immer** gilt — Arbeitsregeln, Vorlieben, Dauerregeln — steht in dieser Datei. Was
+**geschehen** ist und was daraus folgt, steht als Notiz in `memory/`: Ereignisse mit Folgen
+für später, widerlegte Annahmen, Entscheidungen samt ihrem Grund. Festgemacht ist die Trennung
+am Feld `art` einer Notiz, das genau zwei Werte kennt (`ereignis`, `erkenntnis`) und keinen
+für eine Konvention.
+
+**Nicht alles wird gespeichert.** Die meisten Läufe hinterlassen keine Notiz; das ist der
+Normalfall und keine Panne. Eine bewusste Nicht-Ablage steht als `memory.skipped` im
+Protokoll, damit sie nicht wie eine vergessene Zusammenfassung aussieht.
+
+Eine neue Notiz überschreibt nie eine alte. Widerspricht sie einer, wird das über `supersedes`
+vermerkt und **beide bleiben stehen** — die Entscheidung, welche gilt, trifft der Leser mit
+beiden Daten vor Augen, nicht der Speicher hinter seinem Rücken.
 
 ## Artefakte sind unveränderlich
 

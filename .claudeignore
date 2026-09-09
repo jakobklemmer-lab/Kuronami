@@ -4,6 +4,9 @@ dist/
 build/
 coverage/
 /artifacts/
+# Achtung, Abweichung von .gitignore (S18): dort steht `/memory/`, hier bewusst nicht. Das
+# Langzeitgedächtnis ist ein eigenes Git-Repo und gehört nicht in die Historie dieses
+# Projekts — gesehen werden soll es aber, es ist das Gedächtnis des Assistenten.
 *.log
 *.lock
 !src-tauri/Cargo.lock

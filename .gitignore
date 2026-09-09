@@ -4,6 +4,16 @@ dist/
 build/
 coverage/
 /artifacts/
+# Das Langzeitgedächtnis (S18) ist ein **eigenes Git-Repo** mit eigener Historie: persönliche
+# Ablage, kein Quelltext, und es soll nicht mit einem `git push` dieses Projekts irgendwo
+# landen. Ohne diese Zeile sähe das Hauptrepo `memory/` als Gitlink ohne .gitmodules — ein
+# Zustand, in dem weder der Inhalt noch der Verweis brauchbar versioniert wäre.
+#
+# **Bewusst nicht in .claudeignore**, die sonst seit S01 synchron gehalten wird: die beiden
+# Dateien beantworten verschiedene Fragen. `.gitignore` sagt, was nicht in die Historie
+# gehört; `.claudeignore` sagt, was der Assistent nicht sehen soll. Das Gedächtnis soll er
+# sehen — es ist seins.
+/memory/
 *.log
 *.lock
 # Cargo.lock einer Anwendung gehört ins Repo (Tauri, S12b).

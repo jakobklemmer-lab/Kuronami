@@ -8,6 +8,9 @@ import { createCalTools } from "../../tools/cal/tools.js";
 import { buildFsZones, policyResolver } from "../../tools/fs/paths.js";
 import { createFsTools } from "../../tools/fs/tools.js";
 import { createMailTools } from "../../tools/mail/tools.js";
+import { type MemoryStore, buildMemoryRoot, createMemoryStore } from "../../tools/memory/store.js";
+import { summarizeRun } from "../../tools/memory/summary.js";
+import { createMemoryTools } from "../../tools/memory/tools.js";
 import { createN8nBridge } from "../../tools/n8n/bridge.js";
 import { type N8nWorkflowDef, createN8nTools } from "../../tools/n8n/workflows.js";
 import { buildVaultRoot } from "../../tools/notes/paths.js";
@@ -87,6 +90,18 @@ export interface CatalogConfig {
    */
   obsidian?: { vaultPath?: string };
   /**
+   * Das Langzeitgedächtnis (S18) — Markdown in `memory/` mit SQLite-Volltextindex, eigenes
+   * Git-Repo. Gesetzt, kommen `memory.search`/`memory.write` in den Katalog **und** der
+   * zurückgegebene `store` in den Loop (Recall vor jedem Zug) und in die Nachbereitung
+   * (Zusammenfassung nach dem Lauf).
+   *
+   * Anders als `obsidian` und `n8n` ist ein leeres Objekt hier nicht nötig, um Voreinstellungen
+   * zu ziehen: `root` fällt auf `MEMORY_ROOT` und dann auf `./memory` zurück. Ohne das Feld
+   * bleibt der Katalog-Fingerabdruck unverändert — dieselbe Regel wie überall seit S14: ein
+   * ausdrückliches Feld schaltet Tools frei, Umgebungsvariablen liefern nur den Pfad.
+   */
+  memory?: { root?: string; indexFile?: string; git?: boolean };
+  /**
    * Das Profil des Katalogs. Vorgabe `"full"`: alles, was oben verdrahtet ist.
    *
    * `"background"` ist der **Hintergrundmodus** aus S17 — für Läufe, die der Heartbeat ohne
@@ -127,6 +142,11 @@ export const BACKGROUND_TOOLSET: readonly string[] = [
   "cal.list",
   "server.metrics",
   "notes.read",
+  // Lesen aus dem Langzeitgedächtnis ist erlaubt und erwünscht: ein Digest, der nicht weiß,
+  // was letzte Woche entschieden wurde, wiederholt sich. **Schreiben** steht bewusst nicht
+  // hier, und `BACKGROUND_RULES` verbietet es zusätzlich (S17/S18) — der Katalog ist die
+  // Obergrenze, die Regel die Zusage.
+  "memory.search",
   "task.set",
   "task.update",
 ];
@@ -134,6 +154,12 @@ export const BACKGROUND_TOOLSET: readonly string[] = [
 export interface BuiltCatalog {
   catalog: ToolCatalog;
   policy: ReturnType<typeof createPolicyEngine>;
+  /**
+   * Das Langzeitgedächtnis, wenn es konfiguriert wurde. Der Aufrufer reicht es an
+   * `createRunner` weiter; wer es geöffnet hat, schließt es auch (`store.close()`) — dasselbe
+   * Eigentumsmuster wie beim Pool seit S03.
+   */
+  memory?: MemoryStore;
 }
 
 /**
@@ -204,6 +230,21 @@ export async function buildCatalog(config: CatalogConfig): Promise<BuiltCatalog>
     );
   }
 
+  // memory.* (S18). Wie `notes.*`: nur wenn ausdrücklich konfiguriert. Der Store wird hier
+  // geöffnet und nicht erst im Runner, weil er zwei Verbraucher hat — die Tools im Katalog und
+  // den Recall im Loop —, und beide müssen denselben Index sehen. Zwei Verbindungen auf
+  // dieselbe SQLite-Datei wären zwei Sichten auf denselben Bestand, mit allen Fragen zur
+  // Sichtbarkeit, die man sich damit einhandelt.
+  let memory: MemoryStore | undefined;
+  if (config.memory) {
+    memory = await createMemoryStore({
+      root: await buildMemoryRoot(config.memory.root),
+      indexFile: config.memory.indexFile,
+      git: config.memory.git,
+    });
+    registry.registerAll(createMemoryTools({ store: memory, pool: config.pool }));
+  }
+
   const full = registry.freeze();
 
   // Hintergrundprofil (S17): auf die Whitelist einschränken und mit einem eigenen
@@ -220,7 +261,11 @@ export async function buildCatalog(config: CatalogConfig): Promise<BuiltCatalog>
   const rules =
     config.profile === "background" ? [...BACKGROUND_RULES, ...DEFAULT_RULES] : undefined;
 
-  return { catalog, policy: createPolicyEngine({ resolvePath: policyResolver(zones), rules }) };
+  return {
+    catalog,
+    policy: createPolicyEngine({ resolvePath: policyResolver(zones), rules }),
+    memory,
+  };
 }
 
 export interface RunnerConfig extends Omit<LoopDeps, "conventions" | "signal" | "artifactRoot"> {
@@ -247,6 +292,19 @@ export interface RunnerConfig extends Omit<LoopDeps, "conventions" | "signal" | 
    * Falschaussage über den Verlauf.
    */
   completeOnDone?: boolean;
+  /**
+   * Nach einem abgeschlossenen Lauf die strukturierte Zusammenfassung ziehen und — wenn der
+   * Lauf etwas hinterlässt — als Notiz ablegen (S18, `tools/memory/summary.ts`).
+   *
+   * Vorgabe: an, sobald ein Gedächtnis verdrahtet ist **und** `completeOnDone` gilt. Die
+   * Kopplung ist die Antwort auf die Frage, was „ein Lauf" ist: dort, wo ein fertiger Zug ein
+   * fertiger Auftrag ist (Heartbeat, Aufgabe über die API, Test), ist er auch die Einheit, die
+   * eine Erinnerung hinterlässt. Ein Kanal mit einer langen Unterhaltung (S16) setzt
+   * `completeOnDone` ab, und dort wäre eine Notiz nach jeder Antwort falsch — sie beschriebe
+   * einen Zwischenstand als Ergebnis. Wann eine **Unterhaltung** endet, weiß dieses System
+   * noch nicht; siehe die offenen Befunde zu S18.
+   */
+  summarizeToMemory?: boolean;
 }
 
 export interface RunStatus {
@@ -279,6 +337,61 @@ function isPolicyAsk(askId: string): boolean {
 }
 
 /**
+ * Die Ereignisse **eines** Zugs, aus dem Protokoll geschnitten.
+ *
+ * Nötig, weil die Tool-Ereignisse seit S07 keine `turn_id` tragen — sie kennen ihre
+ * `call_id`, nicht den Zug. Statt die Taxonomie dafür zu erweitern (ein bestehendes Ereignis
+ * um ein Feld zu ergänzen ist die teurere Änderung: jeder Leser eines alten Protokolls müsste
+ * mit seinem Fehlen rechnen), wird geschnitten: alles zwischen dem `turn.started` dieses Zugs
+ * und dem nächsten `turn.started` gehört zu ihm. Das ist herleitbar und braucht keine
+ * Migration.
+ */
+async function turnSlice(
+  pool: Pool,
+  sessionId: string,
+  turnId: string,
+): Promise<{ type: string; payload: Record<string, unknown> }[]> {
+  const events = await readEvents(pool, sessionId);
+  const start = events.findIndex(
+    (event) => event.type === "turn.started" && event.payload.turn_id === turnId,
+  );
+  if (start === -1) return [];
+
+  const slice: { type: string; payload: Record<string, unknown> }[] = [];
+  for (let i = start; i < events.length; i += 1) {
+    if (i > start && events[i].type === "turn.started") break;
+    slice.push({ type: events[i].type, payload: events[i].payload as Record<string, unknown> });
+  }
+  return slice;
+}
+
+/** Die Eingabe, mit der dieser Zug begann. */
+async function turnInput(pool: Pool, sessionId: string, turnId: string): Promise<string> {
+  const slice = await turnSlice(pool, sessionId, turnId);
+  const started = slice.find((event) => event.type === "turn.started");
+  return typeof started?.payload.input === "string" ? started.payload.input : "";
+}
+
+/**
+ * Was der Zug getan hat, als knappe Zeilen für die Zusammenfassung. Nur Toolname und
+ * `summary` — der volle Verlauf gehört nicht in einen zweiten Modellaufruf, und die
+ * Zusammenfassungen sind genau die Fassung, die das Tool selbst für die richtige hält.
+ * Fehlgeschlagene Aufrufe stehen mit dabei: aus ihnen kommt oft die eigentliche Erkenntnis.
+ */
+async function turnSteps(pool: Pool, sessionId: string, turnId: string): Promise<string[]> {
+  const slice = await turnSlice(pool, sessionId, turnId);
+  const lines: string[] = [];
+  for (const event of slice) {
+    if (event.type !== "tool.completed" && event.type !== "tool.failed") continue;
+    const name = typeof event.payload.tool_name === "string" ? event.payload.tool_name : "?";
+    const summary = typeof event.payload.summary === "string" ? event.payload.summary : "";
+    const mark = event.type === "tool.failed" ? "FEHLER" : "ok";
+    lines.push(`- ${name} (${mark}): ${summary}`);
+  }
+  return lines;
+}
+
+/**
  * Nimmt die Session auf und gibt den Läufer zurück.
  *
  * Wie `startRuntime` (S04): der Aufrufer besitzt Pool und Lebenszyklus. Wer `createRunner`
@@ -290,6 +403,8 @@ export async function createRunner(config: RunnerConfig): Promise<Runner> {
   const artifactRoot = config.artifactRoot ?? artifactRootFromEnv();
   const conventions = config.conventions ?? (await loadConventions());
   const completeOnDone = config.completeOnDone ?? true;
+  const memory = config.memory;
+  const summarize = config.summarizeToMemory ?? (completeOnDone && memory !== undefined);
 
   const runtime: RuntimeHandle = await startRuntime(pool, {
     threadId: config.threadId,
@@ -321,6 +436,28 @@ export async function createRunner(config: RunnerConfig): Promise<Runner> {
           turn_id: result.turnId,
           tool_calls: result.toolCalls,
           reason: result.reason,
+        });
+      }
+
+      // Die Nachbereitung (S18): erst wenn der Lauf wirklich fertig ist. Nicht bei
+      // `awaiting_user` (der Lauf ist offen, nicht vorbei), nicht bei `canceled` (er wurde
+      // abgebrochen — daraus eine Erkenntnis abzuleiten hieße, ein halbes Ergebnis als ganzes
+      // zu erinnern) und nicht an einer Grenze. `summarizeRun` wirft nie; ein Fehler dort
+      // steht als `error.raised` im Protokoll und macht den geglückten Lauf nicht ungültig.
+      if (summarize && result.stop === "done" && memory) {
+        await summarizeRun({
+          pool,
+          model: config.model,
+          catalog: config.catalog,
+          policy: config.policy,
+          artifactRoot,
+          store: memory,
+          session: runtime.session,
+          turnId: result.turnId,
+          input: await turnInput(pool, runtime.session.sessionId, result.turnId),
+          outcomeText: result.text,
+          steps: await turnSteps(pool, runtime.session.sessionId, result.turnId),
+          signal: runtime.signal,
         });
       }
       if (completeOnDone && (result.stop === "step_limit" || result.stop === "error_rate")) {

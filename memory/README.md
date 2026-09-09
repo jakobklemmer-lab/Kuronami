@@ -1,1 +1,0 @@
-Hierhin gehört das Langzeitgedächtnis: Konventionen, Vorlieben, wiederkehrende Regeln und Personenwissen als Markdown mit SQLite-Volltextindex. Keine Session- oder Arbeitsspeicherzustände, die gehören ins Runtime-Checkpointing beziehungsweise ins Dateisystem der laufenden Session.

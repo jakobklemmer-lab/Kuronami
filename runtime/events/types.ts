@@ -105,6 +105,32 @@ export const EVENT_TYPES = [
   "heartbeat.skipped",
   "heartbeat.delivered",
   "heartbeat.silent",
+
+  // Seither dazugekommen (S18). Ein sechzehnter Namensraum, geschrieben von `tools/memory/`
+  // und vom Loop — also wieder aus der Runtime heraus, anders als `gateway.*` und
+  // `heartbeat.*`.
+  //
+  // Warum das Langzeitgedächtnis eigene Ereignisse braucht: seine beiden Hälften laufen
+  // **ohne Werkzeugaufruf**. Der Recall vor dem Zug ist keine Entscheidung des Modells,
+  // sondern eine der Runtime, und die bewusste Nicht-Ablage nach dem Lauf ist überhaupt keine
+  // Handlung — beide hinterließen ohne eigenen Typ keine Spur. Genau sie muss man aber später
+  // lesen können: „warum hat er das nicht gewusst" wird zu „welche Notizen lagen im Zug", und
+  // „warum steht dazu nichts im Gedächtnis" zu „wurde bewusst nichts abgelegt oder ist die
+  // Zusammenfassung gescheitert".
+  //
+  //   * `memory.recalled`   — welche Notizen vor einem Zug geladen wurden, mit der Anfrage und
+  //                           dem Rang. Die Auswahl ist eng (fünf von vielen); ohne dieses
+  //                           Ereignis wäre sie nicht prüfbar.
+  //   * `memory.skipped`    — der Lauf hat **bewusst nichts** abgelegt. Der Normalfall, nicht
+  //                           die Ausnahme: ohne den Eintrag sähe eine bewusste Auswahl aus
+  //                           wie eine vergessene Zusammenfassung.
+  //   * `memory.conflicted` — eine neue Notiz widerspricht einer älteren (ausgesprochen über
+  //                           `supersedes`) oder trifft auf ältere zum selben Thema (vermutet
+  //                           über gleiche Tags). Beide Notizen bleiben stehen; hier steht,
+  //                           dass es sie beide gibt.
+  "memory.recalled",
+  "memory.skipped",
+  "memory.conflicted",
 ] as const;
 
 export type EventType = (typeof EVENT_TYPES)[number];

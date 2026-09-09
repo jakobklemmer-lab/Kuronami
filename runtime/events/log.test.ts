@@ -99,10 +99,12 @@ describe("Ereignisprotokoll", () => {
 
     expect(events.map((event) => event.type)).toEqual([...EVENT_TYPES]);
     // Zwölf Namensräume aus Abschnitt 4.4, dazu runtime.* aus S04 für den Lebenslauf des
-    // Prozesses, gateway.* aus S16 für den Weg einer Nachricht in die Session und zurück und
-    // heartbeat.* aus S17 für die Buchführung des proaktiven Dienstes. Die Zahl steht hier
-    // fest, damit ein neuer Namensraum eine Entscheidung bleibt und nicht nebenbei entsteht.
-    expect(new Set(events.map((event) => event.type.split(".")[0])).size).toBe(15);
+    // Prozesses, gateway.* aus S16 für den Weg einer Nachricht in die Session und zurück,
+    // heartbeat.* aus S17 für die Buchführung des proaktiven Dienstes und memory.* aus S18
+    // für das, was das Langzeitgedächtnis ohne Werkzeugaufruf tut (Recall vor dem Zug,
+    // bewusste Nicht-Ablage danach, Widerspruch). Die Zahl steht hier fest, damit ein neuer
+    // Namensraum eine Entscheidung bleibt und nicht nebenbei entsteht.
+    expect(new Set(events.map((event) => event.type.split(".")[0])).size).toBe(16);
     expect(events.every((event) => event.payload !== null)).toBe(true);
   });
 
