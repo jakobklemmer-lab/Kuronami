@@ -1,0 +1,81 @@
+{
+  "id": "kuronamiMailDraft01",
+  "name": "mail.draft",
+  "meta": {
+    "description": "Kuronami S14: einen Entwurf im Postfach ablegen. Legt NICHTS in den Postausgang und versendet NICHTS. Der Provider-Knoten ist Gmail mit operation=draft:create (bzw. IMAP-append in den Drafts-Ordner). Es gibt hier bewusst KEINEN message:send / SMTP-Knoten — das Fertig-Kriterium von S14 ist 'Senden ist technisch unmoeglich'."
+  },
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "mail-draft",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "c2a30001-0001-4a00-8000-000000000001",
+      "name": "Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [240, 300],
+      "webhookId": "c2a30001-0001-4a00-8000-000000000001"
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "// Eingabe der Runtime: { to, subject, body, cc?, in_reply_to? }\nconst incoming = $input.first().json;\nconst inp = incoming.body && typeof incoming.body === 'object' ? incoming.body : incoming;\nif (typeof inp.to !== 'string' || inp.to.trim() === '') throw new Error('mail-draft: Feld \"to\" fehlt');\nif (typeof inp.body !== 'string' || inp.body.trim() === '') throw new Error('mail-draft: Feld \"body\" fehlt');\nreturn [{ json: {\n  to: inp.to.trim(),\n  cc: typeof inp.cc === 'string' ? inp.cc.trim() : '',\n  subject: typeof inp.subject === 'string' ? inp.subject : '',\n  message: inp.body,\n  in_reply_to: typeof inp.in_reply_to === 'string' ? inp.in_reply_to.trim() : ''\n} }];"
+      },
+      "id": "c2a30001-0002-4a00-8000-000000000002",
+      "name": "Build draft",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [460, 300]
+    },
+    {
+      "parameters": {
+        "resource": "draft",
+        "operation": "create",
+        "subject": "={{ $json.subject }}",
+        "message": "={{ $json.message }}",
+        "options": {
+          "sendTo": "={{ $json.to }}",
+          "ccList": "={{ $json.cc }}",
+          "threadId": "={{ $json.in_reply_to }}"
+        }
+      },
+      "id": "c2a30001-0003-4a00-8000-000000000003",
+      "name": "Gmail: create draft",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2,
+      "position": [680, 300],
+      "notes": "operation=draft:create. Legt nur einen Entwurf an. KEIN message:send hier und nirgends."
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "const m = $input.first().json || {};\nreturn [{ json: {\n  draft_id: String(m.id || m.draftId || m.message?.id || ''),\n  mailbox: 'Drafts',\n  created: true,\n  sent: false\n} }];"
+      },
+      "id": "c2a30001-0004-4a00-8000-000000000004",
+      "name": "Shape result",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [900, 300]
+    },
+    {
+      "parameters": { "respondWith": "firstIncomingItem", "options": {} },
+      "id": "c2a30001-0005-4a00-8000-000000000005",
+      "name": "Respond to Webhook",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [1120, 300]
+    }
+  ],
+  "connections": {
+    "Webhook": { "main": [[{ "node": "Build draft", "type": "main", "index": 0 }]] },
+    "Build draft": { "main": [[{ "node": "Gmail: create draft", "type": "main", "index": 0 }]] },
+    "Gmail: create draft": { "main": [[{ "node": "Shape result", "type": "main", "index": 0 }]] },
+    "Shape result": { "main": [[{ "node": "Respond to Webhook", "type": "main", "index": 0 }]] }
+  },
+  "active": false,
+  "settings": { "executionOrder": "v1" },
+  "tags": []
+}

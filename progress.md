@@ -2541,3 +2541,175 @@ davon, Phase 6 ersetzt es.
 - `tasks.json`: S12b als `done` ergänzt (Phase 1, hängt an S12).
 
 Status: abgeschlossen. Nächste Session: S14 Mail-Tools.
+
+## S14 · Mail-Tools · 2026-09-09
+
+Die ersten echten Assistenz-Tools über n8n: `mail.search`, `mail.read`, `mail.draft`. Der
+Transport ist die Brücke aus S13, die Tool-Semantik steht in einem neuen Modul `tools/mail/`.
+`mail.send` **gibt es nicht** — das ist das Fertig-Kriterium, nicht ein fehlendes Feature.
+
+- Tests der Vorsession vorab gelaufen: 347 grün (S13 + S12b), `pnpm typecheck` und
+  `pnpm lint` ebenfalls. Der Arbeitsbaum war sauber (HEAD `d1dc99e`).
+- **Keine Migration, kein neuer Ereignistyp.** Mail-Tools laufen durch den Router
+  (`tool.requested`/`tool.completed`/`tool.failed`), die Ausführungshülle
+  (`step.started`/`step.completed`), die Policy-Engine (`policy.allowed`) und den
+  Artefaktspeicher (`artifact.created`) — alles seit S05–S11 gebaut. Es kommt nichts hinzu,
+  das die Taxonomie oder das Schema kennen müsste.
+- **Keine neue Abhängigkeit.** `tools/mail/tools.ts` importiert `createN8nBridge` (S13),
+  `writeArtifact` (S06) und `normalizeContent`/`scanForInjection` aus `tools/web/normalize.ts`
+  (S09).
+
+### Abweichung: eigene Handler statt generischer `N8nWorkflowDef`
+
+S13 hat ausdrücklich angekündigt, S14 reiche `mail.*` durch `config.n8n.workflows` als
+generische Workflows durch (`createN8nTools`). **Das trägt nicht**, und die Abweichung ist
+dieselbe wie bei `web.fetch` gegen ein generisches Tool: der generische n8n-Handler
+(`runWorkflow`) reicht `structured.body` unverändert durch. S14 verlangt drei Formen, die nur
+ein tool-spezifischer Handler herstellt:
+
+- **`mail.search`** gibt je Treffer **nur** Betreff, Absender, Datum, Kurzfassung — nie den
+  Volltext. Der Handler baut jede Kopfzeile in `toHeader` aus einem festen Satz Skalarfelder
+  **neu** auf. Ein `body`/`text`/`html`/`raw` aus der Workflow-Antwort wird strukturell nicht
+  mitkopiert — "nie Volltext" ist damit eine Eigenschaft der Funktion und keine Zusage. Die
+  volle Kopfzeilen-Liste (alle Treffer, weiterhin ohne Volltext) geht als Artefakt bei, die
+  ersten `MAIL_SEARCH_CONTEXT_MAX` (10) in den Kontext — dasselbe Muster wie `web.search`
+  ("Volltreffer als Artefakt").
+- **`mail.read`** legt den Volltext **wortgetreu** als Artefakt ab (`text/plain` bzw.
+  `text/html`), normalisiert ihn für den Kontext auf einen `excerpt`
+  (`MAIL_READ_EXCERPT_MAX_CHARS`, 800) und macht **jeden Anhang zu einem eigenen Artefakt**
+  (base64 → Bytes → `writeArtifact` mit dem MIME des Anhangs). In die Hülle geht nie der
+  vollständige Text und nie ein Anhang-Inhalt — nur Kopfzeilen, der `excerpt`, die
+  Anhang-Metadaten und die Handles. `artifact_refs` ist `[volltext, …anhänge]`.
+- **Mailinhalt ist nicht vertrauenswürdig** (Abschnitt 4.7). `mail.search` und `mail.read`
+  setzen `structured.trust: "untrusted"`, beginnen `summary` mit
+  `[nicht vertrauenswürdig · Mailinhalt]` und melden `injection_flags` aus `scanForInjection`
+  — **markiert, nicht entfernt**. Der S13-Weg über `config.n8n.workflows` bleibt für echte
+  generische Workflows (`cal.*`, `github.*`, `server.*`) und ist unverändert.
+
+### Warum `mail.send` technisch unmöglich ist (das Fertig-Kriterium)
+
+Drei Riegel, keiner davon eine Konvention:
+
+1. `createMailTools` gibt genau drei Definitionen zurück. Keine heißt `mail.send`. Ein
+   Aufruf von `mail.send` über den Router endet als `unknown_tool`, ohne die Brücke zu
+   berühren (Test).
+2. `MAIL_WEBHOOKS` ist ein `Object.freeze`tes Objekt mit exakt `mail-search`/`mail-read`/
+   `mail-draft` — die **vollständige** Liste der n8n-Webhook-Pfade, die diese Schicht je
+   aufruft. Der einzige Ausgang nach n8n ist `deps.bridge.invoke`, und der bekommt immer
+   einen dieser drei Pfade. Ein vierter Pfad ist eine sichtbare Änderung an einer
+   versionierten Datei (dasselbe Argument wie beim nicht abschaltbaren Redaction-Filter).
+3. `workflows/mail-draft.json` benutzt Gmail `draft:create` (bzw. IMAP-`append` in den
+   Drafts-Ordner). Es gibt dort keinen `message:send`- und keinen SMTP-Knoten.
+
+Der Test `mail.* · Fertig-Kriterium` fährt den vollen "ungelesene zusammenfassen und drei
+Antworten entwerfen"-Lauf durch die **echte Schleife** (nur das Modell ist ein Drehbuch:
+`mail.search` → 3× `mail.read` → 3× `mail.draft`) und prüft danach **jede** URL, die die
+Brücke aufgerufen hat: alle passen auf `/webhook/mail-(search|read|draft)$`, keine auf
+`send|smtp|submit|outbox|deliver`. Das ist das zweite Fertig-Kriterium, am HTTP-Rand
+nachgewiesen und nicht per Quelltext-Grep.
+
+### Risikostufen und Wiederholbarkeit
+
+- `mail.search`, `mail.read` — `read`. Abschnitt 10 nennt `mail.search` ausdrücklich unter
+  "Lesen". `repeatable: true` (ein zweiter Abruf ist folgenlos).
+- `mail.draft` — `soft_write`. Abschnitt 10: "Entwürfe erstellen" steht unter "Weiches
+  Schreiben". Ohne Pfad greift keine Zonenregel (`write-outside-artifact-zone` verlangt
+  `resource.kind === "path"`), der Boden `floorFor("soft_write")` ist `allow` — ein Entwurf
+  entsteht **ohne Rückfrage**, und der Loop-Test bestätigt: kein `approval.requested`.
+  `repeatable: false` — ein zweiter Anlauf legte einen zweiten Entwurf an, das weiß nur der,
+  der den Workflow schreibt (dieselbe Haltung wie `StepSpec.repeatable`, S05). Folge: die
+  Brücke macht bei einem 503 **keinen** zweiten Versuch (Test: `calls === 1`), und die Hülle
+  markiert den Schritt als endgültig fehlgeschlagen statt ihn zu wiederholen.
+
+### Verdrahtung in den Katalog
+
+- `CatalogConfig.n8n` bekommt ein Feld `mail?: boolean` neben `workflows`. Ist es gesetzt,
+  registriert `buildCatalog` die drei Mail-Tools mit einer Brücke aus
+  `N8N_BASE_URL`/`N8N_WEBHOOK_TOKEN` (dieselbe Brücke, die auch die generischen Workflows
+  bekommen — eine pro `buildCatalog`).
+- `runtime/index.ts` schaltet `mail: true`, **sobald `N8N_BASE_URL` gesetzt ist** — ohne
+  Instanz liefen die Tools ohnehin nur in eine `N8nUnavailableError`-Hülle. Ist die Variable
+  leer, bleibt der ausgelieferte Katalog byteweise der aus S12/S13
+  (`v1-53a18ba0cb4e49c8`, 10 Tools). Die Startzeile nennt jetzt die Zahl der Mail-Tools im
+  Katalog statt "0 Workflows".
+- Zwei Katalog-Tests halten beides fest: ohne `n8n` → `v1-53a18ba0cb4e49c8`/10 Tools; mit
+  `n8n: { mail: true }` → 13 Tools, `mail.search`/`mail.read` `read`, `mail.draft`
+  `soft_write`, `mail.send` nicht vorhanden.
+
+### `tools/mail/workflows/` — drei importierbare n8n-2.x-Workflows
+
+`mail-search.json`, `mail-read.json`, `mail-draft.json`. Provider-Knoten ist jeweils **Gmail**
+(nur lesende Operationen bzw. `draft:create`), umrahmt von Code-Knoten, die die Ein- und
+Ausgabeform festschreiben — für IMAP/Outlook tauscht man den Provider-Knoten, die Verträge
+bleiben. Die Ein-/Ausgabeverträge stehen in `tools/mail/README.md`. Wie bei `uppercase.json`
+(S13) trägt jede Datei eine feste `id`, weil `n8n import:workflow` in 2.x ohne `id` an
+`null value in column "id"` scheitert.
+
+### Tests
+
+- 14 neue, zusammen **361**. `tools/mail/tools.test.ts`, alle mit DB, echtem Router, echter
+  Policy; einer zusätzlich durch die echte Schleife.
+- **Aufbau / Nicht-Senden** (4): genau drei Tools, kein `mail.send`; `MAIL_WEBHOOKS`
+  eingefroren, drei Pfade, kein Sende-Pfad; `mail.send` über den Router → `unknown_tool`,
+  Brücke nicht berührt; Katalog-Fingerabdruck (10 ohne, 13 mit `mail`).
+- **mail.search** (4): je Treffer nur die vier Angaben, kein Volltext-Marker in der Hülle
+  **oder** im Artefakt, obwohl der Fake-Workflow `body`/`text`/`html`/`raw` mitschickt; alle
+  12 Treffer im Artefakt, 10 im Kontext; Injection-Muster in Betreff/Kurzfassung markiert und
+  **nicht entfernt**; eine Antwort ohne `messages` → Fehlerhülle. Replay gleich Schnappschuss.
+- **mail.read** (3): Volltext und Anhang je als eigenes Artefakt, nur der `excerpt` im
+  Kontext, `deepMarker` bei Zeichen ~13 600 taucht in der Hülle nicht auf, hinter den Handles
+  bytegleich; Injection-Phrase markiert und im Volltext-Artefakt erhalten; Aufruf ohne `id`
+  → `invalid_input`, kein `step.started`, Brücke nicht berührt.
+- **mail.draft** (3): Entwurf angelegt, `sent: false`, `mailbox: "Drafts"`, nur der
+  `mail-draft`-Webhook berührt, `policy.allowed` ohne `approval.requested`; ein 503 wird
+  **nicht** wiederholt (`calls === 1`); leerer Body → Fehlerhülle.
+- **Fertig-Kriterium** (1): der volle Lauf durch die Schleife — `stop: "done"`, 7
+  `tool.completed`, 0 `tool.failed`, endet auf `session.completed`; jede Brücken-URL auf
+  `/webhook/mail-(search|read|draft)$`, keine auf einem Sende-Pfad; genau 1× search, 3× read,
+  3× draft; drei `step.completed`-Hüllen mit `structured.sent === false`; im letzten
+  Modell-Prompt steht kein Volltext-Marker, aber `artifact://` und
+  `nicht vertrauenswürdig`; die Artefaktzählung ergibt `mail.read` = 4 (drei Volltexte plus
+  ein Anhang bei `u2`) und `mail.search` = 1; Replay gleich Schnappschuss.
+
+### Gegenproben
+
+Drei, alle bestätigt und danach zurückgesetzt:
+
+- **`toHeader` gibt den Rohtreffer per Spread zurück** (`{ ...source, id, subject, … }`) →
+  "je Treffer nur die vier Angaben" rot: `body`/`text`/`html` stehen wieder in der Hülle, der
+  Volltext-Marker taucht in `JSON.stringify(result)` auf.
+- **`mail.read` legt den Volltext in `structured.body` statt ins Artefakt** → "der Marker
+  taucht in der Hülle nicht auf" rot: `JSON.stringify(result)` enthält den Volltext samt
+  `deepMarker` bei Zeichen ~14 500. Bei größeren Mails käme zusätzlich der generische
+  Router-Auslagerungspfad ins Spiel — also genau der Zustand, den der eigene Handler
+  vermeidet.
+- **`mail.draft` mit `repeatable: true`** → "ein 503 wird nicht wiederholt" rot: die Brücke
+  macht drei Anläufe (`calls === 3`), und at-least-once hieße hier: bis zu drei Entwürfe.
+
+### Bewusst nicht gebaut
+
+- **`mail.send` und ein `hard_write`-Sendepfad.** Das ist eine spätere, ausdrücklich zu
+  begründende Ergänzung mit Freigabe — kein Nachtrag an dieser Stelle.
+- **`cal.*`, `github.*`, `server.*`.** S15 und danach; sie sind teils generische
+  `N8nWorkflowDef`s über den S13-Weg, teils brauchen sie wie `mail.*` einen eigenen Handler.
+- **Ein Anbieter für `web.search`** über eine n8n-Bridge (offen seit S09) — unberührt.
+- **Ein GC-Lauf** für Mail-Artefakte (Volltexte, Anhänge) — dieselbe offene Frage wie für
+  alle Artefakte seit S06, jetzt mit mehr Masse.
+- **Threading-Kopfzeilen wirklich setzen.** `mail.draft` reicht `in_reply_to` an den Workflow
+  durch; ob daraus `In-Reply-To`/`References` werden, ist Sache des Workflows.
+
+### Offene Befunde
+
+- `mail.search` misst die Kontext-Hülle nicht selbst gegen die Auslagerungsschwelle — sie
+  bleibt durch die festen Feld-Obergrenzen (`SUBJECT_MAX` 200, `SUMMARY_MAX` 240, 10 Treffer)
+  klein genug, aber wenn ein Workflow 10 maximale Kopfzeilen liefert, sind das ~7 kB. Unter
+  8k Token-Äquivalent, aber nicht mit viel Luft; der Router-Fallback greift zur Not.
+- Der `body_mime`-Rateweg in `mail.read` ist grob: liegt nur `body_html` vor, wird
+  `text/html` angenommen und `normalizeContent` als HTML behandelt. Für exotische
+  Multipart-Fälle (`text/calendar`, `application/ics` inline) fällt das auf `text/plain`
+  zurück. Bewusst so — die Wahrheit ist der Volltext im Artefakt.
+- `structured.reason` ist weiterhin eine Verabredung und kein Typ (offen seit S07).
+- `pnpm typecheck && pnpm lint && pnpm test` grün, 361 Tests.
+- `tasks.json`: S14 auf `done`, S15 von `queued` auf `ready`.
+
+Status: abgeschlossen. Nächste Session: S15 Kalender und Obsidian.

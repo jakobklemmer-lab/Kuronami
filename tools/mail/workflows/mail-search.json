@@ -1,0 +1,78 @@
+{
+  "id": "kuronamiMailSearch01",
+  "name": "mail.search",
+  "meta": {
+    "description": "Kuronami S14: Postfach durchsuchen. Gibt je Treffer NUR Kopfzeilen zurueck (id, subject, from, date, summary) — nie den Volltext. Der Runtime-Handler tools/mail/tools.ts schneidet zusaetzlich mit, dieser Workflow ist die erste Grenze. Provider-Knoten unten ist Gmail; fuer IMAP/Outlook den Knoten austauschen, die Ein-/Ausgabeform der Code-Knoten bleibt."
+  },
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "mail-search",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "c2a10001-0001-4a00-8000-000000000001",
+      "name": "Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [240, 300],
+      "webhookId": "c2a10001-0001-4a00-8000-000000000001"
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "// Eingabe der Runtime: { query?: string, unread_only?: boolean, limit?: number }\nconst incoming = $input.first().json;\nconst inp = incoming.body && typeof incoming.body === 'object' ? incoming.body : incoming;\nconst terms = [];\nif (typeof inp.query === 'string' && inp.query.trim() !== '') terms.push(inp.query.trim());\nif (inp.unread_only === true) terms.push('is:unread');\nconst limit = Number.isInteger(inp.limit) ? Math.max(1, Math.min(50, inp.limit)) : 20;\nreturn [{ json: { q: terms.join(' '), limit } }];"
+      },
+      "id": "c2a10001-0002-4a00-8000-000000000002",
+      "name": "Build query",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [460, 300]
+    },
+    {
+      "parameters": {
+        "resource": "message",
+        "operation": "getAll",
+        "returnAll": false,
+        "limit": "={{ $json.limit }}",
+        "filters": { "q": "={{ $json.q }}" },
+        "options": {}
+      },
+      "id": "c2a10001-0003-4a00-8000-000000000003",
+      "name": "Gmail: list messages",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2,
+      "position": [680, 300],
+      "notes": "Nur LESEN (message:getAll). Kein send, kein draft. Fuer IMAP/Outlook austauschen."
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "// Auf genau die vier erlaubten Angaben je Treffer zusammenschneiden. NIE den Volltext.\nconst headers = $input.all().map((item, i) => {\n  const m = item.json || {};\n  const payloadHeaders = (m.payload && m.payload.headers) || [];\n  const h = (name) => {\n    const hit = payloadHeaders.find((x) => (x.name || '').toLowerCase() === name);\n    return hit ? hit.value : '';\n  };\n  return {\n    id: String(m.id || m.messageId || ('msg_' + (i + 1))),\n    subject: m.subject || h('subject') || '(kein Betreff)',\n    from: m.from || h('from') || '(unbekannt)',\n    date: m.date || h('date') || m.internalDate || '',\n    summary: (m.snippet || '').toString().slice(0, 240),\n    unread: Array.isArray(m.labelIds) ? m.labelIds.includes('UNREAD') : (m.unread === true)\n  };\n});\nreturn [{ json: { messages: headers, count: headers.length } }];"
+      },
+      "id": "c2a10001-0004-4a00-8000-000000000004",
+      "name": "Headers only",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [900, 300]
+    },
+    {
+      "parameters": { "respondWith": "firstIncomingItem", "options": {} },
+      "id": "c2a10001-0005-4a00-8000-000000000005",
+      "name": "Respond to Webhook",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [1120, 300]
+    }
+  ],
+  "connections": {
+    "Webhook": { "main": [[{ "node": "Build query", "type": "main", "index": 0 }]] },
+    "Build query": { "main": [[{ "node": "Gmail: list messages", "type": "main", "index": 0 }]] },
+    "Gmail: list messages": { "main": [[{ "node": "Headers only", "type": "main", "index": 0 }]] },
+    "Headers only": { "main": [[{ "node": "Respond to Webhook", "type": "main", "index": 0 }]] }
+  },
+  "active": false,
+  "settings": { "executionOrder": "v1" },
+  "tags": []
+}

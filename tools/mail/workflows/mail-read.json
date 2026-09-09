@@ -1,0 +1,80 @@
+{
+  "id": "kuronamiMailRead01",
+  "name": "mail.read",
+  "meta": {
+    "description": "Kuronami S14: eine Mail lesen. Gibt Kopfzeilen, Volltext (body_text/body_html) und Anhaenge als base64 zurueck. Der Runtime-Handler legt Volltext und jeden Anhang als Artefakt ab und laesst nur eine Kurzfassung im Kontext. Provider-Knoten ist Gmail (message:get, LESEN); fuer IMAP/Outlook austauschen."
+  },
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "mail-read",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "c2a20001-0001-4a00-8000-000000000001",
+      "name": "Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [240, 300],
+      "webhookId": "c2a20001-0001-4a00-8000-000000000001"
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "// Eingabe der Runtime: { id: string }\nconst incoming = $input.first().json;\nconst inp = incoming.body && typeof incoming.body === 'object' ? incoming.body : incoming;\nif (typeof inp.id !== 'string' || inp.id.trim() === '') {\n  throw new Error('mail-read: Feld \"id\" fehlt');\n}\nreturn [{ json: { messageId: inp.id.trim() } }];"
+      },
+      "id": "c2a20001-0002-4a00-8000-000000000002",
+      "name": "Read id",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [460, 300]
+    },
+    {
+      "parameters": {
+        "resource": "message",
+        "operation": "get",
+        "messageId": "={{ $json.messageId }}",
+        "simple": false,
+        "options": {
+          "downloadAttachments": true,
+          "dataPropertyAttachmentsPrefixName": "attachment_"
+        }
+      },
+      "id": "c2a20001-0003-4a00-8000-000000000003",
+      "name": "Gmail: get message",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2,
+      "position": [680, 300],
+      "notes": "Nur LESEN (message:get). Kein send, kein draft."
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "// In die von der Runtime erwartete Form bringen. Anhaenge als base64.\nconst item = $input.first();\nconst m = item.json || {};\nconst payloadHeaders = (m.payload && m.payload.headers) || [];\nconst h = (name) => {\n  const hit = payloadHeaders.find((x) => (x.name || '').toLowerCase() === name);\n  return hit ? hit.value : '';\n};\nconst bin = item.binary || {};\nconst attachments = Object.keys(bin).map((key) => {\n  const b = bin[key];\n  return {\n    filename: b.fileName || key,\n    mime_type: b.mimeType || 'application/octet-stream',\n    content_base64: b.data || ''\n  };\n});\nreturn [{ json: {\n  id: String(m.id || m.messageId || ''),\n  subject: m.subject || h('subject') || '',\n  from: m.from || h('from') || '',\n  to: m.to || h('to') || '',\n  date: m.date || h('date') || m.internalDate || '',\n  body_text: (m.text != null ? String(m.text) : ''),\n  body_html: (m.textHtml != null ? String(m.textHtml) : (m.html != null ? String(m.html) : '')),\n  body_mime: (m.text != null ? 'text/plain' : 'text/html'),\n  attachments\n} }];"
+      },
+      "id": "c2a20001-0004-4a00-8000-000000000004",
+      "name": "Shape mail",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [900, 300]
+    },
+    {
+      "parameters": { "respondWith": "firstIncomingItem", "options": {} },
+      "id": "c2a20001-0005-4a00-8000-000000000005",
+      "name": "Respond to Webhook",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [1120, 300]
+    }
+  ],
+  "connections": {
+    "Webhook": { "main": [[{ "node": "Read id", "type": "main", "index": 0 }]] },
+    "Read id": { "main": [[{ "node": "Gmail: get message", "type": "main", "index": 0 }]] },
+    "Gmail: get message": { "main": [[{ "node": "Shape mail", "type": "main", "index": 0 }]] },
+    "Shape mail": { "main": [[{ "node": "Respond to Webhook", "type": "main", "index": 0 }]] }
+  },
+  "active": false,
+  "settings": { "executionOrder": "v1" },
+  "tags": []
+}

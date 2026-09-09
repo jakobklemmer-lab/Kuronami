@@ -492,7 +492,7 @@ notes.read · notes.write
 ### Assistenz-Tools über n8n
 
 ```
-mail.search · mail.read · mail.draft · mail.send
+mail.search · mail.read · mail.draft   (mail.send bewusst nicht gebaut, s. u.)
 cal.list · cal.create · cal.update
 github.issues · github.branch · github.pr
 server.metrics
@@ -500,6 +500,13 @@ server.metrics
 
 n8n ist die **Tool-Schicht, nicht der Loop**. Jeder Workflow wird zu genau einem Tool, das
 die Runtime aufrufen kann. Die Runtime besitzt Loop, Sessions, Checkpoints, Kontext und Policy.
+
+**`mail.send` gibt es nicht (S14).** Das Fertig-Kriterium von Session 14 ist "Entwurf
+entsteht, Senden ist technisch unmöglich". Umgesetzt in `tools/mail/tools.ts`: `createMailTools`
+liefert genau `mail.search`/`mail.read`/`mail.draft`, `MAIL_WEBHOOKS` ist die vollständige und
+eingefrorene Liste der n8n-Webhook-Pfade (keiner sendet), und der Draft-Workflow legt nur im
+Ordner "Drafts" ab. Ein Versand ist eine bewusste spätere Ergänzung mit `hard_write`-Freigabe,
+kein Nachtrag an dieser Stelle.
 
 ### Wann etwas ein eigenes Tool verdient
 

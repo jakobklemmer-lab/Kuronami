@@ -5,6 +5,7 @@ import { decidePolicyApproval, policyAskId } from "../../policy/approvals.js";
 import { createPolicyEngine } from "../../policy/engine.js";
 import { buildFsZones, policyResolver } from "../../tools/fs/paths.js";
 import { createFsTools } from "../../tools/fs/tools.js";
+import { createMailTools } from "../../tools/mail/tools.js";
 import { createN8nBridge } from "../../tools/n8n/bridge.js";
 import { type N8nWorkflowDef, createN8nTools } from "../../tools/n8n/workflows.js";
 import { ToolRegistry } from "../../tools/registry.js";
@@ -48,15 +49,22 @@ export interface CatalogConfig {
   /** Kommagetrennte Hosts. Vorgabe: `WEB_EGRESS_ALLOWLIST`, leer heißt: nichts abrufbar. */
   egressAllowlist?: readonly string[];
   /**
-   * n8n-Workflows, die als Tools in den Katalog kommen (S13). Ohne Angabe: keine — dann
-   * bleibt der Katalog-Fingerabdruck unverändert. `baseUrl`/`token` fallen auf
-   * `N8N_BASE_URL`/`N8N_WEBHOOK_TOKEN` zurück. S14 reicht hier die ersten echten
-   * (`mail.*`) durch.
+   * n8n-Anbindung (S13/S14). Ohne Angabe: nichts — dann bleibt der Katalog-Fingerabdruck
+   * unverändert (`v1-53a18ba0cb4e49c8`, 10 Tools). `baseUrl`/`token` fallen auf
+   * `N8N_BASE_URL`/`N8N_WEBHOOK_TOKEN` zurück.
+   *
+   *   * `workflows` — generische n8n-Workflows als Tools (`createN8nTools`, S13).
+   *   * `mail` — die Assistenz-Tools `mail.search`/`mail.read`/`mail.draft` (S14). Sie sind
+   *     **keine** generischen Workflows: sie brauchen tool-spezifische Handler (nie Volltext
+   *     in `mail.search`, Volltext/Anhänge als Artefakt in `mail.read`, Injection-Markierung)
+   *     — dieselbe Lage, aus der `web.fetch` einen eigenen Handler hat. `mail.send` gibt es
+   *     nicht (S14: "Senden ist technisch unmöglich").
    */
   n8n?: {
     baseUrl?: string;
     token?: string;
     workflows?: readonly N8nWorkflowDef[];
+    mail?: boolean;
   };
 }
 
@@ -98,15 +106,24 @@ export async function buildCatalog(config: CatalogConfig): Promise<BuiltCatalog>
     .registerAll(createTaskTools({ pool: config.pool }))
     .registerAll(createUserTools({ pool: config.pool }));
 
-  // n8n-Workflows als Tools (S13). Nur wenn welche konfiguriert sind — sonst bleibt der
-  // Fingerabdruck des ausgelieferten Katalogs unverändert (`v1-53a18ba0cb4e49c8`, 10 Tools).
+  // n8n-Tools (S13/S14). Nur wenn etwas konfiguriert ist — sonst bleibt der Fingerabdruck
+  // des ausgelieferten Katalogs unverändert (`v1-53a18ba0cb4e49c8`, 10 Tools). Eine Brücke,
+  // beide Wege teilen sie.
   const n8nWorkflows = config.n8n?.workflows ?? [];
-  if (n8nWorkflows.length > 0) {
+  const wantMail = config.n8n?.mail === true;
+  if (n8nWorkflows.length > 0 || wantMail) {
     const bridge = createN8nBridge({
       baseUrl: config.n8n?.baseUrl ?? process.env.N8N_BASE_URL,
       token: config.n8n?.token ?? process.env.N8N_WEBHOOK_TOKEN,
     });
-    registry.registerAll(createN8nTools({ bridge, workflows: n8nWorkflows }));
+    if (n8nWorkflows.length > 0) {
+      registry.registerAll(createN8nTools({ bridge, workflows: n8nWorkflows }));
+    }
+    if (wantMail) {
+      registry.registerAll(
+        createMailTools({ pool: config.pool, artifactRoot: config.artifactRoot, bridge }),
+      );
+    }
   }
 
   const catalog = registry.freeze();

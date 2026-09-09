@@ -24,7 +24,15 @@ async function main(): Promise<void> {
   const input = process.argv.slice(2).join(" ").trim();
   const pool = createPool();
   const artifactRoot = artifactRootFromEnv();
-  const { catalog, policy } = await buildCatalog({ pool, artifactRoot });
+  // Die Mail-Tools (S14) kommen in den Katalog, sobald eine n8n-Instanz hinterlegt ist —
+  // ohne sie liefen sie ohnehin nur in eine `N8nUnavailableError`-Hülle. Ohne `N8N_BASE_URL`
+  // bleibt der ausgelieferte Katalog byteweise der aus S12/S13 (`v1-53a18ba0cb4e49c8`).
+  const n8nBaseUrl = process.env.N8N_BASE_URL?.trim();
+  const { catalog, policy } = await buildCatalog({
+    pool,
+    artifactRoot,
+    n8n: n8nBaseUrl ? { mail: true } : undefined,
+  });
 
   // Ohne Eingabe wird kein Modell gebraucht, und ein fehlender Schlüssel darf das Skelett
   // nicht am Starten hindern: eine Session eröffnen, ihren Zustand ansehen oder eine
@@ -62,15 +70,15 @@ async function main(): Promise<void> {
       policy.sandbox.active ? "nachgewiesen" : `nicht nachgewiesen (${policy.sandbox.reason})`
     }.`,
   );
-  // Die n8n-Brücke steht (S13), aber der ausgelieferte Katalog führt noch keinen Workflow
-  // (die ersten kommen mit S14). Ein Betreiber soll trotzdem sehen, ob eine n8n-Instanz
-  // hinterlegt ist.
+  // Die n8n-Lage beim Start sichtbar sagen (S13/S14): ob eine Instanz hinterlegt ist und wie
+  // viele Mail-Tools dadurch im Katalog stehen.
+  const mailToolCount = catalog.tools.filter((tool) => tool.name.startsWith("mail.")).length;
   console.log(
     `n8n-Brücke: ${
-      process.env.N8N_BASE_URL?.trim()
-        ? `${process.env.N8N_BASE_URL.trim()}${process.env.N8N_WEBHOOK_TOKEN?.trim() ? ", Token gesetzt" : ""}`
+      n8nBaseUrl
+        ? `${n8nBaseUrl}${process.env.N8N_WEBHOOK_TOKEN?.trim() ? ", Token gesetzt" : ""}`
         : "nicht konfiguriert (N8N_BASE_URL leer)"
-    }, 0 Workflows im Katalog.`,
+    }, ${mailToolCount} Mail-Tools im Katalog.`,
   );
 
   // Startwerte gelten nur bei der Neuanlage (S04). Eine ältere Session trägt deshalb weiter

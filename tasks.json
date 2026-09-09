@@ -115,7 +115,7 @@
     "id": "S14",
     "title": "Mail-Tools",
     "phase": 2,
-    "status": "ready",
+    "status": "done",
     "done_when": "Entwurf entsteht, Senden ist technisch unmöglich",
     "depends_on": ["S13"]
   },
@@ -123,7 +123,7 @@
     "id": "S15",
     "title": "Kalender und Obsidian",
     "phase": 2,
-    "status": "queued",
+    "status": "ready",
     "done_when": "Termine und Obsidian-Notizen lesbar",
     "depends_on": ["S14"]
   },

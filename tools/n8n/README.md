@@ -21,8 +21,9 @@ alles andere:
 - **Katalog + Schema**: die Registry prüft Namensform (`namensraum.aktion`), Risikostufe
   und die Feldnamen (`path`/`url`-Konvention, `assertPolicyFieldNames`). Ein n8n-Tool, das
   aus JSON entsteht, kommt am Compiler vorbei, aber nicht an der Registry.
-- **Policy**: der Router ruft die Engine vor der Ausführung. Ein schreibender Workflow
-  (`mail.send`, S14) wird ohne Freigabe blockiert.
+- **Policy**: der Router ruft die Engine vor der Ausführung. Ein `hard_write`-Workflow (z. B.
+  `cal.create`) wird ohne Freigabe blockiert; ein `soft_write` wie `mail.draft` (S14) läuft
+  automatisch durch.
 - **Ausführungshülle** (`execution: "step"`, Vorgabe): Checkpoint davor und danach,
   Idempotenzschlüssel aus der `call_id`, 60-s-Zeitfenster, Wiederaufnahme nach einem
   Absturz.
