@@ -98,6 +98,31 @@ services:
     volumes:
       - ./artifacts:/app/artifacts
 
+  # Der Heartbeat-Prozess (S17) — proaktives Verhalten: Morgen-Digest nach Zeitplan,
+  # Hintergrundläufe auf gemeldete Ereignisse (POST /notify). Wie `runtime` und `gateway` ein
+  # Platzhalter, solange es kein Dockerfile gibt; er dokumentiert die Betriebsform (eigener
+  # Prozess, eigener Port, dieselbe Datenbank).
+  heartbeat:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    command: ["pnpm", "heartbeat"]
+    env_file:
+      - .env
+    environment:
+      N8N_BASE_URL: "http://n8n:5678"
+      N8N_WEBHOOK_TOKEN: "${N8N_WEBHOOK_TOKEN:-}"
+    ports:
+      # Nur Loopback. POST /notify trägt ein Bearer-Geheimnis; ein n8n-Workflow im Compose-Netz
+      # erreicht den Dienst als http://heartbeat:8789.
+      - "127.0.0.1:8789:8789"
+    depends_on:
+      - postgres
+      - n8n
+    volumes:
+      - ./artifacts:/app/artifacts
+
 volumes:
   postgres-data:
   n8n-data:

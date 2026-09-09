@@ -17,6 +17,7 @@
     "migrate": "tsx --env-file=.env runtime/db/migrate.ts",
     "devui": "tsx --env-file=.env runtime/devui/server.ts",
     "gateway": "tsx --env-file=.env gateway/index.ts",
+    "heartbeat": "tsx --env-file=.env heartbeat/index.ts",
     "say": "tsx --env-file=.env gateway/cli.ts"
   },
   "dependencies": {

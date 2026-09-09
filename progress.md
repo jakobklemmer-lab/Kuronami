@@ -3297,3 +3297,175 @@ sondern das Feld nach dem zu benennen, was drinsteht: `auth_method`, mit Werten 
 - `tasks.json`: S16 auf `done`, S17 von `queued` auf `ready`.
 
 Status: abgeschlossen. Nächste Session: S17 Heartbeat.
+
+## S17 · Heartbeat · 2026-09-09
+
+Proaktives Verhalten als **eigener Prozess** (`pnpm heartbeat`): ein Zeitplan für den
+Morgen-Digest, ein HTTP-Eingang für ereignisgesteuerte Auslöser, jeder Lauf ein
+Hintergrundlauf mit technisch erzwungener Schreibgrenze ans Langzeitgedächtnis. Der Ordner
+`heartbeat/` war seit S01 nicht da; er ist jetzt das zweite Surface-Modul neben `gateway/`.
+
+- Tests der Vorsession vorab gelaufen: 460 grün (S16 + Vorlauf), `pnpm typecheck` und
+  `pnpm lint` ebenfalls. Arbeitsbaum sauber bis auf die `_tmp_52_*`-Dateien, die schon vorher
+  dalagen.
+- **Keine Migration.** Der Kanal `heartbeat` steht seit Migration 0001 im Enum
+  `kuronami.session_channel` (die S16-Notiz nennt ihn beim Down: `web, telegram, mail,
+  heartbeat, voice`), und `SessionChannel` trägt ihn seit S05. Ein neuer Ereignis-Namensraum
+  (`heartbeat.*`) und zwei kleine Erweiterungen an `runtime/loop/api.ts` und
+  `policy/rules.ts` — sonst neuer Code unter `heartbeat/`.
+
+### Die eine Entscheidung: die Schreibgrenze steht in der Policy, nicht im Prompt
+
+Der Auftrag verlangt, dass ein Hintergrundlauf **technisch** nicht ins Langzeitgedächtnis
+schreiben kann. "Technisch" heißt in diesem System: an dem einen Tor, an dem jeder
+Tool-Aufruf vorbeimuss (Abschnitt 4.7, `tools/router.ts` ruft `policy/engine.ts`). Deshalb
+zwei Schichten, beide dort und nicht als Bitte im System-Prompt (Grundprinzip 6):
+
+1. **`BACKGROUND_RULES` in `policy/rules.ts`** — drei Zusatzregeln, die dem Standardregelsatz
+   vorangestellt werden. `background-longterm-memory-write` (`when: { path: "memory/**", risk:
+   WRITING }` → `deny`), `background-source-write` (jedes Schreiben außerhalb der Artefaktzone
+   → `deny` statt des Standard-`raiseTo: hard_write`), `background-secret-read` (Lesen von
+   Geheimnisträgern → `deny` statt `ask`). Der gemeinsame Grund: ein Hintergrundlauf hat
+   **niemanden am anderen Ende**. Die vierte Governance-Ebene (der Mensch entscheidet) ist
+   nicht verfügbar, ein `ask` wäre faktisch ein `hang`. Also wird aus jedem Fall, in dem ein
+   solcher Lauf sonst fragen würde, ein klares `deny` — der Lauf liest den Grund im selben Zug
+   und wählt einen anderen Weg (Abschnitt 7), statt auf `awaiting_user` stehen zu bleiben.
+   `deny` und nicht `ask` ist auch deshalb richtig, weil ein `ask` eine sessionweite Freigabe
+   zuließe — genau die Lücke, durch die die Automatik doch wieder schreiben dürfte.
+2. **`profile: "background"` in `buildCatalog`** — eine engere Whitelist (`BACKGROUND_TOOLSET`):
+   lesende Tools plus `fs.write`/`fs.edit` (Vorschläge in die Artefaktzone) und `task.*`
+   (Planung). Kein `user.ask` (niemand antwortet), kein `notes.write`/`cal.create`/`cal.update`/
+   `mail.draft` (Seiteneffekte nach draußen), keine generischen n8n-Workflows. Der Katalog wird
+   mit einem **eigenen Fingerabdruck** neu eingefroren — eine Hintergrund-Session und eine
+   normale Session können denselben Prozess nicht teilen (Anti-Muster 2), und das ist richtig.
+
+Warum `fs.write`/`fs.edit` überhaupt im Hintergrundkatalog stehen: "lesen und **vorschlagen**"
+heißt, dass ein Vorschlag ein Entwurf sein darf — der landet in der Artefaktzone, und
+`background-source-write` sperrt jeden anderen Schreibpfad. Der Digest selbst wird nicht per
+Tool geschrieben, sondern vom Dienst über `writeArtifact` abgelegt; die Schreibtools sind für
+das Modell, nicht für die Zustellung.
+
+### Der Dienst: `heartbeat/`
+
+- **`schedule.ts`** — ein winziger Cron-Parser ohne Bibliothek (fünf Felder,
+  Minutengranularität, `*`, `*/n`, `a-b`, `a,b`, Zahl; **nicht** Namen, `?`, `L/W/#`).
+  `previousFireAtOrBefore` ist der Baustein für "ist der heutige Digest fällig?": der Dienst
+  vergleicht ihn mit dem letzten tatsächlich gelaufenen Digest aus dem Protokoll. So verpasst
+  ein Tick ein paar Minuten nach der vollen Stunde den Lauf nicht, und ein Neustart um 09:00
+  holt den 07:00-Digest nach — solange er nicht mehr als `MAX_LATENESS_MS` (6 h) her ist.
+- **`digest.ts`** — `runDigest` und `handleNotification`, beide über `runBackground`: Runner
+  auf dem Kanal `heartbeat`, `sessionMode: "background"` (neues optionales Feld in
+  `RunnerConfig`, dokumentierend — die Governance hängt am Katalog- und Regelsatz, nicht an der
+  Spalte), der Hintergrundkatalog, `completeOnDone: true` (ein Hintergrundlauf **ist** ein
+  abgeschlossener Auftrag, kein Gegenüber schreibt weiter — anders als das Gateway).
+  `runDigest` legt den Text als `text/markdown`-Artefakt ab (`source.tool = "heartbeat.digest"`,
+  `step_id: null` — der zweite echte `step_id: null`-Fall nach den Anhängen aus S16) und stellt
+  ihn zu. `handleNotification` stellt **nur** zu, wenn der Lauf nicht mit `STILL` antwortet —
+  "Wenn nichts gefunden wird: keine Meldung".
+- **Tagesobergrenze** — aus dem Protokoll einer **Diarium-Session** (`thread_heartbeat`)
+  gefaltet: `count(heartbeat.ran seit lokaler Mitternacht) >= maxRunsPerDay` → `heartbeat.skipped`,
+  kein Lauf. Getrennt von den eigentlichen Läufen (jeder bekommt einen frischen Faden), damit
+  der Zähler an einer festen Stelle liegt und einen Neustart überlebt — dasselbe Muster wie die
+  Idempotenzprüfungen seit S05.
+- **`service.ts`** — `tick(now)` ist die ganze Zeitplanlogik, mit gestellter Uhr testbar;
+  `start()` verdrahtet nur ein `setInterval` darauf. Kein Zustand im Speicher: ob der heutige
+  Digest lief, steht im Protokoll (jedes `heartbeat.ran`/`heartbeat.skipped` trägt seinen
+  Zeitplan-Anlass im Feld `fire`). Digest und Meldung sind gegeneinander serialisiert (sie
+  teilen die Tagesobergrenze), Muster aus `gateway/conversation.ts`.
+- **`server.ts`** — `POST /notify` (Bearer-Geheimnis, `kind` ∈ {mail, calendar, server}),
+  `GET /health`. Das ist der **ereignisgesteuerte Auslöser**: ein n8n-Workflow für neue Mail,
+  ein Monitoring-Hook für einen Server-Alarm oder ein Kalender-Webhook ruft ihn an —
+  Verdrahtung nach außen, keine Codeänderung, wenn eine Quelle dazukommt. Bewusst **kein**
+  Polling der Quellen im Dienst selbst: das hieße, die Tool-Logik von `mail.*`/`cal.*`/
+  `server.*` ein zweites Mal zu bauen.
+- **`delivery.ts`** — `DigestChannel` (ausgehend, mehr nicht). Telegram über denselben
+  SDK-freien Client wie das Gateway (`gateway/channels/telegram/client.ts` — eine Abhängigkeit
+  Surface→Surface, unbedenklich); ohne konfigurierten Kanal auf die Konsole, der Digest liegt
+  dann trotzdem als Artefakt.
+
+### `heartbeat.*` — ein fünfzehnter Namensraum
+
+Vier Typen (`heartbeat.ran`, `heartbeat.skipped`, `heartbeat.delivered`, `heartbeat.silent`),
+der zweite Namensraum, den nicht die Runtime schreibt. Dieselbe Begründung wie bei `gateway.*`
+(S16): die Liste in `runtime/events/types.ts` ist das Vokabular des Protokolls und keine
+Abhängigkeit, `assertEventType` soll die stille Aufspaltung in zwei Schreibweisen verhindern,
+und `heartbeat/` wird in `runtime/`, `context/`, `tools/`, `policy/` nirgends importiert
+(`heartbeat/layering.test.ts`). Die Zahl im S03-Namensraumtest steht jetzt auf 15.
+
+### Tests
+
+- 28 neue, zusammen **488** (49 Dateien).
+- **`heartbeat/schedule.test.ts`** (9, ohne DB): Grundformen an, Namensalias/6 Felder/Minute
+  60/Schrittweite 0/rückwärts ab; täglich 07:00, alle 15 Minuten, werktags 08:30 (dow gegen
+  einen bekannten Mittwoch/Samstag/Sonntag); `previousFireAtOrBefore`/`nextFireAfter` samt
+  Tageswechsel und Sekundenanteil.
+- **`heartbeat/background.test.ts`** (4, DB, echter Loop/Router/Policy, Drehbuchmodell) — der
+  **zweite Test des Fertig-Kriteriums**: ein Hintergrundlauf ruft `fs.write` nach
+  `memory/heartbeat-notiz.md` → `policy.denied`, im Freigabepfad steht
+  `background-longterm-memory-write`, **keine Datei**, **kein `step.started`** (die
+  Ausführungshülle wurde nie betreten), und der Lauf **hängt nicht** (`stop: "done"` danach).
+  Gegenproben: dieselbe Aufgabe nach `artifacts/` geht durch (`tool.completed`, Datei da);
+  dieselbe Aufgabe gegen `DEFAULT_RULES` wirft `ApprovalRequiredError` statt `deny` — die
+  Sperre ist der Zusatzregelsatz, nicht der Router. Dazu: der Hintergrundkatalog hat kein
+  `user.ask`/`notes.write`/`cal.create`.
+- **`heartbeat/digest.test.ts`** (6, DB) — der **erste Test des Fertig-Kriteriums**:
+  `runDigest` ohne Eingabe → `status: "delivered"`, genau eine Zustellung mit Digest-Text und
+  Handle, das Artefakt trägt den Text byteweise (`summary` "Morgen-Digest 2026-09-09",
+  `source.tool` "heartbeat.digest"), das Diarium hält `heartbeat.ran`/`heartbeat.delivered`,
+  und die Lauf-Session steht auf Kanal `heartbeat`, Modus `background`. Dazu: Tagesobergrenze
+  (der zweite fällige Lauf → `skipped`, nur ein `heartbeat.ran`); ein Lauf, der an der
+  Fehlerhäufung endet, stellt einen Fehlerhinweis zu (Fehler nie verstecken); eine kaputte
+  Zustellung meldet `error.raised`, ohne das Artefakt zu verlieren; `handleNotification`
+  schweigt bei `STILL` (`heartbeat.silent`, keine Zustellung) und stellt sonst zu.
+- **`heartbeat/service.test.ts`** (3, DB): der Digest feuert genau einmal je Tag, egal wie oft
+  `tick` kommt, **auch über einen Neustart** (neuer Dienst, dieselbe Diarium-Session, der
+  gelaufene Anlass wird aus dem Protokoll erkannt); nächster Tag → neuer Lauf; ein um mehr als
+  6 h verpasster Anlass wird nicht nachgeholt; `nextDigest` zeigt auf den nächsten 07:00.
+- **`heartbeat/server.test.ts`** (4, ohne DB): `POST /notify` nimmt mit richtigem Token an und
+  reicht `{kind, detail}` durch, weist falschen Token mit 401 ohne Hinweis ab, unbekannte
+  `kind` mit 400; `/health` nennt den nächsten Digest.
+- **`heartbeat/layering.test.ts`** (2): `runtime`/`context`/`tools`/`policy` frei von jedem
+  Import aus `heartbeat/`, mit Gegenprobe am Erkenner. Muster von `gateway/layering.test.ts`.
+- **`runtime/events/log.test.ts`**: Namensraumzahl 14 → 15.
+
+### Nachweis außerhalb von vitest
+
+Nur teilweise möglich: `ANTHROPIC_API_KEY` ist in dieser Umgebung leer (dieselbe Lage wie in
+S16 notiert), und `heartbeat/index.ts` bricht wie das Gateway bewusst schon beim Start ab,
+wenn kein Anbieter da ist — ein Digest ohne Modell ist sinnlos. Der HTTP-Rand (`/notify`-Auth
+und -Prüfung, `/health`) ist stattdessen in `server.test.ts` gegen die echte Express-App auf
+einem echten Port nachgewiesen, mit gestelltem `Heartbeat`.
+
+### Bewusst nicht gebaut
+
+- **Deterministisches Polling der Quellen im Dienst.** Neue Mail, Kalenderänderung und
+  Server-Alarm kommen als Meldung über `POST /notify` (n8n-Workflow, Monitoring-Hook), nicht
+  aus einer Schleife im Heartbeat, die `mail.*`/`cal.*`/`server.*` nachbaut. Wenn sich zeigt,
+  dass keine Quelle von sich aus melden kann, ist ein Beobachter mit einem
+  Zustandsschnappschuss (als `heartbeat.observed`-Ereignis gefaltet) der nächste Schritt.
+- **Ein `memory.*`-Namespace als Tool.** Es gibt ihn nicht (S18). `background-longterm-memory-write`
+  greift heute über den **Pfad** (`memory/**`), nicht über den Toolnamen; kommt der Namespace,
+  ist die zusätzliche Regel `when: { tool: "memory.*" }` eine Zeile.
+- **Ein Dockerfile.** Der `heartbeat`-Dienst im Compose ist ein Platzhalter wie `runtime` und
+  `gateway`.
+- **Zusammenfassung/Kompaktierung langer Diarium-Sessions.** `thread_heartbeat` wächst um vier
+  kleine Ereignisse je Lauf; bei 8 Läufen/Tag ist das über ein Jahr im vierstelligen Bereich —
+  unkritisch, aber der Tag, an dem `readEvents` darauf langsam wird, gehört in S18 (Kontext).
+
+### Offene Befunde
+
+- **Der `web.search`-Anbieter fehlt weiterhin** (offen seit S09): ohne ihn hat der Digest
+  keinen News-Abschnitt. Der Prompt sagt dem Modell, den Abschnitt dann wegzulassen.
+- **`cal.list`-Vorgabefenster ist lokale Zeit des Prozesses** (offen seit S15). Der Heartbeat
+  rechnet auch seine Tagesgrenze und den Cron in lokaler Zeit — beide hängen an der Zeitzone
+  des Läufers, nicht an einer des Nutzers.
+- **Die Tagesobergrenze zählt Digest und Meldungen gemeinsam.** An einem Tag mit vielen
+  Server-Alarmen kann der Digest des Folgetags am Limit scheitern, wenn `maxRunsPerDay` knapp
+  steht. Vorgabe 8 lässt Luft; getrennte Kontingente wären eine Erweiterung, keine Änderung.
+- **Der Heartbeat-Port ist Loopback**, `POST /notify` trägt ein Bearer-Geheimnis. Wird er je
+  öffentlich, gehört ein TLS-Endpunkt davor — dieselbe Zeile wie beim Gateway.
+- **Der Postgres-Port ist weiterhin öffentlich** (`0.0.0.0:5432`, offen seit S13).
+- `pnpm typecheck && pnpm lint && pnpm test` grün, 488 Tests.
+- `tasks.json`: S17 auf `done`, S18 von `queued` auf `ready`.
+
+Status: abgeschlossen. Nächste Session: S18 Langzeitgedächtnis.

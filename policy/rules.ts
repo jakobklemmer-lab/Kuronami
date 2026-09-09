@@ -201,3 +201,50 @@ export const DEFAULT_RULES: PolicyRule[] = [
     effect: { decision: "deny" },
   },
 ];
+
+/**
+ * Der Zusatzregelsatz für **Hintergrundläufe** (Heartbeat, S17). Er wird `DEFAULT_RULES`
+ * vorangestellt, nicht ersetzt — die vier Standardregeln gelten weiter, diese drei kommen
+ * obendrauf.
+ *
+ * Ein Hintergrundlauf ist eine Session ohne Menschen am anderen Ende: der Heartbeat stößt sie
+ * ohne Nutzereingabe an, niemand wartet auf eine Rückfrage. Für die Governance heißt das, dass
+ * die Ebene 4 aus Abschnitt 10 (der Mensch entscheidet) **nicht verfügbar** ist. Eine
+ * Entscheidung, die im normalen Betrieb `ask` wäre, ist hier faktisch `hang` — der Lauf bliebe
+ * auf `awaiting_user` stehen, bis ihn jemand abräumt. Deshalb werden die Fälle, in denen ein
+ * Hintergrundlauf sonst fragen würde, hier zu einem klaren `deny`: der Lauf liest den Grund im
+ * selben Zug und wählt einen anderen Weg (Abschnitt 7), statt zu warten.
+ *
+ * Die erste Regel ist der eigentliche Auftrag von S17 — **die Schreibgrenze ans
+ * Langzeitgedächtnis, technisch erzwungen.** Ein proaktiver Lauf, der ungefragt nach
+ * `memory/` schreibt, verschmutzt das Gedächtnis schleichend selbst: jeder Lauf legt eine
+ * Notiz ab, die der nächste Lauf als Kontext liest und bestätigt, und nach einem Monat steht
+ * dort, was der Assistent für wahr hält, nicht was der Mensch entschieden hat. Wer will, dass
+ * ein Hintergrundlauf etwas ins Gedächtnis legt, macht daraus einen **Vorschlag im Digest** —
+ * die Aufnahme entscheidet ein Mensch. Deshalb `deny` und nicht `ask`: eine sessionweite
+ * Freigabe (die es bei `ask` gäbe) wäre genau die Lücke, durch die die Automatik doch wieder
+ * schreiben dürfte.
+ */
+export const BACKGROUND_RULES: PolicyRule[] = [
+  {
+    id: "background-longterm-memory-write",
+    description:
+      "Ein Hintergrundlauf schreibt nicht ins Langzeitgedächtnis (memory/). Nicht freigabepflichtig, sondern gesperrt: ein Lauf ohne Menschen am anderen Ende kann keine Freigabe einholen, und eine schleichende Selbstverschmutzung des Gedächtnisses ist genau der Schaden, den S17 ausschließt. Aufnahme ins Gedächtnis entscheidet ein Mensch, angestoßen durch einen Vorschlag im Digest.",
+    when: { path: "memory/**", risk: WRITING },
+    effect: { decision: "deny" },
+  },
+  {
+    id: "background-source-write",
+    description:
+      "Ein Hintergrundlauf schreibt überhaupt nur in die Artefaktzone. Jeder Schreibzugriff in die Quellzone — Quelltext, AGENTS.md, .env und eben memory/ — wird abgelehnt, nicht bloß zur Freigabe gestellt. 'Lesen und vorschlagen' aus dem Auftrag heißt: das Ergebnis ist ein Artefakt und eine Nachricht, kein Eingriff.",
+    when: { risk: WRITING, zoneNot: "artifact" },
+    effect: { decision: "deny" },
+  },
+  {
+    id: "background-secret-read",
+    description:
+      "Ein Hintergrundlauf liest keine Geheimnisträger (.env, *.pem, .ssh/). Der Standard fragt hier nach; ohne Menschen am anderen Ende ist 'fragen' aber 'hängen'. Ein Digest braucht keine Zugangsdaten.",
+    when: { secretClass: "*", risk: ["read"] },
+    effect: { decision: "deny" },
+  },
+];

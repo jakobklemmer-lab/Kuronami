@@ -3,6 +3,7 @@ import { type RunMetrics, deriveRunMetrics } from "../../context/metrics.js";
 import { loadConventions } from "../../context/system-prompt.js";
 import { decidePolicyApproval, policyAskId } from "../../policy/approvals.js";
 import { createPolicyEngine } from "../../policy/engine.js";
+import { BACKGROUND_RULES, DEFAULT_RULES } from "../../policy/rules.js";
 import { createCalTools } from "../../tools/cal/tools.js";
 import { buildFsZones, policyResolver } from "../../tools/fs/paths.js";
 import { createFsTools } from "../../tools/fs/tools.js";
@@ -85,7 +86,50 @@ export interface CatalogConfig {
    * schaltet Tools frei). Ein fehlender oder kein-Verzeichnis-Vault wirft (`buildVaultRoot`).
    */
   obsidian?: { vaultPath?: string };
+  /**
+   * Das Profil des Katalogs. Vorgabe `"full"`: alles, was oben verdrahtet ist.
+   *
+   * `"background"` ist der **Hintergrundmodus** aus S17 — für Läufe, die der Heartbeat ohne
+   * Nutzereingabe anstößt. Zwei Verschärfungen, beide technisch und nicht als Bitte:
+   *
+   *   1. **Engere Tool-Whitelist.** Nur lesende Tools plus `fs.write`/`fs.edit` (Vorschläge in
+   *      die Artefaktzone) und `task.*` (Planung). Kein `user.ask` (niemand antwortet), kein
+   *      `notes.write`/`cal.create`/`cal.update`/`mail.draft` (Seiteneffekte nach draußen),
+   *      keine generischen n8n-Workflows. Der Fingerabdruck des Hintergrundkatalogs ist damit
+   *      ein anderer als der des vollen — eine Hintergrund-Session und eine normale Session
+   *      können denselben Prozess nicht teilen, und das ist richtig so (Anti-Muster 2).
+   *   2. **`BACKGROUND_RULES` vor `DEFAULT_RULES`.** Schreiben in die Quellzone (und damit nach
+   *      `memory/`) und das Lesen von Geheimnisträgern werden zu `deny` statt `ask` — siehe
+   *      `policy/rules.ts`. Das ist die Schreibgrenze ans Langzeitgedächtnis, an dem einen Tor,
+   *      an dem kein Weg vorbeiführt (Abschnitt 4.7).
+   */
+  profile?: "full" | "background";
 }
+
+/**
+ * Die Tools, die ein Hintergrundlauf (S17) bekommt. Lesen und Vorschlagen, sonst nichts.
+ *
+ * `fs.write`/`fs.edit` sind dabei, weil ein Vorschlag ein Entwurf sein darf — er landet in der
+ * Artefaktzone, und `BACKGROUND_RULES` sperrt jeden anderen Schreibpfad. `task.*` ist dabei,
+ * weil ein Digest ein mehrschrittiger Auftrag ist und ohne Plan im Kreis liefe. Alles, was
+ * einen Seiteneffekt nach draußen hätte oder auf eine Antwort wartet, fehlt bewusst.
+ */
+export const BACKGROUND_TOOLSET: readonly string[] = [
+  "fs.list",
+  "fs.read",
+  "fs.search",
+  "fs.write",
+  "fs.edit",
+  "web.search",
+  "web.fetch",
+  "mail.search",
+  "mail.read",
+  "cal.list",
+  "server.metrics",
+  "notes.read",
+  "task.set",
+  "task.update",
+];
 
 export interface BuiltCatalog {
   catalog: ToolCatalog;
@@ -160,15 +204,37 @@ export async function buildCatalog(config: CatalogConfig): Promise<BuiltCatalog>
     );
   }
 
-  const catalog = registry.freeze();
+  const full = registry.freeze();
 
-  return { catalog, policy: createPolicyEngine({ resolvePath: policyResolver(zones) }) };
+  // Hintergrundprofil (S17): auf die Whitelist einschränken und mit einem eigenen
+  // Fingerabdruck neu einfrieren. Ein Tool aus der Liste, das gar nicht verdrahtet wurde
+  // (z. B. `mail.*` ohne n8n), fällt still weg — die Whitelist ist eine Obergrenze, keine
+  // Zusicherung.
+  const catalog =
+    config.profile === "background"
+      ? new ToolRegistry()
+          .registerAll(full.tools.filter((tool) => BACKGROUND_TOOLSET.includes(tool.name)))
+          .freeze()
+      : full;
+
+  const rules =
+    config.profile === "background" ? [...BACKGROUND_RULES, ...DEFAULT_RULES] : undefined;
+
+  return { catalog, policy: createPolicyEngine({ resolvePath: policyResolver(zones), rules }) };
 }
 
 export interface RunnerConfig extends Omit<LoopDeps, "conventions" | "signal" | "artifactRoot"> {
   threadId: string;
   channel: SessionChannel;
   artifactRoot?: string;
+  /**
+   * `kuronami.sessions.mode` bei der Neuanlage. Vorgabe: der Startwert `"execute"`. Der
+   * Heartbeat (S17) setzt `"background"` — das Feld ist dokumentierend (die Governance-Schicht
+   * hängt am Katalog- und Regelsatz, nicht an dieser Spalte), macht aber im Protokoll und in
+   * der DevUI auf einen Blick sichtbar, dass eine Session ohne Nutzer läuft. Greift nur bei
+   * der Neuanlage, wie alle `SessionDefaults` (S04).
+   */
+  sessionMode?: string;
   /** Einmal beim Start gelesen. Vorgabe: AGENTS.md aus dem Arbeitsverzeichnis. */
   conventions?: string;
   /**
@@ -229,6 +295,7 @@ export async function createRunner(config: RunnerConfig): Promise<Runner> {
     threadId: config.threadId,
     channel: config.channel,
     defaults: {
+      mode: config.sessionMode,
       toolCatalogVersion: config.catalog.version,
       modelProfile: config.model.model,
     },

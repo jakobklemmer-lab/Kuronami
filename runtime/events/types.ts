@@ -76,6 +76,35 @@ export const EVENT_TYPES = [
   // Speicher, ginge sie beim Neustart verloren — und die Rückfrage käme nie an.
   "gateway.received",
   "gateway.delivered",
+
+  // Seither dazugekommen (S17). Ein fünfzehnter Namensraum, und der zweite, den nicht die
+  // Runtime schreibt — der Heartbeat-Dienst schreibt ihn. Die Begründung ist dieselbe wie bei
+  // `gateway.*`: die Liste ist das Vokabular des Protokolls und keine Abhängigkeit, `assertEventType`
+  // soll genau die stille Aufspaltung in zwei Schreibweisen verhindern, und `heartbeat/` wird
+  // in `runtime/`, `context/`, `tools/` und `policy/` nirgends importiert (geprüft in
+  // `heartbeat/layering.test.ts`).
+  //
+  // Warum eigene Ereignisse: der Heartbeat läuft **ohne Nutzereingabe** und trifft trotzdem
+  // Entscheidungen, die nachvollziehbar bleiben müssen — hat er heute schon zu oft gelaufen
+  // (Tagesobergrenze), hat er einen Digest erzeugt und zugestellt, hat ein ereignisgesteuerter
+  // Lauf bewusst **nichts** gemeldet ("keine Meldung, wenn nichts gefunden wird"). Diese
+  // Buchführung liegt in einer eigenen Diarium-Session (`thread_heartbeat`), damit die
+  // Tagesobergrenze aus dem Protokoll gefaltet werden kann und nicht aus einem Zähler im
+  // Prozess, der einen Neustart nicht überlebt.
+  //
+  //   * `heartbeat.ran`       — ein Hintergrundlauf ist gelaufen (Digest oder Auslöser), mit
+  //                             Ausgang und ob etwas zugestellt wurde. Zählt gegen die
+  //                             Tagesobergrenze.
+  //   * `heartbeat.skipped`   — ein fälliger Lauf wurde **nicht** gestartet (Tagesobergrenze
+  //                             erreicht). Steht im Protokoll, damit ein ausbleibender Digest
+  //                             nicht wie ein Fehler aussieht.
+  //   * `heartbeat.delivered` — was an welchen Kanal hinausging (Digest-Text plus Artefakt-Handle).
+  //   * `heartbeat.silent`    — ein ereignisgesteuerter Lauf hat geprüft und entschieden, dass
+  //                             es nichts zu melden gibt. Der Normalfall, nicht die Ausnahme.
+  "heartbeat.ran",
+  "heartbeat.skipped",
+  "heartbeat.delivered",
+  "heartbeat.silent",
 ] as const;
 
 export type EventType = (typeof EVENT_TYPES)[number];
