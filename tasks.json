@@ -131,7 +131,7 @@
     "id": "S16",
     "title": "Gateway",
     "phase": 3,
-    "status": "ready",
+    "status": "done",
     "done_when": "Zwei Kanäle, ein Agent, ein Gedächtnis",
     "depends_on": ["S15"]
   },
@@ -139,7 +139,7 @@
     "id": "S17",
     "title": "Heartbeat",
     "phase": 3,
-    "status": "queued",
+    "status": "ready",
     "done_when": "Morgen-Digest läuft ohne manuellen Anstoß",
     "depends_on": ["S16"]
   },

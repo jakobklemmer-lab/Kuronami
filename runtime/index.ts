@@ -18,7 +18,13 @@ const SIGNALS = ["SIGINT", "SIGTERM"] as const;
  *     um Läufe ohne UI anzustoßen" (S12) in ihrer knappsten Form; die Verben selbst stehen in
  *     `loop/api.ts` und sind nicht an diesen Prozess gebunden.
  *
- * Woher Faden und Kanal wirklich kommen, entscheidet weiterhin das Gateway (S16).
+ * Seit S16 ist das **nicht mehr der Nutzerweg.** Eine Nachricht kommt über das Gateway
+ * (`pnpm gateway`, dann `pnpm say "…"`): dort wird sie authentifiziert, normalisiert und in
+ * die Unterhaltung des Nutzers geführt — eine Session auf dem Kanal `gateway`, die Web und
+ * Telegram teilen. Dieser Prozess hier bleibt daneben stehen und heißt jetzt, was er ist: ein
+ * **Lauf ohne Kanal**, zum Prüfen. Er authentifiziert nichts, normalisiert nichts und arbeitet
+ * auf einem eigenen Faden (`KURONAMI_THREAD_ID`, Vorgabe `thread_dev_local`) — also in einem
+ * anderen Gedächtnis als die Unterhaltung.
  */
 async function main(): Promise<void> {
   const input = process.argv.slice(2).join(" ").trim();
@@ -60,6 +66,9 @@ async function main(): Promise<void> {
     model,
   });
 
+  console.log(
+    `Direkter Lauf ohne Kanal (Faden ${runner.session.threadId}, Kanal ${runner.session.channel}) — keine Authentifizierung, keine Kanal-Normalisierung. Der Nutzerweg ist "pnpm gateway" plus "pnpm say".`,
+  );
   console.log(
     `Session ${runner.session.sessionId}, Lauf ${runner.runtimeId}, Prozess ${process.pid}.`,
   );

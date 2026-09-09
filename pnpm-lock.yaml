@@ -11,6 +11,9 @@ importers:
       '@anthropic-ai/sdk':
         specifier: ^0.124.0
         version: 0.124.0
+      express:
+        specifier: ^5.2.1
+        version: 5.2.1
       pg:
         specifier: ^8.13.1
         version: 8.23.0
@@ -30,9 +33,6 @@ importers:
       '@types/pg':
         specifier: ^8.11.10
         version: 8.23.1
-      express:
-        specifier: ^5.2.1
-        version: 5.2.1
       tsx:
         specifier: ^4.19.2
         version: 4.23.13

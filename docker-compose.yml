@@ -73,6 +73,31 @@ services:
     volumes:
       - ./artifacts:/app/artifacts
 
+  # Der Gateway-Prozess (S16) — die Außenwelt des Systems und ab Phase 3 der Dienst, der
+  # dauerhaft läuft. Wie `runtime` ein Platzhalter, solange es kein Dockerfile gibt: er steht
+  # hier, damit die Betriebsform dokumentiert ist (eigener Prozess, eigener Port, dieselbe
+  # Datenbank), nicht weil `docker compose up gateway` heute schon baut.
+  gateway:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    command: ["pnpm", "gateway"]
+    env_file:
+      - .env
+    environment:
+      N8N_BASE_URL: "http://n8n:5678"
+      N8N_WEBHOOK_TOKEN: "${N8N_WEBHOOK_TOKEN:-}"
+    ports:
+      # Nur Loopback. Für den Telegram-Webhook-Betrieb gehört ein TLS-Endpunkt davor, nie
+      # dieser Port direkt ins Netz — er trägt die Authentifizierung des ganzen Systems.
+      - "127.0.0.1:8788:8788"
+    depends_on:
+      - postgres
+      - n8n
+    volumes:
+      - ./artifacts:/app/artifacts
+
 volumes:
   postgres-data:
   n8n-data:

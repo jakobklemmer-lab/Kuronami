@@ -2923,3 +2923,377 @@ Vier, alle bestätigt und danach zurückgesetzt:
 - `tasks.json`: S15 auf `done`, S16 von `queued` auf `ready`.
 
 Status: abgeschlossen. Nächste Session: S16 Gateway.
+
+## S16 · Gateway · 2026-09-09
+
+Die Surface-Schicht aus Abschnitt 3, als **eigener Prozess**: Web und Telegram werden
+normalisiert, am Gateway authentifiziert und in **eine** Unterhaltung geführt. Der Ordner
+`gateway/` war seit S01 leer bis auf seine README; er ist jetzt die Außenwelt des Systems.
+
+- Tests der Vorsession vorab gelaufen: 397 grün (S15 + Vorlauf), `pnpm typecheck` und
+  `pnpm lint` ebenfalls. Arbeitsbaum sauber bis auf die `_tmp_52_*`-Dateien, die schon vorher
+  dalagen und nicht zu dieser Session gehören.
+- **Eine Migration (0008), zwei neue Ereignistypen, keine neue Abhängigkeit** — `express`
+  wandert von `devDependencies` nach `dependencies` (Begründung unten).
+
+### Die eine Entscheidung: ein Nutzer, ein Gedächtnis (Migration 0008)
+
+Das Fertig-Kriterium lautet "Zwei Kanäle, ein Agent, ein Gedächtnis". Das Gedächtnis einer
+Unterhaltung ist ihr Ereignisprotokoll (S03), und das ist **je Session** geführt. Beide Kanäle
+müssen also in dieselbe Session schreiben, sonst wüsste der Agent am Telegram-Kanal nichts von
+dem, was im Web besprochen wurde.
+
+Eine Session wird über `(thread_id, channel)` wiedergefunden (UNIQUE seit S04). Damit zwei
+Kanäle dieselbe Zeile treffen, muss `channel` für sie derselbe Wert sein — und dieser Wert kann
+weder `web` noch `telegram` heißen, weil er für die jeweils andere Hälfte der Unterhaltung eine
+Falschaussage wäre. Also: **der Faden folgt aus der Nutzerkennung** (`thread_user_<id>`), **der
+Kanal ist die Konstante `gateway`**, neu im Enum `kuronami.session_channel`.
+
+- **Das umgeht S04 nicht, es erfüllt es.** "Derselbe Faden auf zwei Kanälen sind zwei
+  Sessions" bleibt richtig; die Unterhaltung eines Nutzers ist eben **ein** Faden auf **einem**
+  Kanal, und der heißt `gateway`. Der Kanal der einzelnen **Nachricht** wandert dorthin, wo er
+  hingehört: ins `gateway.received`-Ereignis. Er ändert sich je Nachricht, die Session nicht.
+- Race-frei ohne Zutun: weil der Kanal eine Konstante ist, trägt das `ON CONFLICT
+  (thread_id, channel)` aus S04 unverändert. Ein Blick "gibt es schon eine Session für diesen
+  Nutzer auf irgendeinem Kanal?" wäre die Alternative gewesen — und genau das
+  Lesen-dann-Schreiben, gegen das S04 argumentiert: zwei gleichzeitig eintreffende Nachrichten
+  auf zwei Kanälen fänden beide nichts und legten beide an.
+- Migration nach dem Muster von 0007 (`approval_scope`): Typ umbenennen, neu anlegen, Spalte
+  umhängen, alten Typ verwerfen — **nicht** `ALTER TYPE ... ADD VALUE`, damit das Down den
+  Zustand von 0001 wirklich wiederherstellt und nicht nur ungefähr. Das Down bricht mit einer
+  benannten Meldung ab, wenn Sessions auf dem Kanal `gateway` stehen: sie stillschweigend auf
+  `web` umzuschreiben hieße, aus einer kanalübergreifenden Unterhaltung eine zu machen, die
+  behauptet, im Web geführt worden zu sein — und die nächste Telegram-Nachricht legte daneben
+  eine zweite Session an, also genau die zwei Gedächtnisse, die 0008 verhindert.
+- Der UNIQUE-Index `idx_sessions_thread_channel` überlebt den Typwechsel (Postgres baut die
+  Indizes einer Spalte beim `ALTER COLUMN ... TYPE` neu auf). In beide Richtungen verifiziert.
+
+### `gateway.received` und `gateway.delivered` — ein vierzehnter Namensraum
+
+Zwei neue Ereignistypen, und der einzige Namensraum, den **nicht die Runtime schreibt**. Die
+Zahl 13 im S03-Test steht jetzt auf 14 — ein neuer Namensraum bleibt damit eine Entscheidung.
+
+- **Warum überhaupt eigene Ereignisse:** der Kanal einer Nachricht ist seit 0008 kein Feld der
+  Session mehr. Er muss also irgendwo stehen, und "irgendwo" ist in diesem System das
+  Protokoll. Nur so weiß ein frisch gestarteter Gateway-Prozess noch, an welchen Kanal eine
+  offene Freigabeanfrage gehört. Läge die Zuordnung in einer `Map` im Speicher, ginge sie beim
+  Neustart verloren — und die Rückfrage käme nie an, der Lauf wartete für immer.
+- **Warum sie trotzdem in `runtime/events/types.ts` stehen:** die Liste ist das *Vokabular* des
+  Protokolls, keine Abhängigkeit. Ein Ereignistyp, den man in der Taxonomie nicht nachschlagen
+  kann, ist genau der Fall, den `assertEventType` seit S03 verhindern soll. Code aus `gateway/`
+  wird in `runtime/` nirgends importiert — und das ist ab dieser Session geprüft, siehe unten.
+
+### Die harte Regel aus Abschnitt 3, als Test
+
+`gateway/layering.test.ts` liest **alle** `.ts`-Dateien in `runtime/`, `context/`, `tools/` und
+`policy/` und prüft, dass keine davon aus `gateway/` importiert — relative wie absolute
+Spezifizierer, `import`, `export ... from` und dynamisches `import()`.
+
+Bis S16 hielt sich "die Runtime darf niemals von der Surface-Schicht abhängen" von selbst, weil
+es die Schicht nicht gab. Ab jetzt entsteht die Versuchung mit dem ersten Nachrichtenfeld, das
+die Runtime "auch ganz praktisch" hätte; ein solcher Import fällt in keinem Testlauf auf, weil
+ja alles funktioniert — bis jemand das Gateway austauschen will. Der Test hat zwei Gegenproben
+in sich: er zählt die gelesenen Dateien (ein Schichtungstest, der versehentlich null Dateien
+liest, ist immer grün) und prüft den Erkenner an vier konstruierten Fällen.
+
+### Die normalisierte Nachrichtenform (`gateway/types.ts`)
+
+Die fünf Felder aus dem Auftrag — **Kanal, Absender, Inhalt, Anhänge, Zeit** — plus
+`externalId`, die Kennung des Kanals. Zwei Entscheidungen darin:
+
+- **`channelUserId` und `replyTo` sind zwei Felder, nicht eines.** Bei Telegram sind sie im
+  Einzelchat gleich (Nutzerkennung = Chatkennung) und in einer Gruppe verschieden; sie
+  zusammenzulegen hieße, sich auf den Einzelchat festzulegen und es beim ersten Gruppenchat
+  still falsch zu machen. Authentifiziert wird über das erste, zugestellt über das zweite.
+- **Anhänge sind Bytes, keine `file_id`.** Der Kanal löst seine eigene Umständlichkeit vor
+  dieser Grenze auf (Telegram braucht zwei weitere HTTP-Aufrufe). Käme die Kennung durch,
+  müsste jede Schicht dahinter wissen, wie man sie einlöst — und der Kern wäre wieder
+  kanalabhängig.
+- `externalId` trägt die Idempotenz: `hasReceived(events, id)` faltet das Protokoll, ein erneut
+  zugestelltes Telegram-Update löst keinen zweiten Zug aus. Die Prüfung liegt im Protokoll und
+  nicht in einem Speicher im Prozess — dasselbe Muster wie der Idempotenzschlüssel der Hülle
+  (S05) und die einmalige Rückfrage in `user.ask` (S10), und nur so trägt sie über einen
+  Neustart, wo sie gebraucht wird.
+
+**In `gateway/core.ts` steht kein Kanal.** Weder `web` noch `telegram` kommt dort als Sonderfall
+vor; es gibt nur `message.channel` als Nachschlagewert in der Kanalliste. Ein dritter Kanal ist
+eine neue Datei unter `channels/` und keine Zeile im Kern.
+
+### Authentifizierung am Gateway, nicht in der Runtime
+
+Das ist keine Ortsangabe, sondern eine Zusage über die Runtime: sie hat kein Feld, keinen
+Parameter und keine Tabelle für "wer war das". Eine zweite Prüfung dort wäre nicht doppelt
+sicher, sondern eine zweite Stelle, an der die Antwort auch anders ausfallen kann.
+
+- Erzwungen über den Typ, nach dem Muster der `PolicyGrant` aus S11: `receiveMessage` und
+  `receiveDecision` verlangen einen `Principal`, und die Klasse dahinter wird nur als **Typ**
+  exportiert, nie als Wert. Zusammen mit dem privaten Feld macht das den Typ nominal — ein
+  Objektliteral kann keinen Nutzer vortäuschen. Der Weg an der Authentifizierung vorbei ist
+  nicht verboten, es gibt ihn nicht.
+- **Web:** Bearer-Token, Vergleich in konstanter Zeit (`timingSafeEqual`). Ein leerer erwarteter
+  Token passt nicht auf einen leeren mitgeschickten — sonst wäre ein nicht eingerichteter Kanal
+  der am weitesten offene.
+- **Telegram: zwei Prüfungen, und beide sind nötig.** Das Webhook-Geheimnis beweist, dass das
+  Update von Telegram kommt — nicht, *von wem*. Jeder Mensch auf der Welt kann einem Bot
+  schreiben, und sein Update trägt dasselbe gültige Geheimnis wie das des Betreibers. Ohne
+  `TELEGRAM_ALLOWED_USER_IDS` wäre der Bot eine offene Fernbedienung für ein System, das
+  Dateien schreibt und Termine anlegt. Beim Long-Polling entfällt die erste Prüfung (es gibt
+  keinen Header), die zweite trägt dort allein.
+- **Beschreiben, authentifizieren, dann holen.** `describeUpdate` bekommt keinen Client, kann
+  also gar nichts abrufen; erst nach der Authentifizierung lädt der Kanal die Anhänge. Ein
+  Fremder kostet damit zwei Vergleiche und keinen einzigen HTTP-Aufruf, keine Session, kein
+  Ereignis — und bekommt auch keine Antwort: eine Fehlermeldung an einen Unbefugten sagt ihm,
+  dass hier etwas läuft, das sich zu suchen lohnt.
+
+### Freigabeanfragen gehen an den passenden Kanal — als Faltung, nicht als Map
+
+`deriveAskRoutes(events)` ist eine reine Funktion über Ereignisse, wie `deriveSessionState`
+(S05), `deriveLoopState` (S12) und `derivePolicyApprovals` (S11): sie nimmt Ereignisse entgegen
+und sonst nichts.
+
+- Der passende Kanal ist der, über den zuletzt etwas hereinkam, bevor der Lauf anhielt. **Auch
+  eine Entscheidung verschiebt die Herkunft:** wer eine Rückfrage per Telegram beantwortet,
+  bekommt die nächste des fortgesetzten Laufs ebenfalls per Telegram — sein letztes Wort kam von
+  dort. Deshalb steht auch eine Entscheidung als `gateway.received` im Protokoll.
+- Eine Rückfrage **ohne** Herkunft fällt weg statt irgendwohin zu gehen. Das ist der Fall einer
+  Session, die nicht über das Gateway lief (`pnpm run:task`, DevUI, ein Test) — sie einem Kanal
+  zuzuschlagen hieße, eine Freigabe an jemanden zu schicken, der sie nie angefordert hat.
+- `gateway.delivered` hält fest, was hinausging. Ohne das schickte ein neu gestarteter Prozess
+  jede offene Rückfrage erneut, und der Nutzer sähe dieselbe Frage nach jedem Neustart wieder.
+  `redeliverPending` beim Start holt umgekehrt nach, was nie ankam.
+- **Reihenfolge: erst zustellen, dann protokollieren.** Andersherum stünde nach einem
+  fehlgeschlagenen Versand im Protokoll, die Rückfrage sei draußen — und kein Neustart holte
+  sie je nach.
+
+### Anhänge werden Artefakte — der erste echte `step_id: null`-Fall
+
+Jeder Anhang geht über `writeArtifact` (S06) auf die Platte; in den Zug geht das
+`artifact://`-Handle plus eine Zeile Beschreibung, nie der Inhalt. Dieselbe Regel wie bei
+`mail.read` (S14) und `fs.read` (S08).
+
+- `ArtifactSource.stepId` ist seit S06 nullbar und merkt dort an, dass es den Fall noch nicht
+  gibt: bis S15 entstand jedes Artefakt im Seiteneffekt eines Schritts. Ein Anhang entsteht
+  **davor** — die Nachricht ist da, bevor irgendein Schritt geplant ist. Genau der Fall, für den
+  das Feld angelegt wurde.
+- Herkunft `gateway:web` bzw. `gateway:telegram`, mit Doppelpunkt statt Punkt: `gateway` ist
+  kein Tool-Namensraum aus AGENTS.md, und ein Artefakt, dessen Herkunft wie ein Tool aussieht,
+  ließe später die Frage "welches Tool war das?" ins Leere laufen.
+- Alle Grenzen (20 MB je Anhang, 10 je Nachricht) werden **vor** dem ersten Schreibvorgang
+  geprüft. Sonst läge bei einer Nachricht mit einem gültigen und einem zu großen Anhang das
+  erste Artefakt schon da, während der Aufruf scheitert.
+
+### Die zwei Kanäle
+
+- **Web** (`channels/web.ts`) ist ein **Postfach**. HTTP ist Frage und Antwort, ein Kanal ist es
+  nicht: eine Freigabeanfrage entsteht *während* eines Zugs, und der Zug ist die Antwort auf die
+  Nachricht. `deliver` schreibt deshalb in ein Fach je Empfänger, der HTTP-Rand leert es. Das
+  Fach ist flüchtig und das ist in Ordnung — es hält keine Wahrheit, nur eine Zustellung; was
+  offen ist, steht im Protokoll (`GET /channels/web/pending` faltet es).
+- **Telegram** (`channels/telegram/`) in drei Dateien: `client.ts` (fünf API-Aufrufe, kein SDK,
+  injiziertes `fetch` wie die n8n-Brücke), `normalize.ts` (Update → beschriebene Form, ohne Netz
+  und ohne Nebenwirkung), `channel.ts` (Zustellung und Annahme, plus Long-Polling).
+  **Long-Polling ist die Vorgabe, weil es ohne öffentliche Adresse auskommt**; der Webhook ist
+  ein zweiter Eingang in dasselbe `handleUpdate`, kein zweiter Kanal. Der Umzug auf einen Server
+  (Abschnitt 17) ist damit eine Einstellung und keine Codeänderung.
+- **Kein Bot-Framework.** Dieselbe Abhängigkeitsdisziplin wie überall: ein solches brächte einen
+  eigenen Update-Loop, ein eigenes Session- und Zustandskonzept und eine eigene Vorstellung
+  davon, wo ein Gespräch lebt — also genau die drei Dinge, die dieses System selbst und anders
+  löst.
+
+**Die 64-Byte-Grenze von `callback_data`** war der eine Punkt, an dem die naheliegende Lösung
+nicht getragen hätte: eine `ask_id` ist `policy:<call_id>`, und `call_id` ist die
+`tool_use`-Kennung des Anbieters — heute rund dreißig Zeichen, morgen so lang, wie er will.
+Zusammen mit der Option wäre die Grenze irgendwann gerissen, und zwar nicht beim Testen, sondern
+beim längsten Aufruf im Betrieb; Telegram weist dann die **ganze** Nachricht ab
+(`BUTTON_DATA_INVALID`), die Frage käme ohne Knöpfe an und wäre unbeantwortbar. Deshalb geht
+`askRef(askId)` mit — die ersten zwölf Hexstellen aus SHA-256, zustandslos und stabil:
+`resolveAskRef` bildet sie für jede offene Rückfrage neu und vergleicht, ein Knopf von vorhin
+funktioniert auch nach einem Neustart. Der Client bricht zusätzlich ab, bevor er einen zu langen
+Knopf abschickt.
+
+### Serialisierung je Unterhaltung
+
+`runTurn` verträgt keinen zweiten Zug, solange einer offen ist (`NoOpenTurnError`, S12) — zu
+Recht: eine zweite Eingabe überschriebe den offenen Zug samt seiner unerledigten Aufrufe. Zwei
+gleichzeitig ankommende Nachrichten sind aber der Normalfall eines Systems mit zwei Kanälen.
+Also eine Warteschlange je Unterhaltung; die zweite Nachricht wartet, statt abgewiesen zu
+werden. Die Kette bricht bei einem Fehler nicht ab (`tail.then(work, work)`) — der Fehler geht
+an seinen eigenen Aufrufer, aber er legt die Unterhaltung nicht still.
+
+Dazu drei Lagen, die `receiveMessage` unterscheidet:
+
+- **Offener Zug ohne offene Rückfrage** = ein unterbrochener Lauf. Erst den zu Ende bringen,
+  dann die neue Nachricht — dieselbe Reihenfolge wie im Loop selbst ("stehen Aufrufe offen? dann
+  die zuerst", S12).
+- **Offene Rückfrage** = der Nutzer hat geschrieben, statt zu entscheiden. Die Nachricht wird
+  **nicht** verworfen und **nicht** zum Zug gemacht (sie bliebe sonst als Eingabe in einem Zug
+  hängen, der auf etwas ganz anderes wartet); stattdessen wird gesagt, was offen ist.
+- **Nichts offen** = neuer Zug.
+
+`completeOnDone: false` — ein fertiger Zug ist hier kein fertiger Auftrag. `loop/api.ts` hat
+diesen Fall bei der Vorgabe schon benannt: eine Session, die nach jeder Antwort als
+abgeschlossen im Protokoll steht, wäre eine Falschaussage über den Verlauf.
+
+### Die umgehängte Prompt-Zeile
+
+`pnpm say "…"` schickt die Zeile an `POST /channels/web/messages` und landet damit in derselben
+Session wie eine Telegram-Nachricht. `pnpm run:task` bleibt daneben bestehen und heißt jetzt,
+was es ist: ein **Lauf ohne Kanal**, zum Prüfen — keine Authentifizierung, keine Normalisierung,
+eigener Faden (`thread_dev_local`) und damit ein anderes Gedächtnis. `runtime/index.ts` sagt das
+beim Start in der ersten Zeile, statt es dem Leser zu überlassen.
+
+### `express` von devDependencies nach dependencies
+
+S12b hat `express` bewusst als devDependency aufgenommen, weil die DevUI ein Wegwerf-Werkzeug
+ist und `runtime/index.ts` sie nie importiert. Das Gateway ist das Gegenteil: der Prozess, der
+ab Phase 3 dauerhaft läuft. Ein `pnpm install --prod` muss ihn bauen können. Die Begründung von
+S12b kippt damit nicht, sie gilt weiter für `@tauri-apps/cli` und `@types/express`.
+
+### Tests
+
+- 63 neue, zusammen **460** (43 Dateien).
+- **`gateway/identity.test.ts`** (12, ohne DB): richtiger Token durch, falscher/leerer/fehlender
+  ab; nicht eingerichteter Kanal nimmt nichts an; Bearer-Header tolerant gelesen; Telegram
+  verlangt Geheimnis **und** Absender; fremder Absender trotz gültigem Geheimnis abgewiesen;
+  Long-Polling ohne Header, aber mit Absenderprüfung; Absender und Antwortadresse getrennt
+  (Gruppenchat); Umgebungstabelle.
+- **`gateway/routing.test.ts`** (11, ohne DB): Rückfrage geht an den Kanal der letzten
+  Nachricht; eine Entscheidung verschiebt die Herkunft; beantwortete Rückfrage fällt heraus;
+  `gateway.delivered` wird gemerkt; Rückfrage ohne Herkunft wird weggelassen; Unverständliches
+  übersprungen statt geworfen; `askRef` bleibt bei einer 400-Zeichen-`ask_id` unter 64 Byte, ist
+  stabil und ohne Speicher auflösbar; `hasReceived`.
+- **`gateway/channels/telegram/normalize.test.ts`** (9): alle fünf Felder; Bildunterschrift als
+  Inhalt; größte Foto-Auflösung statt der ersten; MIME aus der Endung geraten, sonst ehrlich
+  unbestimmt; Pfad- und Steuerzeichen aus dem Dateinamen (Bindestrich bleibt); Fremdverkehr
+  übergangen; Knopfdruck mit eigener Kennung je Druck; kaputte `callback_data`.
+- **`gateway/channels/telegram/client.test.ts`** (12, ohne Netz): Text geteilt statt gekürzt,
+  an Zeilengrenzen; Knöpfe hängen am **letzten** Stück; zu lange `callback_data` bricht ab,
+  **ohne** die Nachricht zu schicken; API-Fehler mit Code; Nicht-JSON; ohne Token nicht
+  bedienbar; Datei holen und laden; zu große Datei abgewiesen, **bevor** sie im Speicher steht;
+  `getUpdates` fragt nur die zwei Update-Arten.
+- **`gateway/layering.test.ts`** (3): siehe oben.
+- **`gateway/gateway.test.ts`** (16, DB, echter Router, echte Policy, echte Hülle; gestellt sind
+  nur Modell und `fetch`) — darunter die **Fertig-Kriterien**:
+  * **Web dann Telegram, ein Gedächtnis:** "Merk dir: Das Codewort ist Kirschbluete." über Web,
+    "Wie lautet das Codewort?" über Telegram. Das Drehbuch antwortet nur richtig, wenn die
+    frühere Nachricht in der Historie des Telegram-Zugs steht — Telegram bekommt "Das Codewort
+    ist Kirschbluete." Dazu: genau **eine** Sessionzeile auf Kanal `gateway`; die
+    `gateway.received` tragen `web` dann `telegram`, samt Absender, Inhalt, Anhängen und Zeit;
+    die Historie enthält beide Eingaben; kein `session.completed` nach der ersten Antwort.
+  * **Freigabe per Telegram:** "Schreib den Bericht." → `fs.write` in die Quellzone → der Lauf
+    hält an, die Frage geht **mit Knöpfen nach Telegram** (alle `callback_data` unter 64 Byte),
+    das Web-Postfach bleibt leer, die Datei entsteht nicht, kein `step.started`. Danach ein
+    Knopfdruck → quittiert, `approval.granted` mit `decided_by: telegram:11111111`,
+    `policy.allowed`, `step.completed`, **die Datei steht mit ihrem Inhalt da**, die Antwort geht
+    zurück nach Telegram. Ein zweiter Druck auf denselben Knopf wird abgewiesen.
+  * **Der passende Kanal:** dieselbe Aufgabe über Web → die Frage landet im Web-Postfach, und
+    Telegram wird **nicht angefasst**, obwohl es eingerichtet ist.
+  * **Nachstellen nach einem Neustart:** die Zustellung scheitert (Telegram offline) → kein
+    `gateway.delivered`, dafür ein `error.raised`. Ein **zweites** Gateway auf derselben
+    Unterhaltung findet dieselbe Session, `redeliverPending` schickt die Frage an ihren Kanal —
+    ohne dass es einen "Absender von gerade eben" gäbe —, und ein zweiter Anlauf schickt nichts
+    mehr.
+  * **Authentifizierung:** fremder Telegram-Absender → abgewiesen, keine Unterhaltung, keine
+    Sessionzeile, kein Ereignis und kein einziger Telegram-Aufruf; mit Anhang wird **nicht
+    einmal `getFile`** gerufen; Webhook mit falschem Geheimnis abgewiesen, mit richtigem
+    angenommen.
+  * **Anhang und Doppelzustellung:** Anhang wird Artefakt (`gateway:web`, `step_id: null`), im
+    Zugtext steht das Handle und **nicht** der Inhalt; dasselbe Update zweimal → `duplicate`,
+    ein `turn.started`, ein Echo.
+
+### Gegenproben
+
+Fünf, alle bestätigt und danach zurückgesetzt:
+
+- **Eine Unterhaltung je Kanal** (`conversations.of(userId + ":" + channel)`) → das
+  Fertig-Kriterium rot: Telegram bekommt "Ich kenne kein Codewort." Das ist die Alternative, die
+  0008 überflüssig gemacht hätte, und sie kostet genau das Gedächtnis.
+- **Absenderliste in `authenticateTelegram` entfernt** → der Fremde kommt durch (`handled` statt
+  `rejected`).
+- **`hasReceived`-Prüfung entfernt** → dasselbe Update läuft zweimal als eigener Zug.
+- **`deriveAskRoutes` schreibt immer `web` als Kanal** → die Telegram-Freigabe rot: Telegram
+  bekommt nichts.
+- **`gateway.delivered` nicht mehr gefaltet** → die Nachstellung schickt beim zweiten Anlauf
+  erneut.
+
+### Migration verifiziert
+
+- `down` mit vorhandenen `gateway`-Sessions bricht ab, mit genau der Meldung, die das Down
+  vorsieht ("2 Session(s) auf dem Kanal gateway … Entscheide bewusst"). Das ist die Schutzabfrage
+  bei der Arbeit, nicht ein Fehler.
+- Nach dem Aufräumen: `down` → Enum wieder `web, telegram, mail, heartbeat, voice`,
+  Tracking-Zeilen 0001–0007, `idx_sessions_thread_channel` weiterhin UNIQUE auf
+  `(thread_id, channel)`. Danach `up` → sechster Wert zurück, Zeile 0008 da, Index unverändert.
+
+### Nachweis außerhalb von vitest
+
+Ein Probelauf in einem echten Prozess, mit echtem HTTP-Rand und der **echten CLI** (nur Modell
+und Telegram-`fetch` gestellt; ohne `ANTHROPIC_API_KEY` ist ein Lauf mit dem Anbieter nicht
+möglich):
+
+1. falscher Bearer-Token → **HTTP 401** (`bad_credential`);
+2. `pnpm say "Merk dir: Das Codewort ist Kirschbluete."` als **Kindprozess über echtes HTTP** →
+   "Gemerkt.";
+3. Telegram-Webhook mit richtigem Geheimnis, "Wie lautet das Codewort?" → HTTP 200, und an
+   Telegram ging **"Das Codewort ist Kirschbluete."** — zwei Kanäle, ein Gedächtnis, über die
+   Leitung;
+4. Webhook mit falschem Geheimnis → `rejected`;
+5. "Schreib den Bericht." → `awaiting_user`, Freigabeanfrage zugestellt;
+6. `GET /channels/web/pending` → 1 offen, Kanal `web`;
+7. Freigabe `once` → `answered`, und `probe.txt` steht mit "Aus dem Probelauf." auf der Platte.
+
+Danach: **eine** Sessionzeile für den Nutzer, Kanal `gateway`, 32 Ereignisse, und die
+`gateway.*`-Folge `received/web, delivered/web, received/telegram, delivered/telegram,
+received/web, delivered/web, received/web, delivered/web`. Probedaten anschließend gelöscht.
+
+Ein gefundener Fehler dabei, der ohne den Probelauf nicht aufgefallen wäre: der erste Anlauf rief
+die CLI mit `execFileSync` — das blockiert den Event-Loop, und der Server im selben Prozess kann
+die Anfrage seines eigenen Kindprozesses nicht beantworten. Das war ein Fehler im Probeskript,
+nicht im Gateway, aber er zeigt, warum der Nachweis in einem echten Prozess läuft.
+
+### Ein Fund des Redaction-Filters, an eigenem Code
+
+Das Feld mit dem Nachweis der Authentifizierung hieß zuerst `auth`, und der Filter hat es
+ersetzt — `auth` steht in `SECRET_FIELD_NAMES` (S07). Der Filter hatte recht: ein Feld dieses
+Namens sieht aus, als stünde ein Token darin. Die Korrektur war nicht, den Filter zu umgehen,
+sondern das Feld nach dem zu benennen, was drinsteht: `auth_method`, mit Werten wie
+`telegram:polling`. **Wie** geprüft wurde, nie **womit**.
+
+### Bewusst nicht gebaut
+
+- **Mail und Sprache als Kanäle.** Die Form steht (`ChannelPort`), die Kanäle sind später bzw.
+  S23/S24.
+- **Mehr als ein Nutzer.** Phase 3 hat einen (Abschnitt 1: Ein-Personen-System). Ein zweiter
+  wäre eine Tabelle statt einer Konstanten in `identity.ts` und sonst keine Änderung an diesem
+  Aufbau; ihn jetzt zu bauen hieße, eine ungeprüfte Vermutung darüber festzuschreiben, wie er
+  aussehen müsste.
+- **Ein `agent`-initiiertes Senden** (der Heartbeat aus S17). `ChannelPort.deliver` trägt das
+  bereits; was fehlt, ist der Auslöser.
+- **Eine Weboberfläche.** Der Web-Kanal ist eine HTTP-Schnittstelle plus CLI. Die Oberfläche ist
+  Phase 6; die DevUI aus S12b bleibt daneben stehen und ist unverändert.
+- **Ein Dockerfile.** Der `gateway`-Dienst im Compose ist ein Platzhalter wie `runtime` seit S01
+  — er dokumentiert die Betriebsform (eigener Prozess, eigener Port, nur Loopback), baut aber
+  heute nicht.
+
+### Offene Befunde
+
+- **Das Gateway ist die Außengrenze und hört auf Loopback.** Für den Webhook-Betrieb gehört ein
+  TLS-Endpunkt davor, nie dieser Port direkt ins Netz. Der Fehlertext des HTTP-Rands geht
+  unverändert hinaus (AGENTS.md: nie glätten) — das ist die Zeile, die zuerst zu überdenken ist,
+  wenn das Gateway je öffentlich wird.
+- **Der Postgres-Port ist weiterhin öffentlich** (`0.0.0.0:5432`, offen seit S13).
+- **Das Web-Postfach ist unbegrenzt viele Empfänger groß.** `replyTo` ist frei wählbar, jeder
+  Wert legt ein Fach an (je 100 Einträge gedeckelt). Bei einem Nutzer belanglos; mit einem
+  zweiten gehört es an die Identität gebunden.
+- **Die Serialisierung ist prozesslokal.** Zwei Gateway-Prozesse auf derselben Unterhaltung
+  hielten zwei Warteschlangen, die sich nicht sähen; der Schutz läge dann allein bei
+  `NoOpenTurnError`. Heute läuft ein Prozess — die Sperre wäre eine Vorwegnahme.
+- **`cal.list`-Vorgabefenster ist weiterhin lokale Zeit** des Prozesses (offen seit S15). Das
+  Gateway kennt jetzt einen Nutzer, aber noch keine Zeitzone zu ihm.
+- **Ein Anbieter für `web.search`** (offen seit S09) und **ein GC-Lauf für Artefakte** (offen
+  seit S06, jetzt zusätzlich für Anhänge) — unberührt.
+- `structured.reason` ist weiterhin eine Verabredung und kein Typ (offen seit S07).
+- `pnpm typecheck && pnpm lint && pnpm test` grün, 460 Tests.
+- `tasks.json`: S16 auf `done`, S17 von `queued` auf `ready`.
+
+Status: abgeschlossen. Nächste Session: S17 Heartbeat.

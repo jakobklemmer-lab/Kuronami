@@ -99,9 +99,10 @@ describe("Ereignisprotokoll", () => {
 
     expect(events.map((event) => event.type)).toEqual([...EVENT_TYPES]);
     // Zwölf Namensräume aus Abschnitt 4.4, dazu runtime.* aus S04 für den Lebenslauf des
-    // Prozesses. Die Zahl steht hier fest, damit ein neuer Namensraum eine Entscheidung
-    // bleibt und nicht nebenbei entsteht.
-    expect(new Set(events.map((event) => event.type.split(".")[0])).size).toBe(13);
+    // Prozesses und gateway.* aus S16 für den Weg einer Nachricht in die Session und zurück.
+    // Die Zahl steht hier fest, damit ein neuer Namensraum eine Entscheidung bleibt und nicht
+    // nebenbei entsteht.
+    expect(new Set(events.map((event) => event.type.split(".")[0])).size).toBe(14);
     expect(events.every((event) => event.payload !== null)).toBe(true);
   });
 

@@ -5,7 +5,15 @@
  * weiter im Manager, zeigten die beiden Module aufeinander.
  */
 
-export type SessionChannel = "web" | "telegram" | "mail" | "heartbeat" | "voice";
+/**
+ * Die fünf Kanäle aus Abschnitt 5, dazu `gateway` seit S16 (Migration 0008).
+ *
+ * `gateway` ist der Kanal einer Session, die **keiner einzelnen Oberfläche gehört**: das
+ * Gateway führt Web und Telegram desselben Nutzers in einer Session zusammen, damit beide
+ * dasselbe Gedächtnis haben. Der Kanal der einzelnen Nachricht steht dann nicht mehr hier,
+ * sondern im `gateway.received`-Ereignis — er ändert sich je Nachricht, die Session nicht.
+ */
+export type SessionChannel = "web" | "telegram" | "mail" | "heartbeat" | "voice" | "gateway";
 export type ApprovalMode = "ask" | "accept_edits" | "bypass_in_sandbox";
 
 /** Eine Zeile aus `kuronami.sessions`. */

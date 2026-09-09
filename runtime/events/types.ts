@@ -57,6 +57,25 @@ export const EVENT_TYPES = [
   // angefasst" nur noch über einen Filter auf einem Payload beantworten zu können — genau die
   // Frage, die nach einem Vorfall als erste gestellt wird.
   "policy.secret_accessed",
+
+  // Seither dazugekommen (S16). Ein vierzehnter Namensraum, und der einzige, der nicht von
+  // der Runtime geschrieben wird — das Gateway schreibt ihn. Die Liste ist trotzdem der
+  // richtige Ort: sie ist das Vokabular des Protokolls und keine Abhängigkeit. Ein
+  // Ereignistyp, der in der Taxonomie nicht vorkommt, ist genau der Fall, den
+  // `assertEventType` seit S03 verhindern soll — er zerfiele still in zwei Schreibweisen,
+  // weil niemand nachschlagen kann, wie er heißt. Code aus `gateway/` wird hier nirgends
+  // importiert; die harte Regel aus Abschnitt 3 ("die Runtime darf niemals von der
+  // Surface-Schicht abhängen") bleibt unberührt und wird in `gateway/layering.test.ts`
+  // geprüft.
+  //
+  // Warum überhaupt eigene Ereignisse: der Kanal einer Nachricht ist seit S16 kein Feld der
+  // Session mehr (die läuft auf `gateway`, damit Web und Telegram **ein** Gedächtnis teilen),
+  // sondern ein Feld der Nachricht. Er muss also irgendwo stehen, und "irgendwo" ist in
+  // diesem System das Protokoll: nur dann weiß ein frisch gestarteter Gateway-Prozess noch,
+  // an welchen Kanal eine offene Freigabeanfrage gehört. Läge die Zuordnung in einer Map im
+  // Speicher, ginge sie beim Neustart verloren — und die Rückfrage käme nie an.
+  "gateway.received",
+  "gateway.delivered",
 ] as const;
 
 export type EventType = (typeof EVENT_TYPES)[number];
