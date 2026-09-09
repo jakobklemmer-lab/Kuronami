@@ -1,0 +1,85 @@
+{
+  "id": "kuronamiCalCreate01",
+  "name": "cal.create",
+  "meta": {
+    "description": "Kuronami S15: einen Termin anlegen. Eingabe { title, start, end, location?, description?, calendar?, attendees? }. Ausgabe { event_id, html_link, calendar, created: true }. Der Runtime-Aufruf ist hard_write und pausiert VOR diesem Workflow fuer eine Freigabe. Provider-Knoten ist Google Calendar (event:create)."
+  },
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "cal-create",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "d3a20001-0001-4a00-8000-000000000001",
+      "name": "Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [240, 300],
+      "webhookId": "d3a20001-0001-4a00-8000-000000000001"
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "// Eingabe der Runtime: { title, start, end, location?, description?, calendar?, attendees? }\nconst incoming = $input.first().json;\nconst inp = incoming.body && typeof incoming.body === 'object' ? incoming.body : incoming;\nfor (const field of ['title', 'start', 'end']) {\n  if (typeof inp[field] !== 'string' || inp[field].trim() === '') {\n    throw new Error('cal-create: Feld \"' + field + '\" fehlt');\n  }\n}\nconst attendees = typeof inp.attendees === 'string' && inp.attendees\n  ? inp.attendees.split(',').map((a) => a.trim()).filter(Boolean)\n  : [];\nreturn [{ json: {\n  calendar: typeof inp.calendar === 'string' && inp.calendar ? inp.calendar : 'primary',\n  summary: inp.title,\n  start: inp.start,\n  end: inp.end,\n  location: inp.location || '',\n  description: inp.description || '',\n  attendees\n} }];"
+      },
+      "id": "d3a20001-0002-4a00-8000-000000000002",
+      "name": "Read fields",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [460, 300]
+    },
+    {
+      "parameters": {
+        "operation": "create",
+        "calendar": "={{ $json.calendar }}",
+        "start": "={{ $json.start }}",
+        "end": "={{ $json.end }}",
+        "additionalFields": {
+          "summary": "={{ $json.summary }}",
+          "location": "={{ $json.location }}",
+          "description": "={{ $json.description }}"
+        }
+      },
+      "id": "d3a20001-0003-4a00-8000-000000000003",
+      "name": "Google Calendar: create",
+      "type": "n8n-nodes-base.googleCalendar",
+      "typeVersion": 1,
+      "position": [680, 300],
+      "notes": "event:create. Kein delete-Knoten in diesem Workflow."
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "const e = $input.first().json || {};\nreturn [{ json: {\n  event_id: String(e.id || ''),\n  html_link: e.htmlLink || '',\n  calendar: (e.organizer && e.organizer.email) || 'primary',\n  created: !!e.id\n} }];"
+      },
+      "id": "d3a20001-0004-4a00-8000-000000000004",
+      "name": "Shape result",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [900, 300]
+    },
+    {
+      "parameters": { "respondWith": "firstIncomingItem", "options": {} },
+      "id": "d3a20001-0005-4a00-8000-000000000005",
+      "name": "Respond to Webhook",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [1120, 300]
+    }
+  ],
+  "connections": {
+    "Webhook": { "main": [[{ "node": "Read fields", "type": "main", "index": 0 }]] },
+    "Read fields": {
+      "main": [[{ "node": "Google Calendar: create", "type": "main", "index": 0 }]]
+    },
+    "Google Calendar: create": {
+      "main": [[{ "node": "Shape result", "type": "main", "index": 0 }]]
+    },
+    "Shape result": { "main": [[{ "node": "Respond to Webhook", "type": "main", "index": 0 }]] }
+  },
+  "active": false,
+  "settings": { "executionOrder": "v1" },
+  "tags": []
+}

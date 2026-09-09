@@ -24,14 +24,18 @@ async function main(): Promise<void> {
   const input = process.argv.slice(2).join(" ").trim();
   const pool = createPool();
   const artifactRoot = artifactRootFromEnv();
-  // Die Mail-Tools (S14) kommen in den Katalog, sobald eine n8n-Instanz hinterlegt ist —
-  // ohne sie liefen sie ohnehin nur in eine `N8nUnavailableError`-Hülle. Ohne `N8N_BASE_URL`
-  // bleibt der ausgelieferte Katalog byteweise der aus S12/S13 (`v1-53a18ba0cb4e49c8`).
+  // Die Assistenz-Tools über n8n (`mail.*` S14, `cal.*` und `server.metrics` S15) kommen in
+  // den Katalog, sobald eine n8n-Instanz hinterlegt ist — ohne sie liefen sie ohnehin nur in
+  // eine `N8nUnavailableError`-Hülle. Die `notes.*`-Tools (S15) kommen dazu, sobald ein
+  // Obsidian-Vault gesetzt ist. Ist beides leer, bleibt der ausgelieferte Katalog byteweise
+  // der aus S12/S13 (`v1-53a18ba0cb4e49c8`, 10 Tools).
   const n8nBaseUrl = process.env.N8N_BASE_URL?.trim();
+  const obsidianVault = process.env.OBSIDIAN_VAULT_PATH?.trim();
   const { catalog, policy } = await buildCatalog({
     pool,
     artifactRoot,
-    n8n: n8nBaseUrl ? { mail: true } : undefined,
+    n8n: n8nBaseUrl ? { mail: true, cal: true, server: true } : undefined,
+    obsidian: obsidianVault ? {} : undefined,
   });
 
   // Ohne Eingabe wird kein Modell gebraucht, und ein fehlender Schlüssel darf das Skelett
@@ -70,15 +74,19 @@ async function main(): Promise<void> {
       policy.sandbox.active ? "nachgewiesen" : `nicht nachgewiesen (${policy.sandbox.reason})`
     }.`,
   );
-  // Die n8n-Lage beim Start sichtbar sagen (S13/S14): ob eine Instanz hinterlegt ist und wie
-  // viele Mail-Tools dadurch im Katalog stehen.
-  const mailToolCount = catalog.tools.filter((tool) => tool.name.startsWith("mail.")).length;
+  // Die n8n- und Obsidian-Lage beim Start sichtbar sagen (S13/S14/S15): ob eine Instanz bzw.
+  // ein Vault hinterlegt ist und welche Assistenz-Tools dadurch im Katalog stehen.
+  const assistCount = (prefix: string): number =>
+    catalog.tools.filter((tool) => tool.name.startsWith(prefix)).length;
   console.log(
     `n8n-Brücke: ${
       n8nBaseUrl
         ? `${n8nBaseUrl}${process.env.N8N_WEBHOOK_TOKEN?.trim() ? ", Token gesetzt" : ""}`
         : "nicht konfiguriert (N8N_BASE_URL leer)"
-    }, ${mailToolCount} Mail-Tools im Katalog.`,
+    }, ${assistCount("mail.")} Mail-, ${assistCount("cal.")} Kalender-, ${assistCount("server.")} Server-Tools im Katalog.`,
+  );
+  console.log(
+    `Obsidian-Vault: ${obsidianVault ?? "nicht konfiguriert (OBSIDIAN_VAULT_PATH leer)"}, ${assistCount("notes.")} notes.*-Tools im Katalog.`,
   );
 
   // Startwerte gelten nur bei der Neuanlage (S04). Eine ältere Session trägt deshalb weiter

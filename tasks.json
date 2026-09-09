@@ -123,7 +123,7 @@
     "id": "S15",
     "title": "Kalender und Obsidian",
     "phase": 2,
-    "status": "ready",
+    "status": "done",
     "done_when": "Termine und Obsidian-Notizen lesbar",
     "depends_on": ["S14"]
   },
@@ -131,7 +131,7 @@
     "id": "S16",
     "title": "Gateway",
     "phase": 3,
-    "status": "queued",
+    "status": "ready",
     "done_when": "Zwei Kanäle, ein Agent, ein Gedächtnis",
     "depends_on": ["S15"]
   },

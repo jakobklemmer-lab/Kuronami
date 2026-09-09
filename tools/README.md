@@ -4,4 +4,6 @@ Seit S07 steht hier das Tor zu allen Seiteneffekten. `registry.ts` sammelt Tool-
 
 `fs/` (S08) enthält die fünf Kern-Primitive `fs.list`, `fs.read`, `fs.write`, `fs.edit`, `fs.search` samt der harten Pfadabsicherung in `fs/paths.ts` (zwei Zonen, `..` und Symlinks nach außen abgewiesen). Sie sind der erste echte Katalog-Inhalt; `web.*` folgt in S09.
 
+`n8n/` (S13) ist die Brücke zu n8n-Workflows; darauf setzen die Assistenz-Tools auf: `mail/` (S14), `cal/` und `server/` (S15). `notes/` (S15) greift **ohne** n8n direkt auf den lokalen Obsidian-Vault zu und hat mit `notes/paths.ts` seine eigene Vault-Absicherung nach dem Muster von `fs/paths.ts`. Alle diese Tools kommen nur in den ausgelieferten Katalog, wenn ausdrücklich konfiguriert (`N8N_BASE_URL` bzw. `OBSIDIAN_VAULT_PATH`); sonst bleibt der Fingerabdruck der aus S12.
+
 Jeder Aufruf läuft durch die Ausführungshülle aus `runtime/steps/` und ist damit ein Schritt mit Checkpoint davor und danach. Die Policy-Engine kommt mit S11 hierher: der Router ruft sie, nicht umgekehrt (Abschnitt 4.7).

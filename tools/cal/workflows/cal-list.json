@@ -1,0 +1,84 @@
+{
+  "id": "kuronamiCalList01",
+  "name": "cal.list",
+  "meta": {
+    "description": "Kuronami S15: Termine in einem Zeitbereich lesen. Eingabe { start, end, calendar?, limit? } (ISO 8601). Ausgabe { events: [{ id, title, start, end, all_day, location, calendar, status, description }] }. Provider-Knoten ist Google Calendar (getAll, LESEN); fuer CalDAV/Outlook austauschen, die Code-Knoten-Vertraege bleiben."
+  },
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "cal-list",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "d3a10001-0001-4a00-8000-000000000001",
+      "name": "Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [240, 300],
+      "webhookId": "d3a10001-0001-4a00-8000-000000000001"
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "// Eingabe der Runtime: { start, end, calendar?, limit? }\nconst incoming = $input.first().json;\nconst inp = incoming.body && typeof incoming.body === 'object' ? incoming.body : incoming;\nif (typeof inp.start !== 'string' || typeof inp.end !== 'string') {\n  throw new Error('cal-list: Felder \"start\" und \"end\" (ISO 8601) sind erforderlich');\n}\nreturn [{ json: {\n  timeMin: inp.start,\n  timeMax: inp.end,\n  calendar: typeof inp.calendar === 'string' && inp.calendar ? inp.calendar : 'primary',\n  limit: Number.isFinite(Number(inp.limit)) ? Number(inp.limit) : 100\n} }];"
+      },
+      "id": "d3a10001-0002-4a00-8000-000000000002",
+      "name": "Read range",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [460, 300]
+    },
+    {
+      "parameters": {
+        "operation": "getAll",
+        "calendar": "={{ $json.calendar }}",
+        "returnAll": false,
+        "limit": "={{ $json.limit }}",
+        "options": {
+          "timeMin": "={{ $json.timeMin }}",
+          "timeMax": "={{ $json.timeMax }}",
+          "singleEvents": true,
+          "orderBy": "startTime"
+        }
+      },
+      "id": "d3a10001-0003-4a00-8000-000000000003",
+      "name": "Google Calendar: getAll",
+      "type": "n8n-nodes-base.googleCalendar",
+      "typeVersion": 1,
+      "position": [680, 300],
+      "notes": "Nur LESEN (event:getAll). Kein create, kein update."
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "// Alle Termine in die von der Runtime erwartete Form bringen.\nconst events = $input.all().map((item) => {\n  const e = item.json || {};\n  const start = (e.start && (e.start.dateTime || e.start.date)) || e.start || '';\n  const end = (e.end && (e.end.dateTime || e.end.date)) || e.end || '';\n  return {\n    id: String(e.id || ''),\n    title: e.summary || '(kein Titel)',\n    start,\n    end,\n    all_day: !!(e.start && e.start.date && !e.start.dateTime),\n    location: e.location || '',\n    calendar: (e.organizer && e.organizer.email) || e.calendarId || '',\n    status: e.status || '',\n    description: e.description || ''\n  };\n});\nreturn [{ json: { events } }];"
+      },
+      "id": "d3a10001-0004-4a00-8000-000000000004",
+      "name": "Shape events",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [900, 300]
+    },
+    {
+      "parameters": { "respondWith": "firstIncomingItem", "options": {} },
+      "id": "d3a10001-0005-4a00-8000-000000000005",
+      "name": "Respond to Webhook",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [1120, 300]
+    }
+  ],
+  "connections": {
+    "Webhook": { "main": [[{ "node": "Read range", "type": "main", "index": 0 }]] },
+    "Read range": { "main": [[{ "node": "Google Calendar: getAll", "type": "main", "index": 0 }]] },
+    "Google Calendar: getAll": {
+      "main": [[{ "node": "Shape events", "type": "main", "index": 0 }]]
+    },
+    "Shape events": { "main": [[{ "node": "Respond to Webhook", "type": "main", "index": 0 }]] }
+  },
+  "active": false,
+  "settings": { "executionOrder": "v1" },
+  "tags": []
+}

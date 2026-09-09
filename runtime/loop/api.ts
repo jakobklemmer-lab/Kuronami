@@ -3,12 +3,16 @@ import { type RunMetrics, deriveRunMetrics } from "../../context/metrics.js";
 import { loadConventions } from "../../context/system-prompt.js";
 import { decidePolicyApproval, policyAskId } from "../../policy/approvals.js";
 import { createPolicyEngine } from "../../policy/engine.js";
+import { createCalTools } from "../../tools/cal/tools.js";
 import { buildFsZones, policyResolver } from "../../tools/fs/paths.js";
 import { createFsTools } from "../../tools/fs/tools.js";
 import { createMailTools } from "../../tools/mail/tools.js";
 import { createN8nBridge } from "../../tools/n8n/bridge.js";
 import { type N8nWorkflowDef, createN8nTools } from "../../tools/n8n/workflows.js";
+import { buildVaultRoot } from "../../tools/notes/paths.js";
+import { createNotesTools } from "../../tools/notes/tools.js";
 import { ToolRegistry } from "../../tools/registry.js";
+import { createServerTools } from "../../tools/server/tools.js";
 import { createTaskTools } from "../../tools/task/tools.js";
 import type { ToolCatalog } from "../../tools/types.js";
 import { createUserTools } from "../../tools/user/tools.js";
@@ -59,13 +63,28 @@ export interface CatalogConfig {
    *     in `mail.search`, Volltext/Anhänge als Artefakt in `mail.read`, Injection-Markierung)
    *     — dieselbe Lage, aus der `web.fetch` einen eigenen Handler hat. `mail.send` gibt es
    *     nicht (S14: "Senden ist technisch unmöglich").
+   *   * `cal` — `cal.list`/`cal.create`/`cal.update` (S15), ebenfalls mit eigenen Handlern:
+   *     `cal.list` legt die volle Terminliste als Artefakt ab, `cal.create`/`cal.update`
+   *     sind `hard_write` und pausieren für eine Freigabe.
+   *   * `server` — `server.metrics` (S15), Kennzahlen aus derselben Quelle wie das
+   *     bestehende Dashboard, voller Block als Artefakt.
    */
   n8n?: {
     baseUrl?: string;
     token?: string;
     workflows?: readonly N8nWorkflowDef[];
     mail?: boolean;
+    cal?: boolean;
+    server?: boolean;
   };
+  /**
+   * Der lokale Obsidian-Vault für `notes.read`/`notes.write` (S15) — **ohne n8n**, direkter
+   * Dateizugriff. Wird das Feld gesetzt, kommen die `notes.*`-Tools in den Katalog; der Pfad
+   * fällt auf `OBSIDIAN_VAULT_PATH` zurück. Ohne das Feld bleibt der Fingerabdruck unverändert
+   * — genau wie bei `n8n` (env-Variablen liefern nur Zugangsdaten, ein ausdrückliches Feld
+   * schaltet Tools frei). Ein fehlender oder kein-Verzeichnis-Vault wirft (`buildVaultRoot`).
+   */
+  obsidian?: { vaultPath?: string };
 }
 
 export interface BuiltCatalog {
@@ -75,7 +94,9 @@ export interface BuiltCatalog {
 
 /**
  * Der ausgelieferte Tool-Katalog und die Governance-Schicht dazu: `fs.*` (S08), `web.*` (S09),
- * `task.*` und `user.ask` (S10), Policy-Engine mit dem versionierten Regelsatz (S11).
+ * `task.*` und `user.ask` (S10), Policy-Engine mit dem versionierten Regelsatz (S11). Optional
+ * dazu die Assistenz-Tools über n8n (`mail.*` S14, `cal.*`/`server.metrics` S15) und der
+ * direkte Obsidian-Zugriff (`notes.*` S15) — jeweils nur, wenn ausdrücklich konfiguriert.
  *
  * Die Sandbox bleibt unverdrahtet, solange `exec.run` und der Container aus Abschnitt 4.6
  * nicht stehen: `bypass_in_sandbox` fällt damit sichtbar auf `ask` zurück statt still zu
@@ -106,24 +127,37 @@ export async function buildCatalog(config: CatalogConfig): Promise<BuiltCatalog>
     .registerAll(createTaskTools({ pool: config.pool }))
     .registerAll(createUserTools({ pool: config.pool }));
 
-  // n8n-Tools (S13/S14). Nur wenn etwas konfiguriert ist — sonst bleibt der Fingerabdruck
+  // n8n-Tools (S13/S14/S15). Nur wenn etwas konfiguriert ist — sonst bleibt der Fingerabdruck
   // des ausgelieferten Katalogs unverändert (`v1-53a18ba0cb4e49c8`, 10 Tools). Eine Brücke,
-  // beide Wege teilen sie.
+  // alle Wege teilen sie.
   const n8nWorkflows = config.n8n?.workflows ?? [];
   const wantMail = config.n8n?.mail === true;
-  if (n8nWorkflows.length > 0 || wantMail) {
+  const wantCal = config.n8n?.cal === true;
+  const wantServer = config.n8n?.server === true;
+  if (n8nWorkflows.length > 0 || wantMail || wantCal || wantServer) {
     const bridge = createN8nBridge({
       baseUrl: config.n8n?.baseUrl ?? process.env.N8N_BASE_URL,
       token: config.n8n?.token ?? process.env.N8N_WEBHOOK_TOKEN,
     });
+    const assistDeps = { pool: config.pool, artifactRoot: config.artifactRoot, bridge };
     if (n8nWorkflows.length > 0) {
       registry.registerAll(createN8nTools({ bridge, workflows: n8nWorkflows }));
     }
-    if (wantMail) {
-      registry.registerAll(
-        createMailTools({ pool: config.pool, artifactRoot: config.artifactRoot, bridge }),
-      );
-    }
+    if (wantMail) registry.registerAll(createMailTools(assistDeps));
+    if (wantCal) registry.registerAll(createCalTools(assistDeps));
+    if (wantServer) registry.registerAll(createServerTools(assistDeps));
+  }
+
+  // notes.* (S15). Direkter Dateizugriff auf den Obsidian-Vault, kein n8n. Wie bei den
+  // n8n-Tools: nur wenn `obsidian` ausdrücklich gesetzt ist — ein leeres `OBSIDIAN_VAULT_PATH`
+  // in der Umgebung schaltet nichts frei und lässt den Fingerabdruck unverändert.
+  if (config.obsidian) {
+    const vault = await buildVaultRoot(
+      config.obsidian.vaultPath ?? process.env.OBSIDIAN_VAULT_PATH,
+    );
+    registry.registerAll(
+      createNotesTools({ pool: config.pool, artifactRoot: config.artifactRoot, vault }),
+    );
   }
 
   const catalog = registry.freeze();

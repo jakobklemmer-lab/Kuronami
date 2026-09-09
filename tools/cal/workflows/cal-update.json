@@ -1,0 +1,80 @@
+{
+  "id": "kuronamiCalUpdate01",
+  "name": "cal.update",
+  "meta": {
+    "description": "Kuronami S15: einen bestehenden Termin aendern. Eingabe { event_id, title?, start?, end?, location?, description?, calendar? }. Ausgabe { event_id, html_link, calendar, updated: true }. Der Runtime-Aufruf ist hard_write und pausiert VOR diesem Workflow fuer eine Freigabe. Provider-Knoten ist Google Calendar (event:update)."
+  },
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "cal-update",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "d3a30001-0001-4a00-8000-000000000001",
+      "name": "Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [240, 300],
+      "webhookId": "d3a30001-0001-4a00-8000-000000000001"
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "// Eingabe der Runtime: { event_id, title?, start?, end?, location?, description?, calendar? }\nconst incoming = $input.first().json;\nconst inp = incoming.body && typeof incoming.body === 'object' ? incoming.body : incoming;\nif (typeof inp.event_id !== 'string' || inp.event_id.trim() === '') {\n  throw new Error('cal-update: Feld \"event_id\" fehlt');\n}\nconst update = {};\nif (typeof inp.title === 'string' && inp.title) update.summary = inp.title;\nif (typeof inp.start === 'string' && inp.start) update.start = inp.start;\nif (typeof inp.end === 'string' && inp.end) update.end = inp.end;\nif (typeof inp.location === 'string' && inp.location) update.location = inp.location;\nif (typeof inp.description === 'string' && inp.description) update.description = inp.description;\nif (Object.keys(update).length === 0) {\n  throw new Error('cal-update: kein zu aenderndes Feld angegeben');\n}\nreturn [{ json: {\n  eventId: inp.event_id.trim(),\n  calendar: typeof inp.calendar === 'string' && inp.calendar ? inp.calendar : 'primary',\n  update\n} }];"
+      },
+      "id": "d3a30001-0002-4a00-8000-000000000002",
+      "name": "Read change",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [460, 300]
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "calendar": "={{ $json.calendar }}",
+        "eventId": "={{ $json.eventId }}",
+        "updateFields": "={{ $json.update }}"
+      },
+      "id": "d3a30001-0003-4a00-8000-000000000003",
+      "name": "Google Calendar: update",
+      "type": "n8n-nodes-base.googleCalendar",
+      "typeVersion": 1,
+      "position": [680, 300],
+      "notes": "event:update. Kein delete-Knoten in diesem Workflow."
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "const e = $input.first().json || {};\nreturn [{ json: {\n  event_id: String(e.id || ''),\n  html_link: e.htmlLink || '',\n  calendar: (e.organizer && e.organizer.email) || 'primary',\n  updated: !!e.id\n} }];"
+      },
+      "id": "d3a30001-0004-4a00-8000-000000000004",
+      "name": "Shape result",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [900, 300]
+    },
+    {
+      "parameters": { "respondWith": "firstIncomingItem", "options": {} },
+      "id": "d3a30001-0005-4a00-8000-000000000005",
+      "name": "Respond to Webhook",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [1120, 300]
+    }
+  ],
+  "connections": {
+    "Webhook": { "main": [[{ "node": "Read change", "type": "main", "index": 0 }]] },
+    "Read change": {
+      "main": [[{ "node": "Google Calendar: update", "type": "main", "index": 0 }]]
+    },
+    "Google Calendar: update": {
+      "main": [[{ "node": "Shape result", "type": "main", "index": 0 }]]
+    },
+    "Shape result": { "main": [[{ "node": "Respond to Webhook", "type": "main", "index": 0 }]] }
+  },
+  "active": false,
+  "settings": { "executionOrder": "v1" },
+  "tags": []
+}

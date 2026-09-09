@@ -2713,3 +2713,213 @@ Drei, alle bestätigt und danach zurückgesetzt:
 - `tasks.json`: S14 auf `done`, S15 von `queued` auf `ready`.
 
 Status: abgeschlossen. Nächste Session: S15 Kalender und Obsidian.
+
+## S15 · Kalender und Obsidian · 2026-09-09
+
+Drei neue Tool-Familien: `cal.*` und `server.metrics` über die n8n-Brücke (S13), `notes.*`
+mit **direktem** Dateizugriff auf den lokalen Obsidian-Vault (kein n8n). Alle durch denselben
+Router, dieselbe Ausführungshülle, dieselbe Policy-Engine, dieselbe Rückgabehülle wie `fs.*`
+und `mail.*`.
+
+- Tests der Vorsession vorab gelaufen: 361 grün (S14 + Vorlauf), `pnpm typecheck` und
+  `pnpm lint` ebenfalls. Arbeitsbaum sauber (HEAD `9cc849b`).
+- **Keine Migration, kein neuer Ereignistyp.** Die neuen Tools schreiben
+  `tool.requested`/`tool.completed`/`tool.failed` (Router), `step.*` (Hülle), `policy.allowed`
+  bzw. `approval.requested`/`approval.granted` (Engine) und `artifact.created` (Speicher) —
+  alles seit S05–S11 gebaut.
+- **Keine neue Abhängigkeit.** `cal.*`/`server.*` importieren `createN8nBridge` (S13) und
+  `writeArtifact` (S06). `notes.*` nutzt nur `node:fs` und `writeArtifact`.
+
+### Drei Tool-Familien, drei neue Module
+
+| Modul | Tools | Transport | Lesen → Artefakt | Schreiben |
+| --- | --- | --- | --- | --- |
+| `tools/cal/` | `cal.list`, `cal.create`, `cal.update` | n8n | `cal.list` legt die volle Terminliste ab | `create`/`update` = `hard_write`, pausieren |
+| `tools/notes/` | `notes.read`, `notes.write` | direkter Dateizugriff | `notes.read` legt den Volltext immer ab | `notes.write` = `hard_write`, pausiert |
+| `tools/server/` | `server.metrics` | n8n | voller Kennzahlen-Block als Artefakt | — |
+
+Je Familie ein eigenes Modul mit eigener Testdatei und eigener README — dieselbe Aufteilung
+wie `tools/mail/`, `tools/fs/`, `tools/web/`.
+
+### Abweichung: eigene Handler statt generischer `N8nWorkflowDef`
+
+S13/S14 haben angekündigt, `cal.*` und `server.*` gingen als generische Workflows durch
+`config.n8n.workflows`. Das trägt für die **lesenden** Tools nicht — dieselbe Lage wie bei
+`mail.search`/`mail.read` und `web.fetch`: der generische Handler (`runWorkflow`) reicht
+`structured.body` unverändert durch, S15 verlangt aber "Zusammenfassung im Kontext, Volltext
+als Artefakt".
+
+- **`cal.list`** legt die vollständige Terminliste (roh, mit `description`, `attendees`,
+  `raw_ical`) als Artefakt ab und lässt nur die ersten `CAL_LIST_CONTEXT_MAX` (25)
+  normalisierten Zeilen im Kontext. Jede Zeile wird in `toEventRow` aus einem **festen Satz
+  Skalarfelder** neu aufgebaut — ein `organizer_email`/`raw_ical` findet strukturell keinen
+  Weg in den Kontext, nur ins Artefakt (Test mit einem tief in der `description` versteckten
+  Marker, der in `JSON.stringify(result)` nicht auftaucht, im Artefakt aber schon).
+- **`server.metrics`** legt den vollständigen Kennzahlen-Block als Artefakt ab; `recognize()`
+  zieht die üblichen Kennzahlen (CPU/RAM/Disk/Load/Uptime, mehrere Feldnamen je Kennzahl) für
+  eine kurze `summary`, sonst fällt sie auf "N Feld(er): …" zurück.
+- Der generische S13-Weg (`config.n8n.workflows`) bleibt unangetastet für echte generische
+  Workflows.
+
+### `notes.*` — direkter Vault-Zugriff, und warum das Feld `note` heißt
+
+- **`tools/notes/paths.ts`**, eigene Datei mit eigener Testdatei ohne DB, nach dem Muster von
+  `fs/paths.ts` — `notes.write` schreibt in den **echten** Obsidian-Vault, ein Leck hier
+  schreibt irgendwohin auf die Platte. Eine Zone (der Vault aus `OBSIDIAN_VAULT_PATH`,
+  `realpath`-aufgelöst). Abgewiesen, lexikalisch **und** nach Auflösung aller Symlinks:
+  absoluter Pfad, Windows-Laufwerksbuchstabe, `..` heraus, Nullbyte, Symlink nach draußen.
+  Kennung ohne Endung bekommt `.md`. `buildVaultRoot` wirft bei leerem oder
+  kein-Verzeichnis-Vault (wie die Quellzone in `buildFsZones`).
+- **Das Eingabefeld heißt `note`, nicht `path`** — und das ist die eigentliche Entscheidung.
+  Die Policy-Engine findet Pfade unter `path` und löst sie über den `fs`-Zonen-Resolver auf.
+  Der kennt den Vault nicht → ein `path`-Feld liefe in `unresolvable` und würde abgelehnt
+  (fail closed). Mit `note` bleibt die Ressource `none`, die Stufe `hard_write` greift als
+  Boden, und `notes.write` pausiert **immer** — auch im Sessionmodus `accept_edits`, der nur
+  Pfad-Aufrufe vorab entscheidet. `assertPolicyFieldNames` lässt `note` durch (kein
+  `PATH_LIKE`-Muster).
+- **`notes.read` legt den Volltext immer als Artefakt ab**, auch bei einer kurzen Notiz — der
+  Auftrag ("Volltext als Artefakt"), dasselbe wie `mail.read`. Im Kontext: ein Ausschnitt
+  (`NOTES_READ_EXCERPT_MAX_CHARS`, 2000), Titel (erste `# `-Überschrift, sonst Dateiname),
+  Zeilen-/Zeichenzahl, SHA-256, Handle.
+- **`notes.write` ist `hard_write`.** Abschnitt 10 führt "Notizen schreiben" unter "Weiches
+  Schreiben" — der Session-Auftrag hebt das ausdrücklich an, und es ist auch die strengere,
+  richtige Lesart: ein direkter Schreibzugriff in den echten Vault ist nichts, was
+  "automatisch im Arbeitsverzeichnis" erlaubt (der Vault liegt außerhalb jeder `fs`-Zone).
+  `assertHardWriteGrant` prüft zusätzlich, dass die Engine denselben Aufruf als
+  `hard_write`/`destructive` freigegeben hat — Parität zu `assertWritableZone` in `fs/tools.ts`.
+  `repeatable: true` (atomarer Rename, kein Zwischenzustand — wie `fs.write`). Leerer
+  `content` wird abgewiesen (keine stille Kürzung); der Guard läuft **nach** der Freigabe, weil
+  die Policy vor dem Handler steht.
+
+### Vertrauensstellung: cal/notes/server sind vertrauenswürdig
+
+Anders als `mail.*`/`web.*` — es ist der eigene Kalender, das eigene Langzeitgedächtnis, der
+eigene Server. Kein `trust: "untrusted"`, keine Injection-Markierung. **Bewusst offen:**
+fremde Meeting-Einladungen mit angreiferkontrolliertem Titel/Text sind derselbe Fall wie eine
+Mail; die Injection-Markierung, die `mail.*` schon macht, gehört später auch auf `cal.list`.
+Nicht Teil von S15.
+
+### Verdrahtung in den Katalog
+
+- `CatalogConfig.n8n` bekommt `cal?: boolean` und `server?: boolean` neben `mail`.
+  `CatalogConfig.obsidian?: { vaultPath? }` ist neu für `notes.*`. **Muster wie bei `mail`:
+  ein ausdrückliches Feld schaltet Tools frei, env-Variablen liefern nur den Pfad bzw. die
+  Zugangsdaten.** Ohne `obsidian`-Feld wird `OBSIDIAN_VAULT_PATH` gar nicht gelesen — sonst
+  bräche eine Dev-Maschine mit gesetztem `OBSIDIAN_VAULT_PATH` den Fingerabdruck-Test von S14.
+- `runtime/index.ts` schaltet `n8n: { mail, cal, server }`, sobald `N8N_BASE_URL` gesetzt ist,
+  und `obsidian: {}`, sobald `OBSIDIAN_VAULT_PATH` gesetzt ist. Die Startzeilen nennen jetzt
+  die Zahl der Mail-/Kalender-/Server-/notes-Tools im Katalog.
+- Ohne Konfiguration bleibt der ausgelieferte Katalog byteweise `v1-53a18ba0cb4e49c8` mit 10
+  Tools — je ein Test in `cal/` und `server/` hält das fest, dazu die S14-Tests (unverändert
+  grün).
+- Ein fehlender oder kein-Verzeichnis-Vault lässt `buildCatalog` (und damit die Runtime)
+  scheitern — bewusst, wie `buildFsZones` bei fehlender Quellzone.
+
+### `tools/*/workflows/` — importierbare n8n-2.x-Workflows
+
+`cal-list.json`, `cal-create.json`, `cal-update.json` (Provider-Knoten Google Calendar, nur
+`getAll`/`create`/`update` — **kein** delete-Knoten), `server-metrics.json` (Postgres-Knoten
+gegen `public.*` als **Platzhalter** — die konkrete Abfrage hängt an der Schema-Form des
+bestehenden Dashboards und wird beim Einrichten gesetzt; Alternative: HTTP-Knoten auf den
+Metrik-Endpunkt des Dashboards). Feste `id` je Datei (n8n 2.x, sonst `null value in column
+"id"` — wie `uppercase.json` in S13). Verträge in den jeweiligen READMEs.
+
+### Tests
+
+- 36 neue, zusammen **397**.
+- **`tools/notes/paths.test.ts`** (12, ohne DB): `../../etc/passwd` und
+  `Projekte/../../draußen.md` abgewiesen (auch wenn nichts davon existiert); absoluter Pfad
+  abgewiesen; `.md` angehängt; noch nicht existierende Notiz unter existierendem Ordner
+  erlaubt; Nullbyte, leere Kennung, Symlink-Flucht abgewiesen; `buildVaultRoot` wirft bei
+  leer / nicht existent / kein Verzeichnis.
+- **`tools/notes/tools.test.ts`** (8, DB, echter Router/Policy): eine Notiz aus dem Vault
+  lesen (Volltext bytegleich im Artefakt, `text/markdown`, Titel aus `# `-Überschrift,
+  Ausschnitt ≤ 2000, tiefer Marker **nicht** in der Hülle; `artifact.created` im Protokoll;
+  Replay = Schnappschuss); fehlende Notiz → Fehlerhülle ohne Artefakt; `../` → Fehlerhülle;
+  **`notes.write` pausiert** (`ApprovalRequiredError`, `approval.requested`, kein
+  `step.started`, Session `awaiting_user`, Datei nicht entstanden); nach der Freigabe wird die
+  Notiz bytegleich in den Vault geschrieben (`approval.granted` → `policy.allowed` →
+  `step.completed`, Replay = Schnappschuss); auch nach der Freigabe wird leerer `content`
+  abgewiesen und die bestehende Notiz bleibt unverändert.
+- **`tools/cal/tools.test.ts`** (11, DB, echter Router/Policy, injiziertes `fetch`): drei
+  Tools, `cal.list` `read`, `create`/`update` `hard_write`; `CAL_WEBHOOKS` eingefroren, kein
+  Lösch-Pfad; **`cal.list` legt alle 30 Termine ins Artefakt**, 25 knappe Zeilen in den
+  Kontext, `organizer_email`/`raw_ical`/tiefer Marker nicht in der Hülle, im Artefakt schon,
+  `artifact.created` im Protokoll, Replay = Schnappschuss; **ohne Bereich wird die laufende
+  Woche genommen** (der Brücke gehen `start`/`end` zu, exakt 7 Tage auseinander, `start` ein
+  Montag um lokale Mitternacht); Antwort ohne `events` → Fehlerhülle mit "events" im Text;
+  **`cal.create` pausiert** (n8n `calls === 0`, `approval.requested`, kein `step.started`,
+  Session `awaiting_user`) und legt den Termin **nach der Freigabe** an (`event_id`,
+  `calendar` durchgereicht, nur `cal-create` berührt, Replay = Schnappschuss); **`cal.update`
+  pausiert ebenfalls**; ein `cal.update` ohne zu änderndes Feld → Fehlerhülle nach der
+  Freigabe (n8n nie gerufen); Katalog: ohne Konfiguration `v1-53a18ba0cb4e49c8`/10, mit
+  `n8n: { cal: true }` sind `create`/`update` `hard_write`.
+- **`tools/server/tools.test.ts`** (5): ein Tool (`read`), `SERVER_WEBHOOKS` eingefroren;
+  voller Kennzahlen-Block (mit 200 Prozessen) im Artefakt, Hülle < 3 kB, tiefer Marker nicht
+  in der Hülle, `recognized` trägt die Rohwerte, `summary` "CPU 37 %, RAM 61 %, …",
+  `artifact.created`, Replay = Schnappschuss; unbekannte Feldform → synthetische "N Feld(er)"-
+  `summary`; leere / nicht-Objekt-Antwort → Fehlerhülle; Katalog mit `n8n: { server: true }`.
+
+### Gegenproben
+
+Vier, alle bestätigt und danach zurückgesetzt:
+
+- **`toEventRow` gibt den Rohtermin per Spread zurück** (`{ ...source, id, title, … }`) →
+  "nur knappe Zeilen im Kontext" rot: `organizer_email` und der Marker aus `raw_ical` stehen
+  wieder in `JSON.stringify(result)`.
+- **`notes.write` auf `soft_write` gesenkt** → der Boden ist `allow`, `notes.write` läuft
+  **ohne Pause** durch; "pausiert für eine Freigabe" rot (kein `approval.requested`, die Datei
+  entsteht sofort). Zusätzlich schlägt `assertHardWriteGrant` an, falls die Definition und die
+  Engine je auseinanderliefen.
+- **`resolveNotePath` ohne die zweite (Symlink-)Prüfung** → "weist einen Symlink ab, der aus
+  dem Vault herauszeigt" rot: `flucht/geheim.md` löst auf die Datei außerhalb auf.
+- **`cal.list`-Vorgabefenster deaktiviert** (leerer Bereich unverändert an n8n) → "nimmt ohne
+  Bereich die laufende Woche" rot: der Brücke geht `{}` zu, `start`/`end` fehlen.
+
+### Nachweis der drei S15-Testpunkte
+
+- **Termine dieser Woche lesen** — `cal.list` ohne `start`/`end`: das Vorgabefenster (Montag
+  0:00 bis Montag 0:00, sieben Tage) geht an den Workflow, die Termine kommen als knappe Liste
+  in den Kontext und vollständig ins Artefakt (`tools/cal/tools.test.ts`).
+- **Eine Notiz aus dem Obsidian-Vault lesen** — `notes.read` gegen ein Wegwerf-Verzeichnis
+  als Vault: Volltext bytegleich hinter dem `artifact://`-Handle, Ausschnitt plus Titel im
+  Kontext (`tools/notes/tools.test.ts`).
+- **Schreibversuch pausiert korrekt** — `notes.write` **und** `cal.create`/`cal.update`
+  werfen `ApprovalRequiredError`, schreiben `approval.requested`, setzen die Session auf
+  `awaiting_user` und berühren weder Datei noch n8n; nach `decidePolicyApproval` läuft
+  derselbe Aufruf durch.
+
+### Bewusst nicht gebaut
+
+- **`cal.delete` / ein `destructive`-Pfad.** Löschen ist "immer Freigabe" und eine eigene,
+  ausdrücklich zu begründende Ergänzung — kein Nachtrag hier. `CAL_WEBHOOKS` hat keinen
+  Lösch-Pfad.
+- **Injection-Markierung für `cal.list`** (fremde Meeting-Einladungen). Gehört später dazu,
+  dieselbe Behandlung wie `mail.*`.
+- **Ein voll ausformulierter `server-metrics`-Workflow.** Der Postgres-Knoten ist ein
+  Platzhalter; die Abfrage gegen `public.*` hängt an der Schema-Form des bestehenden
+  Dashboards, die hier nicht vorliegt.
+- **Ein GC-Lauf** für `cal.list`-/`notes.read`-/`server.metrics`-Artefakte — dieselbe offene
+  Frage wie für alle Artefakte seit S06.
+- **Ein voller Schleifen-Test** für die neuen Tools. Die S14-Suite fährt `mail.*` durch die
+  echte Schleife; die S15-Tools nehmen exakt denselben Router-Pfad, und die Freigabe-Pause ist
+  über `callTool` + `readSessionState` genauso nachgewiesen wie im Loop (`stop:
+  "awaiting_user"`). Ein eigener Loop-Test hier brächte keine neue Aussage.
+
+### Offene Befunde
+
+- **Freigabe-Körnung ist grob.** `cal.create`/`cal.update`/`notes.write` haben kein
+  Pfad-Subjekt, also lautet ihr Freigabesubjekt `cal.create|-` usw. Eine `session`-Freigabe
+  deckt danach **jeden** weiteren Aufruf desselben Tools in der Session — wie bei
+  `mail.draft|-`. Per-Notiz / per-Kalender wäre eine `resource.kind === "path"`-Auflösung
+  gegen eine eigene Zone; nicht in dieser Session.
+- **`server.metrics`-Fenster (`window`)** wird an den Workflow durchgereicht, aber von keinem
+  mitgelieferten Workflow ausgewertet (Momentaufnahme).
+- **`cal.list`-Vorgabefenster ist lokale Zeit** des Runtime-Prozesses. Für einen Nutzer in
+  einer anderen Zeitzone als der Server wäre "diese Woche" verschoben; bis zum Gateway (S16),
+  das eine Nutzer-Zeitzone kennt, ist das die pragmatische Wahl.
+- `structured.reason` ist weiterhin eine Verabredung und kein Typ (offen seit S07).
+- `pnpm typecheck && pnpm lint && pnpm test` grün, 397 Tests.
+- `tasks.json`: S15 auf `done`, S16 von `queued` auf `ready`.
+
+Status: abgeschlossen. Nächste Session: S16 Gateway.
