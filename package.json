@@ -18,7 +18,8 @@
     "devui": "tsx --env-file=.env runtime/devui/server.ts",
     "gateway": "tsx --env-file=.env gateway/index.ts",
     "heartbeat": "tsx --env-file=.env heartbeat/index.ts",
-    "say": "tsx --env-file=.env gateway/cli.ts"
+    "say": "tsx --env-file=.env gateway/cli.ts",
+    "evals": "tsx --env-file=.env evals/run.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.124.0",

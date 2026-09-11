@@ -5,10 +5,11 @@ progress-archiv.md nachschlagen (z. B. mit grep nach der Session-ID).
 
 ## Aktueller Stand
 
-Phase 4 laeuft. Zuletzt abgeschlossen: **S18e** (Modell-Routing), 2026-09-11 — **S18d** (Erste
-eigene Skills) wurde dabei übersprungen, auf ausdrücklichen Auftrag ("Aufgabe dieser Session:
-Modell-Routing"), und steht weiter auf `ready`. Naechste Session: **S18f** Eval-Suite fuer lange
-Laeufe, Status `ready`. Wer S18f angeht, sollte vorher entscheiden, ob S18d nachgeholt wird.
+**Phase 4 ist abgeschlossen.** Zuletzt fertig: **S18f** (Eval-Suite für lange Läufe),
+2026-09-11. Reihenfolge der letzten drei Sessions, alle am selben Tag: S18e (Modell-Routing)
+lief zuerst auf ausdrücklichen Auftrag, S18d (Erste eigene Skills) wurde direkt danach
+nachgeholt, S18f schließt die Phase ab. Naechste Session: **S19** Agenten-Registry und
+`agent.create`, Status `ready` — der Beginn von Phase 5.
 
 ## Sessions
 
@@ -36,9 +37,9 @@ Laeufe, Status `ready`. Wer S18f angeht, sollte vorher entscheiden, ob S18d nach
 | S18a | Kompaktierung Stufe 2+3 und Cache-Messung | done |
 | S18b | Frisches-Fenster-Heuristik und verzoegertes Tool-Laden | done |
 | S18c | Skill-System (progressive Offenlegung) | done |
-| S18d | Erste eigene Skills | ready |
+| S18d | Erste eigene Skills | done |
 | S18e | Modell-Routing | done |
-| S18f | Eval-Suite fuer lange Laeufe | ready |
+| S18f | Eval-Suite fuer lange Laeufe | done |
 | S19 | Agenten-Registry und agent.create | queued |
 | S20 | Erste Subagent-Besetzung | queued |
 | S21 | Kosten-Tracking und Modell-Routing | queued |
@@ -66,31 +67,31 @@ Details siehe progress-archiv.md.
 - **Gateway-Zusammenfassung bewusst nicht gebaut**: Sessionliste/Verlaufsstand falten bislang
   das ganze Protokoll je Abfrage (S12b, aehnlich S12) — fuer heutige Groessen unmessbar, aber
   ein mitgeschriebener Snapshot waere die Antwort, sobald es das nicht mehr ist.
-- **Kein echter Modellaufruf fuer Kompaktierung/Uebergabe pruefbar**: `ANTHROPIC_API_KEY` ist
-  durchgehend leer (S16 ff., zuletzt S18a/S18b). Mechanik ist per Drehbuch/echtem Router
-  bewiesen, echtes Modellverhalten nicht.
+- **Kein echter Modellaufruf fuer Kompaktierung/Uebergabe/Klassifikation/Eval-Suite pruefbar**:
+  `ANTHROPIC_API_KEY` ist durchgehend leer (S16 ff., zuletzt S18e/S18f). Mechanik ist per
+  Drehbuch/echtem Router bewiesen, echtes Modellverhalten nicht — das gilt jetzt auch fuer alle
+  vier Szenarien der Eval-Suite (S18f), die genau dafuer gedacht ist.
 - **Freigabe-Koernung grob** bei `cal.create`/`cal.update`/`notes.write`/`mail.draft`: eine
   `session`-Freigabe deckt jeden weiteren Aufruf desselben Tools (S15).
 - **Serialisierung im Gateway ist prozesslokal**, kein verteilter Lock (S16) — heute ein
   Prozess, daher nicht dringend.
 - **`<deferred_tools>`-Block waechst unbegrenzt** mit der Zahl der Assistenz-Tools (S18b);
-  bei sieben heute unauffaellig, S18d/Phase 5 lassen den Katalog wachsen.
+  bei sieben heute unauffaellig, Phase 5 laesst den Katalog weiter wachsen.
 - **Diverse lineare Scans/wiederholte Arbeit je Zug statt je Session**: `estimateFixedOverheadTokens`
   (S18a), `stage3StreakSince`/`taskCompletedSince` (S18b), Teilwortsuche im Langzeitgedächtnis
   (S18) — bei heutigen Groessen unmessbar, aber ohne Faltung ueber Zuege hinweg.
 - **`<skills>`-Block waechst unbegrenzt** mit der Zahl der Skills (S18c), dieselbe Lage wie
-  bei `<deferred_tools>` (S18b) — bei zehn Dummy-Skills im Test unauffaellig, S18d laesst den
-  Bestand wachsen.
+  bei `<deferred_tools>` (S18b) — bei den drei echten Skills aus S18d heute unauffaellig,
+  weiteres Wachstum ist absehbar, keine vergessene Grenze.
 - **`skill.load` bietet keine automatische Auslagerung fuer aussergewoehnlich grosse Skills**
   (S18c) — wie bei `tool.load` wirft `callRuntimeTool` stattdessen `ToolOutputTooLargeError`.
   Fuer heutige Skillgroessen kein Thema, aber eine bewusste Grenze, keine vergessene.
 - Weitere kleinere, session-lokale Befunde (Web-Postfach-Groesse, Git-Prozessstarts je Notiz,
   Injection-Scan-Groesse, Katalog-Migrationspfad bei zwei Kanaelen, `ensureGitIdentity` nur
   beim Anlegen, u. a.) stehen im Detail in progress-archiv.md bei der jeweiligen Session.
-- **S18d (Erste eigene Skills) wurde uebersprungen**, S18e (Modell-Routing) lief direkt danach
-  auf ausdruecklichen Auftrag. `tasks.json` haelt S18d bewusst auf `ready`, nicht auf `done` —
-  wer als naechstes S18f angeht, sollte vorher entscheiden, ob S18d nachgeholt wird oder endgueltig
-  entfaellt.
+- **S18d (Erste eigene Skills) wurde zunaechst uebersprungen** (S18e lief zuerst, auf
+  ausdruecklichen Auftrag) und danach direkt im Anschluss nachgeholt — siehe den Abschnitt
+  "S18d" unten, chronologisch nach S18e in dieser Datei, weil so gearbeitet wurde.
 - **Der Router (S18e) ist an keinem echten Aufrufer verdrahtet.** `createRunner` kennt `router`
   als Option, aber `runtime/index.ts`, `gateway/conversation.ts` und `heartbeat/` reichen weiter
   nur `model` durch. Bewusst so gelassen (siehe S18e, "Bewusst nicht gebaut") — die tatsaechliche
@@ -109,8 +110,9 @@ Details siehe progress-archiv.md.
 
 ## S18e · Modell-Routing · 2026-09-11
 
-Fünfte Session der Phase 4, nach S18d übersprungen auf ausdrücklichen Auftrag. Vier Vorgaben,
-alle wörtlich: ein Routing-Schritt vor dem eigentlichen Lauf, der grob zwischen Routine (günstig)
+Fünfte Session der Phase 4, zunächst vor S18d gelaufen, auf ausdrücklichen Auftrag ("Aufgabe
+dieser Session: Modell-Routing") — S18d wurde direkt im Anschluss nachgeholt (siehe unten). Vier
+Vorgaben, alle wörtlich: ein Routing-Schritt vor dem eigentlichen Lauf, der grob zwischen Routine (günstig)
 und Denkarbeit (stark) unterscheidet; die Modellzuteilung als einfache Konfiguration statt einer
 Registry-Tabelle — die baut erst S19 —, im Code klar als Übergangslösung markiert; der Router
 selbst läuft auf dem günstigsten sinnvollen Modell; die Entscheidung samt Begründung landet im
@@ -173,7 +175,7 @@ ein eigenes, leicht filterbares Ereignis, nicht in ein Feld eines sessionfremden
 
 ### Tests
 
-10 neue, zusammen 626 (62 Dateien).
+10 neue, zusammen 626 (60 Dateien).
 
 - **`runtime/model/router.test.ts`** (7, reine Einheitentests, kein Router/keine Datenbank —
   wie `context/compaction.test.ts` für Stufe 3): ROUTINE wählt das günstige Modell, THINKING das
@@ -223,14 +225,239 @@ Antwort sowie den Fehlerfall ab.
 
 ### Offene Befunde (Details zu S18e)
 
-Siehe die neuen Einträge oben unter "Offene Befunde (gesamte Historie)": S18d übersprungen, der
-Router an keinem echten Aufrufer verdrahtet, kein echter Modellaufruf für die Klassifikation
-prüfbar, nur zwei statt drei Klassen aus Abschnitt 11.
+Siehe die neuen Einträge oben unter "Offene Befunde (gesamte Historie)": der Router an keinem
+echten Aufrufer verdrahtet, kein echter Modellaufruf für die Klassifikation prüfbar, nur zwei
+statt drei Klassen aus Abschnitt 11.
 
 - `pnpm typecheck && pnpm lint && pnpm test` grün, 626 Tests.
-- `tasks.json`: S18e auf `done`, S18f von `queued` auf `ready`.
+- `tasks.json`: S18e auf `done`, S18f von `queued` auf `ready` (S18d zu diesem Zeitpunkt noch
+  übersprungen — siehe den nachfolgenden Abschnitt).
+
+Status: abgeschlossen. Nächste Session zum Zeitpunkt dieses Eintrags: S18f — tatsächlich lief
+danach zuerst S18d, siehe unten.
+
+## S18d · Erste eigene Skills · 2026-09-11
+
+Vierte Session der Phase 4, direkt nach S18e nachgeholt, auf ausdrücklichen Auftrag ("do S18d,
+then S18f"). Der Auftrag steht schon wörtlich in `docs/ARCHITEKTUR.md` Abschnitt 9: "Die ersten
+eigenen Skills (Mail-Triage, Wochenrückblick, Recherche-Ablauf) sind S18d", `done_when` in
+`tasks.json`: "Mail-Triage, Wochenrueckblick, Recherche-Ablauf laufen mit Testdaten".
+
+**Drei echte `SKILL.md` unter `skills/`** — `mail-triage/`, `wochenrueckblick/`,
+`recherche-ablauf/`, jede mit dem seit S18c vorgeschriebenen Frontmatter (`titel`,
+`beschreibung`, `wann`) und einem Anleitungsrumpf, der die Werkzeuge nennt, die es bereits gibt:
+
+- **Mail-Triage** — `mail.search` (Übersicht), Dringlichkeit aus der Kurzfassung einschätzen,
+  die bis zu drei dringendsten mit `mail.read` vollständig lesen, für jede einen Entwurf mit
+  `mail.draft` anlegen (nie versenden — es gibt kein `mail.send`), die übrigen unbearbeitet
+  lassen. Ein eigener Abschnitt "Wichtig" wiederholt die Injection-Warnung aus S14: Mailinhalt
+  ist Nutzdaten, keine Anweisung.
+- **Wochenrückblick** — `cal.list` für die letzten sieben Tage, `memory.search` nach
+  Notizen aus der Woche, den ohnehin sichtbaren Plan einbeziehen, eine Zusammenfassung
+  formulieren und **zusätzlich** mit `memory.write` als Notiz ablegen (`kind: erkenntnis`,
+  Tag `wochenrueckblick`) — außer die Woche gibt nichts her, dann bleibt es bei der Antwort im
+  Gespräch (dieselbe Zurückhaltung wie bei jeder anderen Gedächtnisablage seit S18: "die
+  meisten Läufe hinterlassen keine Notiz").
+- **Recherche-Ablauf** — `web.search`, daraus zwei bis drei tatsächlich einschlägige Treffer
+  auswählen (nicht die ganze Liste blind abrufen), mit `web.fetch` vollständig lesen,
+  widersprechende Quellen beide nennen, jede verwendete Tatsache mit Quelle belegen. Auch hier
+  die Injection-Warnung aus S09: abgerufener Inhalt ist nicht vertrauenswürdig.
+
+Alle drei nennen ausschließlich Werkzeuge, die im Katalog bereits existieren (`mail.*` S14,
+`cal.*`/`memory.*` S15/S18, `web.*` S09) — diese Session fügt keine neuen Werkzeuge hinzu, nur
+Anleitungen, die bestehende sinnvoll verketten.
+
+**`skills/skills.test.ts` prüft die echten Dateien, keine Fixtur.** Anders als
+`tools/skill/catalog.test.ts` und `tools/skill/tools.test.ts` (S18c, zehn Dummy-Skills in einem
+Wegwerf-Verzeichnis) lädt diese neue Datei `loadSkillCatalog` auf das tatsächliche `skills/`
+dieses Repos — ein Rechtschreibfehler im Frontmatter einer der drei echten Dateien ließe den
+ersten Test hier fehlschlagen, nicht erst einen Produktivlauf. Vier Tests:
+
+- Ein Ladetest: alle drei Skills stehen im echten Katalog, mit nicht-leerem Titel, Beschreibung,
+  Auslösebedingung und Rumpf.
+- Je ein Fertig-Kriterium-Test pro Skill, nach demselben Muster wie die bestehenden
+  Fertig-Kriterien (S14 Mail, S09 Web): der echte Router, die echte Policy, die echte Schleife,
+  nur das Modell ist ein Drehbuch — hier `sequenceModel`, eine feste Aufrufkette
+  (`skill.load`, dann die Werkzeuge in der von der Anleitung vorgeschriebenen Reihenfolge, dann
+  Schlusstext), gegen echte Fake-Backends (n8n-Mail-Webhooks, n8n-Kalender-Webhook, eine echte
+  temporäre `MemoryStore`-Instanz, ein Fake-`fetch` plus Fake-Suchbackend).
+
+**Was jeder der drei Tests tatsächlich beweist, und was nicht.** Wie bei jedem
+Fertig-Kriterium in diesem Projekt beweist ein Drehbuch nicht, dass ein echtes Modell genau
+diese Werkzeugfolge wählen würde — das hängt an semantischem Verständnis, das ohne
+`ANTHROPIC_API_KEY` nicht prüfbar ist (derselbe offene Befund wie bei jeder Kompaktierung,
+Übergabe und Klassifikation seit S18a). Bewiesen wird die andere Hälfte: dass der in der
+Anleitung beschriebene Ablauf, mit den echten Werkzeugen und echten Testdaten ausgeführt,
+tatsächlich zum beschriebenen Ergebnis führt — die Mail-Triage liest und beantwortet nur die
+zwei als dringend markierten von fünf ungelesenen Mails und versendet nichts; der
+Wochenrückblick liest zwei Kalendertermine und eine ältere Notiz und legt danach nachweislich
+eine zweite Notiz ab (`memoryStore.count()` steigt von 1 auf 2); die Recherche liest genau die
+zwei gewählten Treffer und die Antwort nennt beide Quellen.
+
+### Tests
+
+4 neue, zusammen 630 (61 Dateien) — `skills/skills.test.ts`, wie oben beschrieben.
+
+### Gegenproben
+
+Keine gesonderten Gegenproben — die drei Fertig-Kriterien sind bereits das direkte,
+End-zu-Ende-Gegenstück zu den entsprechenden Tests aus S09/S14/S18 (dieselbe Art Nachweis, nur
+über `skill.load` statt direkt verdrahteter Werkzeugfolgen), und der Ladetest prüft positiv
+gegen den echten Bestand.
+
+### Bewusst nicht gebaut
+
+- **Kein `notes.write` (Obsidian) im Wochenrückblick.** `memory.write` (soft_write, keine
+  Freigabe) hält den Testaufbau einfach und passt inhaltlich: eine Wochenzusammenfassung ist
+  eine Erkenntnis des Assistenten über den Verlauf, kein Eintrag im Vault des Nutzers. Wer sie
+  zusätzlich im Obsidian-Vault haben will, kann das in einer künftigen Fassung der Anleitung
+  ergänzen — `notes.write` ist `hard_write` und bräuchte dafür eine Freigabe im Ablauf.
+- **Keine vierte oder fünfte Anleitung.** Der Auftrag nennt genau drei Skills; weitere sind
+  denkbar, aber nicht Teil des `done_when`.
+- **Keine Änderung am Skill-Mechanismus selbst.** S18d ist reine Inhaltsarbeit auf dem seit
+  S18c bestehenden Fundament — `tools/skill/catalog.ts`, `tools/skill/tools.ts`,
+  `context/request.ts` bleiben unverändert.
+
+### Offene Befunde (Details zu S18d)
+
+- **Kein echter Modellaufruf für die Werkzeugwahl selbst prüfbar** (dieselbe Grenze wie überall
+  seit S18a) — siehe oben, "was jeder Test beweist, und was nicht".
+- Der `<skills>`-Block trägt jetzt drei echte Einträge statt null — siehe den aktualisierten
+  Eintrag oben unter "Offene Befunde (gesamte Historie)" zum unbegrenzten Wachstum dieses
+  Blocks.
+
+- `pnpm typecheck && pnpm lint && pnpm test` grün, 630 Tests.
+- `tasks.json`: S18d auf `done`.
 
 Status: abgeschlossen. Nächste Session: S18f Eval-Suite für lange Läufe.
+
+## S18f · Eval-Suite für lange Läufe · 2026-09-11
+
+Sechste und letzte Session der Phase 4, direkt nach S18d, auf denselben Auftrag ("do S18d, then
+S18f, then everything should be finished"). `done_when` aus `tasks.json`: "Vier Eval-Szenarien
+laufen automatisiert, strukturierter Report" — und `docs/ARCHITEKTUR.md` nennt den Ordner dafür
+schon seit Phase 0 (Abschnitt 3: "`evals/` (Harness-Evals)") und die Begründung in Anti-Muster 9:
+"Das Harness selbst nicht evaluieren, Tool-Tests reichen nicht".
+
+**Ein Eval ist kein Unit-Test, sondern ein Szenario mit eigenem Bericht.** `tools/*/tools.test.ts`
+und `runtime/loop/loop.test.ts` prüfen längst jeden einzelnen Mechanismus aus Phase 4 (S18a–S18c)
+mit `expect()`. Was fehlte: eine Stelle, die dieselben vier Mechanismen **als System** und **auf
+Kommando** prüft, mit einem Ergebnis, das man weiterreichen kann (ein CI-Schritt, ein Betreiber,
+ein späteres Dashboard), nicht nur eine grüne oder rote Zeile im Testrunner. Deshalb ein eigenes
+Vokabular (`evals/types.ts`): `EvalCheck` (eine Aussage, bestanden oder nicht, mit Begründung),
+`EvalScenario` (eigenständig lauffähig — öffnet und schließt seine eigenen Ressourcen),
+`EvalResult`/`EvalReport` (das Ergebnis eines Szenarios bzw. der ganzen Suite). Dieselbe Haltung
+wie die einheitliche Tool-Rückgabehülle (`status`/`summary`/`structured`, AGENTS.md) auf eine
+Ebene darüber angewendet.
+
+**Vier Szenarien, eines je Phase-4-Mechanismus** (`evals/scenarios/`), jedes eine eigenständige
+Erweiterung des jeweiligen Unit-Tests — nicht desselbe noch einmal, sondern länger geführt, um
+genau die Eigenschaft zu zeigen, die ein kurzer Unit-Test nicht zeigen kann: **hält der
+Mechanismus über mehrere weitere Schritte, nicht nur den einen Übergang?**
+
+- **`kompaktierung-langer-lauf`** (S18a) — 110 Leseläufe, kein gesendeter Prompt überschreitet
+  das konfigurierte Fenster, Stufe 2 **und** 3 greifen, Cache-Trefferquote ist ablesbar.
+  Praktisch derselbe Aufbau wie der 110-Schritte-Test aus `runtime/loop/loop.test.ts`.
+- **`frisches-fenster-und-gedaechtnis`** (S18b/S18) — drei Züge: eine Notiz entsteht trotz
+  `completeOnDone: false`, eine Ruhepause löst genau ein frisches Fenster aus, ein dritter Zug
+  zu einem alten Thema findet die Notiz über `memory.recalled` wieder. Derselbe
+  "Gedächtnis-Rundlauf" wie in S18b, hier als eigenständiges Szenario.
+- **`verzoegertes-tool-laden-langer-lauf`** (S18b) — fünf Assistenz-Tools (Testdouble im
+  Namensraum `dev.*`, AGENTS.md: "Prüf-Tools des Harness, gehören in keinen produktiven
+  Katalog") bleiben außerhalb der Werkzeugliste, bis `tool.load` eines nachlädt; **anders als**
+  der Drei-Schritte-Unit-Test bleibt das geladene Tool hier über **vier weitere** Anfragen mit
+  vollem Schema aufrufbar, nicht nur die unmittelbar nächste — genau die Frage "hält es über
+  einen längeren Lauf" wird hier zum ersten Mal geprüft.
+- **`skills-langer-lauf`** (S18c) — acht Dummy-Skills bleiben in der Kurzliste (< 5000 Zeichen
+  im Systemblock), bis `skill.load` einen vollständig nachlädt; derselbe Zusatz wie beim
+  vorigen Szenario: der volle Rumpf bleibt über zwei weitere Züge in der Historie sichtbar.
+
+**Warum keine der drei Testdateien importiert wurde.** `runtime/loop/scripted.ts` ist die
+Ausnahme (produktiver Quellbaum, kein Testmodul) und wird auch hier nicht wiederverwendet, weil
+es an Ergebnisblöcken in der **gesendeten** Historie zählt — bei Kompaktierung genau der
+Bauteil, der irreführt (siehe die Begründung bei `manyReadsModel` in `runtime/loop/loop.test.ts`,
+S18a): eine Kompaktierung entfernt `tool_result`-Blöcke aus der gesendeten Historie, und ein
+Drehbuch, das daraus seinen nächsten Schritt herleitet, verwechselte "vom Modell noch nicht
+gesehen" mit "kompaktiert" und liefe nie fertig. `evals/harness.ts` trägt deshalb eigene, kleine
+Kopien der Modell-Doubles aus `loop.test.ts` (`manyReadsModel`, `fixedSummaryModel`,
+`memoryRoundTripModel`, `recording`) — eine Testdatei ist kein Modul, von dem Produktions- oder
+Eval-Code abhängen sollte, dieselbe Trennung, aus der `scripted.ts` überhaupt als eigene,
+produktive Datei existiert und nicht Teil einer `.test.ts` ist.
+
+**Jedes Szenario ist vollständig eigenständig** — eigener `Pool`, eigene temporäre Verzeichnisse,
+eigene Aufräumarbeit in seinem eigenen `finally`. Kein gemeinsamer Kontext, den `runEvals`
+durchreichen müsste: ein Szenario, das seinen Pool nicht schlösse, wäre ein Leck, das erst beim
+nächsten Szenario oder gar nicht auffiele, wenn die Verantwortung dafür woanders läge.
+`runEvals` (`evals/index.ts`) fasst jeden Szenario-Lauf einzeln in ein `try/catch` — ein
+werfendes Szenario wird zu einem Fehlschlag im Bericht (samt Wortlaut, AGENTS.md: "Fehler nie
+verstecken"), reißt aber die übrigen drei nicht mit ab.
+
+**Zwei Einstiege auf demselben Kern, aus demselben Grund wie bei jedem CLI-Werkzeug seit S12.**
+`evals/run.ts` (`pnpm evals`) ist der Terminal-Einstieg: druckt eine menschenlesbare Zeile je
+Szenario und Check, dazu den vollständigen `EvalReport` als JSON auf einer eigenen Zeile — der
+"strukturierte Report" aus dem Auftrag, wörtlich, maschinenlesbar für ein späteres Dashboard
+oder einen CI-Schritt. `evals/run.test.ts` ruft denselben Kern (`runEvals` aus `evals/index.ts`)
+direkt auf, ohne Subprozess — damit die Suite Teil von `pnpm test` bleibt und nicht unbemerkt
+verrottet: AGENTS.md verlangt einen grünen `pnpm test` vor jedem Commit, und ein Eval, der nur
+von Hand liefe, würde das nicht erzwingen.
+
+### Tests
+
+1 neuer Testfall, der intern alle vier Szenarien ausführt — zusammen 631 Testfälle (62 Dateien,
+davon eine neu: `evals/run.test.ts`). Bewusst **ein** `it()` über die ganze Suite statt vier
+einzelner: die Szenarien sind voneinander unabhängig, aber der Bericht ist die Aussage dieser
+Session, und den prüft man an einem Bericht, nicht an vier verstreuten Erwartungen. Jeder
+Check, der nicht besteht, steht mit seinem Namen im Fehlertext (nicht nur "passed: false").
+
+### Gegenproben
+
+Keine gesonderten Gegenproben. Beim Bauen selbst zeigten sich zwei echte Fehlschläge, die die
+Suite korrekt gemeldet hat, bevor sie behoben wurden — der eigentliche Nachweis, dass ein
+Check, der nicht besteht, auch sichtbar wird:
+
+- Das erste `kompaktierung-langer-lauf` schlug fehl, weil es zunächst `createScriptedModel`
+  (`runtime/loop/scripted.ts`) verwendete — genau der oben beschriebene Fehler ("vom Modell
+  noch nicht gesehen" mit "kompaktiert" verwechselt). Der Bericht zeigte "Schrittobergrenze
+  erreicht: 115 von 115" statt eines sauberen Abschlusses.
+- `skills-langer-lauf` schlug mit "Kein Werkzeugaufruf ist fehlgeschlagen: false" fehl, weil das
+  Drehbuch `task.update` mit dem Feld `id` statt `task_id` aufrief (`tools/task/tools.ts`
+  verlangt `task_id`). Ohne den strukturierten Check wäre das ein stiller `tool.failed`
+  gewesen, den man erst im Protokoll hätte suchen müssen.
+
+### Bewusst nicht gebaut
+
+- **Kein fünftes oder sechstes Szenario.** Der Auftrag nennt "vier Eval-Szenarien" wörtlich;
+  weitere Phase-4-Mechanismen (z. B. Modell-Routing aus S18e) sind denkbare Kandidaten für eine
+  spätere Erweiterung, aber nicht Teil dieses `done_when`.
+- **Kein persistenter Report auf der Platte.** `pnpm evals` druckt den `EvalReport` als JSON auf
+  stdout; nichts schreibt automatisch eine Datei ins Repo. Artefakte sind unveränderlich
+  (AGENTS.md) — ein Report, der bei jedem Lauf denselben Dateinamen beanspruchte, verletzte das,
+  und ein Report mit Zeitstempel im Namen wäre eine Ablage, die niemand angefordert hat. Wer den
+  Report archivieren will, leitet die Ausgabe um (`pnpm evals > bericht.json`) oder einen
+  späteren CI-Schritt lädt ihn als Artefakt hoch — beides außerhalb dieser Session.
+- **Keine Integration in `pnpm test` als eigene Kennzahl-Schwelle** (z. B. "Cache-Trefferquote
+  darf X nicht unterschreiten"). Die Szenarien prüfen heute, *dass* die Mechanismen greifen,
+  nicht *wie gut* — eine Qualitätsschwelle wäre eine weitere Entscheidung, keine, die aus "vier
+  Szenarien, automatisiert, strukturierter Report" folgt.
+
+### Offene Befunde (Details zu S18f)
+
+- **Kein echter Modellaufruf für keines der vier Szenarien** — dieselbe Grenze wie überall seit
+  S18a: `ANTHROPIC_API_KEY` ist leer, jedes Szenario läuft mit einem Modell-Double. Die Eval-
+  Suite beweist damit, was ein Unit-Test schon beweist (die Mechanik hält), nicht, was nur ein
+  Eval eigentlich leisten sollte: eine Aussage über echtes Modellverhalten über einen langen
+  Lauf. Das ist der wichtigste offene Punkt dieser Session und wartet auf einen Anbieterschlüssel.
+- **`evals/harness.ts` dupliziert kleine Modell-Doubles aus `runtime/loop/loop.test.ts`**
+  bewusst (siehe oben, "warum keine Testdatei importiert wurde) — zwei Stellen, die dieselbe
+  Fiktion pflegen müssen, falls sich `ModelResponse` je ändert. Vertretbar, weil beide klein und
+  stabil sind (Abschnitt 4.4-ähnliche Typen ändern sich nicht leichtfertig), aber kein
+  automatischer Schutz gegen Auseinanderlaufen.
+
+- `pnpm typecheck && pnpm lint && pnpm test` grün, 631 Tests.
+- `tasks.json`: S18f auf `done`, S19 von `queued` auf `ready` — **Phase 4 ist damit
+  abgeschlossen.**
+
+Status: abgeschlossen. Nächste Session: S19 Agenten-Registry und `agent.create` (Beginn Phase 5).
 
 ## S18c · Skill-System (progressive Offenlegung) · 2026-09-11
 

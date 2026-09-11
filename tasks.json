@@ -179,7 +179,7 @@
     "id": "S18d",
     "title": "Erste eigene Skills",
     "phase": 4,
-    "status": "ready",
+    "status": "done",
     "done_when": "Mail-Triage, Wochenrueckblick, Recherche-Ablauf laufen mit Testdaten",
     "depends_on": ["S18c"]
   },
@@ -195,7 +195,7 @@
     "id": "S18f",
     "title": "Eval-Suite fuer lange Laeufe",
     "phase": 4,
-    "status": "ready",
+    "status": "done",
     "done_when": "Vier Eval-Szenarien laufen automatisiert, strukturierter Report",
     "depends_on": ["S18e"]
   },
@@ -203,7 +203,7 @@
     "id": "S19",
     "title": "Agenten-Registry und agent.create",
     "phase": 5,
-    "status": "queued",
+    "status": "ready",
     "done_when": "Neuer Agent per Sprachbefehl anlegbar, sofort aktiv",
     "depends_on": ["S18f"]
   },

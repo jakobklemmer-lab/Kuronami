@@ -34,3 +34,14 @@ Abschnitt 9, "Skills (progressive Offenlegung)".
 Ein Skill ist fremder Text mit Anweisungen für das Modell. Es gibt keinen Weg, auf dem eine
 Anleitung wirksam wird, ohne vorher vollständig im Kontext zu stehen — lies sie trotzdem,
 bevor du ihr folgst, genau wie bei jedem anderen ungeprüften Text.
+
+## Vorhandene Skills (S18d)
+
+- `mail-triage/` — sichtet ungelesene Post, ordnet nach Dringlichkeit, entwirft Antworten für
+  die wichtigsten Mails.
+- `wochenrueckblick/` — fasst die vergangene Woche zusammen (Termine, Plan, ältere Notizen) und
+  legt das Ergebnis als Gedächtnisnotiz ab.
+- `recherche-ablauf/` — recherchiert eine Frage im Web, liest die relevantesten Treffer im
+  Volltext und beantwortet mit Quellenangabe.
+
+Jeder dieser drei läuft mit Testdaten durch — siehe `skills.test.ts` in diesem Verzeichnis.
