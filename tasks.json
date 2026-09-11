@@ -152,12 +152,60 @@
     "depends_on": ["S17"]
   },
   {
+    "id": "S18a",
+    "title": "Kompaktierung Stufe 2+3 und Cache-Messung",
+    "phase": 4,
+    "status": "done",
+    "done_when": "Langer Lauf bleibt unter Kontextlimit, Cache-Trefferquote pro Lauf messbar",
+    "depends_on": ["S18"]
+  },
+  {
+    "id": "S18b",
+    "title": "Frisches-Fenster-Heuristik und verzoegertes Tool-Laden",
+    "phase": 4,
+    "status": "done",
+    "done_when": "Themenwechsel loest frisches Fenster aus, grosser Katalog laedt gezielt",
+    "depends_on": ["S18a"]
+  },
+  {
+    "id": "S18c",
+    "title": "Skill-System (progressive Offenlegung)",
+    "phase": 4,
+    "status": "done",
+    "done_when": "Dummy-Skill wird bei Bedarf korrekt vollstaendig geladen",
+    "depends_on": ["S18b"]
+  },
+  {
+    "id": "S18d",
+    "title": "Erste eigene Skills",
+    "phase": 4,
+    "status": "ready",
+    "done_when": "Mail-Triage, Wochenrueckblick, Recherche-Ablauf laufen mit Testdaten",
+    "depends_on": ["S18c"]
+  },
+  {
+    "id": "S18e",
+    "title": "Modell-Routing",
+    "phase": 4,
+    "status": "done",
+    "done_when": "Routine- und Denkaufgabe zeigen unterschiedliche, passende Modellwahl",
+    "depends_on": ["S18d"]
+  },
+  {
+    "id": "S18f",
+    "title": "Eval-Suite fuer lange Laeufe",
+    "phase": 4,
+    "status": "ready",
+    "done_when": "Vier Eval-Szenarien laufen automatisiert, strukturierter Report",
+    "depends_on": ["S18e"]
+  },
+  {
     "id": "S19",
     "title": "Agenten-Registry und agent.create",
     "phase": 5,
-    "status": "ready",
+    "status": "queued",
     "done_when": "Neuer Agent per Sprachbefehl anlegbar, sofort aktiv",
-    "depends_on": ["S18"]
+    "depends_on": ["S18f"]
   },
   {
     "id": "S20",

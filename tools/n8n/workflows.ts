@@ -127,6 +127,11 @@ export function createN8nTools(deps: N8nToolsDeps): ToolDefinition[] {
     inputSchema: def.inputSchema,
     risk: def.risk,
     repeatable: def.repeatable,
+    // Generische n8n-Workflows sind Assistenz-Tools (Abschnitt 9) par excellence: genau die
+    // wachsende, situative Klasse, für die S18b das verzögerte Tool-Laden baut (Auftrag: "S18d
+    // und Phase 5 lassen ihn wachsen"). `mail.*`/`cal.*`/`server.*` haben eigene Handler und
+    // stehen deshalb nicht hier, sind aber aus demselben Grund selbst `deferred: true`.
+    deferred: true,
     handler: (inv) => runWorkflow(deps, def, inv),
   }));
 }

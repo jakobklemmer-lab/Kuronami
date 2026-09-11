@@ -34,7 +34,8 @@ async function main(): Promise<void> {
   // den Katalog, sobald eine n8n-Instanz hinterlegt ist — ohne sie liefen sie ohnehin nur in
   // eine `N8nUnavailableError`-Hülle. Die `notes.*`-Tools (S15) kommen dazu, sobald ein
   // Obsidian-Vault gesetzt ist. Ist beides leer, bleibt der ausgelieferte Katalog byteweise
-  // der aus S12/S13 (`v1-53a18ba0cb4e49c8`, 10 Tools).
+  // derselbe wie in jedem anderen Prozess ohne diese beiden Felder (`fs.*`/`web.*`/`task.*`/
+  // `user.*`, `memory.*` seit S18, `tool.load` seit S18b).
   const n8nBaseUrl = process.env.N8N_BASE_URL?.trim();
   const obsidianVault = process.env.OBSIDIAN_VAULT_PATH?.trim();
   // Das Langzeitgedächtnis (S18) ist **immer** dabei und hängt an keiner Umgebungsvariablen:
@@ -42,12 +43,15 @@ async function main(): Promise<void> {
   // und ein Assistent ohne Gedächtnis ist die schlechtere Vorgabe. `MEMORY_ROOT` verschiebt
   // nur den Ort. Der Ordner wird angelegt, wenn er fehlt — ein leeres Gedächtnis beim ersten
   // Start ist der Normalfall.
-  const { catalog, policy, memory } = await buildCatalog({
+  // Skills (S18c) sind wie das Gedächtnis kein Anschluss nach draußen, sondern ein Teil des
+  // Systems — `skills/` liegt im Repo und wird immer gescannt, auch wenn sie heute leer ist.
+  const { catalog, policy, memory, skills } = await buildCatalog({
     pool,
     artifactRoot,
     n8n: n8nBaseUrl ? { mail: true, cal: true, server: true } : undefined,
     obsidian: obsidianVault ? {} : undefined,
     memory: {},
+    skills: {},
   });
 
   // Ohne Eingabe wird kein Modell gebraucht, und ein fehlender Schlüssel darf das Skelett
@@ -71,6 +75,7 @@ async function main(): Promise<void> {
     policy,
     model,
     memory,
+    skills,
   });
 
   console.log(
@@ -108,6 +113,9 @@ async function main(): Promise<void> {
     `Langzeitgedächtnis: ${memory?.root ?? "—"}, ${memory?.count() ?? 0} Notizen, Git ${
       memory?.gitEnabled ? "an" : "aus (kein Repo)"
     }, ${assistCount("memory.")} memory.*-Tools im Katalog.`,
+  );
+  console.log(
+    `Skills: ${skills?.root ?? "—"}, ${skills?.skills.length ?? 0} geladen, ${assistCount("skill.")} skill.*-Tools im Katalog.`,
   );
 
   // Startwerte gelten nur bei der Neuanlage (S04). Eine ältere Session trägt deshalb weiter

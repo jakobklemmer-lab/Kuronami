@@ -18,6 +18,16 @@ import type { JsonValue } from "../runtime/steps/types.js";
  * `soft_write`, eigenes Git-Repo). Zwei Ablagen mit verschiedenen Eigentümern, verschiedenen
  * Risikostufen und verschiedenen Zonen — sie in einem Namensraum zu führen hieße, den
  * Speicherort davon abhängig zu machen, welches Feld das Modell gerade füllt.
+ *
+ * `tool` ist seit S18b dabei: das verzögerte Tool-Laden (Abschnitt 9, "Kurzbeschreibung aller
+ * Tools, volles Schema erst bei tatsächlicher Nutzung nachgeladen") braucht ein Tool, das über
+ * den Katalog selbst spricht (`tool.load`) — kein `fs.*`, `web.*` oder irgendein anderer
+ * bestehender Namensraum meint das Gebiet "den eigenen Werkzeugkasten nachschlagen".
+ *
+ * `skill` ist seit S18c dabei: das Skill-System (progressive Offenlegung, `skills/<name>/
+ * SKILL.md`) braucht ein Tool, das über den **Skill-Katalog** spricht (`skill.load`) — ein
+ * eigenes Gebiet neben `tool` (das über den *Tool*-Katalog spricht) und neben `memory` (das
+ * eigene Ablage des Assistenten ist, keine bereitgestellten Fähigkeiten Dritter).
  */
 export const TOOL_NAMESPACES = [
   "fs",
@@ -33,6 +43,8 @@ export const TOOL_NAMESPACES = [
   "github",
   "server",
   "dev",
+  "tool",
+  "skill",
 ] as const;
 
 export type ToolNamespace = (typeof TOOL_NAMESPACES)[number];
@@ -161,6 +173,24 @@ export interface ToolDefinition {
    * Zählt **nicht** in den Katalog-Fingerabdruck (interne Weiche, wie der Handler-Rumpf).
    */
   execution?: "step" | "runtime";
+  /**
+   * Verzögertes Tool-Laden (S18b, Abschnitt 9). Vorgabe `false`: das volle Eingabeschema steht
+   * von Anfang an in der Werkzeugliste der Anfrage, wie bei jedem Tool seit S07.
+   *
+   * `true` markiert ein Tool als **Assistenz-Tool** im Sinn von Abschnitt 9 (`mail.*`, `cal.*`,
+   * `memory.*`, `server.*`, generische n8n-Workflows — alles, was nicht zu den Kern-Primitiven
+   * zählt): sein volles Schema steht erst in der Werkzeugliste, nachdem `tool.load` es für
+   * diese Session nachgeladen hat (`context/request.ts`, `deriveLoadedToolNames`). Bis dahin
+   * sieht der Prompt nur Name und Kurzbeschreibung, im `<deferred_tools>`-Block neben den
+   * Konventionen. Der **Katalog** kennt das Tool die ganze Zeit — der Router prüft und führt es
+   * unverändert aus, ob geladen oder nicht (Abschnitt 4.7 kennt keine Ausnahme dafür); betroffen
+   * ist nur, was in der an den Anbieter gesendeten `tools`-Liste steht.
+   *
+   * Zählt **nicht** in den Katalog-Fingerabdruck (`fingerprintTools`) — dieselbe Begründung wie
+   * bei `execution`: eine Stellgröße für die Prompt-Ökonomie ist kein Teil des Vertrags, den das
+   * Modell mit seinen Aufrufen eingeht, und soll keine laufende Session ungültig machen können.
+   */
+  deferred?: boolean;
   handler: ToolHandler;
 }
 

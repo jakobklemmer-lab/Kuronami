@@ -65,6 +65,17 @@ export interface LoopState {
   pending: PendingToolCall[];
   /** Ausgelagerte Tool-Ergebnisse im ganzen Protokoll. Kennzahl aus Abschnitt 12. */
   offloadedResults: number;
+  /**
+   * Parallel zu `messages`: die Sequenznummer des Ereignisses, das die jeweilige Nachricht
+   * abgeschlossen hat (S18a, `context/compaction.ts`).
+   *
+   * Die Kompaktierung (Stufe 3) muss einen Schnittpunkt in der Historie **wiederfinden**
+   * können, ohne ihn zu raten: ein zweiter, unabhängiger Fold über dieselben Ereignisse hätte
+   * bei jeder künftigen Änderung an dieser Funktion driften können. Deshalb entsteht die
+   * Zuordnung genau hier, an jeder Stelle, an der auch `messages` wächst — additiv und ohne
+   * bestehendes Verhalten zu berühren.
+   */
+  messageSeqs: number[];
 }
 
 function requireString(payload: EventPayload, field: string, type: string): string {
@@ -157,8 +168,10 @@ function isOffloaded(hull: JsonValue): boolean {
  */
 export function deriveLoopState(events: EventRecord[]): LoopState {
   const messages: ModelMessage[] = [];
+  const messageSeqs: number[] = [];
   const stepResults = new Map<string, JsonValue>();
   let toolResults: ModelContentBlock[] = [];
+  let lastToolResultSeq = 0;
   let turnId: string | null = null;
   let toolCalls = 0;
   let consecutiveErrors = 0;
@@ -168,11 +181,13 @@ export function deriveLoopState(events: EventRecord[]): LoopState {
   function flushToolResults(): void {
     if (toolResults.length === 0) return;
     messages.push({ role: "user", content: toolResults });
+    messageSeqs.push(lastToolResultSeq);
     toolResults = [];
   }
 
-  function recordOutcome(callId: string, hull: JsonValue, failed: boolean): void {
+  function recordOutcome(callId: string, hull: JsonValue, failed: boolean, seq: number): void {
     toolResults.push(toolResultBlock(callId, JSON.stringify(hull), failed));
+    lastToolResultSeq = seq;
     pending = pending.filter((entry) => entry.callId !== callId);
     toolCalls += 1;
     consecutiveErrors = failed ? consecutiveErrors + 1 : 0;
@@ -197,6 +212,7 @@ export function deriveLoopState(events: EventRecord[]): LoopState {
           role: "user",
           content: [textBlock(requireString(event.payload, "prompt", event.type))],
         });
+        messageSeqs.push(event.seq);
         break;
       }
 
@@ -207,6 +223,17 @@ export function deriveLoopState(events: EventRecord[]): LoopState {
         break;
 
       case "model.responded": {
+        // Die Zusammenfassung der Kontext-Kompaktierung (S18a, `context/compaction.ts`) und die
+        // Übergabe eines frischen Abschnitts (S18b, `context/section.ts`) laufen über denselben
+        // Modellaufruf-Vertrag und hinterlassen deshalb dieselben zwei Ereignistypen — sonst
+        // blieben sie für die Kostenrechnung unsichtbar (Abschnitt 12). Beide sind aber **kein**
+        // Zug des Loops: sie tragen keine Werkzeugaufrufe, gehören zu keiner Runde und dürfen
+        // die Historie, die dem Modell als nächstes gezeigt wird, nicht verdoppeln. Die Marke
+        // `purpose` ist die Unterscheidung — jeder Wert außer einer echten Zugantwort (die trägt
+        // kein `purpose`) markiert einen solchen Nebenaufruf; `context/metrics.ts` zählt bewusst
+        // **alle** mit, das ist der ganze Zweck der Marke.
+        if (typeof event.payload.purpose === "string") break;
+
         flushToolResults();
         const content = event.payload.content;
         if (!Array.isArray(content)) {
@@ -217,7 +244,10 @@ export function deriveLoopState(events: EventRecord[]): LoopState {
         const blocks = content as ModelContentBlock[];
         // Leere Antworten kommen vor (nur Denkblöcke, kein Text, kein Aufruf). Eine leere
         // Nachricht weist der Anbieter ab, also darf sie gar nicht erst in die Historie.
-        if (blocks.length > 0) messages.push({ role: "assistant", content: blocks });
+        if (blocks.length > 0) {
+          messages.push({ role: "assistant", content: blocks });
+          messageSeqs.push(event.seq);
+        }
 
         const calls = event.payload.tool_calls;
         pending = Array.isArray(calls)
@@ -253,7 +283,7 @@ export function deriveLoopState(events: EventRecord[]): LoopState {
         } else {
           hull = (event.payload.result as JsonValue | undefined) ?? null;
         }
-        recordOutcome(callId, hull, false);
+        recordOutcome(callId, hull, false, event.seq);
         break;
       }
 
@@ -262,6 +292,7 @@ export function deriveLoopState(events: EventRecord[]): LoopState {
           requireString(event.payload, "call_id", event.type),
           errorHull(event.payload),
           true,
+          event.seq,
         );
         break;
 
@@ -273,7 +304,7 @@ export function deriveLoopState(events: EventRecord[]): LoopState {
   }
 
   flushToolResults();
-  return { messages, turnId, toolCalls, consecutiveErrors, pending, offloadedResults };
+  return { messages, messageSeqs, turnId, toolCalls, consecutiveErrors, pending, offloadedResults };
 }
 
 /**

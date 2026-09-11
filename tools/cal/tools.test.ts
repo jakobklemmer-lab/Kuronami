@@ -396,14 +396,16 @@ describe("cal.update", () => {
 describe("cal.* · ausgelieferter Katalog", () => {
   it("bleibt draußen, solange nichts konfiguriert ist — Fingerabdruck unverändert", async () => {
     const base = await buildCatalog({ pool, artifactRoot });
-    expect(base.catalog.version).toBe("v1-53a18ba0cb4e49c8");
-    expect(base.catalog.tools).toHaveLength(10);
+    // Seit S18b trägt der ausgelieferte Katalog immer `tool.load` (verzögertes Tool-Laden,
+    // Abschnitt 9) — deshalb 11 statt der 10 Tools und ein anderer Fingerabdruck als vor S18b.
+    expect(base.catalog.version).toBe("v1-127776df761f8134");
+    expect(base.catalog.tools).toHaveLength(11);
     expect(base.catalog.get("cal.list")).toBeUndefined();
   });
 
   it("kommt mit n8n.cal in den Katalog, cal.create/update als hard_write", async () => {
     const withCal = await buildCatalog({ pool, artifactRoot, n8n: { cal: true } });
-    expect(withCal.catalog.version).not.toBe("v1-53a18ba0cb4e49c8");
+    expect(withCal.catalog.version).not.toBe("v1-127776df761f8134");
     expect(withCal.catalog.get("cal.list")?.risk).toBe("read");
     expect(withCal.catalog.get("cal.create")?.risk).toBe("hard_write");
     expect(withCal.catalog.get("cal.update")?.risk).toBe("hard_write");

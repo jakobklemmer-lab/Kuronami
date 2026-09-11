@@ -306,7 +306,22 @@ Risikostufe: hartes Schreiben, also immer Freigabe.
 `namensraum.aktion`, kleingeschrieben, Punkt als Trenner, Aktion englisch.
 
 Erlaubte Namensräume: `fs`, `web`, `exec`, `task`, `user`, `agent`, `mail`, `cal`, `notes`,
-`github`, `server`, `dev`. Ein neuer Namensraum braucht eine Begründung in `docs/`.
+`memory`, `github`, `server`, `dev`, `tool`, `skill`. Ein neuer Namensraum braucht eine
+Begründung in `docs/`.
+
+**`tool` (neu mit S18b), Begründung:** `tool.load` spricht über den Katalog selbst — welches
+Tool es gibt, welches Schema es hat — und das ist ein anderes Gebiet als jedes bestehende: kein
+Dateisystem, kein Netz, keine Aufgabe, keine Assistenz-Anbindung. Siehe Abschnitt 9,
+"Verzögertes Tool-Laden".
+
+**`skill` (neu mit S18c), Begründung:** `skill.load` spricht über den **Skill-Katalog** —
+welche Fähigkeit es gibt, welche Anleitung dahintersteht — und das ist ein drittes, eigenes
+Gebiet neben `tool` (das über den *Tool*-Katalog spricht, also Handler mit Eingabeschema) und
+`memory` (die eigene Ablage des Assistenten, `soft_write`, eigenes Git-Repo). Ein Skill ist
+weder ein Tool (kein Handler, kein Eingabeschema, kein Seiteneffekt außer dem, was das Modell
+mit den ohnehin vorhandenen Tools daraus macht) noch eine Gedächtnisnotiz (keine Erkenntnis aus
+einem vergangenen Lauf, sondern eine vorgefertigte Anleitung). Siehe Abschnitt 9,
+"Skills (progressive Offenlegung)".
 
 **`dev` (neu mit S07), Begründung:** Prüf-Tools des Harness selbst — `dev.echo` und
 `dev.blob` aus `tools/dummies.ts`, mit denen sich die Auslagerungsschwelle nachweisen lässt.
@@ -434,7 +449,58 @@ den Tools entwertet alles darunter.
 | 1 | Große Ergebnisse sofort auslagern, nur Zusammenfassung plus Handle zurück | ab 8k bis 16k Token-Äquivalent |
 | 2 | Alte Tool-Ein/Ausgaben in Referenzen umschreiben | ab 80 bis 90 % Fensterauslastung |
 | 3 | Historie zusammenfassen: Ziel, Stand, offene Aufgaben, Entscheidungen, Artefakt-Refs, nächster Schritt | wenn Stufe 2 nicht reicht |
-| 4 | Frisches Fenster statt Kompaktierung | wenn Zustand gut ausgelagert ist |
+| 4 | Frisches Fenster statt Kompaktierung | Ruhepause, Aufgabenabschluss, oder eine Kette aus Stufe-3-Kompaktierungen ohne die beiden ersten |
+
+**Umsetzung (S18a):** `context/compaction.ts`, aufgerufen vom Loop direkt vor dem Aufbau der
+Modellanfrage (`runtime/loop/loop.ts`). Beide Stufen rühren das Ereignisprotokoll nicht an —
+sie lesen die volle, unveränderte Historie und liefern eine kleinere Fassung nur für den
+nächsten Anbieteraufruf; was geschah, steht als eigenes `context.compacted`-Ereignis daneben,
+nicht als Korrektur bestehender Ereignisse. Stufe 2 schreibt den Rohinhalt jedes umgeschriebenen
+`tool_result`-Blocks als Artefakt und ersetzt ihn durch eine `artifact://`-Referenz; Stufe 3
+fasst einen zusammenhängenden älteren Ausschnitt über einen eigenen Modellaufruf zusammen (der
+Rohverlauf liegt ebenfalls als Artefakt vor) und schreibt diesen Aufruf als `model.requested`/
+`model.responded` mit `purpose: "compaction"` ins Protokoll, damit er in der Kostenrechnung
+sichtbar ist. Beide Stufen lesen frühere `context.compacted`-Ereignisse zurück, bevor sie neue
+Arbeit erwägen — sonst schriebe jeder weitere Schritt dieselbe Referenz und denselben
+Modellaufruf erneut. Schwellenwerte (Fenstergröße, Auslastungsschwelle, geschützte
+Nachrichtenzahl) stehen in `CompactionConfig` mit Startwerten und sind pro Lauf überschreibbar.
+Die Cache-Trefferquote (Abschnitt 12) landet dabei als Feld im `turn.completed`, das den Zug
+abschließt — pro Lauf auslesbar, ohne eine Faltung des ganzen Protokolls anzustoßen.
+
+**Umsetzung (S18b):** `context/section.ts`. Für den Nutzer ist Kuronami **ein** durchgängiger
+Assistent, kein Interface mit mehreren Chat-Fenstern — "frischer Abschnitt" ist reine interne
+Buchführung, unsichtbar für den Nutzer, wie ein Notizbuch, das im Hintergrund umblättert,
+während das Gespräch nahtlos weitergeht. Anders als Stufe 2 und 3 ist Stufe 4 nicht
+auslastungsgetrieben, sondern proaktiv, und ihre drei Auslöser sind rein technisch (Auftrag,
+wörtlich):
+
+* **Ruhepause** — seit dem letzten Ereignis der Session sind mindestens `idleMs` vergangen
+  (Startwert 45 Minuten). Nur beim Eintreffen der nächsten Nachricht erkennbar; kein
+  Hintergrund-Zeitgeber weckt eine Session ohne Anlass.
+* **Aufgabenabschluss** — seit dem letzten Abschnittswechsel steht ein `task.created`/
+  `task.updated` mit `status: "done"` im Protokoll.
+* **Stufe-3-Fallback** — seit dem letzten Abschnittswechsel hat Stufe 3 mindestens
+  `maxConsecutiveStage3`-mal gegriffen (Startwert 3), ohne dass die beiden ersten Auslöser
+  angesprungen wären.
+
+Beide Prüfungen laufen nur beim **Beginn eines neuen Zugs** (`runtime/loop/loop.ts`, vor
+`turn.started`, neben dem Langzeitgedächtnis-Recall), nicht mitten in einem laufenden — eine
+Ruhepause ist zwischen Zügen ohnehin die einzige Stelle, an der sie auftreten kann. Die
+eigentliche Kürzung ist kein zweiter Mechanismus: `context.section_started` trägt `through_seq`
+in derselben Zählung wie `context.compacted` (Stufe 3), und `compactHistory` liest die
+**höchste** Marke aus beiden Ereignistypen zurück und wendet denselben Schnitt an
+(`applyCut`/`latestCut`) — ein frischer Abschnitt ist mechanisch eine größere, proaktiv
+ausgelöste Stufe-3-Kürzung, kein eigenes Verfahren.
+
+Die Übergabe ist **kompakt, nur was der nächste Abschnitt braucht** (Auftrag, wörtlich) — drei
+knappe Abschnitte (Stand, offen, Artefakt-/Dateibezüge) statt der sechs aus Stufe 3. Länger
+geltendes Wissen geht **nicht** über dieses Feld zurück, sondern über das Langzeitgedächtnis aus
+S18: jeder abgeschlossene Zug bekommt seit S18b unabhängig von `completeOnDone` die Chance, eine
+Notiz zu hinterlassen (`runtime/loop/api.ts`, `summarizeToMemory`, entkoppelt von der Frage, ob
+die **Unterhaltung** als Ganzes vorbei ist — sie ist es beim Gateway nie). Über alle drei
+Auslöser hinweg gilt: eine Frage zu einem alten Thema trifft nicht auf die (jetzt knappe)
+Übergabe, sondern auf den automatischen Gedächtnis-Recall vor jedem Zug — für den Nutzer wirkt
+das eine einzige durchgängige Unterhaltung.
 
 ### Zwei unterschätzte Regeln
 
@@ -507,6 +573,83 @@ liefert genau `mail.search`/`mail.read`/`mail.draft`, `MAIL_WEBHOOKS` ist die vo
 eingefrorene Liste der n8n-Webhook-Pfade (keiner sendet), und der Draft-Workflow legt nur im
 Ordner "Drafts" ab. Ein Versand ist eine bewusste spätere Ergänzung mit `hard_write`-Freigabe,
 kein Nachtrag an dieser Stelle.
+
+### Verzögertes Tool-Laden
+
+**Umsetzung (S18b).** Der Katalog wächst — n8n-Workflows, Skills (S18d), Subagenten-Rollen
+(S19/S20) — und jedes zusätzliche Tool ist ein volles Eingabeschema, das bei jedem Zug erneut
+im Prompt steht, gelesen oder nicht. `ToolDefinition.deferred` (Vorgabe `false`) trennt die
+**Kern-Primitive** (immer mit vollem Schema in der Werkzeugliste der Anfrage) von den
+**Assistenz-Tools** (`mail.*`, `cal.*`, `memory.*`, `server.*`, generische n8n-Workflows): ein
+`deferred`-Tool steht nur mit Name und Kurzbeschreibung in einem `<deferred_tools>`-Block neben
+den Konventionen (`context/request.ts`) — nicht in der `tools`-Liste der Anfrage, solange
+niemand danach gefragt hat.
+
+`tool.load` (`tools/tool/tools.ts`, Namensraum `tool`) ist der Weg zurück: ein Aufruf mit einer
+Liste von Toolnamen liefert deren volles Schema als Ergebnis und macht sie ab dem nächsten
+Modellaufruf nativ aufrufbar — `deriveLoadedToolNames` liest zurückgelesen aus dem Protokoll,
+welche Namen das schon betrifft (`tool.completed` von `tool.load`), dieselbe
+Wiederanwenden-statt-wiederholen-Idempotenz wie bei Kontextstufe 2 und 3. `tool.load` selbst ist
+nie `deferred` — ohne einen von Anfang an sichtbaren Weg, ein Tool nachzuladen, gäbe es keinen
+Ausweg aus dem `<deferred_tools>`-Block. Der **Katalog** selbst bleibt unberührt: er kennt jedes
+Tool die ganze Zeit, der Router führt es unverändert aus, ob geladen oder nicht — betroffen ist
+nur, was in der an den Anbieter gesendeten Werkzeugliste steht. `deferred` zählt deshalb auch
+nicht in den Katalog-Fingerabdruck, aus derselben Begründung wie bei `execution`.
+
+### Skills (progressive Offenlegung)
+
+**Umsetzung (S18c).** Ein Skill (Abschnitt 3, Capability Surface — `skills/`) ist ein
+Verzeichnis `skills/<name>/` mit genau einer `SKILL.md` darin: Frontmatter mit drei Feldern
+(`titel`, `beschreibung`, `wann` — die Auslösebedingung), danach die vollständige Anleitung als
+Markdown-Rumpf, beliebig lang. `loadSkillCatalog` (`tools/skill/catalog.ts`) scannt die
+Skill-Wurzel **einmal beim Sessionstart** — dieselbe Bauart wie `loadConventions()` für
+`AGENTS.md` (Abschnitt 7): Titel, Beschreibung, Auslösebedingung **und** der volle Rumpf jedes
+Skills stehen schon nach dieser einen Lesung im Speicher.
+
+**Die Kurzliste, nicht die volle Anleitung, steht im Prompt.** `context/request.ts` legt einen
+`<skills>`-Block neben die Konventionen — Titel, Beschreibung und Auslösebedingung jedes
+Skills, eine Zeile je Skill, nach demselben Muster wie der `<deferred_tools>`-Block aus S18b.
+Leer, wenn kein Skill konfiguriert ist oder `skills/` keinen trägt: derselbe Block bleibt dann
+ganz weg, dieselbe Zurückhaltung wie beim `<memory>`-Block. Anders als `<deferred_tools>`
+**schrumpft** die Liste nicht, wenn ein Skill benutzt wurde — ein Skill kann in einem späteren
+Zug erneut gebraucht werden, und es gibt keine native Zweitrepräsentation (wie ein geladenes
+Tool-Schema in der `tools`-Liste), die den Kurzeintrag ersetzen könnte.
+
+**`skill.load`** (`tools/skill/tools.ts`, Namensraum `skill`) ist der Weg zur vollständigen
+Anleitung: ein Aufruf mit einem oder mehreren Namen liefert Titel, Beschreibung,
+Auslösebedingung und den **vollen Rumpf** jedes Skills als Ergebnis — die Anleitung steht damit
+ab diesem Zug im Kontext, genau wie jedes andere Tool-Ergebnis. `execution: "runtime"` wie
+`tool.load`: eine reine Nachschlage-Operation auf dem beim Sessionstart eingefrorenen
+Skill-Katalog, kein externer Seiteneffekt, kein Schritt. Anders als bei `tool.load` braucht das
+Einfrieren keinen Zweischritt — `skill.load` schlägt in einer eigenen Struktur nach
+(`SkillCatalog`), nicht im `ToolCatalog`, den es selbst mitbildet, also kein Henne-Ei-Problem.
+`skill.load` selbst ist **nie** `deferred`, aus demselben Grund wie `tool.load`: ohne einen von
+Anfang an sichtbaren Weg gäbe es keinen Ausweg aus dem `<skills>`-Block.
+
+**Skill-Nutzung als eigener Ereignistyp.** `skill.load` schreibt wie jedes Tool ein generisches
+`tool.completed`, aber zusätzlich — direkt aus dem Handler, wie `memory.conflicted` neben
+`tool.completed` von `memory.write` — ein `skill.invoked` mit den geladenen Namen. Ohne dieses
+Ereignis wäre "welcher Skill wurde wann benutzt" nur über einen Filter auf den Payloads aller
+`tool.completed` beantwortbar, genau die Frage, die zuerst gestellt wird, wenn ein Skill sich
+falsch verhalten hat.
+
+**Fremde Skills werden vor Aktivierung gelesen, nicht blind ausgeführt** (Abschnitt 4.7) ist
+hier keine Verabredung, sondern eine Eigenschaft der Bauart: es gibt in diesem System keinen
+zweiten Weg, auf dem eine Skill-Anleitung wirksam werden könnte. Der `<skills>`-Block trägt nie
+mehr als die Kurzfassung, und es gibt kein `skill.run` oder Ähnliches, das eine Anleitung
+ausführte, ohne sie vorher in den Kontext zu legen — jeder Weg, auf dem ein Skill etwas
+bewirkt, führt zwingend zuerst durch `skill.load` (oder durch `fs.read` auf dieselbe Datei, mit
+demselben Ergebnis: der volle Text im Kontext, bevor irgendetwas daraus befolgt wird). Ein
+Skill, dessen Text niemand gelesen hat, kann nichts bewirken, weil seine Anweisungen nirgends
+sonst stehen.
+
+**Bewusst nicht Teil dieser Session:** eine Installation neuer Skills aus einer externen
+Quelle (Abschnitt 4.7 spricht von "vor der Installation gelesen" — das ist eine spätere
+Ergänzung, kein Nachtrag hier), eine feinere Freigabe-Granularität für `skill.load` (es ist
+`read`, wie `tool.load`), und automatische Auslagerung für außergewöhnlich große Skills (wie
+bei `tool.load` wirft `callRuntimeTool` stattdessen `ToolOutputTooLargeError` — ein Skill muss
+knapp genug bleiben, um in einem Zug geladen zu werden). Die ersten eigenen Skills (Mail-Triage,
+Wochenrückblick, Recherche-Ablauf) sind S18d.
 
 ### Wann etwas ein eigenes Tool verdient
 
@@ -700,6 +843,15 @@ Kennzahlen ab Tag eins:
 
 Diese Kennzahlen sind gleichzeitig der Inhalt der späteren UI-Panels. Sie werden nicht
 extra für die Oberfläche erfunden.
+
+**Umsetzung (S18a):** Cache-Trefferquote und Kompaktierungshäufigkeit stehen seit S12 als
+Faltung über das Protokoll bereit (`context/metrics.ts`, `RunMetrics`), sind damit aber nur so
+sichtbar, wie jemand die Faltung aufruft. Die Cache-Trefferquote landet zusätzlich als Feld im
+`turn.completed`, das einen Zug abschließt — pro Lauf direkt auslesbar, ohne das ganze
+Protokoll erneut zu falten. Die Kompaktierungshäufigkeit bleibt bewusst nur über
+`context.compacted`-Ereignisse zählbar (kein zweites Feld dafür): eine Kennzahl, die nur die
+Anzahl eines bereits vorhandenen Ereignistyps ist, verdoppelte sonst eine Wahrheit
+(Abschnitt 4.4).
 
 ---
 

@@ -244,8 +244,10 @@ describe("n8n-Brücke · Fertig-Kriterium", () => {
 describe("n8n-Brücke · ausgelieferter Katalog", () => {
   it("führt keinen Workflow, solange keiner konfiguriert ist — Fingerabdruck unverändert", async () => {
     const base = await buildCatalog({ pool, artifactRoot });
-    expect(base.catalog.version).toBe("v1-53a18ba0cb4e49c8");
-    expect(base.catalog.tools).toHaveLength(10);
+    // Seit S18b trägt der ausgelieferte Katalog immer `tool.load` (verzögertes Tool-Laden,
+    // Abschnitt 9) — deshalb 11 statt der 10 Tools und ein anderer Fingerabdruck als vor S18b.
+    expect(base.catalog.version).toBe("v1-127776df761f8134");
+    expect(base.catalog.tools).toHaveLength(11);
     expect(base.catalog.get("dev.uppercase")).toBeUndefined();
   });
 
@@ -255,8 +257,8 @@ describe("n8n-Brücke · ausgelieferter Katalog", () => {
       artifactRoot,
       n8n: { workflows: [UPPERCASE_WORKFLOW] },
     });
-    expect(withN8n.catalog.version).not.toBe("v1-53a18ba0cb4e49c8");
-    expect(withN8n.catalog.tools).toHaveLength(11);
+    expect(withN8n.catalog.version).not.toBe("v1-127776df761f8134");
+    expect(withN8n.catalog.tools).toHaveLength(12);
     expect(withN8n.catalog.get("dev.uppercase")?.risk).toBe("read");
   });
 });

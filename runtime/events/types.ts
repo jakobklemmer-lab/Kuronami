@@ -131,6 +131,50 @@ export const EVENT_TYPES = [
   "memory.recalled",
   "memory.skipped",
   "memory.conflicted",
+
+  // Seither dazugekommen (S18b). Kein neuer Namensraum: `context.*` steht seit S18a mit
+  // `context.compacted` für Kontextstufe 2 und 3. Kontextstufe 4 (Abschnitt 7, "Frisches
+  // Fenster statt Kompaktierung") ist derselbe Namensraum, weil sie dieselbe Frage beantwortet
+  // — was aus der Historie wird, bevor sie an das Modell geht —, nur mit einem anderen Auslöser
+  // (Ruhepause, Aufgabenabschluss, oder eine Kette aus Stufe-3-Kompaktierungen ohne die beiden
+  // ersten) und einer knapperen Übergabe statt der sechs Abschnitte aus Stufe 3.
+  //
+  //   * `context.section_started` — ein frischer Abschnitt beginnt. Trägt `through_seq` wie
+  //     `context.compacted` (Stufe 3): die höchste bisherige Marke aus beiden Ereignistypen
+  //     zusammen sagt, bis wohin die Historie schon ersetzt ist (`context/compaction.ts` liest
+  //     beide zurück). `handover` ist die kompakte Übergabe — nur was der nächste Abschnitt
+  //     sofort braucht; länger geltendes Wissen geht über das Langzeitgedächtnis (S18) zurück,
+  //     nicht über dieses Feld.
+  "context.section_started",
+
+  // Seither dazugekommen (S18c). Ein siebzehnter Namensraum: das Skill-System (progressive
+  // Offenlegung, Abschnitt 9) braucht eine eigene Aussage über **Nutzung**, die kein
+  // bestehender Typ trägt. `skill.load` schreibt wie jedes Tool ein generisches
+  // `tool.completed`, aber das trüge "welcher Skill wurde wann benutzt" nur als Feld in einem
+  // Payload, das man erst filtern müsste — genau die Frage, die zuerst gestellt wird, wenn ein
+  // Skill sich falsch verhalten hat (dieselbe Begründung wie bei `policy.secret_accessed`,
+  // S11, und bei `memory.recalled`, S18).
+  //
+  //   * `skill.invoked` — ein oder mehrere Skills wurden über `skill.load` vollständig
+  //     nachgeladen: ihre komplette Anleitung steht ab jetzt im Kontext. Kein `skill.installed`
+  //     oder Ähnliches — diese Session baut keine Installation neuer Skills, nur das Laden
+  //     bestehender (siehe `docs/ARCHITEKTUR.md`, Abschnitt 9).
+  "skill.invoked",
+
+  // Seither dazugekommen (S18e). Kein neuer Namensraum: `model.*` steht seit Abschnitt 4.4 mit
+  // `model.requested`/`model.responded` für den eigentlichen Modellaufruf. Der Routing-Schritt
+  // davor (Abschnitt 11, `runtime/model/router.ts`) ist dieselbe Familie von Aussagen — "was
+  // hat das Modell hier getan" —, nur vor dem ersten `model.requested` eines Laufs und mit
+  // einer anderen Frage: nicht "was hat es geantwortet", sondern "welches Modell wurde für den
+  // ganzen Lauf gewählt, und warum". Ein generisches `tool.completed` gäbe es hier ohnehin
+  // nicht (der Router ist kein Tool-Aufruf) und ein Feld in `session.created`/`runtime.started`
+  // würde die Begründung nur schwer auffindbar in einem sessionfremden Ereignis verstecken —
+  // dieselbe Begründung wie bei `skill.invoked` und `memory.recalled`.
+  //
+  //   * `model.routed` — Klasse (`routine`/`thinking`), Begründung, gewähltes Modell und
+  //     welches Modell klassifiziert hat. Steht **einmal** je Session, geschrieben von
+  //     `createRunner` (`runtime/loop/api.ts`), bevor der erste Zug beginnt.
+  "model.routed",
 ] as const;
 
 export type EventType = (typeof EVENT_TYPES)[number];

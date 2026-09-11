@@ -51,11 +51,18 @@ async function main(): Promise<void> {
   const artifactRoot = artifactRootFromEnv();
   const n8nBaseUrl = process.env.N8N_BASE_URL?.trim();
   const obsidianVault = process.env.OBSIDIAN_VAULT_PATH?.trim();
-  const { catalog, policy } = await buildCatalog({
+  const { catalog, policy, memory, skills } = await buildCatalog({
     pool,
     artifactRoot,
     n8n: n8nBaseUrl ? { mail: true, cal: true, server: true } : undefined,
     obsidian: obsidianVault ? {} : undefined,
+    // Anders als `n8n`/`obsidian`: ein leeres Objekt reicht, um das Langzeitgedächtnis
+    // einzuschalten (`buildCatalog` fällt auf `MEMORY_ROOT`/`./memory` zurück). Das Gateway ist
+    // **die** durchgängige Unterhaltung (S16) — ohne Gedächtnis liefe sie über beliebig viele
+    // frische Abschnitte (S18b) hinweg, ohne dass je etwas davon zurückkäme.
+    memory: {},
+    // Skills (S18c) sind derselbe Fall: kein Anschluss nach draußen, sondern Teil des Systems.
+    skills: {},
   });
 
   // Ohne Modell kann das Gateway keine Nachricht beantworten. Anders als beim Runtime-Skelett
@@ -63,7 +70,15 @@ async function main(): Promise<void> {
   // hier sinnlos — er endete bei der ersten Nachricht in einem Fehler statt beim Start.
   const model = createAnthropicClient();
 
-  const conversations = createConversations({ pool, artifactRoot, catalog, policy, model });
+  const conversations = createConversations({
+    pool,
+    artifactRoot,
+    catalog,
+    policy,
+    model,
+    memory,
+    skills,
+  });
   const web = createWebChannel();
   const channels = new Map<ChannelId, ChannelPort>([["web", web]]);
 
@@ -134,6 +149,9 @@ async function main(): Promise<void> {
     // `stopAll` schreibt je Läufer ein `runtime.stopped`. Ein übersehener Läufer hinterlässt
     // ein `runtime.started` ohne Gegenstück — seit S04 das Kennzeichen eines Absturzes.
     await conversations.stopAll(reason);
+    // Wer den Store geöffnet hat, schließt ihn — dasselbe Eigentumsmuster wie beim Pool (S03),
+    // wie in `runtime/index.ts`.
+    memory?.close();
     await pool.end().catch(() => undefined);
     console.log("[gateway] beendet.");
   }

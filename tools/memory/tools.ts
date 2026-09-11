@@ -230,6 +230,10 @@ export function createMemoryTools(deps: MemoryToolDeps): ToolDefinition[] {
         "Durchsucht das Langzeitgedächtnis (Volltext über frühere Notizen: Ereignisse und Erkenntnisse aus vergangenen Läufen). Zu Beginn jedes Zugs wird bereits automatisch gesucht; dieses Werkzeug ist für gezielte Nachfragen mit anderen Suchwörtern. Treffer, denen eine neuere Notiz widerspricht, sind als solche gekennzeichnet.",
       risk: "read",
       repeatable: true,
+      // Assistenz-Tool (Abschnitt 9), nicht Kern-Primitiv — verzögertes Laden (S18b). Der
+      // automatische Recall vor jedem Zug (`recallForTurn`) läuft direkt auf dem Speicher, nicht
+      // über dieses Tool oder den Katalog — er ist davon unberührt.
+      deferred: true,
       inputSchema: {
         fields: {
           query: {
@@ -257,6 +261,10 @@ export function createMemoryTools(deps: MemoryToolDeps): ToolDefinition[] {
       // trifft auf `-2`. Das ist eine sichtbare Doppelung und kein Datenverlust, also
       // wiederholbar (wie fs.write, S08).
       repeatable: true,
+      // Assistenz-Tool (Abschnitt 9) — verzögertes Laden (S18b). `summarizeRun` ruft es über
+      // `callTool` direkt am Namen auf, nicht über einen Modellaufruf, und ist davon unberührt
+      // (`deferred` betrifft nur, was in der an den Anbieter gesendeten Werkzeugliste steht).
+      deferred: true,
       inputSchema: {
         fields: {
           content: {

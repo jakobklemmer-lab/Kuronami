@@ -212,6 +212,8 @@ export function createServerTools(deps: ServerToolDeps): ToolDefinition[] {
         "Liest die aktuellen Server-Kennzahlen (CPU, RAM, Disk, Load, Uptime u. a.) aus derselben Quelle wie das bestehende Dashboard. In den Kontext geht eine knappe Zusammenfassung; der vollständige Kennzahlen-Block liegt als Artefakt-Handle bei.",
       risk: "read",
       repeatable: true,
+      // Assistenz-Tool (Abschnitt 9), nicht Kern-Primitiv — verzögertes Laden (S18b).
+      deferred: true,
       inputSchema: {
         fields: {
           window: {

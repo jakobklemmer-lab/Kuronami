@@ -17,13 +17,17 @@ import { buildVaultRoot } from "../../tools/notes/paths.js";
 import { createNotesTools } from "../../tools/notes/tools.js";
 import { ToolRegistry } from "../../tools/registry.js";
 import { createServerTools } from "../../tools/server/tools.js";
+import { type SkillCatalog, loadSkillCatalog } from "../../tools/skill/catalog.js";
+import { createSkillTools } from "../../tools/skill/tools.js";
 import { createTaskTools } from "../../tools/task/tools.js";
+import { createToolIntrospectionTools } from "../../tools/tool/tools.js";
 import type { ToolCatalog } from "../../tools/types.js";
 import { createUserTools } from "../../tools/user/tools.js";
 import { buildEgressPolicy } from "../../tools/web/egress.js";
 import { createWebTools } from "../../tools/web/tools.js";
 import { artifactRootFromEnv } from "../artifacts/store.js";
 import { appendEvent, readEvents } from "../events/log.js";
+import { type ModelRouterDeps, type RouteDecision, routeTask } from "../model/router.js";
 import type { ModelClient } from "../model/types.js";
 import { cancelSession } from "../session/lifecycle.js";
 import { type RuntimeHandle, startRuntime } from "../session/manager.js";
@@ -58,8 +62,8 @@ export interface CatalogConfig {
   egressAllowlist?: readonly string[];
   /**
    * n8n-Anbindung (S13/S14). Ohne Angabe: nichts — dann bleibt der Katalog-Fingerabdruck
-   * unverändert (`v1-53a18ba0cb4e49c8`, 10 Tools). `baseUrl`/`token` fallen auf
-   * `N8N_BASE_URL`/`N8N_WEBHOOK_TOKEN` zurück.
+   * unverändert (`v1-127776df761f8134`, 11 Tools — 10 aus S12/S13 plus `tool.load` seit
+   * S18b). `baseUrl`/`token` fallen auf `N8N_BASE_URL`/`N8N_WEBHOOK_TOKEN` zurück.
    *
    *   * `workflows` — generische n8n-Workflows als Tools (`createN8nTools`, S13).
    *   * `mail` — die Assistenz-Tools `mail.search`/`mail.read`/`mail.draft` (S14). Sie sind
@@ -101,6 +105,14 @@ export interface CatalogConfig {
    * ausdrückliches Feld schaltet Tools frei, Umgebungsvariablen liefern nur den Pfad.
    */
   memory?: { root?: string; indexFile?: string; git?: boolean };
+  /**
+   * Skills (S18c) — Fähigkeiten mit progressiver Offenlegung aus `skills/<name>/SKILL.md`.
+   * Gesetzt, kommt `skill.load` in den Katalog **und** die Kurzliste (Titel, Beschreibung,
+   * Auslösebedingung) neben die Konventionen im Prompt (`context/request.ts`). Wie `memory`:
+   * ein leeres Objekt reicht, `root` fällt auf `SKILLS_ROOT` und dann auf `./skills` zurück.
+   * Ohne das Feld bleibt der Katalog-Fingerabdruck unverändert.
+   */
+  skills?: { root?: string };
   /**
    * Das Profil des Katalogs. Vorgabe `"full"`: alles, was oben verdrahtet ist.
    *
@@ -149,6 +161,13 @@ export const BACKGROUND_TOOLSET: readonly string[] = [
   "memory.search",
   "task.set",
   "task.update",
+  // Ohne diesen Eintrag könnte ein Hintergrundlauf ein `deferred`-Tool aus der obigen Liste
+  // (`memory.search`, S18b) nie mit vollem Schema sehen — der Hintergrundkatalog bekäme einen
+  // Ausweg aus dem `<deferred_tools>`-Block genommen, den der volle Katalog behält.
+  "tool.load",
+  // Skills sind reines Lesen und Nachschlagen (S18c) — ein Digest, der einer eigenen Anleitung
+  // folgen soll (S18d), braucht denselben Ausweg aus dem `<skills>`-Block wie der volle Katalog.
+  "skill.load",
 ];
 
 export interface BuiltCatalog {
@@ -160,6 +179,8 @@ export interface BuiltCatalog {
    * Eigentumsmuster wie beim Pool seit S03.
    */
   memory?: MemoryStore;
+  /** Der Skill-Katalog (S18c), wenn konfiguriert — der Aufrufer reicht ihn an `createRunner` weiter. */
+  skills?: SkillCatalog;
 }
 
 /**
@@ -198,7 +219,7 @@ export async function buildCatalog(config: CatalogConfig): Promise<BuiltCatalog>
     .registerAll(createUserTools({ pool: config.pool }));
 
   // n8n-Tools (S13/S14/S15). Nur wenn etwas konfiguriert ist — sonst bleibt der Fingerabdruck
-  // des ausgelieferten Katalogs unverändert (`v1-53a18ba0cb4e49c8`, 10 Tools). Eine Brücke,
+  // des ausgelieferten Katalogs unverändert (`v1-127776df761f8134`, 11 Tools). Eine Brücke,
   // alle Wege teilen sie.
   const n8nWorkflows = config.n8n?.workflows ?? [];
   const wantMail = config.n8n?.mail === true;
@@ -245,6 +266,25 @@ export async function buildCatalog(config: CatalogConfig): Promise<BuiltCatalog>
     registry.registerAll(createMemoryTools({ store: memory, pool: config.pool }));
   }
 
+  // skill.* (S18c). Wie `memory`: nur wenn ausdrücklich konfiguriert. Der Katalog wird hier
+  // gescannt (einmal, wie `loadConventions()` AGENTS.md liest) und nicht erst im Runner, weil
+  // er zwei Verbraucher hat — das Tool im Katalog und die Kurzliste im Prompt (`LoopDeps.skills`)
+  // —, und beide sollen dieselbe eine Lesung der Platte sehen.
+  let skills: SkillCatalog | undefined;
+  if (config.skills) {
+    skills = await loadSkillCatalog(
+      config.skills.root ?? process.env.SKILLS_ROOT?.trim() ?? "skills",
+    );
+    registry.registerAll(createSkillTools({ catalog: skills, pool: config.pool }));
+  }
+
+  // `tool.load` (S18b) braucht beim Registrieren schon den übrigen Katalog, um Namen darin
+  // nachzuschlagen — und muss selbst Teil des endgültig ausgelieferten Katalogs sein, damit es
+  // wie jedes andere Tool im Fingerabdruck steht. Zwei Einfrierungen lösen das, ohne dass
+  // `tool.load` sich selbst bräuchte: `prelim` ist nur die Nachschlagequelle im Handler, nie
+  // eine zweite, nach außen sichtbare Katalogversion.
+  const prelim = registry.freeze();
+  registry.registerAll(createToolIntrospectionTools({ catalog: prelim }));
   const full = registry.freeze();
 
   // Hintergrundprofil (S17): auf die Whitelist einschränken und mit einem eigenen
@@ -265,13 +305,33 @@ export async function buildCatalog(config: CatalogConfig): Promise<BuiltCatalog>
     catalog,
     policy: createPolicyEngine({ resolvePath: policyResolver(zones), rules }),
     memory,
+    skills,
   };
 }
 
-export interface RunnerConfig extends Omit<LoopDeps, "conventions" | "signal" | "artifactRoot"> {
+export interface RunnerConfig
+  extends Omit<LoopDeps, "conventions" | "signal" | "artifactRoot" | "model"> {
   threadId: string;
   channel: SessionChannel;
   artifactRoot?: string;
+  /**
+   * Ohne `router`: das Modell für den ganzen Lauf, wie seit S12 — fest für die Dauer der
+   * Session (Abschnitt 7). Pflicht, sofern `router` nicht gesetzt ist.
+   */
+  model?: ModelClient;
+  /**
+   * Modell-Routing (S18e, Abschnitt 11, `runtime/model/router.ts`): ein Routing-Schritt **vor**
+   * dem eigentlichen Lauf klassifiziert `classifyInput` grob und wählt danach eines der beiden
+   * Modelle für die ganze (neue) Session — überschreibt `model`. Ohne `router` bleibt das
+   * Verhalten aus S12 unverändert.
+   *
+   * Greift nur bei der **Neuanlage** einer Session: eine bestehende trägt ihr Modell schon im
+   * Protokoll (`model.routed`), und ein zweiter Routing-Lauf widerspräche Abschnitt 7 ("Modell
+   * nicht mitten in der Session wechseln"). `createRunner` routet deshalb unabhängig davon, ob
+   * die Session neu ist — bei einer wiederaufgenommenen Session ist das Ergebnis nur folgenlos,
+   * weil `model.routed` dann kein zweites Mal geschrieben wird (siehe unten).
+   */
+  router?: ModelRouterDeps & { classifyInput: string };
   /**
    * `kuronami.sessions.mode` bei der Neuanlage. Vorgabe: der Startwert `"execute"`. Der
    * Heartbeat (S17) setzt `"background"` — das Feld ist dokumentierend (die Governance-Schicht
@@ -391,6 +451,47 @@ async function turnSteps(pool: Pool, sessionId: string, turnId: string): Promise
   return lines;
 }
 
+/** Weder `model` noch `router` gesetzt — `createRunner` weiß dann nicht, was den Lauf trägt. */
+export class RunnerModelConfigError extends Error {}
+
+/**
+ * Welches Modell diesen Lauf trägt (S18e). Ohne `router`: `config.model`, unverändert seit
+ * S12. Mit `router`: bei einer **neuen** Session der frische Routing-Schritt (`routeTask`);
+ * bei einer **wiederaufgenommenen** die schon getroffene Entscheidung, zurückgelesen aus
+ * `model.routed` — ein zweiter Routing-Lauf mitten in der Session widerspräche Abschnitt 7
+ * ("Modell nicht mitten in der Session wechseln"), und das Protokoll ist die Wahrheit über
+ * eine schon getroffene Entscheidung, nicht der Prozess (S04/S05).
+ */
+async function resolveRunModel(
+  pool: Pool,
+  runtime: RuntimeHandle,
+  config: RunnerConfig,
+): Promise<{ model: ModelClient; routeDecision?: RouteDecision }> {
+  if (!config.router) {
+    // Geprüft, bevor die Session überhaupt existiert (siehe `createRunner`) — `config.model`
+    // steht hier garantiert.
+    return { model: config.model as ModelClient };
+  }
+
+  if (runtime.created) {
+    const decision = await routeTask(config.router, config.router.classifyInput);
+    return { model: decision.model, routeDecision: decision };
+  }
+
+  const events = await readEvents(pool, runtime.session.sessionId);
+  const prior = [...events].reverse().find((event) => event.type === "model.routed");
+  const chosenModel =
+    typeof prior?.payload.chosen_model === "string" ? prior.payload.chosen_model : undefined;
+  if (chosenModel === config.router.routineModel.model)
+    return { model: config.router.routineModel };
+  if (chosenModel === config.router.thinkingModel.model)
+    return { model: config.router.thinkingModel };
+  // Keine frühere Entscheidung im Protokoll (Session älter als S18e, oder ohne Router angelegt):
+  // `model` bleibt der Ausweg, sonst der sichere Fallback auf die stärkere Klasse — dieselbe
+  // Vorsicht wie bei einer uneindeutigen Klassifikation (`runtime/model/router.ts`).
+  return { model: config.model ?? config.router.thinkingModel };
+}
+
 /**
  * Nimmt die Session auf und gibt den Läufer zurück.
  *
@@ -406,18 +507,42 @@ export async function createRunner(config: RunnerConfig): Promise<Runner> {
   const memory = config.memory;
   const summarize = config.summarizeToMemory ?? (completeOnDone && memory !== undefined);
 
+  if (!config.model && !config.router) {
+    throw new RunnerModelConfigError(
+      "Weder `model` noch `router` gesetzt — createRunner braucht eines von beiden, um zu wissen, welches Modell diesen Lauf trägt.",
+    );
+  }
+
   const runtime: RuntimeHandle = await startRuntime(pool, {
     threadId: config.threadId,
     channel: config.channel,
     defaults: {
       mode: config.sessionMode,
       toolCatalogVersion: config.catalog.version,
-      modelProfile: config.model.model,
+      // Ohne Router: das feste Modell, wie seit S12. Mit Router: keine Vorgabe hier — welches
+      // Modell gewählt wurde, steht maßgeblich im `model.routed`-Ereignis (Abschnitt 4.4), und
+      // dieses Feld ist ohnehin nur dokumentierend (`SessionDefaults`, `runtime/session/
+      // manager.ts`), keine zweite Wahrheit.
+      modelProfile: config.model?.model,
     },
   });
 
+  const { model, routeDecision } = await resolveRunModel(pool, runtime, config);
+
+  if (routeDecision) {
+    // Modell-Routing (S18e): welches Modell und warum — bevor der eigentliche Lauf beginnt
+    // (kein Zug, kein `turn.started` steht vor diesem Ereignis).
+    await appendEvent(pool, runtime.session.sessionId, "model.routed", {
+      task_class: routeDecision.taskClass,
+      reason: routeDecision.reason,
+      chosen_model: model.model,
+      classifier_model: routeDecision.classifierModel,
+    });
+  }
+
   const loopDeps: LoopDeps = {
     ...config,
+    model,
     artifactRoot,
     conventions,
     signal: runtime.signal,
@@ -447,7 +572,7 @@ export async function createRunner(config: RunnerConfig): Promise<Runner> {
       if (summarize && result.stop === "done" && memory) {
         await summarizeRun({
           pool,
-          model: config.model,
+          model,
           catalog: config.catalog,
           policy: config.policy,
           artifactRoot,

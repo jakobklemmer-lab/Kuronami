@@ -5,9 +5,10 @@ progress-archiv.md nachschlagen (z. B. mit grep nach der Session-ID).
 
 ## Aktueller Stand
 
-Phase 4 laeuft. Zuletzt abgeschlossen: **S18b** (Frisches-Fenster-Heuristik und verzoegertes
-Tool-Laden), 2026-09-11. Naechste Session: **S18c** Skill-System (progressive Offenlegung),
-Status `ready`.
+Phase 4 laeuft. Zuletzt abgeschlossen: **S18e** (Modell-Routing), 2026-09-11 — **S18d** (Erste
+eigene Skills) wurde dabei übersprungen, auf ausdrücklichen Auftrag ("Aufgabe dieser Session:
+Modell-Routing"), und steht weiter auf `ready`. Naechste Session: **S18f** Eval-Suite fuer lange
+Laeufe, Status `ready`. Wer S18f angeht, sollte vorher entscheiden, ob S18d nachgeholt wird.
 
 ## Sessions
 
@@ -34,10 +35,10 @@ Status `ready`.
 | S18 | Langzeitgedächtnis | done |
 | S18a | Kompaktierung Stufe 2+3 und Cache-Messung | done |
 | S18b | Frisches-Fenster-Heuristik und verzoegertes Tool-Laden | done |
-| S18c | Skill-System (progressive Offenlegung) | ready |
-| S18d | Erste eigene Skills | queued |
-| S18e | Modell-Routing | queued |
-| S18f | Eval-Suite fuer lange Laeufe | queued |
+| S18c | Skill-System (progressive Offenlegung) | done |
+| S18d | Erste eigene Skills | ready |
+| S18e | Modell-Routing | done |
+| S18f | Eval-Suite fuer lange Laeufe | ready |
 | S19 | Agenten-Registry und agent.create | queued |
 | S20 | Erste Subagent-Besetzung | queued |
 | S21 | Kosten-Tracking und Modell-Routing | queued |
@@ -77,9 +78,291 @@ Details siehe progress-archiv.md.
 - **Diverse lineare Scans/wiederholte Arbeit je Zug statt je Session**: `estimateFixedOverheadTokens`
   (S18a), `stage3StreakSince`/`taskCompletedSince` (S18b), Teilwortsuche im Langzeitgedächtnis
   (S18) — bei heutigen Groessen unmessbar, aber ohne Faltung ueber Zuege hinweg.
+- **`<skills>`-Block waechst unbegrenzt** mit der Zahl der Skills (S18c), dieselbe Lage wie
+  bei `<deferred_tools>` (S18b) — bei zehn Dummy-Skills im Test unauffaellig, S18d laesst den
+  Bestand wachsen.
+- **`skill.load` bietet keine automatische Auslagerung fuer aussergewoehnlich grosse Skills**
+  (S18c) — wie bei `tool.load` wirft `callRuntimeTool` stattdessen `ToolOutputTooLargeError`.
+  Fuer heutige Skillgroessen kein Thema, aber eine bewusste Grenze, keine vergessene.
 - Weitere kleinere, session-lokale Befunde (Web-Postfach-Groesse, Git-Prozessstarts je Notiz,
   Injection-Scan-Groesse, Katalog-Migrationspfad bei zwei Kanaelen, `ensureGitIdentity` nur
   beim Anlegen, u. a.) stehen im Detail in progress-archiv.md bei der jeweiligen Session.
+- **S18d (Erste eigene Skills) wurde uebersprungen**, S18e (Modell-Routing) lief direkt danach
+  auf ausdruecklichen Auftrag. `tasks.json` haelt S18d bewusst auf `ready`, nicht auf `done` —
+  wer als naechstes S18f angeht, sollte vorher entscheiden, ob S18d nachgeholt wird oder endgueltig
+  entfaellt.
+- **Der Router (S18e) ist an keinem echten Aufrufer verdrahtet.** `createRunner` kennt `router`
+  als Option, aber `runtime/index.ts`, `gateway/conversation.ts` und `heartbeat/` reichen weiter
+  nur `model` durch. Bewusst so gelassen (siehe S18e, "Bewusst nicht gebaut") — die tatsaechliche
+  Verkabelung fuer den produktiven Pfad ist eine Entscheidung ueber Kosten und Verhalten, die der
+  Auftrag S18e nicht verlangt hat.
+- **Kein echter Modellaufruf fuer die Klassifikation selbst pruefbar** (S18e), aus demselben
+  Grund wie bei Kompaktierung und Uebergabe seit S18a: `ANTHROPIC_API_KEY` ist leer. Die Tests
+  beweisen die Mechanik (Klassifikation entscheidet Modellwahl, Entscheidung steht im Protokoll,
+  kein zweites Routing in derselben Session), nicht ob ein echtes guenstiges Modell die Frage
+  "Routine oder Denkarbeit" in der Praxis richtig beantwortet.
+- **Nur zwei Klassen, Abschnitt 11 kennt drei** (S18e): "klein und guenstig", "mittel",
+  "stark" — der Router kennt nur die aeusseren beiden ("Routine"/"Denkarbeit"), wie im Auftrag
+  woertlich verlangt ("grob klassifiziert"). Die mittlere Klasse ("Zusammenfassen, einfache
+  Tool-Auswahl") bleibt vorerst unbenannt; `compactionModel` (S18a) faellt weiterhin auf das
+  Orchestrator-Modell zurueck, wenn niemand explizit ein zweites uebergibt.
+
+## S18e · Modell-Routing · 2026-09-11
+
+Fünfte Session der Phase 4, nach S18d übersprungen auf ausdrücklichen Auftrag. Vier Vorgaben,
+alle wörtlich: ein Routing-Schritt vor dem eigentlichen Lauf, der grob zwischen Routine (günstig)
+und Denkarbeit (stark) unterscheidet; die Modellzuteilung als einfache Konfiguration statt einer
+Registry-Tabelle — die baut erst S19 —, im Code klar als Übergangslösung markiert; der Router
+selbst läuft auf dem günstigsten sinnvollen Modell; die Entscheidung samt Begründung landet im
+Ereignisprotokoll.
+
+**Neu: `runtime/model/router.ts`.** Der Kern ist eine einzige Funktion, `routeTask`: sie schickt
+die Eingabe an `deps.routineModel` mit einem knappen Klassifikationsauftrag ("ROUTINE" oder
+"THINKING", je ein Satz Begründung, `maxTokens: 128`) und wählt danach eines der beiden
+übergebenen Modelle. Der Klassifikator ist **kein dritter Modell-Client**: er läuft über
+`routineModel` selbst — dieselbe Instanz, die auch für Routineaufgaben lief —, weil
+Klassifikation nach Abschnitt 11 selbst in die günstigste Klasse fällt und ein eigener,
+dritter Client dem eigenen Zweck widerspräche. Eine uneindeutige Antwort fällt sicher auf
+`thinking` zurück (eine unterversorgte Denkaufgabe kostet mehr als eine überversorgte
+Routineaufgabe), ein gescheiterter Klassifikationsaufruf wird **nicht** verschluckt (AGENTS.md:
+"Fehler nie verstecken") — es gibt keine sinnvolle Rückfalloption, welches Modell einen ganzen
+Lauf trägt.
+
+**Konfiguration statt Registry, mit Verfallsdatum im Kommentar.** `resolveModelRouteConfig` liest
+zwei Umgebungsvariablen (`MODEL_ROUTINE`, `MODEL_THINKING`) mit Startwerten
+(`claude-haiku-4-5-20251001` bzw. dasselbe `DEFAULT_MODEL` wie der Orchestrator) — zwei globale
+Werte für die ganze Runtime, keine Tabelle mit einem Eintrag pro Agent oder Rolle. Der
+Moduldoc-Kommentar sagt das ausdrücklich: S19 (Agenten-Registry, `agent.create`) ersetzt diese
+Datei durch ein Nachschlagen in der Registry, ohne dass der Aufrufer (`runtime/loop/api.ts`)
+sich ändern muss — er reicht schon heute nur zwei `ModelClient`s herein und bekommt eine
+`RouteDecision` zurück, nichts davon ist an "zwei globale Werte" gebunden.
+
+**Wo der Schritt sitzt: vor der Session, nicht vor dem Zug.** Der naheliegende erste Ort wäre
+`runTurn` gewesen, dort, wo ohnehin schon Kontextstufe 4 und das Langzeitgedächtnis vor einem
+neuen Zug greifen (`runtime/loop/loop.ts`). Das ist aber falsch: `deps.model` gilt nicht nur für
+einen Zug, sondern für **jeden** Schritt der ganzen Session (Abschnitt 7: "Modell nicht mitten in
+der Session wechseln, stattdessen Subagent starten"), und eine lange Unterhaltung (Gateway, S16)
+hat viele Züge, aber nur eine Session. "Vor dem eigentlichen Lauf" heißt deshalb: vor
+`createRunner`s Session-Anlage, nicht vor jedem `runTurn`. `RunnerConfig` bekommt ein optionales
+`router: ModelRouterDeps & { classifyInput: string }`, das `model` überschreibt; `model` selbst
+wurde dafür optional (Laufzeitprüfung statt Typtrick: `RunnerModelConfigError`, wenn beides
+fehlt — dieselbe Haltung wie `MissingApiKeyError`).
+
+**Die Reihenfolge um `startRuntime` herum ist die eigentliche Feinheit.** `SessionDefaults.
+modelProfile` will beim Anlegen einer *neuen* Session schon das Modell kennen, aber ob eine
+Session neu ist, weiß erst `startRuntime` selbst (`RuntimeHandle.created`). Aufgelöst über
+dieselbe Erkenntnis wie bei `context_compactions`/`cache_hit_rate` (Abschnitt 12): `modelProfile`
+ist ohnehin nur dokumentierend, keine zweite Wahrheit — bei geroutetem Lauf bleibt es auf der
+Startvorgabe, und die maßgebliche Aussage steht im neuen Ereignis `model.routed`, geschrieben
+**nach** `startRuntime`, sobald `RuntimeHandle.created` bekannt ist. Bei einer **neuen** Session
+läuft `routeTask` frisch; bei einer **wiederaufgenommenen** wird die frühere Entscheidung aus
+`model.routed` zurückgelesen (Modellname gegen `routineModel.model`/`thinkingModel.model`
+abgeglichen) und **nicht** neu klassifiziert — ein zweiter Routing-Lauf mitten in der Session
+widerspräche genau der Abschnitt-7-Regel, die der ganze Mechanismus einhalten soll. Ohne
+frühere Entscheidung (Session älter als S18e, oder ohne Router angelegt) bleibt `config.model`
+der Ausweg, sonst der sichere Fallback auf `thinkingModel`.
+
+**`model.routed` ist ein neues Ereignis, kein neuer Namensraum.** `model.*` trägt seit
+Abschnitt 4.4 schon `model.requested`/`model.responded` für den eigentlichen Aufruf;
+`model.routed` beantwortet dieselbe Familie von Fragen ("was hat das Modell hier getan"), nur vor
+dem ersten `model.requested` eines Laufs und mit einer anderen Frage ("welches Modell wurde für
+den ganzen Lauf gewählt, und warum"). Trägt `task_class`, `reason`, `chosen_model`,
+`classifier_model`. Kein Feld in `session.created` oder `runtime.started`: dieselbe Begründung
+wie bei `skill.invoked` und `memory.recalled` — eine Begründung, die man später sucht, gehört in
+ein eigenes, leicht filterbares Ereignis, nicht in ein Feld eines sessionfremden.
+
+### Tests
+
+10 neue, zusammen 626 (62 Dateien).
+
+- **`runtime/model/router.test.ts`** (7, reine Einheitentests, kein Router/keine Datenbank —
+  wie `context/compaction.test.ts` für Stufe 3): ROUTINE wählt das günstige Modell, THINKING das
+  starke, die Klasse wird auch ohne Doppelpunkt-Trenner erkannt, eine uneindeutige Antwort fällt
+  sicher auf `thinking` zurück, ein Fehler des Klassifikators wird weitergereicht statt
+  verschluckt, `resolveModelRouteConfig` liefert die Startwerte ohne Umgebungsvariablen und
+  gewichtet Override vor Umgebungsvariable vor Startwert.
+- **`runtime/loop/loop.test.ts`**, neue Gruppe "Loop · Modell-Routing (S18e)" (3, echte
+  Datenbank, echter Router/Policy, `classifyingModel`-Fake statt Anbieter): eine Routineaufgabe
+  ("Wie ist der Serverstatus?") läuft nachweisbar mit dem günstigen Modell — `model.routed`
+  trägt `task_class: "routine"`, steht vor `turn.started`, und `model.requested` trägt den
+  Namen des günstigen Modells; eine Planungsaufgabe ("Migrationsplan …") läuft nachweisbar mit
+  dem starken Modell, symmetrisch geprüft; ein zweiter Zug in derselben Session routet **nicht**
+  erneut, selbst mit ganz anderem Text — genau ein `model.routed` im ganzen Protokoll, jeder
+  `model.requested` trägt weiter dasselbe Modell. Das ist der Ende-zu-Ende-Nachweis des
+  Fertig-Kriteriums: "Routine- und Denkaufgabe zeigen unterschiedliche, passende Modellwahl."
+
+### Gegenproben
+
+Keine gesonderten Gegenproben in dieser Session — die drei Mechanismen (Klassifikation wählt das
+richtige Modell, die Entscheidung steht im Protokoll, kein zweites Routing in derselben Session)
+sind direkt durch positive **und** negative Fälle abgedeckt: der dritte Loop-Test prüft
+ausdrücklich, dass ein zweiter, andersartiger Zug **nicht** zu einem zweiten `model.routed`
+führt, und die Router-Einheitentests decken sowohl die eindeutige als auch die uneindeutige
+Antwort sowie den Fehlerfall ab.
+
+### Bewusst nicht gebaut
+
+- **Keine Verdrahtung in einen echten Aufrufer.** `runtime/index.ts` kennt `input` zwar schon vor
+  der Modellwahl (dieselbe Stelle, an der heute `createAnthropicClient()` bedingt aufgerufen
+  wird) und wäre der nächstliegende Ort — aber jeder Aufruf über den Router kostet einen
+  zusätzlichen Modellaufruf (die Klassifikation) gegenüber dem heutigen Verhalten, und das ist
+  eine Verhaltensänderung an einem produktiven Pfad, die der Auftrag nicht verlangt hat. `gateway/`
+  (eine Unterhaltung ohne klares Laufende, Abschnitt 7 gilt über ihre ganze Lebensdauer) und
+  `heartbeat/` (fester Hintergrund-Digest, kein Text, den man vorab klassifizieren müsste) passen
+  ohnehin schlechter. Der Mechanismus steht bereit; ihn an einen echten Aufrufer anzuschließen
+  ist eine Entscheidung, die der nächste Auftrag treffen sollte, nicht diese Session von sich aus.
+- **Keine dritte Klasse ("mittel").** Abschnitt 11 kennt drei Stufen, der Auftrag verlangt
+  ausdrücklich nur die grobe Zweiteilung ("Routine (günstiges Modell) vs. Denkarbeit (starkes
+  Modell)"). `compactionModel` (S18a) bleibt unverändert bei "fällt auf das Orchestrator-Modell
+  zurück, wenn nicht gesetzt".
+- **Kein Umschalten des Modells mitten in einer laufenden Session**, auch nicht bei einem
+  thematischen Sprung mitten in einer langen Unterhaltung — das wäre genau das, was Abschnitt 7
+  verbietet ("stattdessen Subagent starten"), und dieser Auftrag baut keinen Subagenten (S19/S20).
+- **Keine Kostenrechnung.** Die Begründung im Protokoll sagt, *warum* geroutet wurde, nicht was es
+  gekostet hat — das ist S21 ("Kosten-Tracking und Modell-Routing").
+
+### Offene Befunde (Details zu S18e)
+
+Siehe die neuen Einträge oben unter "Offene Befunde (gesamte Historie)": S18d übersprungen, der
+Router an keinem echten Aufrufer verdrahtet, kein echter Modellaufruf für die Klassifikation
+prüfbar, nur zwei statt drei Klassen aus Abschnitt 11.
+
+- `pnpm typecheck && pnpm lint && pnpm test` grün, 626 Tests.
+- `tasks.json`: S18e auf `done`, S18f von `queued` auf `ready`.
+
+Status: abgeschlossen. Nächste Session: S18f Eval-Suite für lange Läufe.
+
+## S18c · Skill-System (progressive Offenlegung) · 2026-09-11
+
+Dritte Session der Phase 4. Der Auftrag verlangt vier Dinge, alle wörtlich: `skills/<name>/
+SKILL.md` mit Frontmatter (Titel, Beschreibung, wann anwenden), nur die Kurzliste aller Skills
+im Prompt, die volle `SKILL.md` erst bei tatsächlicher Nutzung nachgeladen, Skill-Nutzung als
+eigener Ereignistyp, und fremde Skills vor Aktivierung gelesen statt blind ausgeführt.
+
+**Dieselbe Mechanik wie das verzögerte Tool-Laden (S18b), auf ein anderes Gebiet angewendet.**
+`ToolDefinition.deferred` trennt schon Kern-Primitive von Assistenz-Tools; ein Skill ist aber
+kein Tool (kein Handler, kein Eingabeschema) und passt nicht in dieses Feld. Also ein
+paralleler, eigener Mechanismus mit demselben Prinzip: `tools/skill/catalog.ts` scannt
+`skills/` einmal beim Sessionstart (`loadSkillCatalog`, dieselbe Bauart wie `loadConventions()`
+für `AGENTS.md`) und hält Titel, Beschreibung, Auslösebedingung **und** den vollen Rumpf jedes
+Skills im Speicher. `context/request.ts` legt daraus einen `<skills>`-Block neben die
+Konventionen — eine Zeile je Skill, nach demselben Muster wie `<deferred_tools>` —, der leer
+bleibt, wenn kein Skill konfiguriert ist. `skill.load` (`tools/skill/tools.ts`, neuer
+Namensraum `skill`) ist der Weg zur vollen Anleitung: ein Aufruf mit Namen liefert Titel,
+Beschreibung, Auslösebedingung und Rumpf als Ergebnis, damit ab diesem Zug im Kontext.
+
+**Ein Unterschied zu `tool.load`, mit Absicht.** Die Kurzliste **schrumpft nicht**, wenn ein
+Skill geladen wurde — anders als ein geladenes Tool-Schema (das die native Werkzeugliste
+ersetzt) gibt es für einen benutzten Skill keine Zweitrepräsentation, die den Kurzeintrag
+überflüssig machte; er kann in einem späteren Zug erneut gebraucht werden. Ein zweiter
+Unterschied, technisch: `skill.load` braucht **nicht** den Zweischritt-Einfrieren, den
+`tool.load` beim Registrieren braucht (`runtime/loop/api.ts`, `prelim`/`full`) — es schlägt in
+einer eigenen Struktur (`SkillCatalog`) nach, nicht im `ToolCatalog`, den es selbst mitbildet,
+also kein Henne-Ei-Problem.
+
+**Skill-Nutzung als eigener Ereignistyp.** `skill.load` schreibt wie jedes Tool ein generisches
+`tool.completed` (der Router tut das unabhängig vom Handler), aber der Handler schreibt
+zusätzlich `skill.invoked` mit den geladenen Namen — dieselbe Bauart wie `memory.conflicted`
+neben `tool.completed` von `memory.write` (S18): ein Handler, der neben seinem Ergebnis noch
+eine domänenspezifische Aussage ins Protokoll trägt, die ein generisches Ereignis nur als
+schwer filterbares Feld hätte. `skill` ist damit sowohl ein neuer Tool-Namensraum
+(`tools/types.ts`) als auch ein neuer Ereignis-Namensraum (`runtime/events/types.ts`, 17. statt
+16. Namensraum — `runtime/events/log.test.ts` hatte die Zahl fest verdrahtet und wurde
+angepasst).
+
+**"Fremde Skills werden vor Aktivierung gelesen, nicht blind ausgeführt" ist eine Eigenschaft
+der Bauart, keine Verabredung.** Es gibt in diesem System keinen zweiten Weg, auf dem eine
+Skill-Anleitung wirksam werden könnte: der `<skills>`-Block trägt nie mehr als die
+Kurzfassung, es gibt kein `skill.run`, das eine Anleitung ausführte, ohne sie vorher in den
+Kontext zu legen. Jeder Weg, auf dem ein Skill etwas bewirkt, führt zwingend zuerst durch
+`skill.load` (oder durch `fs.read` auf dieselbe Datei — mit demselben Ergebnis: voller Text im
+Kontext, bevor irgendetwas daraus befolgt wird). Diese Session baut **keine** Installation
+neuer Skills aus einer externen Quelle — das meint der Wortlaut in Abschnitt 4.7 ("vor der
+Installation gelesen") eigentlich, aber ein Installationsmechanismus ist nicht Teil des
+Auftrags von S18c und auch von keinem Test verlangt; die erste eigene Nutzung echter Skills
+ist S18d.
+
+**Wiederverwendeter Frontmatter-Parser, keine zweite Wahrheit.** `tools/skill/catalog.ts`
+importiert `parseNote`/`requireScalar` aus `tools/memory/frontmatter.ts` statt einen zweiten,
+strukturell identischen Parser zu schreiben — der dortige ist bereits generisch (zwei Formen,
+ohne Kopplung an Notizen) und genau das, was eine `SKILL.md` auch braucht. Dieselbe Haltung wie
+bei `largestBalancedPrefix`/`renderSpan`, die S18b aus `context/compaction.ts` exportiert hat,
+statt sie in `context/section.ts` zu verdoppeln.
+
+**Wiring.** `runtime/loop/api.ts`: `CatalogConfig.skills?: { root?: string }` (opt-in wie
+`memory`/`obsidian` — ohne das Feld bleibt der Katalog-Fingerabdruck unverändert),
+`BuiltCatalog.skills`, `"skill.load"` zusätzlich in `BACKGROUND_TOOLSET` (dieselbe Begründung
+wie bei `tool.load`: ein Digest, der später einer eigenen Anleitung folgen soll, S18d, braucht
+denselben Ausweg aus dem `<skills>`-Block). `runtime/loop/loop.ts`: `LoopDeps.skills`,
+durchgereicht an `buildModelRequest`. `runtime/index.ts` und `gateway/index.ts` schalten
+Skills **immer** ein (`skills: {}`), aus derselben Begründung wie beim Langzeitgedächtnis:
+kein Anschluss nach draußen wie n8n oder der Obsidian-Vault, sondern Teil des Systems.
+`heartbeat/index.ts` bleibt unangetastet — es verdrahtet heute auch `memory` nicht, und das
+nachzuziehen ist ein eigenes, hier nicht aufgeworfenes Thema.
+
+### Tests
+
+23 neue, zusammen 616 (61 Dateien) — inklusive der zehn Dummy-Skills aus dem Auftrag.
+
+- **`tools/skill/catalog.test.ts`** (9, reines Dateisystem, kein Router): lädt zehn Dummy-Skills
+  sortiert nach Namen, trägt Titel/Beschreibung/Auslösebedingung/Rumpf korrekt je Skill, liefert
+  einen leeren Katalog bei fehlender Wurzel, überspringt ein Verzeichnis ohne `SKILL.md` und eine
+  Datei auf oberster Ebene (`skills/README.md`), lässt einen kaputten Skill (fehlendes
+  Pflichtfeld, leerer Rumpf) draußen, ohne die übrigen mitzureißen, ignoriert einen Ordnernamen
+  außerhalb der Namenskonvention.
+- **`tools/skill/tools.test.ts`** (5, echter Router): `skill.load` lädt die volle Anleitung ohne
+  Schritt, schreibt `skill.invoked` mit Namen und Pfad, meldet unbekannte Namen ohne die
+  bekannten zu verlieren, schreibt kein `skill.invoked`, wenn kein Name bekannt ist, weist eine
+  leere Namensliste ab.
+- **`context/request.test.ts`**, neue Gruppe "Skills (S18c)" (5): die Kurzliste aller zehn
+  Dummy-Skills steht neben den Konventionen; der volle Anleitungstext (mit einem eindeutigen
+  Marker) steht **nicht** darin und die Kurzliste bleibt unter 3000 Zeichen, obwohl die vollen
+  Anleitungen zusammen über 12.000 Zeichen trügen; kein `<skills>`-Block ohne Katalog bzw. bei
+  leerem Katalog; Redaction greift auf Titel/Beschreibung/Auslösebedingung.
+- **`runtime/loop/loop.test.ts`**, neue Gruppe "Skill-System (S18c)" (1, echte Datenbank, echter
+  Router, Drehbuch-Modell): legt zehn Dummy-Skills in ein Wegwerf-Verzeichnis, baut einen Katalog
+  mit `skill.load`, lässt ein Drehbuch `skill.load` für `dummy-05` aufrufen und dann fertig
+  antworten — die erste Anfrage trägt nur die Kurzliste (kein Marker aus irgendeinem der zehn
+  Skills), die zweite trägt den vollen Rumpf von `dummy-05` (Marker vorhanden) in der Historie,
+  und `skill.invoked` steht im Protokoll. Das ist der Ende-zu-Ende-Nachweis des
+  Fertig-Kriteriums: "ein Skill wird bei Bedarf korrekt vollständig geladen und genutzt".
+- **`runtime/events/log.test.ts`**: die fest verdrahtete Namensraum-Zahl (16) musste auf 17
+  angehoben werden — derselbe Nachzug wie bei den Katalog-Fingerabdrücken in S18b, diesmal für
+  die Ereignis-Taxonomie statt den Tool-Katalog.
+
+### Gegenproben
+
+Keine gesonderten Gegenproben in dieser Session — die drei zentralen Mechanismen (Kurzliste
+bleibt klein, volle Anleitung erst nach `skill.load`, `skill.invoked` nur bei tatsächlichem
+Treffer) sind direkt durch positive **und** negative Testfälle abgedeckt (siehe oben: die
+Redaction- und Leer-Fälle in `context/request.test.ts`, die Marker-Abwesenheit/-Anwesenheit in
+`runtime/loop/loop.test.ts`, das fehlende `skill.invoked` bei ausschließlich unbekannten Namen
+in `tools/skill/tools.test.ts`).
+
+### Bewusst nicht gebaut
+
+- **Eine Installation neuer Skills aus einer externen Quelle.** Siehe oben — Abschnitt 4.7
+  spricht davon, ist aber ein späterer, hier nicht verlangter Mechanismus.
+- **Automatische Auslagerung für außergewöhnlich große Skills.** `skill.load` ist
+  `execution: "runtime"` wie `tool.load` und wirft bei einer zu großen Hülle
+  (`ToolOutputTooLargeError`), statt sie in ein Artefakt auszulagern — dieselbe Grenze wie bei
+  `tool.load`s Schemata. Für die heutigen Skillgrößen kein Problem.
+- **Eine feinere Freigabe-Granularität für `skill.load`.** Es ist `read`, wie `tool.load` — ein
+  Nachschlagen auf lokalem, beim Start eingefrorenem Bestand, kein Grund für `soft_write` oder
+  höher.
+- **Ein Zwischenzustand "geladen, aber noch nicht gelesen".** Wie bei S18b (zwei Zustände, nicht
+  drei) gibt es nur "im `<skills>`-Block" und "vollständig im Kontext" — kein Halbzustand.
+
+### Offene Befunde (Details zu S18c)
+
+Siehe die neuen Einträge oben unter "Offene Befunde (gesamte Historie)": der `<skills>`-Block
+wächst unbegrenzt mit der Zahl der Skills, und `skill.load` bietet keine automatische
+Auslagerung für außergewöhnlich große Skills.
+
+- `pnpm typecheck && pnpm lint && pnpm test` grün, 616 Tests.
+- `tasks.json`: S18c auf `done`, S18d von `queued` auf `ready`.
+
+Status: abgeschlossen. Nächste Session: S18d Erste eigene Skills.
 
 ## S18b · Frisches-Fenster-Heuristik und verzögertes Tool-Laden · 2026-09-11
 

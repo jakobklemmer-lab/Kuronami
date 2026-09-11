@@ -1,3 +1,4 @@
+import type { EventRecord } from "../runtime/events/log.js";
 import type {
   ModelMessage,
   ModelRequest,
@@ -6,6 +7,7 @@ import type {
 } from "../runtime/model/types.js";
 import { redactText } from "../runtime/redaction/redact.js";
 import type { JsonValue } from "../runtime/steps/types.js";
+import type { SkillCatalog } from "../tools/skill/catalog.js";
 import type { ToolCatalog, ToolInputSchema } from "../tools/types.js";
 
 /**
@@ -133,17 +135,123 @@ function toJsonSchema(schema: ToolInputSchema): ModelToolSpec["inputSchema"] {
   return { type: "object", properties, required, additionalProperties: false };
 }
 
-/** Der Katalog als Tool-Liste der API. Nach Namen sortiert, Haltepunkt hinter dem letzten. */
-export function toolSpecs(catalog: ToolCatalog): ModelToolSpec[] {
-  const specs = catalog.tools.map((tool) => ({
-    name: encodeToolName(tool.name),
-    description: redactText(tool.description),
-    inputSchema: toJsonSchema(tool.inputSchema),
-    cache: false,
-  }));
+const NO_LOADED_TOOLS: ReadonlySet<string> = new Set();
+
+/**
+ * Der Katalog als Tool-Liste der API. Nach Namen sortiert, Haltepunkt hinter dem letzten.
+ *
+ * **Verzögertes Tool-Laden (S18b, Abschnitt 9).** Ein Tool mit `deferred: true` steht hier nur,
+ * wenn sein Name in `loadedTools` steht — sonst sieht der Anbieter sein Schema gar nicht, und
+ * das Modell kann keinen nativen Aufruf dafür bauen. Es fehlt dem Modell trotzdem nicht ganz:
+ * `buildModelRequest` legt Name und Kurzbeschreibung jedes noch nicht geladenen Tools in den
+ * `<deferred_tools>`-Block neben die Konventionen, und `tool.load` (`tools/tool/tools.ts`) holt
+ * das volle Schema nach — `deriveLoadedToolNames` liest zurück, welche Namen das schon betrifft.
+ *
+ * `loadedTools` wächst über eine Session nur (dieselbe Idempotenz wie bei `context.compacted`),
+ * und ein neu geladenes Tool landet an seiner **alphabetischen** Stelle wie jedes andere — die
+ * Liste bleibt so einfach herleitbar wie zuvor. Das kostet den Cache-Haltepunkt hinter dem
+ * letzten Tool genau in dem einen Zug, in dem ein Tool neu dazukommt (Abschnitt 7); danach ist
+ * die Liste wieder byteweise stabil, bis das nächste Tool geladen wird — ein seltenes Ereignis,
+ * kein Preis, der bei jedem Zug anfiele.
+ */
+export function toolSpecs(
+  catalog: ToolCatalog,
+  loadedTools: ReadonlySet<string> = NO_LOADED_TOOLS,
+): ModelToolSpec[] {
+  const specs = catalog.tools
+    .filter((tool) => tool.deferred !== true || loadedTools.has(tool.name))
+    .map((tool) => ({
+      name: encodeToolName(tool.name),
+      description: redactText(tool.description),
+      inputSchema: toJsonSchema(tool.inputSchema),
+      cache: false,
+    }));
   const last = specs.at(-1);
   if (last) last.cache = true;
   return specs;
+}
+
+/**
+ * Kurzbeschreibung jedes noch nicht geladenen `deferred`-Tools, als Text neben die Konventionen
+ * (S18b). Leer, wenn keines übrig ist — dann bleibt der Block ganz weg, statt eine leere Hülle
+ * bei jedem Zug mitzuschleppen (dieselbe Zurückhaltung wie beim `<memory>`-Block in
+ * `context/transcript.ts`, aus demselben Grund: eine Zeile, die nie etwas aussagt, ist keine
+ * Zeile wert).
+ */
+function renderDeferredStubs(catalog: ToolCatalog, loadedTools: ReadonlySet<string>): string {
+  const stubs = catalog.tools.filter(
+    (tool) => tool.deferred === true && !loadedTools.has(tool.name),
+  );
+  if (stubs.length === 0) return "";
+
+  const lines = stubs.map((tool) => `- ${tool.name}: ${redactText(tool.description)}`).join("\n");
+  return [
+    "",
+    "",
+    "<deferred_tools>",
+    "Weitere Tools existieren, aber ihr volles Eingabeschema ist noch nicht geladen — sie stehen",
+    "deshalb nicht in der Werkzeugliste oben. Ruf tool.load mit den passenden Namen auf, um eines",
+    "nutzbar zu machen; danach ist es wie jedes andere Tool aufrufbar.",
+    "",
+    lines,
+    "</deferred_tools>",
+  ].join("\n");
+}
+
+/**
+ * Kurzliste aller Skills, als Text neben die Konventionen (S18c) — Titel und Beschreibung, wie
+ * beim `<deferred_tools>`-Block, ergänzt um die Auslösebedingung (`wann`): ohne sie wäre die
+ * Liste eine Inhaltsangabe, aber keine Grundlage dafür, *wann* das Modell `skill.load` ziehen
+ * sollte. Leer, wenn kein Skill konfiguriert ist oder `skills/` keinen trägt — dann bleibt der
+ * Block ganz weg, dieselbe Zurückhaltung wie beim `<memory>`-Block und bei `<deferred_tools>`.
+ *
+ * Anders als `renderDeferredStubs` schrumpft diese Liste **nicht**, wenn ein Skill geladen
+ * wurde: ein geladener Skill kann in einem späteren Zug erneut gebraucht werden (seine volle
+ * Anleitung steht dann zwar schon einmal weiter oben in der Historie, aber sie dort
+ * wiederzufinden ist teurer, als sie noch einmal zu laden), und anders als bei einem Tool-
+ * Schema gibt es hier keine zweite, native Repräsentation, die den Kurzeintrag ersetzen könnte.
+ */
+function renderSkillStubs(catalog: SkillCatalog | undefined): string {
+  if (!catalog || catalog.skills.length === 0) return "";
+
+  const lines = catalog.skills
+    .map(
+      (skill) =>
+        `- ${skill.name}: ${redactText(skill.description)} — wann: ${redactText(skill.when)}`,
+    )
+    .join("\n");
+  return [
+    "",
+    "",
+    "<skills>",
+    "Weitere Fähigkeiten stehen als Skills bereit, hier nur mit Kurzbeschreibung. Ruf skill.load",
+    "mit dem passenden Namen auf, um die vollständige Anleitung zu lesen — erst danach, nicht",
+    "blind, danach handeln. Auch ein eigener Skill kann veraltet oder falsch sein.",
+    "",
+    lines,
+    "</skills>",
+  ].join("\n");
+}
+
+/**
+ * Welche `deferred`-Tools diese Session schon nachgeladen hat — zurückgelesen aus dem
+ * Protokoll, nicht aus einem Zustand im Prozess (dieselbe Bauart wie `collectStage2Map` in
+ * `context/compaction.ts`). `tool.load` ist ein `execution: "runtime"`-Tool (wie `task.set`);
+ * seine volle Ergebnishülle steht deshalb im `result`-Feld seines `tool.completed` (S10/S07).
+ */
+export function deriveLoadedToolNames(events: readonly EventRecord[]): Set<string> {
+  const loaded = new Set<string>();
+  for (const event of events) {
+    if (event.type !== "tool.completed" || event.payload.tool_name !== "tool.load") continue;
+    const result = event.payload.result;
+    if (typeof result !== "object" || result === null) continue;
+    const structured = (result as Record<string, unknown>).structured;
+    if (typeof structured !== "object" || structured === null) continue;
+    const names = (structured as Record<string, unknown>).loaded;
+    if (!Array.isArray(names)) continue;
+    for (const name of names) if (typeof name === "string") loaded.add(name);
+  }
+  return loaded;
 }
 
 export interface ModelRequestInput {
@@ -156,6 +264,10 @@ export interface ModelRequestInput {
   messages: ModelMessage[];
   maxTokens: number;
   signal?: AbortSignal;
+  /** Namen bereits nachgeladener `deferred`-Tools (S18b). Vorgabe: keine. */
+  loadedTools?: ReadonlySet<string>;
+  /** Der Skill-Katalog (S18c), für die Kurzliste neben den Konventionen. Vorgabe: keiner. */
+  skills?: SkillCatalog;
 }
 
 /** Zusammenzählung der gesetzten Haltepunkte. Geht als Kennzahl ins `model.requested`. */
@@ -168,9 +280,23 @@ export function countCacheBreakpoints(request: ModelRequest): number {
 }
 
 export function buildModelRequest(input: ModelRequestInput): ModelRequest {
+  const loadedTools = input.loadedTools ?? NO_LOADED_TOOLS;
   const system: ModelSystemBlock[] = [
     { text: redactText(input.systemPrompt) },
-    { text: redactText(input.conventions), cache: true },
+    {
+      // Der `<deferred_tools>`-Block (S18b) hängt an dieselbe Nachricht wie die Konventionen,
+      // statt einen vierten Eintrag zu eröffnen: beide ändern sich nur selten (Konventionen bei
+      // einer AGENTS.md-Bearbeitung, der Block bei einem neu geladenen Tool), beide tragen den
+      // einen Cache-Haltepunkt des System-Abschnitts, und ein zusätzlicher Eintrag hätte an
+      // jeder bestehenden Prüfung der Reihenfolge (Abschnitt 7) etwas verschoben, ohne dass sich
+      // am Cache-Verhalten etwas geändert hätte. Der `<skills>`-Block (S18c) hängt aus demselben
+      // Grund daneben: er ändert sich nur, wenn `skills/` sich ändert — nicht öfter als AGENTS.md.
+      text:
+        redactText(input.conventions) +
+        renderDeferredStubs(input.catalog, loadedTools) +
+        renderSkillStubs(input.skills),
+      cache: true,
+    },
   ];
 
   const messages = input.messages.map((message, index) => ({
@@ -180,7 +306,7 @@ export function buildModelRequest(input: ModelRequestInput): ModelRequest {
 
   return {
     system,
-    tools: toolSpecs(input.catalog),
+    tools: toolSpecs(input.catalog, loadedTools),
     messages,
     maxTokens: input.maxTokens,
     signal: input.signal,

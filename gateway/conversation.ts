@@ -3,6 +3,8 @@ import type { PolicyEngine } from "../policy/engine.js";
 import { type Runner, createRunner } from "../runtime/loop/api.js";
 import type { ModelClient } from "../runtime/model/types.js";
 import type { SessionChannel } from "../runtime/session/types.js";
+import type { MemoryStore } from "../tools/memory/store.js";
+import type { SkillCatalog } from "../tools/skill/catalog.js";
 import type { ToolCatalog } from "../tools/types.js";
 
 /**
@@ -65,6 +67,13 @@ export interface ConversationDeps {
   /** Einmal beim Start gelesen (S12). Fehlt sie, liest `createRunner` AGENTS.md. */
   conventions?: string;
   maxSteps?: number;
+  /**
+   * Das Langzeitgedächtnis (S18). Ohne dieses Feld läuft die Unterhaltung ohne Recall und ohne
+   * Notizen — wie jede Session ohne konfiguriertes Gedächtnis seit S18.
+   */
+  memory?: MemoryStore;
+  /** Der Skill-Katalog (S18c). Ohne dieses Feld läuft die Unterhaltung ohne Skills. */
+  skills?: SkillCatalog;
 }
 
 export interface Conversation {
@@ -105,11 +114,21 @@ export function createConversations(deps: ConversationDeps): Conversations {
       model: deps.model,
       conventions: deps.conventions,
       maxSteps: deps.maxSteps,
+      memory: deps.memory,
+      skills: deps.skills,
       // Ein fertiger Zug ist hier **kein** fertiger Auftrag: die Unterhaltung geht mit der
       // nächsten Nachricht weiter. `session.completed` nach jeder Antwort wäre eine
       // Falschaussage über den Verlauf — `loop/api.ts` nennt genau diesen Fall, wenn es die
       // Vorgabe begründet. Eine Session endet hier durch Abbruch, nicht durch eine Antwort.
       completeOnDone: false,
+      // Anders als `completeOnDone`: ob **dieser Zug** eine Notiz hinterlässt, ist eine andere
+      // Frage als ob die Unterhaltung als Ganzes vorbei ist (S18b — bis hierher ungeklärt, siehe
+      // "offene Befunde" zu S18: "wann eine Unterhaltung endet, weiß dieses System noch nicht").
+      // Die Antwort: sie endet dafür nie — jeder abgeschlossene Zug bekommt seine Chance auf
+      // eine Notiz, unabhängig davon, ob noch ein nächster folgt. `summarizeRun`s eigene
+      // Zurückhaltung (NICHTS ist der Normalfall) verhindert, dass daraus zweihundert
+      // Routinenotizen werden — das ist dieselbe Bremse, die S18 dafür gebaut hat.
+      summarizeToMemory: deps.memory !== undefined,
     });
 
     let tail: Promise<unknown> = Promise.resolve();

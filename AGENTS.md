@@ -8,9 +8,9 @@ Codeschreiben.
 
 `namensraum.aktion`, kleingeschrieben, Punkt als Trenner, Aktion englisch.
 Erlaubte Namensräume: `fs`, `web`, `exec`, `task`, `user`, `agent`, `mail`, `cal`,
-`notes`, `memory`, `github`, `server`, `dev`. Ein neuer Namensraum braucht eine Begründung
-in `docs/`. `dev.*` sind Prüf-Tools des Harness und gehören in keinen produktiven
-Tool-Katalog.
+`notes`, `memory`, `github`, `server`, `dev`, `tool`, `skill`. Ein neuer Namensraum braucht
+eine Begründung in `docs/`. `dev.*` sind Prüf-Tools des Harness und gehören in keinen
+produktiven Tool-Katalog.
 
 `notes.*` und `memory.*` sind **nicht dasselbe** und werden es auch nicht: `notes.*` greift
 auf den Obsidian-Vault des Nutzers zu (fremdes Gebiet, `hard_write`, jede Änderung mit

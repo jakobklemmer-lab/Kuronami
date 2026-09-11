@@ -1,11 +1,23 @@
 import { randomUUID } from "node:crypto";
 import type { Pool } from "pg";
+import {
+  type CompactionConfig,
+  compactHistory,
+  estimateFixedOverheadTokens,
+  resolveCompactionConfig,
+} from "../../context/compaction.js";
 import { type RunMetrics, deriveRunMetrics } from "../../context/metrics.js";
 import {
   buildModelRequest,
   countCacheBreakpoints,
+  deriveLoadedToolNames,
   toolNameDecoder,
 } from "../../context/request.js";
+import {
+  type SectionConfig,
+  maybeStartFreshSection,
+  resolveSectionConfig,
+} from "../../context/section.js";
 import { SYSTEM_PROMPT } from "../../context/system-prompt.js";
 import {
   type LoopState,
@@ -20,6 +32,7 @@ import type { PolicyEngine } from "../../policy/engine.js";
 import { recallForTurn } from "../../tools/memory/recall.js";
 import type { MemoryStore } from "../../tools/memory/store.js";
 import { type ToolRouterDeps, callTool } from "../../tools/router.js";
+import type { SkillCatalog } from "../../tools/skill/catalog.js";
 import type { ToolCatalog } from "../../tools/types.js";
 import { appendEvent, readEvents } from "../events/log.js";
 import { DEFAULT_MAX_TOKENS } from "../model/anthropic.js";
@@ -100,6 +113,13 @@ export interface LoopDeps {
    * konfiguriert hat.
    */
   memory?: MemoryStore;
+  /**
+   * Der Skill-Katalog (S18c) — einmal beim Sessionstart gescannt (`loadSkillCatalog`), wie
+   * `conventions`. Ist er gesetzt, steht seine Kurzliste (Titel, Beschreibung, Auslösebedingung)
+   * neben den Konventionen im Prompt; `skill.load` (falls im Tool-Katalog registriert) macht
+   * die volle Anleitung eines Skills bei Bedarf nach.
+   */
+  skills?: SkillCatalog;
   systemPrompt?: string;
   maxSteps?: number;
   maxConsecutiveErrors?: number;
@@ -107,6 +127,25 @@ export interface LoopDeps {
   offloadThresholdTokens?: number;
   timeoutMs?: number;
   signal?: AbortSignal;
+  /**
+   * Kontextstufen 2 und 3 (S18a, `context/compaction.ts`). Schwellenwerte konfigurierbar mit
+   * Vorgabe (`DEFAULT_COMPACTION_CONFIG`) — ein Test setzt hier ein kleines Fenster, um die
+   * Kompaktierung ohne eine riesige Historie auszulösen.
+   */
+  compactionConfig?: Partial<CompactionConfig>;
+  /**
+   * Das günstige Modell für die Zusammenfassung in Stufe 3. Ohne Angabe fällt sie auf `model`
+   * zurück (lauffähig, aber nicht kostenoptimiert) — siehe die Begründung in
+   * `context/compaction.ts`.
+   */
+  compactionModel?: ModelClient;
+  /**
+   * Kontextstufe 4 (S18b, `context/section.ts`): Ruhepause, Aufgabenabschluss und der
+   * Stufe-3-Fallback, mit Startwerten. Dieselbe Verdrahtung wie `compactionConfig` — pro Lauf
+   * überschreibbar, ein Test setzt hier kleine Werte, um die Auslöser ohne 45 echte Minuten
+   * oder drei echte Kompaktierungsrunden zu erreichen.
+   */
+  sectionConfig?: Partial<SectionConfig>;
 }
 
 export interface TurnRequest {
@@ -161,6 +200,7 @@ async function finishTurn(
   stop: LoopStop,
   reason: string,
   state: LoopState,
+  metrics: RunMetrics,
 ): Promise<void> {
   await appendEvent(pool, sessionId, "turn.completed", {
     turn_id: turnId,
@@ -168,6 +208,22 @@ async function finishTurn(
     reason,
     tool_calls: state.toolCalls,
     consecutive_errors: state.consecutiveErrors,
+    // Die Cache-Trefferquote (Abschnitt 12, Auftrag S18a) landet hier im Protokoll und nicht
+    // nur in einer Faltung, die jemand erst aufrufen müsste: "pro Lauf auslesbar" heißt, sie
+    // steht in der Zeile, die den Lauf abschließt. `context_compactions` ist redundant zu den
+    // `context.compacted`-Ereignissen selbst (Abschnitt 4.4 verbietet Doppelschreibung von
+    // Wahrheiten) — hier steht nur die **Zahl**, nicht ihr Inhalt, als derselbe Kompromiss wie
+    // bei `offloaded` in `tool.completed` (S07): eine Kennzahl, keine zweite Ablage.
+    cache_hit_rate: metrics.cacheHitRate,
+    cache_read_tokens: metrics.cacheReadTokens,
+    cache_creation_tokens: metrics.cacheCreationTokens,
+    input_tokens: metrics.inputTokens,
+    context_compactions: metrics.contextCompactions,
+    // Kontextstufe 4 (S18b) — bewusst ein eigenes Feld und nicht in `context_compactions`
+    // gefaltet: ein frischer Abschnitt ist keine weitere Kompaktierung, sondern ihr Gegenstück
+    // (siehe `context/metrics.ts`), und der bestehende 110-Schritte-Nachweis aus S18a prüft
+    // `context_compactions` auf einen exakten Wert.
+    fresh_sections: metrics.freshSections,
   });
 }
 
@@ -210,6 +266,17 @@ export async function runTurn(
   const maxSteps = deps.maxSteps ?? DEFAULT_MAX_STEPS;
   const maxErrors = deps.maxConsecutiveErrors ?? DEFAULT_MAX_CONSECUTIVE_ERRORS;
   const decodeToolName = toolNameDecoder(deps.catalog);
+  const systemPrompt = deps.systemPrompt ?? SYSTEM_PROMPT;
+  const compactionConfig = resolveCompactionConfig(deps.compactionConfig);
+  const sectionConfig = resolveSectionConfig(deps.sectionConfig);
+  // Der Katalog ist eingefroren (S07), System-Prompt und Konventionen werden einmal beim
+  // Start gelesen (Abschnitt 7) — der feste Anteil der Anfrage ändert sich innerhalb der
+  // Session nicht und wird deshalb einmal je Zug geschätzt, nicht bei jedem Schritt neu.
+  const fixedOverheadTokens = estimateFixedOverheadTokens(
+    systemPrompt,
+    deps.conventions,
+    deps.catalog,
+  );
 
   const router: ToolRouterDeps = {
     pool,
@@ -221,7 +288,8 @@ export async function runTurn(
     signal: deps.signal,
   };
 
-  let state = deriveLoopState(await readEvents(pool, sessionId));
+  let events = await readEvents(pool, sessionId);
+  let state = deriveLoopState(events);
   let turnId = state.turnId;
 
   if (request.input !== undefined) {
@@ -234,6 +302,30 @@ export async function runTurn(
       );
     }
     turnId = `turn_${randomUUID()}`;
+
+    // Kontextstufe 4 (S18b), **vor** dem Langzeitgedächtnis und vor `turn.started`: ob ein
+    // frischer Abschnitt beginnt, ist eine Aussage über die Historie **bis zu diesem Zug**, und
+    // die Reihenfolge im Protokoll soll die des Geschehens sein — erst der Abschnittswechsel
+    // (falls einer stattfindet), dann der Gedächtnis-Recall des neuen Abschnitts, dann der Zug.
+    // Die Prüfung selbst läuft nur hier, beim Zugbeginn — siehe die Begründung in
+    // `context/section.ts` dafür, warum nicht mitten in einem laufenden Zug.
+    await maybeStartFreshSection(
+      {
+        pool,
+        artifactRoot: deps.artifactRoot,
+        sessionId,
+        model: deps.compactionModel ?? deps.model,
+        signal: deps.signal,
+      },
+      {
+        turnId,
+        now: new Date(),
+        messages: state.messages,
+        messageSeqs: state.messageSeqs,
+        events,
+        config: sectionConfig,
+      },
+    );
 
     // Das Langzeitgedächtnis, **bevor** der Zug beginnt (S18). Die Suche läuft mit der
     // Eingabe des Nutzers als Anfrage; was sie findet, steht in der Eröffnungsnachricht und
@@ -274,7 +366,8 @@ export async function runTurn(
       model: deps.model.model,
       tool_catalog_version: deps.catalog.version,
     });
-    state = deriveLoopState(await readEvents(pool, sessionId));
+    events = await readEvents(pool, sessionId);
+    state = deriveLoopState(events);
   }
 
   if (!turnId) {
@@ -288,13 +381,29 @@ export async function runTurn(
   for (;;) {
     if (state.toolCalls >= maxSteps) {
       const reason = `Schrittobergrenze erreicht: ${state.toolCalls} von ${maxSteps} Werkzeugaufrufen in diesem Zug.`;
-      await finishTurn(pool, sessionId, turnId, "step_limit", reason, state);
+      await finishTurn(
+        pool,
+        sessionId,
+        turnId,
+        "step_limit",
+        reason,
+        state,
+        deriveRunMetrics(events),
+      );
       return await outcome(pool, sessionId, turnId, "step_limit", reason, state, text);
     }
 
     if (state.consecutiveErrors >= maxErrors) {
       const reason = `Fehlerhäufung: ${state.consecutiveErrors} Werkzeugaufrufe in Folge fehlgeschlagen (Grenze ${maxErrors}).`;
-      await finishTurn(pool, sessionId, turnId, "error_rate", reason, state);
+      await finishTurn(
+        pool,
+        sessionId,
+        turnId,
+        "error_rate",
+        reason,
+        state,
+        deriveRunMetrics(events),
+      );
       return await outcome(pool, sessionId, turnId, "error_rate", reason, state, text);
     }
 
@@ -302,13 +411,44 @@ export async function runTurn(
 
     if (calls.length === 0) {
       assertSendable(state.messages);
+
+      // Kontextstufen 2 und 3 (S18a), direkt vor dem Aufbau der Anfrage: die volle Historie
+      // bleibt die Wahrheit (`state.messages`, unverändert für den nächsten Schritt), nur was
+      // an das Modell geht, wird hier bei Bedarf kleiner. `events` trägt frühere
+      // `context.compacted`-Ereignisse, damit dieselbe Arbeit nicht bei jedem Schritt erneut
+      // anfällt (siehe `context/compaction.ts`).
+      const compaction = await compactHistory(
+        {
+          pool,
+          artifactRoot: deps.artifactRoot,
+          sessionId,
+          model: deps.compactionModel ?? deps.model,
+          signal: deps.signal,
+        },
+        {
+          turnId,
+          messages: state.messages,
+          messageSeqs: state.messageSeqs,
+          events,
+          fixedOverheadTokens,
+          config: compactionConfig,
+        },
+      );
+      assertSendable(compaction.messages);
+
       const modelRequest = buildModelRequest({
-        systemPrompt: deps.systemPrompt ?? SYSTEM_PROMPT,
+        systemPrompt,
         conventions: deps.conventions,
         catalog: deps.catalog,
-        messages: state.messages,
+        messages: compaction.messages,
         maxTokens: deps.maxTokens ?? DEFAULT_MAX_TOKENS,
         signal: deps.signal,
+        // Verzögertes Tool-Laden (S18b): welche `deferred`-Tools diese Session schon per
+        // `tool.load` nachgeladen hat, zurückgelesen aus demselben `events`, das auch die
+        // Kompaktierung oben schon trägt — kein zweiter Zustand, nur eine zweite Faltung
+        // desselben Protokolls.
+        loadedTools: deriveLoadedToolNames(events),
+        skills: deps.skills,
       });
 
       await appendEvent(pool, sessionId, "model.requested", {
@@ -355,9 +495,11 @@ export async function runTurn(
       assertReplayable(response.content, stored.payload.content);
 
       if (toolCalls.length === 0) {
-        state = deriveLoopState(await readEvents(pool, sessionId));
+        events = await readEvents(pool, sessionId);
+        state = deriveLoopState(events);
         const reason = `Das Modell hat ohne Werkzeugaufruf geantwortet (stop_reason ${response.stopReason}).`;
-        await finishTurn(pool, sessionId, turnId, "done", reason, state);
+        const metrics = deriveRunMetrics(events);
+        await finishTurn(pool, sessionId, turnId, "done", reason, state, metrics);
         return await outcome(pool, sessionId, turnId, "done", reason, state, text);
       }
 
@@ -381,18 +523,21 @@ export async function runTurn(
             error instanceof ApprovalRequiredError
               ? `Freigabe nötig für ${call.toolName} (${error.subject}).`
               : `Rückfrage an den Nutzer offen: ${error.question}`;
-          state = deriveLoopState(await readEvents(pool, sessionId));
+          events = await readEvents(pool, sessionId);
+          state = deriveLoopState(events);
           return await outcome(pool, sessionId, turnId, "awaiting_user", reason, state, text);
         }
         if (error instanceof SessionCanceledError) {
           const reason = `Die Session wurde abgebrochen: ${error.message}`;
-          state = deriveLoopState(await readEvents(pool, sessionId));
+          events = await readEvents(pool, sessionId);
+          state = deriveLoopState(events);
           return await outcome(pool, sessionId, turnId, "canceled", reason, state, text);
         }
         throw error;
       }
     }
 
-    state = deriveLoopState(await readEvents(pool, sessionId));
+    events = await readEvents(pool, sessionId);
+    state = deriveLoopState(events);
   }
 }

@@ -354,6 +354,8 @@ export function createCalTools(deps: CalToolDeps): ToolDefinition[] {
         "Listet Kalender-Termine in einem Zeitbereich. Ohne start/end wird die laufende Woche (Montag–Montag) genommen. In den Kontext geht eine knappe Terminliste; die vollständige Liste mit allen Feldern liegt als Artefakt-Handle bei.",
       risk: "read",
       repeatable: true,
+      // Assistenz-Tool (Abschnitt 9), nicht Kern-Primitiv — verzögertes Laden (S18b).
+      deferred: true,
       inputSchema: {
         fields: {
           start: {
@@ -388,6 +390,7 @@ export function createCalTools(deps: CalToolDeps): ToolDefinition[] {
         "Legt einen Kalender-Termin an. Hartes Schreiben: der Aufruf pausiert für eine Freigabe, bevor der Termin entsteht.",
       risk: "hard_write",
       repeatable: false,
+      deferred: true,
       inputSchema: {
         fields: {
           title: { type: "string", required: true, description: "Titel des Termins." },
@@ -423,6 +426,7 @@ export function createCalTools(deps: CalToolDeps): ToolDefinition[] {
         "Ändert einen bestehenden Kalender-Termin über seine event_id. Mindestens ein zu änderndes Feld angeben. Hartes Schreiben: der Aufruf pausiert für eine Freigabe.",
       risk: "hard_write",
       repeatable: false,
+      deferred: true,
       inputSchema: {
         fields: {
           event_id: {

@@ -37,6 +37,21 @@ export interface RunMetrics {
   offloadedResults: number;
   offloadShare: number;
   approvalsRequested: number;
+  /**
+   * "Kompaktierungshäufigkeit" (Abschnitt 12): wie oft Kontextstufe 2 oder 3 in diesem Lauf
+   * gegriffen hat (S18a, `context/compaction.ts`). Gezählt wird das Ereignis, nicht sein
+   * Inhalt — dieselbe Kennzahl, die auch `turn.completed` als `context_compactions` trägt.
+   */
+  contextCompactions: number;
+  /**
+   * Wie oft Kontextstufe 4 gegriffen hat (S18b, `context/section.ts`) — absichtlich getrennt
+   * von `contextCompactions` und nicht mitgezählt: ein frischer Abschnitt ist kein weiterer
+   * Fall von "Kompaktierung greift zu oft", sondern das Gegenteil, ein proaktiver Neuanfang, und
+   * der bestehende 110-Schritte-Nachweis aus S18a prüft `context_compactions` auf einen exakten
+   * Wert (`stage2.length + stage3.length`) — eine dritte Ereignisart in dieselbe Zahl zu falten
+   * hätte diesen Nachweis brechen können, ohne dass sich am Verhalten etwas geändert hätte.
+   */
+  freshSections: number;
 }
 
 function share(part: number, whole: number): number {
@@ -53,6 +68,8 @@ export function deriveRunMetrics(events: EventRecord[]): RunMetrics {
   let failedToolCalls = 0;
   let offloadedResults = 0;
   let approvalsRequested = 0;
+  let contextCompactions = 0;
+  let freshSections = 0;
 
   for (const event of events) {
     switch (event.type) {
@@ -83,6 +100,12 @@ export function deriveRunMetrics(events: EventRecord[]): RunMetrics {
       case "approval.requested":
         approvalsRequested += 1;
         break;
+      case "context.compacted":
+        contextCompactions += 1;
+        break;
+      case "context.section_started":
+        freshSections += 1;
+        break;
       default:
         break;
     }
@@ -101,6 +124,8 @@ export function deriveRunMetrics(events: EventRecord[]): RunMetrics {
     offloadedResults,
     offloadShare: share(offloadedResults, toolCalls - failedToolCalls),
     approvalsRequested,
+    contextCompactions,
+    freshSections,
   };
 }
 
@@ -115,5 +140,7 @@ export function formatRunMetrics(metrics: RunMetrics): string {
     } Eingabe-Token)`,
     `ausgelagert ${metrics.offloadedResults} (${percent(metrics.offloadShare)})`,
     `${metrics.approvalsRequested} Rückfragen`,
+    `${metrics.contextCompactions} Kompaktierungen`,
+    `${metrics.freshSections} frische Abschnitte`,
   ].join(", ");
 }
