@@ -415,6 +415,7 @@ Statusmodell, genau acht Werte:
   "tools": ["mail.search", "mail.read"],
   "max_risk": "read",
   "max_steps": 12,
+  "token_budget": 150000,
   "schedule": "*/20 * * * *",
   "status": "active",
   "created_by": "operator",
@@ -427,13 +428,17 @@ Delegation im Protokoll zeigt auf den Namen).
 
 **Nachgetragen mit S19, nicht aus Phase 0.** Die Felder sind aus den Sätzen abgeleitet, die
 diese Architektur über Subagenten ohnehin festlegt: `tools` aus "Werkzeug-Zugriff ist
-rollenspezifisch, nie pauschal" (Abschnitt 14), `max_steps` aus "Token-Budget" (Abschnitt 14)
-in der Einheit, die diese Runtime durchsetzen kann, `model` aus "Modell pro Agent bewusst
-wählen" (Abschnitt 11), `max_risk` aus der Risikostufen-Tabelle (Abschnitt 10) — als
-**stehende** Erlaubnis, weshalb `hard_write`/`destructive` beim Anlegen eine Zusatzbestätigung
-verlangen —, `schedule` aus "Cron-Agenten sind der eigentliche Kostentreiber" (Abschnitt 11).
-Ein gesetzter `schedule` **ist** die Registrierung beim Heartbeat-Dienst: der liest bei jedem
-Tick die Registry, es gibt keine zweite Liste im Speicher eines Prozesses.
+rollenspezifisch, nie pauschal" (Abschnitt 14), `max_steps` und `token_budget` (S20) aus
+"Token-Budget" ebendort — wie oft ein Agent handeln darf und was sein Lauf kosten darf sind
+zwei verschiedene Grenzen —, `model` aus "Modell pro Agent bewusst wählen" (Abschnitt 11),
+`max_risk` aus der Risikostufen-Tabelle (Abschnitt 10) — als **stehende** Erlaubnis, weshalb
+`hard_write`/`destructive` beim Anlegen eine Zusatzbestätigung verlangen —, `schedule` aus
+"Cron-Agenten sind der eigentliche Kostentreiber" (Abschnitt 11). Ein gesetzter `schedule`
+**ist** die Registrierung beim Heartbeat-Dienst: der liest bei jedem Tick die Registry, es gibt
+keine zweite Liste im Speicher eines Prozesses.
+
+Die dritte Obergrenze aus Abschnitt 14, **parallele Worker**, ist keine Spalte: sie gehört dem
+Prozess, nicht dem Agenten (`DEFAULT_MAX_PARALLEL_WORKERS`, `AGENT_MAX_PARALLEL`).
 
 Tabellen in Phase 1: `sessions`, `tasks`, `steps`, `artifacts`, `approvals`, `events`.
 Dazu in Phase 5: `agents` (Migration 0009).
@@ -945,6 +950,27 @@ Vier Sätze von oben stehen dabei nicht als Bitte im Prompt, sondern als Form im
 Arbeiterlauf ist ein externer Seiteneffekt im Sinn von Abschnitt 6, und ein Absturz darf ihn
 nicht ein zweites Mal starten. Ein Arbeiter, der auf eine Freigabe warten müsste, endet als
 Fehlschlag statt still zu hängen — er hat kein Gegenüber, das antwortet.
+
+**Umsetzung (S20):** die erste Besetzung steht als Daten im Quellbaum
+(`runtime/agents/besetzung.ts`, angelegt über `pnpm agents:seed`) und nicht als INSERT in einer
+Migration — so geht jedes der sieben Profile durch dasselbe Tor wie eines aus `agent.create`
+(Namensform, bekannte Werkzeuge, Obergrenzen), und der Lauf ist wiederholbar. Jede Rolle nennt
+eine **Modellklasse** statt eines Modellnamens; aufgelöst wird sie über dieselbe Konfiguration,
+aus der auch der Modell-Router seit S18e wählt.
+
+Die drei Obergrenzen dieses Abschnitts sind damit vollständig umgesetzt, jede an der Stelle,
+an der sie hingehört:
+
+* **Tool-Beschränkung** — zweifach. Der Katalog des Arbeiters enthält nur seine Werkzeuge (ein
+  anderes ist für ihn ein unbekanntes Tool), **und** ein Policy-Hook am Profil lehnt jeden
+  Aufruf außerhalb der Liste ab (`tools/agent/policy.ts`). Das zweite Tor hält auch dann, wenn
+  jemand einen Arbeiter künftig mit einem breiteren Katalog startet — dieselbe Doppelung wie
+  bei der Risikostufe (Registry und Engine, S11).
+* **Parallele Worker** — ein Kontingent je Prozess (Vorgabe zwei). Wer darüber hinaus
+  delegiert, **wartet**, statt abgewiesen zu werden: ein abgewiesener Arbeiter wäre für das
+  Modell ein Fehlschlag, den es nicht beheben kann.
+* **Token-Budget** — als Hülle um den Modell-Client des Arbeiters, geprüft vor jedem Aufruf.
+  Ist es aufgebraucht, endet der Lauf sichtbar (`stop: "token_budget"`), statt weiterzulaufen.
 
 ---
 

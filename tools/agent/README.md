@@ -8,6 +8,8 @@ Auftrag **abgeben** (`agent.delegate`).
 | `tools.ts` | `agent.create` (Entwurf → Bestätigung → Eintrag) und `agent.delegate` |
 | `draft.ts` | Der Prompt, der aus einem Satz ein Profil-JSON macht, und sein Parser |
 | `worker.ts` | Der Arbeiterlauf: eigene Session, eigener Katalog, ein Zug, ein Ergebnis |
+| `policy.ts` | Die Werkzeugliste als Policy-Hook — das zweite Tor (S20) |
+| `budget.ts` | Das Token-Budget als Hülle um den Modell-Client (S20) |
 
 ## Der Weg von einem Satz zu einem Agenten
 
@@ -33,6 +35,18 @@ Katalog, wie er vorher aussah. Ein Profil kann daraus kein `agent.delegate` wäh
 Arbeiter bekommt keins: es existiert in seinem Katalog nicht. Die Liste
 `FORBIDDEN_AGENT_TOOLS` ist nur die zweite Sicherung für den Tag, an dem jemand die
 Registrierreihenfolge ändert.
+
+## Die drei Obergrenzen (S20)
+
+| Grenze | Wo sie sitzt | Was passiert, wenn sie greift |
+| --- | --- | --- |
+| Werkzeuge | Katalog des Arbeiters **und** `agentToolsHook` | Unbekanntes Tool bzw. `policy.denied` — eine Auskunft im Kontext, kein Absturz |
+| Parallele Arbeiter | Kontingent je Prozess (`AGENT_MAX_PARALLEL`, Vorgabe 2) | Der nächste Arbeiter **wartet**, statt abgewiesen zu werden |
+| Token | `budgetedModel` um den Modell-Client, geprüft **vor** jedem Aufruf | Lauf endet mit `stop: "token_budget"`, Session wird abgebrochen |
+
+Zwei Tore für die Werkzeugliste, weil sie aus verschiedenen Gründen halten: der Katalog, weil
+das Werkzeug für diesen Arbeiter nicht existiert; der Hook, weil **dieser Agent** es nicht
+aufrufen darf — auch dann, wenn ihn jemand künftig mit einem breiteren Katalog startet.
 
 ## Warum `worker.ts` nicht `createRunner` benutzt
 

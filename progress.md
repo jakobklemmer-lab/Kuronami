@@ -5,8 +5,9 @@ progress-archiv.md nachschlagen (z. B. mit grep nach der Session-ID).
 
 ## Aktueller Stand
 
-**Phase 5 hat begonnen.** Zuletzt fertig: **S19** (Agenten-Registry und `agent.create`),
-2026-09-12. Naechste Session: **S20** Erste Subagent-Besetzung, Status `ready`.
+**Phase 5 ist abgeschlossen.** Zuletzt fertig: **S20** (Erste Subagent-Besetzung), 2026-09-12,
+direkt nach S19 am selben Tag. Naechste Session: **S21** Kosten-Tracking und Modell-Routing,
+Status `ready` — der Beginn von Phase 8.
 
 ## Sessions
 
@@ -38,7 +39,7 @@ progress-archiv.md nachschlagen (z. B. mit grep nach der Session-ID).
 | S18e | Modell-Routing | done |
 | S18f | Eval-Suite fuer lange Laeufe | done |
 | S19 | Agenten-Registry und agent.create | done |
-| S20 | Erste Subagent-Besetzung | queued |
+| S20 | Erste Subagent-Besetzung | done |
 | S21 | Kosten-Tracking und Modell-Routing | queued |
 | S22 | Tauri-Desktop-Wrapper | queued |
 | S23 | Sprachschicht-Grundgerüst | queued |
@@ -112,13 +113,148 @@ Details siehe progress-archiv.md.
   einem Prozess ohne n8n läuft **nicht** halb, sondern gar nicht (`WorkerToolsUnavailableError`,
   sichtbar im Diarium) — bewusst fail closed, aber eine Falle für den Betreiber, der Registry
   und Prozesskonfiguration auseinanderlaufen lässt.
-- **Keine Obergrenze für parallele Arbeiter, kein Token-Budget in Token** (S19) — Abschnitt 14
-  nennt beides, umgesetzt ist bislang `max_steps` je Lauf.
+- ~~Keine Obergrenze für parallele Arbeiter, kein Token-Budget in Token~~ (S19) — **erledigt in
+  S20**: Kontingent je Prozess (`AGENT_MAX_PARALLEL`, Vorgabe 2) und `token_budget` je Agent.
+- **Das Kontingent paralleler Arbeiter ist prozesslokal** (S20), kein verteiltes Limit — dieselbe
+  Lage wie bei der Serialisierung im Gateway (S16). Zwei Prozesse (Gateway und Heartbeat) haben
+  heute jeder zwei Plätze, zusammen also vier.
+- **Das Token-Budget zählt, was der Anbieter meldet** (S20) — nicht, was es kostet. Ein Budget in
+  Token ist bei zwei Modellklassen mit verschiedenen Preisen nur ein Näherungswert für Geld; die
+  Umrechnung ist S21.
+- **`exec.run` und `github.*` fehlen der Besetzung** (S20): der Backtest-Agent arbeitet auf
+  Dateien statt zu rechnen, der Coder ohne Zugriff auf Issues und PRs. Beide Werkzeuge stehen in
+  Abschnitt 9, gebaut sind sie nicht.
+- **Die Besetzung nennt keine `notes.*`** (S20), weil ein Profil mit einem Werkzeug, das nur in
+  manchen Prozessen existiert, in allen anderen gar nicht läuft (fail closed, S19). Sobald der
+  Obsidian-Vault Teil jeder Verdrahtung ist, gehört er in das Profil des Lore-Writers.
 - **Nur zwei Klassen, Abschnitt 11 kennt drei** (S18e): "klein und guenstig", "mittel",
   "stark" — der Router kennt nur die aeusseren beiden ("Routine"/"Denkarbeit"), wie im Auftrag
   woertlich verlangt ("grob klassifiziert"). Die mittlere Klasse ("Zusammenfassen, einfache
   Tool-Auswahl") bleibt vorerst unbenannt; `compactionModel` (S18a) faellt weiterhin auf das
   Orchestrator-Modell zurueck, wenn niemand explizit ein zweites uebergibt.
+
+## S20 · Erste Subagent-Besetzung · 2026-09-12
+
+Zweite Session der Phase 5, direkt nach S19. Vier Vorgaben: die sieben Rollen aus Abschnitt 14
+anlegen (über `agent.create` oder eine Migration), jede mit rollenspezifischer Tool-Whitelist;
+die Whitelist **technisch** erzwingen (Ablehnung bei einem Aufruf außerhalb der Liste, nicht nur
+als Prompt-Hinweis); Obergrenzen für parallele Worker und Token-Budget setzen; jeden Agenten mit
+einer einfachen Aufgabe **und** einem Tool-Verstoß prüfen.
+
+**Die Besetzung ist Daten im Quellbaum, keine Migration.** Der Auftrag ließ beides zu, und die
+Migration wäre der kürzere und schlechtere Weg gewesen: sie schriebe sieben Profile als
+SQL-Literale in eine Datei, die **niemand gegen den Katalog prüft**. Ein `fs.readFile` statt
+`fs.read` stünde danach in der Registry und fiele erst auf, wenn der Agent das erste Mal läuft —
+möglicherweise Wochen später, nachts, in einem Lauf nach Zeitplan. `runtime/agents/besetzung.ts`
+hält die sieben stattdessen als geprüfte Daten, `pnpm agents:seed` legt sie an (idempotent,
+`--dry-run` prüft nur), und jedes Profil geht durch dasselbe `checkAgentDraft` wie eines aus
+`agent.create`. Alle sieben stehen seit dieser Session in der echten Registry.
+
+**Modellklasse statt Modellname.** Die Datei nennt je Rolle `routine` oder `thinking`
+(Abschnitt 11), aufgelöst wird das beim Anlegen über `resolveModelRouteConfig` — dieselben zwei
+Namen, aus denen auch der Modell-Router seit S18e wählt. Ein fest eingetragener Modellname wäre
+eine dritte Stelle gewesen, an der Modellnamen gepflegt werden müssten. Der Mail-Agent bekommt
+damit wörtlich, was Abschnitt 14 verlangt ("persönlich, günstiges Modell"), der Coder das starke.
+
+**Was die Werkzeuglisten nicht enthalten, steht als Begründung in der Datei:** `exec.run` und
+`github.*` gibt es noch nicht (der Backtest-Agent wäre der erste echte Nutzer von `exec.run`),
+`notes.*` existiert nur in einem Prozess mit eingerichtetem Vault — ein Profil, das es nennt,
+liefe in jedem anderen Prozess gar nicht (fail closed seit S19) —, und `mail.send` gibt es im
+ganzen System nicht (S14). Der Mail-Agent kann deshalb nicht versenden, und das hängt nicht an
+seiner Liste, sondern daran, dass das Werkzeug fehlt.
+
+**Die Whitelist hält an zwei Toren, und sie halten aus verschiedenen Gründen.** Das erste steht
+seit S19: der Katalog eines Arbeiters ist die Schnittmenge aus Profil und Prozesskatalog, jedes
+andere Werkzeug ist für ihn ein **unbekanntes Tool**. Das zweite kommt jetzt dazu:
+`agentToolsHook` (`tools/agent/policy.ts`) hängt am **Profil** statt am Katalog und lehnt einen
+Aufruf außerhalb der Liste auch dann ab, wenn der Katalog ihn kennt — der Fall, der entsteht,
+sobald jemand `runWorker` künftig mit einem breiteren Katalog aufruft ("nur schnell", in einem
+Betreiber-Werkzeug, in einem Test). Dafür bekam `PolicyEngine` eine Methode `withHooks`: dieselbe
+Engine, dieselben Regeln, derselbe Resolver, ein Hook mehr. Sie kann nur verschärfen — Hooks
+können das per Bauart (`policy/hooks.ts`), und eine Methode, die Regeln ersetzt oder den Resolver
+austauscht, wäre der Weg zu einer nachsichtigeren Engine und gibt es deshalb nicht.
+
+**Die dritte Obergrenze aus Abschnitt 14 ist keine Spalte.** "Obergrenze für parallele Worker"
+gehört dem **Prozess**, nicht dem Agenten: sie schützt, was sich alle teilen (Verbindungen,
+Anfragen beim Anbieter, die Rechnung am Monatsende), und eine Grenze je Agent ließe genau den
+Fall offen, dass ein Coder und ein Visualizer gleichzeitig laufen. Also ein Kontingent je Prozess
+(`DEFAULT_MAX_PARALLEL_WORKERS = 2`, `AGENT_MAX_PARALLEL`) — und wer darüber hinaus delegiert,
+**wartet**, statt abgewiesen zu werden: ein abgewiesener Arbeiter wäre für das Modell ein
+Fehlschlag, den es nicht beheben kann, und es versuchte es sofort noch einmal. Der Platz wird
+beim Freigeben weitergereicht und nicht herunter- und wieder hochgezählt; dazwischen läge ein
+Microtask, in dem ein dritter Aufrufer einen freien Platz sähe, den es nicht gibt.
+
+**Das Token-Budget (Migration 0010) sitzt als Hülle um den Modell-Client**, nicht als Zähler im
+Loop. Der Loop beantwortet, **wann** gefragt, gehandelt und aufgehört wird (S12); Kosten kennt er
+nicht und soll er nicht kennen — eine Grenze je Agent wäre dort ein Sonderfall für einen
+Aufrufer, und der nächste bekäme den nächsten. `budgetedModel` zählt nach jeder Antwort **alle
+vier** Zahlen aus `ModelUsage` (auch die aus dem Cache gelesenen: billiger, aber nicht umsonst)
+und prüft **vor** jedem Aufruf. Ist das Budget aufgebraucht, endet der Lauf sichtbar
+(`stop: "token_budget"`, ein Ausgang, den nur ein Arbeiter kennt — er gehört nicht in `LoopStop`)
+und die Arbeitersession wird abgebrochen, damit kein offener Zug liegenbleibt. `token_budget`
+steht neben `max_steps` und ersetzt es nicht: das eine begrenzt, **wie oft** ein Arbeiter
+handelt, das andere, was der Lauf **kostet** — fünf Schritte mit einem großen Anhang im Kontext
+kosten mehr als vierzig kleine.
+
+### Tests
+
+26 neue, zusammen 679 (68 Dateien, davon drei neu).
+
+- **`runtime/agents/besetzung.test.ts`** (6, echter Katalog, echte Datenbank): die sieben Namen
+  sind genau die aus Abschnitt 14; jedes Profil besteht die Prüfung gegen den **echten** Katalog
+  (dieselbe Rolle wie `skills/skills.test.ts` seit S18d — ein Tippfehler fällt hier auf und nicht
+  im Betrieb); keine Rolle bekommt ein Werkzeug über ihrer Obergrenze, keine bekommt `agent.*`,
+  `user.ask` oder irgendein `*.send`; der Mail-Agent läuft auf dem günstigen Modell; und
+  `seedFirstCasting` legt an, was fehlt, und meldet beim zweiten Lauf nur noch Vorhandenes.
+- **`tools/agent/casting.test.ts`** (16): je Rolle **eine einfache Aufgabe** (ein Werkzeug aus
+  ihrer Liste läuft; der Aufruf ist weder unbekannt noch von der Policy abgelehnt, die Session
+  endet auf `completed`) und **ein Tool-Verstoß** (ein Werkzeug, das es im Katalog gibt, aber
+  nicht in ihrer Liste: genau ein `tool.failed` mit `reason: "unknown_tool"`, die Ablehnung nennt
+  die erlaubte Liste, und **kein** `tool.completed` — der Seiteneffekt lief nicht). Dazu das
+  zweite Tor an einem Aufruf mit dem **vollen** Katalog: `policy_denied`, und der Freigabepfad
+  nennt `agent-toolset:coder`.
+- **`tools/agent/limits.test.ts`** (4): der Budgetzähler (prüft vor dem Aufruf, der letzte Aufruf
+  darf überziehen, der abgelehnte kostet nichts); ein Arbeiterlauf, der am Budget endet und die
+  Session abgebrochen zurücklässt statt mit offenem Zug; kein Budget heißt keine Zählung; und das
+  Kontingent paralleler Arbeiter — mit `AGENT_MAX_PARALLEL=1` läuft der zweite Arbeiter
+  nachweislich erst los, nachdem der erste seinen Platz freigegeben hat.
+
+### Gegenproben
+
+Die Verstoß-Tests **sind** die Gegenproben: jede Rolle wird einmal mit einem erlaubten und
+einmal mit einem verbotenen Werkzeug geführt, und beide Male steht im Protokoll, was geschehen
+ist. Dasselbe Muster beim zweiten Tor (abgelehnt außerhalb der Liste, durchgelassen innerhalb)
+und beim Budget (mit Budget endet der Lauf daran, ohne Budget wird nicht einmal gezählt).
+
+Ein echter Fehlschlag beim Bauen, der etwas gezeigt hat: der Verstoß-Test erwartete zunächst
+`tool_name: "web.search"` und fand `"web__search"`. Richtig ist der gefundene Wert — der Katalog
+des Arbeiters kennt den Namen nicht, also übersetzt ihn auch niemand zurück (`toolNameDecoder`,
+S07: ein unbekannter Name wird nicht stillschweigend umgeschrieben). Das Protokoll hält damit
+fest, was das Modell **versucht** hat, und nicht, was es gemeint haben könnte.
+
+### Bewusst nicht gebaut
+
+- **Kein `exec.run` für den Backtest-Agenten.** Es steht in Abschnitt 9, aber die Sandbox aus
+  Abschnitt 4.6 fehlt; ein Backtest, der rechnet statt Dateien zu lesen, wartet darauf.
+- **Kein `github.*` für den Coder** — dieselbe Lage: die Workflows gibt es noch nicht.
+- **Keine Zeitpläne in der Besetzung.** Alle sieben stehen auf `schedule: null`: sie sind
+  Rollen für die Delegation. Ob eine davon regelmäßig laufen soll, ist eine Entscheidung des
+  Nutzers (und `agent.create` legt dafür bereits Agenten mit Zeitplan an, S19).
+- **Kein verteiltes Kontingent.** Die Obergrenze paralleler Arbeiter ist prozesslokal, wie die
+  Serialisierung im Gateway seit S16.
+- **Keine Kostenrechnung.** `tokens_spent` steht jetzt in `agent.returned` und `heartbeat.ran` —
+  eine Kennzahl, keine Abrechnung. Die ist S21.
+
+### Offene Befunde (Details zu S20)
+
+Siehe die neuen Einträge oben unter "Offene Befunde (gesamte Historie)".
+
+- `pnpm typecheck && pnpm lint && pnpm test` grün, 679 Tests.
+- `pnpm agents:seed` gegen die echte Datenbank gelaufen: sieben Rollen angelegt, zweiter Lauf
+  meldet sie als vorhanden.
+- `tasks.json`: S20 auf `done`, S21 von `queued` auf `ready`.
+
+Status: abgeschlossen. Nächste Session: S21 Kosten-Tracking und Modell-Routing.
 
 ## S19 · Agenten-Registry und `agent.create` · 2026-09-12
 

@@ -138,6 +138,19 @@ export interface PolicyEngine {
    * "bräuchte noch eine Freigabe" wäre einer, den ein Aufrufer versehentlich ignorieren kann.
    */
   check(pool: Pool, request: PolicyRequest): Promise<PolicyOutcome>;
+  /**
+   * Dieselbe Engine mit **zusätzlichen** Hooks (S20). Regeln, Pfadauflösung und Sandbox-Lage
+   * bleiben unverändert; es kommt Ebene 1 dazu und sonst nichts.
+   *
+   * Das ist die Form, in der ein Subagent seine eigene Werkzeugliste erzwingt
+   * (`tools/agent/policy.ts`): sein Arbeiterlauf bekommt die Engine des Prozesses plus einen
+   * Hook, der jeden Aufruf außerhalb seines Profils ablehnt. Wichtig ist, was **nicht** geht:
+   * Hooks können nur verschärfen (siehe `policy/hooks.ts`), also kann eine abgeleitete Engine
+   * nie mehr erlauben als die, aus der sie stammt. Eine Methode, die Regeln ersetzt oder den
+   * Resolver austauscht, gäbe es dafür nicht — sie wäre der Weg, sich eine nachsichtigere
+   * Engine zu bauen, und genau den schließt Abschnitt 4.7 aus.
+   */
+  withHooks(extra: readonly PolicyHook[]): PolicyEngine;
 }
 
 /**
@@ -259,6 +272,11 @@ export function createPolicyEngine(config: PolicyEngineConfig): PolicyEngine {
     rules,
     hooks,
     sandbox,
+
+    withHooks(extra: readonly PolicyHook[]): PolicyEngine {
+      if (extra.length === 0) return this;
+      return createPolicyEngine({ ...config, rules, hooks: [...hooks, ...extra], sandbox });
+    },
 
     async check(pool: Pool, request: PolicyRequest): Promise<PolicyOutcome> {
       const auditId = `audit_${randomUUID()}`;

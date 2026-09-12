@@ -32,6 +32,14 @@ const MAX_NAME_LENGTH = 40;
 /** Obergrenze für `max_steps`, gespiegelt aus `agents_max_steps_range` (Migration 0009). */
 export const MAX_AGENT_STEPS = 200;
 
+/**
+ * Untergrenze für ein gesetztes `token_budget` (S20). Unterhalb eines einzigen Modellaufrufs
+ * ist ein Budget kein Budget: der Lauf endete, bevor der Arbeiter das erste Mal gefragt hat.
+ * `DEFAULT_MAX_TOKENS` (16k) ist allein die Antwortseite eines Aufrufs — 20k ist die knappste
+ * Zahl, bei der ein einzelner Zug überhaupt stattfinden kann.
+ */
+export const MIN_TOKEN_BUDGET = 20_000;
+
 export function assertAgentName(value: unknown): asserts value is string {
   if (typeof value !== "string" || !AGENT_NAME_PATTERN.test(value)) {
     throw new AgentProfileError(
@@ -57,8 +65,14 @@ export interface AgentProfile {
   tools: string[];
   /** Die Risikostufe (Abschnitt 10), bis zu der dieser Agent gehen darf. */
   maxRisk: RiskLevel;
-  /** Werkzeugaufrufe je Lauf — das Budget aus Abschnitt 14 in der Einheit dieser Runtime. */
+  /** Werkzeugaufrufe je Lauf — wie oft dieser Agent handeln darf (Abschnitt 14). */
   maxSteps: number;
+  /**
+   * Token-Budget je Lauf (S20, Abschnitt 14) oder `null` für keins. Begrenzt, was ein Lauf
+   * **kostet**, während `maxSteps` begrenzt, wie oft er handelt — zwei verschiedene Aussagen:
+   * fünf Schritte mit einem großen Anhang im Kontext kosten mehr als vierzig kleine.
+   */
+  tokenBudget: number | null;
   /** Cron-Ausdruck oder `null`. Gesetzt heißt: der Heartbeat lässt ihn nach Zeitplan laufen. */
   schedule: string | null;
   status: AgentStatus;
@@ -83,6 +97,7 @@ export interface AgentDraft {
   tools: string[];
   max_risk: RiskLevel;
   max_steps: number;
+  token_budget: number | null;
   schedule: string | null;
 }
 
@@ -96,6 +111,7 @@ export interface AgentRow {
   tools: string[];
   max_risk: RiskLevel;
   max_steps: number;
+  token_budget: number | null;
   schedule: string | null;
   status: AgentStatus;
   created_by: string;
@@ -106,7 +122,8 @@ export interface AgentRow {
 
 export const AGENT_COLUMNS = `
   agent_id, name, role, purpose, system_prompt, model, tools, max_risk,
-  max_steps, schedule, status, created_by, created_in_session, created_at, updated_at
+  max_steps, token_budget, schedule, status, created_by, created_in_session,
+  created_at, updated_at
 `;
 
 export function toAgentProfile(row: AgentRow): AgentProfile {
@@ -120,6 +137,7 @@ export function toAgentProfile(row: AgentRow): AgentProfile {
     tools: [...row.tools],
     maxRisk: row.max_risk,
     maxSteps: row.max_steps,
+    tokenBudget: row.token_budget,
     schedule: row.schedule,
     status: row.status,
     createdBy: row.created_by,
@@ -140,6 +158,7 @@ export function draftOf(profile: AgentProfile): AgentDraft {
     tools: [...profile.tools],
     max_risk: profile.maxRisk,
     max_steps: profile.maxSteps,
+    token_budget: profile.tokenBudget,
     schedule: profile.schedule,
   };
 }
@@ -243,6 +262,20 @@ export function checkAgentDraft(draft: unknown, check: DraftCheck): AgentDraft {
     );
   }
 
+  // Das Token-Budget (S20). `null`/fehlend heißt ausdrücklich "kein Budget" — eine geratene
+  // Vorgabe sähe aus wie eine entschiedene, und ein zu knapp geratenes Budget bräche jeden Lauf
+  // dieses Agenten ab, ohne dass jemand es entschieden hätte.
+  let tokenBudget: number | null = null;
+  if (raw.token_budget !== undefined && raw.token_budget !== null) {
+    const value = raw.token_budget;
+    if (!Number.isInteger(value) || (value as number) < MIN_TOKEN_BUDGET) {
+      throw new AgentProfileError(
+        `Profilfeld "token_budget" muss eine ganze Zahl ab ${MIN_TOKEN_BUDGET} sein oder fehlen (war: ${String(value)}). Ein Budget unterhalb eines einzigen Modellaufrufs ist kein Budget, sondern ein Agent, der nie etwas tut.`,
+      );
+    }
+    tokenBudget = value as number;
+  }
+
   let schedule: string | null = null;
   if (raw.schedule !== undefined && raw.schedule !== null && String(raw.schedule).trim() !== "") {
     schedule = String(raw.schedule).trim();
@@ -270,6 +303,7 @@ export function checkAgentDraft(draft: unknown, check: DraftCheck): AgentDraft {
     tools,
     max_risk: maxRisk,
     max_steps: maxSteps as number,
+    token_budget: tokenBudget,
     schedule,
   };
 }

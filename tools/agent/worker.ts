@@ -4,12 +4,19 @@ import { deriveLoopState } from "../../context/transcript.js";
 import type { PolicyEngine } from "../../policy/engine.js";
 import type { AgentProfile } from "../../runtime/agents/types.js";
 import { appendEvent, readEvents } from "../../runtime/events/log.js";
-import { type LoopDeps, type LoopStop, runTurn } from "../../runtime/loop/loop.js";
+import {
+  type LoopDeps,
+  type LoopOutcome,
+  type LoopStop,
+  runTurn,
+} from "../../runtime/loop/loop.js";
 import type { ModelClient } from "../../runtime/model/types.js";
 import { cancelSession } from "../../runtime/session/lifecycle.js";
 import { startRuntime } from "../../runtime/session/manager.js";
 import { ToolRegistry } from "../registry.js";
 import type { ToolCatalog } from "../types.js";
+import { TokenBudgetExceededError, budgetedModel } from "./budget.js";
+import { agentToolsHook } from "./policy.js";
 
 /**
  * Ein Arbeiterlauf (S19) — das Orchestrator-Worker-Muster aus Abschnitt 14, so knapp wie es
@@ -72,15 +79,86 @@ export interface WorkerRequest {
   sessionMode?: string;
 }
 
+/**
+ * Wie ein Arbeiterlauf endet. Die fünf Ausgänge des Loops (S12) plus einen, den nur ein
+ * Arbeiter kennt: `token_budget`. Er gehört bewusst **nicht** in `LoopStop` — der Loop kennt
+ * keine Kosten und soll keine kennen (siehe `budget.ts`); die Grenze gehört dem Agenten.
+ */
+export type WorkerStop = LoopStop | "token_budget";
+
 export interface WorkerRun {
   sessionId: string;
-  stop: LoopStop;
+  stop: WorkerStop;
   reason: string;
   /** Der Abschlusstext des Arbeiters — das Ergebnis, das zurückgeht. */
   text: string;
   toolCalls: number;
   /** Alles, was der Arbeiter unterwegs abgelegt hat. Handles, keine Bytes. */
   artifactRefs: string[];
+  /** Verbrauchte Token, wenn das Profil ein Budget trägt — sonst `null` (nicht gezählt). */
+  tokensSpent: number | null;
+}
+
+/**
+ * Wie viele Arbeiter dieser **Prozess** gleichzeitig laufen lässt (Abschnitt 14, "Obergrenze
+ * für parallele Worker"). Über `AGENT_MAX_PARALLEL` verstellbar.
+ *
+ * Warum eine Zahl je Prozess und keine Spalte je Agent: die Grenze schützt nicht den Agenten,
+ * sondern das, was sich alle teilen — Verbindungen zum Pool, Anfragen beim Anbieter, die
+ * Rechnung am Monatsende (Abschnitt 11). Zwei Coder gleichzeitig sind dasselbe Problem wie ein
+ * Coder und ein Visualizer, und eine Grenze je Agent ließe genau diesen Fall offen.
+ *
+ * Zwei ist der Startwert und kein Optimum: Abschnitt 14 beginnt mit "nicht mit vielen Agenten
+ * anfangen", und das 15-fache Token-Aufkommen eines Multi-Agent-Systems entsteht durch
+ * Fächerung. Wer mehr will, stellt es sichtbar in der Umgebung ein.
+ *
+ * **Prozesslokal**, wie die Serialisierung im Gateway (S16): zwei Prozesse wissen nichts
+ * voneinander. Ein verteiltes Kontingent bräuchte eine Sperre in der Datenbank; heute läuft
+ * ein Gateway und ein Heartbeat, und die Grenze gilt für jeden für sich.
+ */
+export const DEFAULT_MAX_PARALLEL_WORKERS = 2;
+
+function maxParallelWorkers(): number {
+  const raw = Number(process.env.AGENT_MAX_PARALLEL);
+  return Number.isInteger(raw) && raw >= 1 ? raw : DEFAULT_MAX_PARALLEL_WORKERS;
+}
+
+let runningWorkers = 0;
+const waiting: (() => void)[] = [];
+
+/**
+ * Holt einen Platz aus dem Kontingent und gibt die Funktion zurück, die ihn wieder freigibt.
+ *
+ * **Warten statt ablehnen.** Ein abgewiesener dritter Arbeiter wäre für das Modell ein
+ * Fehlschlag, den es nicht beheben kann — es würde es sofort noch einmal versuchen und dabei
+ * einen Modellaufruf verbrennen, oder die Aufgabe fallen lassen. Ein wartender Arbeiter wird
+ * dagegen einfach etwas später fertig, und das ist genau das, was eine Obergrenze bedeuten
+ * soll. Ein Aufruf, der zu lange wartet, läuft in das Zeitfenster der Ausführungshülle
+ * (`agent.delegate` trägt seins selbst, S19) — die Grenze staut also, sie hängt nicht.
+ */
+async function acquireWorkerSlot(): Promise<() => void> {
+  if (runningWorkers >= maxParallelWorkers()) {
+    // Der Platz wird beim Freigeben **weitergereicht**, nicht neu gezählt (siehe unten) —
+    // deshalb erhöht der Wartende den Zähler nicht selbst.
+    await new Promise<void>((resolve) => {
+      waiting.push(resolve);
+    });
+  } else {
+    runningWorkers += 1;
+  }
+
+  let released = false;
+  return () => {
+    // Zweimal freigeben hieße, dem Kontingent einen Platz zu schenken, den es nie gab.
+    if (released) return;
+    released = true;
+    const next = waiting.shift();
+    // Übergeben statt herunter- und wieder hochzählen: zwischen dem Herunterzählen und dem
+    // Weiterlaufen des Wartenden liegt ein Microtask, und ein dritter Aufrufer, der genau dort
+    // ankommt, sähe einen freien Platz, den es nicht gibt.
+    if (next) next();
+    else runningWorkers -= 1;
+  };
 }
 
 /** Der System-Prompt des Arbeiters: der gewohnte, plus seine Rolle. */
@@ -127,6 +205,17 @@ function artifactRefsOf(events: { type: string; payload: Record<string, unknown>
  * der Hauptagent den Vertrag mit dem Nutzer (Abschnitt 14).
  */
 export async function runWorker(deps: WorkerDeps, request: WorkerRequest): Promise<WorkerRun> {
+  // Die Obergrenze für parallele Arbeiter (S20) liegt **vor** allem anderen: sie soll greifen,
+  // bevor eine Session entsteht und bevor ein Modell gefragt wird.
+  const slot = await acquireWorkerSlot();
+  try {
+    return await runWorkerInSlot(deps, request);
+  } finally {
+    slot();
+  }
+}
+
+async function runWorkerInSlot(deps: WorkerDeps, request: WorkerRequest): Promise<WorkerRun> {
   const profile = request.profile;
 
   const missing = profile.tools.filter((name) => !deps.catalog.get(name));
@@ -158,12 +247,19 @@ export async function runWorker(deps: WorkerDeps, request: WorkerRequest): Promi
   // hört auf. Beide Signale gelten, keins ersetzt das andere.
   const signal = deps.signal ? AbortSignal.any([deps.signal, runtime.signal]) : runtime.signal;
 
+  // Das Token-Budget (S20) sitzt als Hülle um den Modell-Client — an der Stelle, an der Token
+  // entstehen. Ohne Budget bleibt der Client unverändert: keine Zählung, keine Grenze.
+  const budgeted =
+    profile.tokenBudget !== null ? budgetedModel(deps.model, profile.tokenBudget) : null;
+
   const loopDeps: LoopDeps = {
     pool: deps.pool,
     artifactRoot: deps.artifactRoot,
     catalog: workerCatalog,
-    policy: deps.policy,
-    model: deps.model,
+    // Die Werkzeugliste als zweites, vom Katalog unabhängiges Tor (S20, `policy.ts`). Die
+    // Engine bleibt dieselbe — es kommt Ebene 1 dazu, und Hooks können nur verschärfen.
+    policy: deps.policy.withHooks([agentToolsHook(profile)]),
+    model: budgeted ?? deps.model,
     conventions: deps.conventions,
     systemPrompt: workerSystemPrompt(profile),
     maxSteps: profile.maxSteps,
@@ -176,11 +272,29 @@ export async function runWorker(deps: WorkerDeps, request: WorkerRequest): Promi
     // Aufruf abgeleitet) und setzt den offenen Zug fort, statt einen zweiten zu eröffnen —
     // dieselbe Unterscheidung wie in `runTurn` selbst (S12).
     const openTurn = deriveLoopState(await readEvents(deps.pool, sessionId)).turnId;
-    const outcome = await runTurn(
-      loopDeps,
-      runtime.session,
-      openTurn ? {} : { input: workerInput(request) },
-    );
+    let outcome: LoopOutcome;
+    try {
+      outcome = await runTurn(
+        loopDeps,
+        runtime.session,
+        openTurn ? {} : { input: workerInput(request) },
+      );
+    } catch (error) {
+      if (!(error instanceof TokenBudgetExceededError)) throw error;
+      // Das Budget ist aufgebraucht. Der Zug bleibt sonst offen stehen und niemand setzt ihn je
+      // fort — also wird die Session abgebrochen, wie bei einer Freigabe ohne Gegenüber. Der
+      // Grund steht im Protokoll und im Ergebnis, nicht nur im Log (AGENTS.md).
+      await cancelSession(deps.pool, sessionId, `agent-worker: ${error.message}`).catch(() => {});
+      return {
+        sessionId,
+        stop: "token_budget",
+        reason: error.message,
+        text: "",
+        toolCalls: 0,
+        artifactRefs: artifactRefsOf(await readEvents(deps.pool, sessionId)),
+        tokensSpent: error.spent,
+      };
+    }
 
     if (outcome.stop === "awaiting_user") {
       // Kann vorkommen: ein Werkzeug des Profils braucht eine Freigabe, und im Lauf eines
@@ -207,6 +321,7 @@ export async function runWorker(deps: WorkerDeps, request: WorkerRequest): Promi
       text: outcome.text,
       toolCalls: outcome.toolCalls,
       artifactRefs: artifactRefsOf(await readEvents(deps.pool, sessionId)),
+      tokensSpent: budgeted?.spent() ?? null,
     };
   } finally {
     await runtime.stop("arbeiterlauf-fertig").catch(() => {});

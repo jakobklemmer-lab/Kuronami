@@ -40,8 +40,8 @@ import {
 const INSERT_AGENT_SQL = `
   INSERT INTO kuronami.agents
     (agent_id, name, role, purpose, system_prompt, model, tools, max_risk,
-     max_steps, schedule, status, created_by, created_in_session)
-  VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, $8, $9, $10, $11, $12, $13)
+     max_steps, token_budget, schedule, status, created_by, created_in_session)
+  VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, $8, $9, $10, $11, $12, $13, $14)
   ON CONFLICT (name) DO NOTHING
   RETURNING ${AGENT_COLUMNS}
 `;
@@ -104,6 +104,7 @@ export async function insertAgent(
       JSON.stringify(draft.tools),
       draft.max_risk,
       draft.max_steps,
+      draft.token_budget,
       draft.schedule,
       status,
       options.createdBy,
@@ -132,6 +133,7 @@ export async function insertAgent(
       tools: profile.tools,
       max_risk: profile.maxRisk,
       max_steps: profile.maxSteps,
+      token_budget: profile.tokenBudget,
       schedule: profile.schedule,
       status: profile.status,
       created_by: profile.createdBy,

@@ -388,6 +388,10 @@ async function delegateHandler(deps: AgentToolDeps, inv: ToolInvocation): Promis
     reason: run.reason,
     tool_calls: run.toolCalls,
     artifact_refs: run.artifactRefs,
+    // Was der Lauf verbraucht hat, wenn das Profil ein Budget trägt (S20). Eine Kennzahl, keine
+    // Abrechnung — die ist S21.
+    tokens_spent: run.tokensSpent,
+    token_budget: profile.tokenBudget,
     // Der Ergebnistext steht in der Tool-Hülle und im Schritt; hier nur seine Länge — dasselbe
     // Maßhalten wie bei `offloaded` in `tool.completed` (S07).
     text_length: run.text.length,

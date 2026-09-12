@@ -9,6 +9,8 @@ Agent."
 | --- | --- |
 | `types.ts` | Felder eines Profils und die Prüfung, die jedes Profil bestehen muss (`checkAgentDraft`) |
 | `store.ts` | Anlegen (Zeile + `agent.created` in einer Transaktion), Lesen, Auflisten |
+| `besetzung.ts` | Die erste Besetzung (S20): die sieben Rollen aus Abschnitt 14 als Daten |
+| `seed.ts` | `pnpm agents:seed` — legt die fehlenden Rollen an, idempotent, `--dry-run` prüft nur |
 
 ## Warum die Prüfung hier steht und nicht im Tool
 
@@ -22,6 +24,14 @@ Das Ereignisprotokoll ist je Session geführt, die Registry gilt über alle Sess
 Faltung müsste jedes Protokoll der Datenbank lesen. Deshalb dieselbe Aufteilung wie bei
 `kuronami.artifacts` und bei dauerhaften Freigaben: die **Zeile** ist der Bestand, das
 **Ereignis** (`agent.created`, in der Session, in der es geschah) die Herkunft.
+
+## Warum die Besetzung Daten sind und keine Migration
+
+Beides wäre erlaubt gewesen. Eine Migration schriebe sieben Profile als SQL-Literale in eine
+Datei, die niemand gegen den Katalog prüft: ein Tippfehler in einem Toolnamen stünde danach in
+der Registry und fiele erst auf, wenn der Agent das erste Mal läuft — vielleicht nachts, nach
+Zeitplan. Hier gehen alle sieben durch `checkAgentDraft`, also durch dasselbe Tor wie ein Profil
+aus `agent.create`. Und `seedFirstCasting` ist idempotent, was eine Migration nicht wäre.
 
 ## Risiko-Obergrenze
 

@@ -53,6 +53,19 @@ die stellt allein die Engine aus — der Weg daran vorbei ist nicht verboten, es
 Es gewinnt immer die schärfste Aussage aller Ebenen. Ein `allow` aus einer Regel oder einem
 Hook senkt nichts; nur der Sessionmodus darf den Boden senken, und nie bei `destructive`.
 
+## Ein Subagent bekommt nur seine eigenen Werkzeuge
+
+Die Werkzeugliste in `kuronami.agents.tools` ist abschließend, und sie wird an **zwei**
+unabhängigen Toren durchgesetzt: der Katalog eines Arbeiters enthält nur diese Werkzeuge (jedes
+andere ist für ihn ein unbekanntes Tool), und ein Policy-Hook am Profil lehnt einen Aufruf
+außerhalb der Liste auch dann ab, wenn der Katalog ihn kennt. Kein Prompt-Hinweis, sondern zwei
+Prüfungen — die zweite für den Tag, an dem jemand `runWorker` mit einem breiteren Katalog
+aufruft.
+
+Dazu zwei Obergrenzen: `token_budget` je Agent (geprüft vor jedem Modellaufruf, aufgebraucht
+beendet den Lauf) und ein Kontingent paralleler Arbeiter je Prozess (`AGENT_MAX_PARALLEL`,
+Vorgabe zwei; wer darüber hinaus delegiert, wartet).
+
 ## Secrets laufen durch den Redaction-Filter
 
 Jeder Schreibpfad, der Text auf die Platte oder in den Modellkontext bringt, läuft durch

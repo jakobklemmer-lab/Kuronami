@@ -267,6 +267,10 @@ async function runOne(
     model_from_profile: model.model === profile.model,
     tool_calls: run.toolCalls,
     artifact_refs: run.artifactRefs,
+    // Verbrauch je Lauf (S20): bei Agenten mit Zeitplan die Zahl, die am Monatsende zählt
+    // (Abschnitt 11, "Cron-Agenten sind der eigentliche Kostentreiber").
+    tokens_spent: run.tokensSpent,
+    token_budget: profile.tokenBudget,
   });
 
   return {

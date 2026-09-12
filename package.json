@@ -19,6 +19,7 @@
     "gateway": "tsx --env-file=.env gateway/index.ts",
     "heartbeat": "tsx --env-file=.env heartbeat/index.ts",
     "say": "tsx --env-file=.env gateway/cli.ts",
+    "agents:seed": "tsx --env-file=.env runtime/agents/seed.ts",
     "evals": "tsx --env-file=.env evals/run.ts"
   },
   "dependencies": {

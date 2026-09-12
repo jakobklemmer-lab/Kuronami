@@ -211,7 +211,7 @@
     "id": "S20",
     "title": "Erste Subagent-Besetzung",
     "phase": 5,
-    "status": "ready",
+    "status": "done",
     "done_when": "Alle sieben Rollen angelegt, Tools rollenspezifisch begrenzt",
     "depends_on": ["S19"]
   },
@@ -219,7 +219,7 @@
     "id": "S21",
     "title": "Kosten-Tracking und Modell-Routing",
     "phase": 8,
-    "status": "queued",
+    "status": "ready",
     "done_when": "Tagesausgaben pro Agent sichtbar",
     "depends_on": ["S20"]
   },
