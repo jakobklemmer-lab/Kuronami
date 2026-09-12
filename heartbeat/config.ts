@@ -1,4 +1,4 @@
-import { type CronExpr, parseCron } from "./schedule.js";
+import { type CronExpr, parseCron } from "../runtime/schedule/cron.js";
 
 /**
  * Die Einstellungen des Heartbeat-Dienstes, aus der Umgebung gebaut. Fehlende Werte haben eine

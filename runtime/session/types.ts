@@ -6,14 +6,27 @@
  */
 
 /**
- * Die fünf Kanäle aus Abschnitt 5, dazu `gateway` seit S16 (Migration 0008).
+ * Die fünf Kanäle aus Abschnitt 5, dazu `gateway` seit S16 (Migration 0008) und `agent` seit
+ * S19 (Migration 0009).
  *
  * `gateway` ist der Kanal einer Session, die **keiner einzelnen Oberfläche gehört**: das
  * Gateway führt Web und Telegram desselben Nutzers in einer Session zusammen, damit beide
  * dasselbe Gedächtnis haben. Der Kanal der einzelnen Nachricht steht dann nicht mehr hier,
  * sondern im `gateway.received`-Ereignis — er ändert sich je Nachricht, die Session nicht.
+ *
+ * `agent` ist der Kanal einer Session, die **keinem Menschen gehört**: der isolierte Kontext
+ * eines delegierten Arbeiters (Abschnitt 14). Sie kommt aus keiner Oberfläche und hat kein
+ * Gegenüber, das antwortet; wer sie einem der anderen Werte zuschlüge, behauptete eine
+ * Herkunft, die es nicht gibt.
  */
-export type SessionChannel = "web" | "telegram" | "mail" | "heartbeat" | "voice" | "gateway";
+export type SessionChannel =
+  | "web"
+  | "telegram"
+  | "mail"
+  | "heartbeat"
+  | "voice"
+  | "gateway"
+  | "agent";
 export type ApprovalMode = "ask" | "accept_edits" | "bypass_in_sandbox";
 
 /** Eine Zeile aus `kuronami.sessions`. */

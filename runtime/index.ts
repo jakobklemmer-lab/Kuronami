@@ -3,6 +3,7 @@ import { artifactRootFromEnv } from "./artifacts/store.js";
 import { createPool } from "./db/pool.js";
 import { buildCatalog, createRunner } from "./loop/api.js";
 import { MissingApiKeyError, createAnthropicClient } from "./model/anthropic.js";
+import { resolveModelRouteConfig } from "./model/router.js";
 import type { SessionChannel } from "./session/manager.js";
 
 const SIGNALS = ["SIGINT", "SIGTERM"] as const;
@@ -45,15 +46,6 @@ async function main(): Promise<void> {
   // Start ist der Normalfall.
   // Skills (S18c) sind wie das Gedächtnis kein Anschluss nach draußen, sondern ein Teil des
   // Systems — `skills/` liegt im Repo und wird immer gescannt, auch wenn sie heute leer ist.
-  const { catalog, policy, memory, skills } = await buildCatalog({
-    pool,
-    artifactRoot,
-    n8n: n8nBaseUrl ? { mail: true, cal: true, server: true } : undefined,
-    obsidian: obsidianVault ? {} : undefined,
-    memory: {},
-    skills: {},
-  });
-
   // Ohne Eingabe wird kein Modell gebraucht, und ein fehlender Schlüssel darf das Skelett
   // nicht am Starten hindern: eine Session eröffnen, ihren Zustand ansehen oder eine
   // Rückfrage beantworten geht ohne Anbieter.
@@ -65,6 +57,26 @@ async function main(): Promise<void> {
           throw new MissingApiKeyError("ANTHROPIC_API_KEY ist nicht gesetzt.");
         },
       });
+
+  // Die Agenten-Registry (S19) braucht ein Modell, bevor der Katalog steht: `agent.create`
+  // entwirft ein Profil mit einem Modellaufruf. Deshalb steht der Client hier **vor**
+  // `buildCatalog` — die Reihenfolge ist der einzige Unterschied zu vorher.
+  const routeConfig = resolveModelRouteConfig();
+  const { catalog, policy, memory, skills } = await buildCatalog({
+    pool,
+    artifactRoot,
+    n8n: n8nBaseUrl ? { mail: true, cal: true, server: true } : undefined,
+    obsidian: obsidianVault ? {} : undefined,
+    memory: {},
+    skills: {},
+    agents: {
+      // Ein Profil aus einem Satz zu formen ist Extraktion, also die günstigste Klasse
+      // (Abschnitt 11) — dasselbe Modell, das seit S18e klassifiziert.
+      model: tryCreateModel(routeConfig.routineModel) ?? model,
+      modelFor: (name: string) => tryCreateModel(name) ?? model,
+      models: { routine: routeConfig.routineModel, thinking: routeConfig.thinkingModel },
+    },
+  });
 
   const runner = await createRunner({
     pool,
@@ -169,9 +181,9 @@ async function main(): Promise<void> {
   await shutdown(result.stop);
 }
 
-function tryCreateModel(): ReturnType<typeof createAnthropicClient> | undefined {
+function tryCreateModel(model?: string): ReturnType<typeof createAnthropicClient> | undefined {
   try {
-    return createAnthropicClient();
+    return createAnthropicClient(model ? { model } : {});
   } catch (error) {
     if (error instanceof MissingApiKeyError) return undefined;
     throw error;

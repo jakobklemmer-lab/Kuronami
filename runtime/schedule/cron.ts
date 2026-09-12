@@ -3,6 +3,16 @@
  * beim Glob in `policy/rules.ts` und beim JSON-Schema in `tools/types.ts`: was fehlt, fehlt
  * sichtbar und lässt sich nachrüsten, wenn ein echter Zeitplan es braucht.
  *
+ * **Stand S19 liegt diese Datei in `runtime/` und nicht mehr in `heartbeat/`.** Ein
+ * Cron-Ausdruck ist seit der Agenten-Registry nicht mehr nur die Einstellung des
+ * Heartbeat-Dienstes, sondern eine **Eigenschaft eines Agenten** (`kuronami.agents.schedule`),
+ * und `agent.create` prüft ihn beim Anlegen — aus demselben Grund, aus dem `heartbeatConfigFromEnv`
+ * ihn beim Start prüft: ein kaputter Ausdruck soll sofort auffallen und nicht später stumm nie
+ * feuern. `tools/agent/` darf aber nichts aus `heartbeat/` importieren (Abschnitt 3, harte
+ * Regel; geprüft in `heartbeat/layering.test.ts`). Ein zweiter Parser daneben wäre eine zweite
+ * Wahrheit über dieselbe Form; also ist der eine dorthin gewandert, wo beide Seiten ihn
+ * erreichen. `heartbeat/` importiert ihn von hier, die Richtung stimmt.
+ *
  * Fünf Felder (`m h dom mon dow`), Minutengranularität. Je Feld: `*`, `*​/n`, `a-b`, `a-b/n`,
  * `a,b,c`, eine Zahl. **Nicht** unterstützt: Namen (`MON`, `JAN`), `?`, `L`/`W`/`#`,
  * Sekundenfeld, Jahresfeld. Ein Ausdruck mit so etwas wirft beim Parsen, statt still etwas

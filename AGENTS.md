@@ -56,11 +56,15 @@ Hook senkt nichts; nur der Sessionmodus darf den Boden senken, und nie bei `dest
 ## Secrets laufen durch den Redaction-Filter
 
 Jeder Schreibpfad, der Text auf die Platte oder in den Modellkontext bringt, läuft durch
-`redact` aus `runtime/redaction/`. Heute sind das sechs: Ereignisprotokoll, Artefaktmetadaten,
+`redact` aus `runtime/redaction/`. Heute sind das sieben: Ereignisprotokoll, Artefaktmetadaten,
 Prompt-Aufbau, die Freigabezeilen in `kuronami.approvals` (dort steht die Eingabe des
-freigegebenen Aufrufs), der Notiztext im Langzeitgedächtnis und die Nachlauf-Zusammenfassung,
-die es füllt. Kommt ein siebter dazu, wird er dort angeschlossen — nicht mit einer eigenen
-Prüfung an der Aufrufstelle.
+freigegebenen Aufrufs), der Notiztext im Langzeitgedächtnis, die Nachlauf-Zusammenfassung,
+die es füllt, und seit S19 das Agentenprofil in `kuronami.agents`. Kommt ein achter dazu, wird
+er dort angeschlossen — nicht mit einer eigenen Prüfung an der Aufrufstelle.
+
+Das Agentenprofil ist aus demselben Grund heikel wie der Gedächtnispfad: es steht dauerhaft in
+der Registry **und** geht als System-Prompt in jeden künftigen Lauf dieses Agenten, auch in
+die, die nach Zeitplan ohne Zuschauer laufen.
 
 Der Gedächtnispfad ist der heikelste: eine Notiz mit einem Zugangsschlüssel läge nicht nur im
 Klartext auf der Platte, sondern **dauerhaft in einer Git-Historie**, und der Recall legte sie

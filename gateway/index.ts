@@ -3,6 +3,7 @@ import { artifactRootFromEnv } from "../runtime/artifacts/store.js";
 import { createPool } from "../runtime/db/pool.js";
 import { buildCatalog } from "../runtime/loop/api.js";
 import { createAnthropicClient } from "../runtime/model/anthropic.js";
+import { resolveModelRouteConfig } from "../runtime/model/router.js";
 import { createTelegramChannel, startTelegramPolling } from "./channels/telegram/channel.js";
 import type { TelegramChannelDeps } from "./channels/telegram/channel.js";
 import { createTelegramClient } from "./channels/telegram/client.js";
@@ -51,6 +52,14 @@ async function main(): Promise<void> {
   const artifactRoot = artifactRootFromEnv();
   const n8nBaseUrl = process.env.N8N_BASE_URL?.trim();
   const obsidianVault = process.env.OBSIDIAN_VAULT_PATH?.trim();
+  // Ohne Modell kann das Gateway keine Nachricht beantworten. Anders als beim Runtime-Skelett
+  // (das auch ohne Schlüssel eine Session eröffnen können soll) ist ein Start ohne Anbieter
+  // hier sinnlos — er endete bei der ersten Nachricht in einem Fehler statt beim Start.
+  // Der Client steht seit S19 **vor** `buildCatalog`: `agent.create` entwirft sein Profil mit
+  // einem Modellaufruf, und der Katalogbau bekommt den Client übergeben, statt einen zu bauen.
+  const model = createAnthropicClient();
+  const route = resolveModelRouteConfig();
+
   const { catalog, policy, memory, skills } = await buildCatalog({
     pool,
     artifactRoot,
@@ -63,12 +72,16 @@ async function main(): Promise<void> {
     memory: {},
     // Skills (S18c) sind derselbe Fall: kein Anschluss nach draußen, sondern Teil des Systems.
     skills: {},
+    // Die Agenten-Registry (S19). Hier gehört sie hin, und zwar mehr als in `runtime/index.ts`:
+    // "Neue Rollen entstehen über `agent.create` per Sprach- oder Textbefehl" (Abschnitt 14),
+    // und der Sprach- bzw. Textbefehl kommt seit S16 durch das Gateway. Das Entwerfen eines
+    // Profils ist Extraktion und läuft deshalb auf dem günstigen Modell (Abschnitt 11).
+    agents: {
+      model: createAnthropicClient({ model: route.routineModel }),
+      modelFor: (name: string) => createAnthropicClient({ model: name }),
+      models: { routine: route.routineModel, thinking: route.thinkingModel },
+    },
   });
-
-  // Ohne Modell kann das Gateway keine Nachricht beantworten. Anders als beim Runtime-Skelett
-  // (das auch ohne Schlüssel eine Session eröffnen können soll) ist ein Start ohne Anbieter
-  // hier sinnlos — er endete bei der ersten Nachricht in einem Fehler statt beim Start.
-  const model = createAnthropicClient();
 
   const conversations = createConversations({
     pool,

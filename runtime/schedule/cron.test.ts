@@ -5,7 +5,7 @@ import {
   nextFireAfter,
   parseCron,
   previousFireAtOrBefore,
-} from "./schedule.js";
+} from "./cron.js";
 
 /**
  * Der Cron-Parser ohne Datenbank. Minutengranularität, lokale Zeit des Prozesses — die Tests

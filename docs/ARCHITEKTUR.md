@@ -402,7 +402,41 @@ Statusmodell, genau acht Werte:
 }
 ```
 
+### Agent (S19, Phase 5)
+
+```json
+{
+  "agent_id": "agent_...",
+  "name": "mail-waechter",
+  "role": "Mail-Agent",
+  "purpose": "Sieht alle 20 Minuten nach neuen Mails und meldet, was wichtig ist.",
+  "system_prompt": "Du siehst nach neuen Mails und meldest nur, was wirklich wichtig ist.",
+  "model": "claude-haiku-4-5-20251001",
+  "tools": ["mail.search", "mail.read"],
+  "max_risk": "read",
+  "max_steps": 12,
+  "schedule": "*/20 * * * *",
+  "status": "active",
+  "created_by": "operator",
+  "created_in_session": "sess_..."
+}
+```
+
+Statusmodell, genau drei Werte: `active` · `paused` · `retired` (kein Löschen — eine
+Delegation im Protokoll zeigt auf den Namen).
+
+**Nachgetragen mit S19, nicht aus Phase 0.** Die Felder sind aus den Sätzen abgeleitet, die
+diese Architektur über Subagenten ohnehin festlegt: `tools` aus "Werkzeug-Zugriff ist
+rollenspezifisch, nie pauschal" (Abschnitt 14), `max_steps` aus "Token-Budget" (Abschnitt 14)
+in der Einheit, die diese Runtime durchsetzen kann, `model` aus "Modell pro Agent bewusst
+wählen" (Abschnitt 11), `max_risk` aus der Risikostufen-Tabelle (Abschnitt 10) — als
+**stehende** Erlaubnis, weshalb `hard_write`/`destructive` beim Anlegen eine Zusatzbestätigung
+verlangen —, `schedule` aus "Cron-Agenten sind der eigentliche Kostentreiber" (Abschnitt 11).
+Ein gesetzter `schedule` **ist** die Registrierung beim Heartbeat-Dienst: der liest bei jedem
+Tick die Registry, es gibt keine zweite Liste im Speicher eines Prozesses.
+
 Tabellen in Phase 1: `sessions`, `tasks`, `steps`, `artifacts`, `approvals`, `events`.
+Dazu in Phase 5: `agents` (Migration 0009).
 
 ---
 
@@ -890,6 +924,27 @@ Trading-Agent, Backtest-Agent (Trading) · Mail-Agent (persönlich, günstiges M
 
 Neue Rollen entstehen über `agent.create` per Sprach- oder Textbefehl, nicht durch neuen
 Code pro Agent. Werkzeug-Zugriff ist rollenspezifisch, nie pauschal.
+
+**Umsetzung (S19):** `kuronami.agents` (Abschnitt 5), `tools/agent/` und `runtime/agents/`.
+Vier Sätze von oben stehen dabei nicht als Bitte im Prompt, sondern als Form im Code:
+
+* **Isolierter Kontext** — ein Arbeiter bekommt eine **eigene Session** auf dem neuen Kanal
+  `agent`, also ein eigenes Ereignisprotokoll. Der Kontext einer Session *ist* die Faltung
+  ihres Protokolls; die Unterhaltung des Hauptagenten kommt darin nicht vor, und es gibt
+  keinen Schalter, der sie hereinließe. Alles, was der Arbeiter wissen soll, steht in `task`
+  bzw. `context` seines Auftrags.
+* **Nur Endergebnis plus Artefakt-Referenzen zurück** — `agent.delegate` gibt Abschlusstext,
+  Artefakt-Handles und Kennzahlen zurück, keine Historie.
+* **Explizite Tool-Beschränkung** — der Katalog des Arbeiters ist die Schnittmenge aus der
+  Werkzeugliste seines Profils und dem Katalog des Prozesses, neu eingefroren.
+* **Keine rekursiven Subagenten** — `runtime/loop/api.ts` registriert die `agent.*`-Tools
+  zuletzt und übergibt ihnen den Katalog, wie er **vorher** aussah. Ein Arbeiter kann nicht
+  weiterdelegieren, weil es in seinem Katalog nichts gibt, womit er es täte.
+
+`agent.delegate` läuft mit Ausführungshülle (`repeatable: false`, eigenes Zeitfenster): ein
+Arbeiterlauf ist ein externer Seiteneffekt im Sinn von Abschnitt 6, und ein Absturz darf ihn
+nicht ein zweites Mal starten. Ein Arbeiter, der auf eine Freigabe warten müsste, endet als
+Fehlschlag statt still zu hängen — er hat kein Gegenüber, das antwortet.
 
 ---
 

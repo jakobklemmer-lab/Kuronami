@@ -5,11 +5,8 @@ progress-archiv.md nachschlagen (z. B. mit grep nach der Session-ID).
 
 ## Aktueller Stand
 
-**Phase 4 ist abgeschlossen.** Zuletzt fertig: **S18f** (Eval-Suite für lange Läufe),
-2026-09-11. Reihenfolge der letzten drei Sessions, alle am selben Tag: S18e (Modell-Routing)
-lief zuerst auf ausdrücklichen Auftrag, S18d (Erste eigene Skills) wurde direkt danach
-nachgeholt, S18f schließt die Phase ab. Naechste Session: **S19** Agenten-Registry und
-`agent.create`, Status `ready` — der Beginn von Phase 5.
+**Phase 5 hat begonnen.** Zuletzt fertig: **S19** (Agenten-Registry und `agent.create`),
+2026-09-12. Naechste Session: **S20** Erste Subagent-Besetzung, Status `ready`.
 
 ## Sessions
 
@@ -40,7 +37,7 @@ nachgeholt, S18f schließt die Phase ab. Naechste Session: **S19** Agenten-Regis
 | S18d | Erste eigene Skills | done |
 | S18e | Modell-Routing | done |
 | S18f | Eval-Suite fuer lange Laeufe | done |
-| S19 | Agenten-Registry und agent.create | queued |
+| S19 | Agenten-Registry und agent.create | done |
 | S20 | Erste Subagent-Besetzung | queued |
 | S21 | Kosten-Tracking und Modell-Routing | queued |
 | S22 | Tauri-Desktop-Wrapper | queued |
@@ -102,11 +99,154 @@ Details siehe progress-archiv.md.
   beweisen die Mechanik (Klassifikation entscheidet Modellwahl, Entscheidung steht im Protokoll,
   kein zweites Routing in derselben Session), nicht ob ein echtes guenstiges Modell die Frage
   "Routine oder Denkarbeit" in der Praxis richtig beantwortet.
+- **Delegation und Anlegen sind grob freigegeben** (S19): das Policy-Subjekt ist
+  `agent.delegate|-` bzw. `agent.create|-` (keine Ressource), eine `session`-Freigabe deckt also
+  jede weitere Delegation bzw. jedes weitere Anlegen derselben Session — dieselbe grobe Körnung
+  wie bei `cal.create`/`notes.write` seit S15.
+- **Ein Arbeiter kann auf keine Freigabe warten** (S19): braucht ein Werkzeug seines Profils
+  eine, endet sein Lauf als Fehlschlag (die Session wird abgebrochen, damit kein offener Zug
+  liegenbleibt). Praktisch heißt das: ein Agent mit `hard_write`-Werkzeugen ist heute nur in
+  einem Prozess brauchbar, der diese Aufrufe per Regel oder Dauerfreigabe abdeckt.
+- **Ein Agent kann nur bekommen, was der Prozess hat** (S19): der Hintergrundkatalog des
+  Heartbeats (S17) ist die Obergrenze für jeden Lauf nach Zeitplan. Ein Agent mit `mail.*` in
+  einem Prozess ohne n8n läuft **nicht** halb, sondern gar nicht (`WorkerToolsUnavailableError`,
+  sichtbar im Diarium) — bewusst fail closed, aber eine Falle für den Betreiber, der Registry
+  und Prozesskonfiguration auseinanderlaufen lässt.
+- **Keine Obergrenze für parallele Arbeiter, kein Token-Budget in Token** (S19) — Abschnitt 14
+  nennt beides, umgesetzt ist bislang `max_steps` je Lauf.
 - **Nur zwei Klassen, Abschnitt 11 kennt drei** (S18e): "klein und guenstig", "mittel",
   "stark" — der Router kennt nur die aeusseren beiden ("Routine"/"Denkarbeit"), wie im Auftrag
   woertlich verlangt ("grob klassifiziert"). Die mittlere Klasse ("Zusammenfassen, einfache
   Tool-Auswahl") bleibt vorerst unbenannt; `compactionModel` (S18a) faellt weiterhin auf das
   Orchestrator-Modell zurueck, wenn niemand explizit ein zweites uebergibt.
+
+## S19 · Agenten-Registry und `agent.create` · 2026-09-12
+
+Erste Session der Phase 5. Fünf Vorgaben, alle wörtlich: die Postgres-Tabelle `agents` nach dem
+Schema in `docs/ARCHITEKTUR.md`, `agent.delegate` im Orchestrator-Worker-Muster mit isoliertem
+Kontext, `agent.create` (Nutzerauftrag → Claude entwirft Profil-JSON → `user.ask` zur
+Bestätigung → Insert), Risikostufen-Validierung mit Zusatzbestätigung bei hartem
+Schreiben/Zerstörendem, und bei gesetztem `schedule` die Registrierung beim Heartbeat-Dienst.
+
+**Das Schema stand nicht in der Architektur — es ist abgeleitet und jetzt nachgetragen.**
+Abschnitt 5 nannte vier Entitäten (Session, Task, Step, Artifact) und sechs Tabellen "in Phase
+1"; eine `agents`-Tabelle gab es dort nicht. Jede Spalte von Migration `0009` steht deshalb für
+genau einen Satz, den die Architektur ohnehin festlegt: `tools` für "Werkzeug-Zugriff ist
+rollenspezifisch, nie pauschal" (Abschnitt 14), `max_steps` für das "Token-Budget" ebendort in
+der Einheit, die diese Runtime durchsetzen kann, `model` für "Modell pro Agent bewusst wählen"
+(Abschnitt 11), `max_risk` für die Risikostufen-Tabelle (Abschnitt 10), `schedule` für
+"Cron-Agenten sind der eigentliche Kostentreiber" (Abschnitt 11). Das Ergebnis steht jetzt als
+fünfte Entität in Abschnitt 5, samt dem Hinweis, dass es eine Ableitung war.
+
+**Ein siebter Kanalwert: `agent`.** Ein Arbeiter bekommt eine eigene Session — das *ist* der
+isolierte Kontext, denn der Kontext einer Session ist die Faltung ihres Protokolls. Diese
+Session gehört keiner Oberfläche; sie einem bestehenden Wert zuzuschlagen wäre eine
+Falschaussage über ihre Herkunft, und `gateway` (S16) meint das Gegenteil (eine Session, die
+*mehreren* Oberflächen gehört). Umbenennen-und-neu-anlegen wie bei `approval_scope` (0007) und
+`session_channel` (0008), damit das Down den Zustand von 0008 wirklich wiederherstellt.
+
+**Der Cron-Parser ist von `heartbeat/` nach `runtime/schedule/cron.ts` gewandert.** Ein
+Zeitplan ist seit dieser Session nicht mehr nur die Einstellung des Heartbeat-Dienstes, sondern
+eine Eigenschaft eines Agenten, und `agent.create` prüft ihn **beim Anlegen** — aus `tools/`
+heraus, das nichts aus `heartbeat/` importieren darf (Abschnitt 3, geprüft in
+`heartbeat/layering.test.ts`). Ein zweiter Parser daneben wäre eine zweite Wahrheit über
+dieselbe Form. Die Prüfung beim Anlegen ist dieselbe Haltung wie bei
+`heartbeatConfigFromEnv` seit S17: ein kaputter Ausdruck soll sofort auffallen und nicht später
+stumm nie feuern.
+
+**`agent.create` läuft dreimal und entwirft einmal.** Der Handler ist `execution: "runtime"`
+wie `user.ask` (er hält für einen Menschen an; ein Schritt, der stundenlang auf `running`
+steht, wäre eine Falschaussage über den Lauf). Seine Idempotenz kommt deshalb aus dem
+Protokoll, an drei Stellen: das eigene `agent.created` zur selben `call_id`, die offene oder
+entschiedene Rückfrage zur selben `ask_id` — **von dort** wird der Entwurf zurückgelesen, statt
+ihn neu zu erzeugen —, und der UNIQUE-Index auf dem Namen. Dafür trägt `AskSpec` jetzt zwei
+neue Felder: `kind` (die Art der Rückfrage, neu `agent_create`) und `details` (was zur
+Entscheidung gehört, wenn die Frage mehr trägt als ihren Wortlaut). Der Nachweis steht im Test:
+der Handler läuft dreimal, `draftCalls` bleibt bei eins — und was eingetragen wird, ist damit
+nachweislich das, was der Nutzer gesehen hat, nicht eine zweite, ähnliche Antwort desselben
+Modells.
+
+**Drei Tore, drei verschiedene Fragen.** Die Policy-Engine fragt "darf dieser Lauf so etwas
+überhaupt" (`agent.create` ist `hard_write`: es ändert die Datenbank, Abschnitt 10). Die erste
+Rückfrage fragt "ist *dieses* Profil das, was du wolltest". Die zweite — nur bei
+`hard_write`/`destructive` — fragt nach der **stehenden Erlaubnis**: eine Freigabe deckt einen
+Aufruf, ein Profil deckt jeden künftigen Aufruf dieses Agenten, auch die nach Zeitplan, bei
+denen niemand zusieht. Dazu kommt die Prüfung des Profils selbst (`checkAgentDraft`), deren
+inhaltlich wichtigste Regel lautet: ein Werkzeug über der Obergrenze des Profils ist ein
+Widerspruch und wird abgewiesen, nicht später stillschweigend abgelehnt.
+
+**Keine rekursiven Subagenten, als Form statt als Regel.** `runtime/loop/api.ts` registriert die
+`agent.*`-Tools **zuletzt** und übergibt ihnen den Katalog, wie er vorher aussah — derselbe
+Zweischritt wie bei `tool.load` (S18b), nur mit anderer Absicht. Ein Profil kann daraus kein
+`agent.delegate` wählen, ein Arbeiter bekommt keins: es existiert in seinem Katalog nicht.
+`FORBIDDEN_AGENT_TOOLS` (`agent.*` plus `user.ask` — ein Arbeiter hat kein Gegenüber) ist nur
+die zweite Sicherung für den Tag, an dem jemand die Registrierreihenfolge ändert.
+
+**Registrierung beim Heartbeat heißt: die Zeile.** `heartbeat/agents.ts` liest bei jedem Tick
+die aktiven Agenten mit Zeitplan aus der Registry. Keine Anmeldeliste im Prozess — die ginge
+beim Neustart verloren, und ein Agent, den der Nutzer angelegt und bestätigt hat, liefe danach
+stumm nie wieder, ohne dass irgendwo etwas fehlte, woran man es sähe. Dieselbe Haltung wie bei
+der Tagesobergrenze seit S17 ("Kein Zustand im Speicher"), und zugleich der Grund, warum das
+Fertig-Kriterium "sofort aktiv" ohne Neustart erfüllt ist. Die Agenten teilen sich die
+**bestehende** Tagesobergrenze mit Digest und Meldung (`overDailyCap`, jetzt exportiert): eine
+zweite Grenze daneben wäre eine, die man beim nächsten Hebel vergisst mitzuziehen.
+
+**`ToolDefinition.timeoutMs`** ist neu: ein Tool darf sein eigenes Zeitfenster der
+Ausführungshülle nennen. `agent.delegate` trägt einen ganzen Arbeiterlauf; ein Abbruch nach der
+Router-Minute wäre kein hängender Aufruf, sondern ein abgeschnittener. Zählt nicht in den
+Katalog-Fingerabdruck (interne Weiche wie `execution` und `deferred`).
+
+### Tests
+
+22 neue, zusammen 653 (65 Dateien, davon drei neu).
+
+- **`runtime/agents/store.test.ts`** (10): die Profilprüfung (Namensform, leere/unbekannte
+  Werkzeuge, Werkzeug über der Obergrenze, verbotene Werkzeuge, Cron beim Anlegen,
+  Schrittbudget) und die Registry gegen die echte Datenbank (Zeile + genau ein `agent.created`,
+  Wiederfinden über die `call_id`, Namenskollision, Redaction des Profiltexts).
+- **`tools/agent/tools.test.ts`** (7, echte Datenbank, echter Router, echte Policy): der
+  vollständige Weg von `agent.create` samt beider Pausen und dem Nachweis "ein Entwurf trotz
+  dreier Handler-Läufe"; die Zusatzbestätigung bei `hard_write` und ihr Gegenstück (verweigert
+  → nichts angelegt); ein abgelehnter Entwurf; ein unbrauchbares Profil als Fehlerhülle; und
+  `agent.delegate` über die echte Schleife: eigene Session auf Kanal `agent`, der Arbeiter sieht
+  das Geheimwort des Hauptagenten **nicht**, seine Werkzeugliste ist genau das eine Werkzeug
+  seines Profils, sein Ergebnis steht in der Historie des Auftraggebers, seine Zwischenschritte
+  nur in seinem eigenen Protokoll.
+- **`heartbeat/agents.test.ts`** (5, gestellte Uhr): ein fälliger Agent läuft genau einmal je
+  Anlass (drei Ticks, ein Lauf; ein Dienst-Neustart ändert nichts; 10:20 ist ein neuer Anlass),
+  Stille bleibt stumm (`heartbeat.silent`, nichts zugestellt), ein pausierter Agent läuft nicht,
+  ein Agent mit Werkzeugen außerhalb des Hintergrundkatalogs wird zum sichtbaren Fehlschlag —
+  und das **Fertig-Kriterium**: ein per Satz angelegter Agent ("erstelle einen Agenten, der alle
+  20 Minuten meine Mails checkt") ist ohne jeden Neustart beim nächsten Tick fällig und meldet
+  sich über den Kanal.
+
+### Gegenproben
+
+Keine gesonderten — jeder Mechanismus ist mit seinem Gegenstück geprüft: bestätigt/abgelehnt,
+Zusatzbestätigung erteilt/verweigert, Agent aktiv/pausiert, Meldung/Stille, Werkzeug im
+Profil/außerhalb, erster Anlass/derselbe Anlass noch einmal.
+
+### Bewusst nicht gebaut
+
+- **Kein `agent.update`/`agent.retire`.** Was mit einer laufenden Delegation und einem gerade
+  fälligen Zeitplan geschieht, ist eine eigene Entscheidung; `status` steht schon in der
+  Tabelle, damit ein späteres Pausieren nur eine Zeile schreiben muss.
+- **Keine Obergrenze für parallele Arbeiter und kein Token-Budget in Token.** Abschnitt 14
+  nennt beides; S19 setzt davon `max_steps` um (Werkzeugaufrufe je Lauf). Delegationen laufen
+  heute nacheinander in einem Zug.
+- **Keine Kostenrechnung je Agent.** Das ist S21.
+- **Keine feinere Freigabe-Körnung.** Das Subjekt einer Delegation ist `agent.delegate|-`, eine
+  `session`-Freigabe deckt also jede weitere Delegation derselben Session — dieselbe grobe
+  Körnung wie bei `cal.create`/`notes.write` seit S15.
+
+### Offene Befunde (Details zu S19)
+
+Siehe die neuen Einträge oben unter "Offene Befunde (gesamte Historie)".
+
+- `pnpm typecheck && pnpm lint && pnpm test` grün, 653 Tests.
+- `tasks.json`: S19 auf `done`, S20 von `queued` auf `ready`.
+
+Status: abgeschlossen. Nächste Session: S20 Erste Subagent-Besetzung.
 
 ## S18e · Modell-Routing · 2026-09-11
 

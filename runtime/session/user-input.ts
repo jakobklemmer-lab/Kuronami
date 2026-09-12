@@ -1,7 +1,8 @@
 import type { Pool } from "pg";
 import { appendEventInTx, readEvents } from "../events/log.js";
 import { redactText } from "../redaction/redact.js";
-import { type AskTrace, lockSession, optionsOf, traceAsk } from "./approval-log.js";
+import type { JsonValue } from "../steps/types.js";
+import { type AskKind, type AskTrace, lockSession, optionsOf, traceAsk } from "./approval-log.js";
 import { type AskOption, type PendingUserInput, deriveSessionState } from "./state.js";
 
 /**
@@ -54,12 +55,48 @@ export interface AskSpec {
   askId: string;
   question: string;
   options: AskOption[];
+  /**
+   * Die Art der Rückfrage. Vorgabe `user_ask` — das ist jede Frage, die das Modell über
+   * `user.ask` stellt.
+   */
+  kind?: AskKind;
+  /**
+   * Was zur Entscheidung gehört, wenn die Frage mehr trägt als ihren Wortlaut (S19).
+   *
+   * `agent.create` legt hier das entworfene Profil ab, und das ist kein Beiwerk, sondern der
+   * Grund, aus dem der Entwurf einen Neustart überlebt: der Modellaufruf, der ihn gebaut hat,
+   * läuft **einmal**: findet der Handler beim Fortsetzen sein `approval.requested` wieder,
+   * liest er den Entwurf von dort statt ein zweites Mal zu fragen — und was eingetragen wird,
+   * ist dadurch nachweislich genau das, was der Nutzer bestätigt hat, und nicht eine zweite,
+   * ähnliche Antwort desselben Modells.
+   *
+   * Der Aufrufer ist dafür verantwortlich, dass hier nichts Ungefiltertes hineingeht: dieses
+   * Modul redigiert Frage und Beschriftungen (siehe unten), aber es kennt die Form von
+   * `details` nicht.
+   */
+  details?: Record<string, JsonValue>;
 }
 
+/**
+ * Was der Frage beilag (`AskSpec.details`), zurückgelesen aus dem `approval.requested`. Steht
+ * bei jedem Ausgang mit dabei — auch bei `answered`: wer eine Entscheidung auswertet, braucht
+ * das, worüber entschieden wurde, und soll es nicht ein zweites Mal herstellen müssen (S19).
+ */
+export type AskDetails = Record<string, JsonValue> | null;
+
 export type AskResolution =
-  | { status: "pending"; askId: string }
-  | { status: "answered"; askId: string; choice: string; choiceLabel: string; decidedAt: Date }
-  | { status: "dismissed"; askId: string; reason: string; decidedAt: Date };
+  | { status: "pending"; askId: string; details: AskDetails }
+  | {
+      status: "answered";
+      askId: string;
+      choice: string;
+      choiceLabel: string;
+      decidedAt: Date;
+      /** Wer entschieden hat — der Freigabepfad aus Abschnitt 10, an seinem Ende. */
+      decidedBy: string;
+      details: AskDetails;
+    }
+  | { status: "dismissed"; askId: string; reason: string; decidedAt: Date; details: AskDetails };
 
 export interface AnswerReport {
   askId: string;
@@ -71,7 +108,14 @@ export interface AnswerReport {
 // Policy-Engine benutzt dieselbe Mechanik für ihre Freigabe-Rückfragen, und zwei Kopien
 // wären zwei Formen desselben Ereignisses.
 
+function detailsOf(trace: AskTrace): AskDetails {
+  const value = trace.request?.payload.details;
+  if (typeof value !== "object" || value === null || Array.isArray(value)) return null;
+  return value as Record<string, JsonValue>;
+}
+
 function resolutionFrom(trace: AskTrace): AskResolution | null {
+  const details = detailsOf(trace);
   if (trace.decision?.type === "approval.granted") {
     return {
       status: "answered",
@@ -79,6 +123,8 @@ function resolutionFrom(trace: AskTrace): AskResolution | null {
       choice: trace.decision.payload.choice as string,
       choiceLabel: (trace.decision.payload.choice_label as string) ?? "",
       decidedAt: trace.decision.createdAt,
+      decidedBy: (trace.decision.payload.decided_by as string) ?? "operator",
+      details,
     };
   }
   if (trace.decision?.type === "approval.denied") {
@@ -87,12 +133,19 @@ function resolutionFrom(trace: AskTrace): AskResolution | null {
       askId: trace.decision.payload.ask_id as string,
       reason: (trace.decision.payload.reason as string) ?? "",
       decidedAt: trace.decision.createdAt,
+      details,
     };
   }
   if (trace.request) {
-    return { status: "pending", askId: trace.request.payload.ask_id as string };
+    return { status: "pending", askId: trace.request.payload.ask_id as string, details };
   }
   return null;
+}
+
+/** Die Art der Rückfrage, wie sie in der Anfrage steht. Vorgabe `user_ask` (S10-Bestand). */
+function kindOf(trace: AskTrace): AskKind {
+  const value = trace.request?.payload.kind;
+  return value === "policy" || value === "agent_create" ? value : "user_ask";
 }
 
 /**
@@ -126,21 +179,39 @@ export async function askUserInput(
 
     await appendEventInTx(client, sessionId, "approval.requested", {
       ask_id: spec.askId,
-      kind: "user_ask",
+      kind: spec.kind ?? "user_ask",
       question: redactText(spec.question),
       options: spec.options.map((option) => ({
         id: option.id,
         label: redactText(option.label),
       })),
+      ...(spec.details ? { details: spec.details } : {}),
     });
     await client.query("COMMIT");
-    return { status: "pending", askId: spec.askId };
+    return { status: "pending", askId: spec.askId, details: spec.details ?? null };
   } catch (error) {
     await client.query("ROLLBACK");
     throw error;
   } finally {
     client.release();
   }
+}
+
+/**
+ * Der Stand einer Rückfrage, **ohne** sie zu stellen. `null`, wenn es sie noch nicht gibt.
+ *
+ * Der Unterschied zu `askUserInput` ist der ganze Zweck (S19): dort entsteht die Frage, wenn
+ * sie fehlt. Wer sie erst **bauen** muss — `agent.create` fragt dafür ein Modell —, braucht
+ * vorher die Auskunft, ob das überhaupt nötig ist. Ohne diesen Blick liefe bei jedem
+ * Fortsetzen ein zweiter Modellaufruf, und der Entwurf, den der Nutzer bestätigt, wäre nicht
+ * mehr sicher derselbe, den er gesehen hat.
+ */
+export async function peekAsk(
+  pool: Pool,
+  sessionId: string,
+  askId: string,
+): Promise<AskResolution | null> {
+  return resolutionFrom(traceAsk(await readEvents(pool, sessionId), askId));
 }
 
 /**
@@ -181,7 +252,11 @@ export async function answerUserInput(
 
     await appendEventInTx(client, sessionId, "approval.granted", {
       ask_id: askId,
-      kind: "user_ask",
+      // Die Entscheidung trägt die Art **der Frage**, nicht die dieses Schreibwegs (S19): eine
+      // Rückfrage von `agent.create` wird hier beantwortet wie jede andere, und ein Protokoll,
+      // in dem die Anfrage `agent_create` heißt und ihre Antwort `user_ask`, ließe sich nur
+      // noch über die `ask_id` zusammenlesen.
+      kind: kindOf(trace),
       choice: option.id,
       choice_label: option.label,
       question: trace.request.payload.question ?? null,
@@ -222,7 +297,8 @@ export async function dismissUserInput(
 
     await appendEventInTx(client, sessionId, "approval.denied", {
       ask_id: askId,
-      kind: "user_ask",
+      // Wie bei `answerUserInput`: die Art der Frage, nicht die dieses Schreibwegs.
+      kind: kindOf(trace),
       reason: redactText(reason),
     });
     await client.query("COMMIT");

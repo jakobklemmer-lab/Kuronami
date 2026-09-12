@@ -7,8 +7,8 @@ import { createPool } from "../runtime/db/pool.js";
 import { type EventRecord, readEvents } from "../runtime/events/log.js";
 import { type BuiltCatalog, buildCatalog } from "../runtime/loop/api.js";
 import { createScriptedModel } from "../runtime/loop/scripted.js";
+import { parseCron } from "../runtime/schedule/cron.js";
 import type { DigestChannel } from "./delivery.js";
-import { parseCron } from "./schedule.js";
 import { type Heartbeat, createHeartbeat } from "./service.js";
 
 /**
@@ -76,12 +76,22 @@ async function makeHeartbeat(diaryThread: string): Promise<Heartbeat> {
   return hb;
 }
 
+/**
+ * Die Digest-Läufe im Diarium. Gezählt wird ausdrücklich nur `kind: "digest"`: seit S19 läuft
+ * im selben Tick auch die Runde der Agenten mit Zeitplan (`heartbeat/agents.ts`), und die
+ * Registry ist eine **globale** Tabelle — ein Agent, den ein anderer Test gerade angelegt hat,
+ * gehört nicht in die Zählung dieses Tests. Gesammelt werden die Sessions aller Läufe, damit
+ * das Aufräumen am Ende auch die erwischt, die nicht gezählt wurden.
+ */
 function runsIn(events: EventRecord[]): number {
   for (const event of events) {
     const runSession = (event.payload as { run_session?: string }).run_session;
     if (runSession && !sessionIds.includes(runSession)) sessionIds.push(runSession);
   }
-  return events.filter((event) => event.type === "heartbeat.ran").length;
+  return events.filter(
+    (event) =>
+      event.type === "heartbeat.ran" && (event.payload as { kind?: string }).kind === "digest",
+  ).length;
 }
 
 describe("Heartbeat · Zeitplan", () => {

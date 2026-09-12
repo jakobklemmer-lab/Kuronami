@@ -328,7 +328,12 @@ export async function callTool(
         kind: "tool_call",
         toolName: tool.name,
         repeatable: tool.repeatable,
-        timeoutMs: deps.timeoutMs,
+        // Das Tool darf sein eigenes Zeitfenster nennen (S19, `ToolDefinition.timeoutMs`) —
+        // sonst gilt das des Routers. Der Vorrang liegt beim Tool, weil nur es weiß, wie lange
+        // seine Arbeit dauern **darf**: `agent.delegate` trägt einen ganzen Arbeiterlauf, und
+        // ein Abbruch nach der Router-Minute wäre kein hängender Aufruf, sondern ein
+        // abgeschnittener.
+        timeoutMs: tool.timeoutMs ?? deps.timeoutMs,
         signal: deps.signal,
       },
       async (context) => {

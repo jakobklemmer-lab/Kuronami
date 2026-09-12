@@ -1,5 +1,6 @@
 import type { Server } from "node:http";
 import { createTelegramClient } from "../gateway/channels/telegram/client.js";
+import { listAgents } from "../runtime/agents/store.js";
 import { artifactRootFromEnv } from "../runtime/artifacts/store.js";
 import { createPool } from "../runtime/db/pool.js";
 import { buildCatalog } from "../runtime/loop/api.js";
@@ -57,6 +58,10 @@ async function main(): Promise<void> {
     catalog,
     policy,
     model,
+    // Modell pro Agent (Abschnitt 11): ein Agent mit Zeitplan läuft auf dem Modell, das in
+    // seinem Profil steht — und auf dem des Dienstes nur, wenn es dasselbe ist.
+    modelFor: (name: string) =>
+      name === model.model ? model : createAnthropicClient({ model: name }),
     channel,
     maxRunsPerDay: config.maxRunsPerDay,
     digestCron: config.digestCron,
@@ -71,6 +76,18 @@ async function main(): Promise<void> {
   const server: Server = app.listen(config.port, () => {
     console.log(`[heartbeat] http://localhost:${config.port}`);
   });
+
+  // Die Agenten mit Zeitplan (S19) stehen in der Registry, nicht in dieser Datei: der Dienst
+  // liest bei jedem Tick nach, wer fällig ist. Beim Start einmal ausgeben, was er dort findet —
+  // ein Betreiber soll sehen, was ohne sein Zutun laufen wird.
+  const scheduled = await listAgents(pool, { status: "active", scheduledOnly: true });
+  console.log(
+    `Agenten mit Zeitplan: ${
+      scheduled.length === 0
+        ? "keine"
+        : scheduled.map((agent) => `${agent.name} ("${agent.schedule}", ${agent.model})`).join(", ")
+    }.`,
+  );
 
   const next = heartbeat.nextDigest();
   console.log(

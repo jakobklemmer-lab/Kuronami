@@ -191,6 +191,22 @@ export interface ToolDefinition {
    * Modell mit seinen Aufrufen eingeht, und soll keine laufende Session ungültig machen können.
    */
   deferred?: boolean;
+  /**
+   * Eigenes Zeitfenster der Ausführungshülle für dieses Tool, in Millisekunden (S19). Ohne
+   * Angabe gilt das des Routers (Vorgabe 60 s) — richtig für jeden Aufruf, der eine Antwort
+   * von außen holt.
+   *
+   * Gesetzt wird es dort, wo die Arbeit **ihrer Natur nach** länger dauert und ein Abbruch nach
+   * einer Minute nicht "hängt", sondern "war noch nicht fertig": `agent.delegate` lässt einen
+   * ganzen Arbeiterlauf mit bis zu `max_steps` Werkzeugaufrufen und ebenso vielen
+   * Modellaufrufen laufen. Das Fenster bleibt eine Obergrenze, keine Erlaubnis — es steht in
+   * der Definition und damit an einer versionierten Stelle, nicht in einer Einstellung, die
+   * ein Aufrufer je Aufruf verstellt.
+   *
+   * Zählt **nicht** in den Katalog-Fingerabdruck (interne Weiche, wie `execution` und
+   * `deferred`): das Modell baut seine Aufrufe nicht danach.
+   */
+  timeoutMs?: number;
   handler: ToolHandler;
 }
 

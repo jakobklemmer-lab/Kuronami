@@ -17,8 +17,16 @@ import type { AskOption } from "./state.js";
  * die Freigabe schreibt zusätzlich eine Zeile in `kuronami.approvals`.
  */
 
-/** Wofür eine offene Entscheidung steht. Landet als `kind` im `approval.*`-Ereignis. */
-export type AskKind = "user_ask" | "policy";
+/**
+ * Wofür eine offene Entscheidung steht. Landet als `kind` im `approval.*`-Ereignis.
+ *
+ * `agent_create` ist seit S19 dabei: die Bestätigung eines Agentenprofils läuft über dieselbe
+ * Mechanik wie `user.ask` (Frage, strukturierte Optionen, Wartezustand aus dem Protokoll), ist
+ * aber eine andere Aussage — sie entscheidet nicht über einen Aufruf, sondern über eine
+ * **stehende Erlaubnis**. Ohne eigenen `kind` wäre "welche Profile hat der Nutzer je
+ * bestätigt" nur über einen Filter auf Fragetexten zu beantworten.
+ */
+export type AskKind = "user_ask" | "policy" | "agent_create";
 
 export interface AskTrace {
   request?: EventRecord;

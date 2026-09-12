@@ -203,7 +203,7 @@
     "id": "S19",
     "title": "Agenten-Registry und agent.create",
     "phase": 5,
-    "status": "ready",
+    "status": "done",
     "done_when": "Neuer Agent per Sprachbefehl anlegbar, sofort aktiv",
     "depends_on": ["S18f"]
   },
@@ -211,7 +211,7 @@
     "id": "S20",
     "title": "Erste Subagent-Besetzung",
     "phase": 5,
-    "status": "queued",
+    "status": "ready",
     "done_when": "Alle sieben Rollen angelegt, Tools rollenspezifisch begrenzt",
     "depends_on": ["S19"]
   },

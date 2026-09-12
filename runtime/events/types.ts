@@ -175,6 +175,20 @@ export const EVENT_TYPES = [
   //     welches Modell klassifiziert hat. Steht **einmal** je Session, geschrieben von
   //     `createRunner` (`runtime/loop/api.ts`), bevor der erste Zug beginnt.
   "model.routed",
+
+  // Seither dazugekommen (S19). Kein neuer Namensraum: `agent.*` steht seit Abschnitt 4.4 mit
+  // `agent.delegated`/`agent.returned` für die Fächerung zu einem Arbeiter. Was dort fehlt,
+  // ist die **Entstehung** einer Rolle — Abschnitt 14 sagt ausdrücklich, dass neue Rollen über
+  // `agent.create` entstehen "und nicht durch neuen Code pro Agent": ohne eigenes Ereignis
+  // wäre der Moment, in dem ein Agent samt Werkzeugen, Modell, Risiko-Obergrenze und Zeitplan
+  // in die Welt kam, nur noch aus einer Tabellenzeile abzulesen — ohne Auslöser, ohne
+  // Freigabepfad und ohne die Frage, die der Nutzer dabei beantwortet hat.
+  //
+  //   * `agent.created` — ein Agent steht ab jetzt in `kuronami.agents`. Trägt Name, Rolle,
+  //     Zweck, Modell, Werkzeugliste, Risiko-Obergrenze, Schrittbudget, Zeitplan und die
+  //     `call_id` des Aufrufs, aus dem er entstand (daran erkennt ein wiederaufgenommener Lauf
+  //     seinen eigenen Eintrag wieder, statt einen zweiten anzulegen).
+  "agent.created",
 ] as const;
 
 export type EventType = (typeof EVENT_TYPES)[number];

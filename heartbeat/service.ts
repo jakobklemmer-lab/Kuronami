@@ -1,6 +1,8 @@
 import type { Pool } from "pg";
 import { readEvents } from "../runtime/events/log.js";
+import { type CronExpr, nextFireAfter, previousFireAtOrBefore } from "../runtime/schedule/cron.js";
 import { createOrResumeSession } from "../runtime/session/manager.js";
+import { type ScheduledAgentRun, runScheduledAgents } from "./agents.js";
 import {
   type HeartbeatDeps,
   type HeartbeatRunResult,
@@ -8,7 +10,6 @@ import {
   handleNotification,
   runDigest,
 } from "./digest.js";
-import { type CronExpr, nextFireAfter, previousFireAtOrBefore } from "./schedule.js";
 
 /**
  * Der Dienst um `digest.ts` herum: der **Zeitplan** und die Buchführungs-Session.
@@ -38,8 +39,17 @@ export interface HeartbeatServiceDeps extends Omit<HeartbeatDeps, "diarySessionI
 
 export interface Heartbeat {
   readonly diarySessionId: string;
-  /** Prüft, ob der Digest fällig ist, und stößt ihn ggf. an. Idempotent je Zeitplan-Anlass. */
+  /**
+   * Prüft, was fällig ist, und stößt es an — erst den Digest, dann die Agenten mit Zeitplan
+   * (S19). Idempotent je Zeitplan-Anlass, für beide.
+   *
+   * Die Reihenfolge ist nicht beliebig: der Morgen-Digest ist die Aussage, mit der der Tag
+   * beginnt; fiele er wegen der Tagesobergrenze aus, weil zuvor drei Agenten liefen, wäre die
+   * Obergrenze an der falschen Stelle wirksam geworden.
+   */
   tick(now?: Date): Promise<void>;
+  /** Die fälligen Agenten eines Zeitpunkts, ohne den Digest. Für Tests und einen Handstoß. */
+  tickAgents(now?: Date): Promise<ScheduledAgentRun[]>;
   /** Ein ereignisgesteuerter Lauf, serialisiert gegen `tick`. */
   notify(notification: Notification): Promise<HeartbeatRunResult>;
   start(): void;
@@ -99,7 +109,12 @@ export async function createHeartbeat(deps: HeartbeatServiceDeps): Promise<Heart
       return serialize(async () => {
         const fire = await digestDue(at);
         if (fire) await runDigest(runDeps, { fire });
+        await runScheduledAgents(runDeps, { at, maxLatenessMs: MAX_LATENESS_MS });
       });
+    },
+
+    tickAgents(at: Date = now()): Promise<ScheduledAgentRun[]> {
+      return serialize(() => runScheduledAgents(runDeps, { at, maxLatenessMs: MAX_LATENESS_MS }));
     },
 
     notify(notification: Notification): Promise<HeartbeatRunResult> {

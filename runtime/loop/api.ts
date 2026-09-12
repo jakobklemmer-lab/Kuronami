@@ -4,6 +4,7 @@ import { loadConventions } from "../../context/system-prompt.js";
 import { decidePolicyApproval, policyAskId } from "../../policy/approvals.js";
 import { createPolicyEngine } from "../../policy/engine.js";
 import { BACKGROUND_RULES, DEFAULT_RULES } from "../../policy/rules.js";
+import { createAgentTools } from "../../tools/agent/tools.js";
 import { createCalTools } from "../../tools/cal/tools.js";
 import { buildFsZones, policyResolver } from "../../tools/fs/paths.js";
 import { createFsTools } from "../../tools/fs/tools.js";
@@ -113,6 +114,29 @@ export interface CatalogConfig {
    * Ohne das Feld bleibt der Katalog-Fingerabdruck unverändert.
    */
   skills?: { root?: string };
+  /**
+   * Die Agenten-Registry (S19) — `agent.create` und `agent.delegate` (Abschnitt 14).
+   *
+   * Gesetzt, kommen beide Tools in den Katalog. Anders als `memory` und `skills` reicht hier
+   * **kein** leeres Objekt: `agent.create` entwirft ein Profil mit einem Modellaufruf, und
+   * welches Modell das tut, kann der Katalogbau nicht erraten. Das Feld trägt deshalb den
+   * Client mit — die einzige Stelle, an der `buildCatalog` etwas über Modelle weiß, und
+   * bewusst als **Übergabe** und nicht als eigene Anbindung (`buildCatalog` baut keinen
+   * Client, es bekommt einen).
+   *
+   * Ohne das Feld bleibt der Katalog-Fingerabdruck unverändert — dieselbe Regel wie überall
+   * seit S14.
+   */
+  agents?: {
+    /** Das Modell, mit dem `agent.create` ein Profil entwirft (Abschnitt 11: Extraktion, günstig). */
+    model: ModelClient;
+    /** Das Modell zu einem Modellnamen aus der Registry. Ohne: `model` für jeden Arbeiter. */
+    modelFor?: (model: string) => ModelClient;
+    /** Konventionen für Arbeitersessions. Ohne: einmalig aus AGENTS.md gelesen. */
+    conventions?: string;
+    /** Die beiden Modellnamen, zwischen denen ein Entwurf wählen darf. */
+    models?: { routine: string; thinking: string };
+  };
   /**
    * Das Profil des Katalogs. Vorgabe `"full"`: alles, was oben verdrahtet ist.
    *
@@ -285,28 +309,58 @@ export async function buildCatalog(config: CatalogConfig): Promise<BuiltCatalog>
   // eine zweite, nach außen sichtbare Katalogversion.
   const prelim = registry.freeze();
   registry.registerAll(createToolIntrospectionTools({ catalog: prelim }));
+
+  // agent.* (S19). Die Registrierung kommt **zuletzt**, und das ist keine Reihenfolgefrage,
+  // sondern die Umsetzung von "keine rekursiven Subagenten" (Abschnitt 14): die Agenten-Tools
+  // bekommen den Katalog, wie er **vor** ihnen aussah, und genau daraus zieht ein Arbeiter
+  // seine Werkzeuge und ein Profil seine Auswahl. `agent.delegate` kann darin nicht vorkommen,
+  // weil es ihn zu diesem Zeitpunkt noch nicht gibt. Der ausgelieferte Katalog enthält beide
+  // Tools trotzdem vollständig — derselbe Zweischritt wie bei `tool.load` (S18b), nur mit einer
+  // anderen Absicht.
+  const withoutAgentTools = registry.freeze();
+
+  // Das Hintergrundprofil (S17) schränkt nicht nur ein, was das Modell aufrufen darf, sondern
+  // auch, was ein **Arbeiter** von dort aus bekäme: die Whitelist ist eine Obergrenze für
+  // diesen Prozess, und ein Subagent ist kein Weg, sie zu umgehen.
+  const restrict = (source: ToolCatalog): ToolCatalog =>
+    config.profile === "background"
+      ? new ToolRegistry()
+          .registerAll(source.tools.filter((tool) => BACKGROUND_TOOLSET.includes(tool.name)))
+          .freeze()
+      : source;
+
+  // Die Governance-Schicht entsteht hier und nicht erst am Ende: ein Arbeiter läuft unter
+  // **derselben** Engine wie sein Auftraggeber (Abschnitt 4.7 kennt keine zweite), samt dem
+  // schärferen Regelsatz eines Hintergrundprofils. Eine eigene Engine für Delegationen wäre
+  // ein zweites Tor — und das erste, das bei einer Regeländerung vergessen würde.
+  const rules =
+    config.profile === "background" ? [...BACKGROUND_RULES, ...DEFAULT_RULES] : undefined;
+  const policy = createPolicyEngine({ resolvePath: policyResolver(zones), rules });
+
+  if (config.agents) {
+    registry.registerAll(
+      createAgentTools({
+        pool: config.pool,
+        artifactRoot: config.artifactRoot,
+        catalog: restrict(withoutAgentTools),
+        policy,
+        draftModel: config.agents.model,
+        modelFor: config.agents.modelFor,
+        conventions: config.agents.conventions,
+        models: config.agents.models,
+      }),
+    );
+  }
+
   const full = registry.freeze();
 
   // Hintergrundprofil (S17): auf die Whitelist einschränken und mit einem eigenen
   // Fingerabdruck neu einfrieren. Ein Tool aus der Liste, das gar nicht verdrahtet wurde
   // (z. B. `mail.*` ohne n8n), fällt still weg — die Whitelist ist eine Obergrenze, keine
   // Zusicherung.
-  const catalog =
-    config.profile === "background"
-      ? new ToolRegistry()
-          .registerAll(full.tools.filter((tool) => BACKGROUND_TOOLSET.includes(tool.name)))
-          .freeze()
-      : full;
+  const catalog = restrict(full);
 
-  const rules =
-    config.profile === "background" ? [...BACKGROUND_RULES, ...DEFAULT_RULES] : undefined;
-
-  return {
-    catalog,
-    policy: createPolicyEngine({ resolvePath: policyResolver(zones), rules }),
-    memory,
-    skills,
-  };
+  return { catalog, policy, memory, skills };
 }
 
 export interface RunnerConfig

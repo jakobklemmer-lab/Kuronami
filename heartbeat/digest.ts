@@ -27,6 +27,13 @@ import type { DigestChannel } from "./delivery.js";
  * Diarium-Session gefaltet, damit sie einen Neustart überlebt.
  */
 
+/**
+ * Das eine Wort, mit dem ein Hintergrundlauf sagt: hier gibt es nichts zu melden. Steht seit
+ * S17 im Prompt jedes ereignisgesteuerten Laufs und seit S19 auch im Auftrag eines Agenten mit
+ * Zeitplan — "Wenn nichts gefunden wird: keine Meldung" gilt für beide gleich.
+ */
+export const SILENT_MARKER = "STILL";
+
 export interface HeartbeatDeps {
   pool: Pool;
   artifactRoot: string;
@@ -39,6 +46,12 @@ export interface HeartbeatDeps {
   catalog: ToolCatalog;
   policy: PolicyEngine;
   model: ModelClient;
+  /**
+   * Das Modell zu einem Modellnamen aus der Agenten-Registry (S19, Abschnitt 11: "Modell pro
+   * Agent bewusst wählen"). Ohne diese Fabrik läuft auch ein Agent mit Zeitplan auf `model`;
+   * `heartbeat.ran` hält das dann fest, damit ein teurer Lauf nicht wie ein günstiger aussieht.
+   */
+  modelFor?: (model: string) => ModelClient;
   channel: DigestChannel;
   /** Läufe je Kalendertag (lokale Zeit). */
   maxRunsPerDay: number;
@@ -169,12 +182,20 @@ function notifyPrompt(when: Date, kind: string, detail: string): string {
     "",
     "Du läufst im Hintergrund: kein Schreiben ins Langzeitgedächtnis oder in den Quelltext, keine Rückfragen.",
     "",
-    "- Gibt es nichts Meldenswertes, antworte mit genau dem einen Wort STILL und sonst nichts.",
+    `- Gibt es nichts Meldenswertes, antworte mit genau dem einen Wort ${SILENT_MARKER} und sonst nichts.`,
     "- Sonst antworte mit ein bis drei Sätzen: was ist los, was ist zu tun.",
   ].join("\n");
 }
 
-async function overCap(
+/**
+ * Ist die Tagesobergrenze erreicht? Dann steht der ausgefallene Lauf als `heartbeat.skipped`
+ * im Diarium — ein ausbleibender Lauf soll nicht wie ein Fehler aussehen.
+ *
+ * Seit S19 exportiert, weil die Agenten mit Zeitplan (`agents.ts`) an **derselben** Grenze
+ * hängen wie Digest und Meldung: Cron-Agenten sind der eigentliche Kostentreiber (Abschnitt 11),
+ * und eine zweite Obergrenze daneben wäre eine, die man vergisst mitzuziehen.
+ */
+export async function overDailyCap(
   deps: HeartbeatDeps,
   when: Date,
   payload: Record<string, unknown>,
@@ -206,7 +227,7 @@ export async function runDigest(
   // einem manuellen Aufruf (Test) fehlt er und wird zu `null`.
   const fire = options.fire?.toISOString() ?? null;
 
-  if (await overCap(deps, when, { kind: "digest", fire })) {
+  if (await overDailyCap(deps, when, { kind: "digest", fire })) {
     return {
       status: "skipped",
       reason: `Tagesobergrenze ${deps.maxRunsPerDay} erreicht.`,
@@ -302,7 +323,7 @@ export async function handleNotification(
   const when = nowFrom(deps);
   const kind = notification.kind;
 
-  if (await overCap(deps, when, { kind: "notify", trigger: kind })) {
+  if (await overDailyCap(deps, when, { kind: "notify", trigger: kind })) {
     return { status: "skipped", reason: `Tagesobergrenze ${deps.maxRunsPerDay} erreicht.` };
   }
 
@@ -326,7 +347,7 @@ export async function handleNotification(
   }
 
   const text = outcome.text.trim();
-  const silent = text.length === 0 || text.toUpperCase().startsWith("STILL");
+  const silent = text.length === 0 || text.toUpperCase().startsWith(SILENT_MARKER);
 
   if (silent) {
     await appendEvent(deps.pool, deps.diarySessionId, "heartbeat.silent", {
