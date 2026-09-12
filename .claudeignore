@@ -15,3 +15,14 @@ src-tauri/gen/
 __pycache__/
 venv/
 .env
+
+# Ab S21: Alte Tests (Phase 1-5) ignorieren — sie laufen nicht mehr
+# Die Dateien bleiben im Repo, aber werden nicht durchsucht
+context/**/*.test.ts
+runtime/**/*.test.ts
+gateway/**/*.test.ts
+heartbeat/**/*.test.ts
+policy/**/*.test.ts
+tools/**/*.test.ts
+skills/**/*.test.ts
+evals/**/*.test.ts

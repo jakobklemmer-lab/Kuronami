@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import type { Pool, PoolClient } from "pg";
 import { redactValue } from "../redaction/redact.js";
+import { eventBus } from "./bus.js";
 import { type EventType, assertEventType } from "./types.js";
 
 export type EventPayload = Record<string, unknown>;
@@ -98,7 +99,21 @@ export async function appendEventInTx(
     JSON.stringify(redactValue(payload)),
   ]);
 
-  return toRecord(inserted.rows[0]);
+  const record = toRecord(inserted.rows[0]);
+
+  // Die Ansage an den Ereignisbus (S21) steht aus demselben Grund hier wie der Filter eine
+  // Zeile darüber: dies ist das einzige Schreibtor, also kann kein Ereignis an ihr vorbei
+  // entstehen. Angesagt wird der Datensatz aus dem RETURNING — also die **gefilterte**
+  // Fassung. Der Bus liegt damit per Bauart hinter dem Redaction-Filter.
+  //
+  // Was er nicht kann: auf den COMMIT warten. Diese Funktion läuft in einer fremden
+  // Transaktion (der Aufrufer verantwortet COMMIT/ROLLBACK), und `pg` kennt keinen Haken auf
+  // deren Ende. Eine zurückgerollte Transaktion sagt also ein Ereignis an, das nie dauerhaft
+  // wurde. Das ist vertretbar, weil der Bus ausdrücklich eine Ansage ist und nicht das
+  // Protokoll: die Oberfläche liest jeden verbindlichen Stand aus `kuronami.events` zurück.
+  eventBus.publishRecord(record);
+
+  return record;
 }
 
 /** Hängt ein Ereignis in einer eigenen Transaktion an. */

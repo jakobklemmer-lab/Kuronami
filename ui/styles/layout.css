@@ -1,0 +1,321 @@
+/*
+ * Das Grundlayout (S21): Taskbar oben, schwebende Panels über den oberen 65 %, Wasser über den
+ * unteren 35 %, Einstellungen unten rechts.
+ *
+ * **Schwebend statt Raster** ist eine Vorgabe aus `tasks.json` und kein Geschmack: die Panels
+ * liegen absolut positioniert über der Bühne, damit sie später verschiebbar werden können,
+ * ohne dass ein Raster dagegen arbeitet. Die Prozentwerte stehen als Variablen in `theme.css`.
+ */
+
+.taskbar {
+  position: fixed;
+  inset: 0 0 auto 0;
+  z-index: 30;
+  height: var(--taskbar-height);
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 0 16px;
+  background: var(--bg-taskbar);
+  backdrop-filter: blur(12px);
+  border-bottom: 1px solid var(--border);
+}
+
+.taskbar__brand {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 140px;
+}
+
+.taskbar__mark {
+  color: var(--ripple-cyan);
+  font-size: 18px;
+  text-shadow: var(--glow-cyan);
+}
+
+.taskbar__name {
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  font-size: 12px;
+  color: var(--fg);
+}
+
+.taskbar__center {
+  flex: 1;
+  display: flex;
+  justify-content: center;
+}
+
+.taskbar__state {
+  font-size: 11px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--state-colour, var(--fg-muted));
+  padding: 3px 12px;
+  border: 1px solid currentcolor;
+  border-radius: 999px;
+  opacity: 0.85;
+  transition: color 240ms ease, opacity 240ms ease;
+}
+
+.taskbar__right {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  min-width: 140px;
+  justify-content: flex-end;
+}
+
+.taskbar__clock {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--fg-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.taskbar__bell {
+  position: relative;
+  color: var(--fg-muted);
+  font-size: 15px;
+  line-height: 1;
+}
+
+.taskbar__bell:hover {
+  color: var(--fg);
+}
+
+.taskbar__badge {
+  position: absolute;
+  top: -6px;
+  right: -8px;
+  min-width: 15px;
+  padding: 0 4px;
+  border-radius: 999px;
+  background: var(--ripple-cyan);
+  color: var(--bg-deep);
+  font-size: 10px;
+  font-weight: 700;
+  text-align: center;
+}
+
+.taskbar__link {
+  font-size: 10px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--fg-faint);
+}
+
+.taskbar__link[data-status="open"] {
+  color: var(--state-complete);
+}
+
+.taskbar__link[data-status="connecting"] {
+  color: var(--state-speaking);
+}
+
+.taskbar__link[data-status="closed"] {
+  color: var(--state-error);
+}
+
+/* Die Bühne: obere 65 %, abzüglich der Taskbar. Die Panels schweben darüber. */
+.stage {
+  position: fixed;
+  top: var(--taskbar-height);
+  left: 0;
+  right: 0;
+  height: calc(var(--stage-share) - var(--taskbar-height));
+  z-index: 10;
+}
+
+.panel {
+  position: absolute;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 14px 16px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg-panel);
+  backdrop-filter: blur(14px);
+  box-shadow: var(--shadow-panel);
+  transition: transform 320ms cubic-bezier(0.2, 0.8, 0.2, 1), box-shadow 320ms ease;
+}
+
+.panel:hover {
+  transform: translateY(-2px);
+  box-shadow: var(--shadow-float);
+}
+
+/* Vier schwebende Platzhalter. Die Werte sind bewusst krumm — ein schwebendes Layout soll
+ * nicht aussehen wie ein Raster, das sich nicht traut. */
+.panel--runs {
+  top: 4%;
+  left: 3%;
+  width: 30%;
+  height: 72%;
+}
+
+.panel--plan {
+  top: 6%;
+  left: 37%;
+  width: 26%;
+  height: 34%;
+}
+
+.panel--metrics {
+  top: 46%;
+  left: 37%;
+  width: 26%;
+  height: 30%;
+}
+
+.panel--approvals {
+  top: 10%;
+  right: 3%;
+  width: 26%;
+  height: 44%;
+}
+
+.panel__title {
+  font-size: 11px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--fg-muted);
+}
+
+.panel__hint,
+.panel__empty {
+  margin: 0;
+  font-size: 12px;
+  color: var(--fg-faint);
+}
+
+.panel__stream {
+  margin: 4px 0 0;
+  padding: 0;
+  list-style: none;
+  overflow-y: auto;
+  flex: 1;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  scrollbar-width: thin;
+}
+
+.panel__stream li {
+  display: flex;
+  gap: 8px;
+  padding: 3px 0;
+  border-bottom: 1px solid rgba(232, 232, 232, 0.04);
+  color: var(--fg-muted);
+}
+
+.panel__stream li:first-child {
+  color: var(--fg);
+}
+
+.panel__stream time {
+  color: var(--fg-faint);
+  font-variant-numeric: tabular-nums;
+}
+
+.panel__figures {
+  display: flex;
+  gap: 22px;
+  margin: auto 0 0;
+}
+
+.figure dt {
+  font-size: 10px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--fg-faint);
+}
+
+.figure dd {
+  margin: 2px 0 0;
+  font-family: var(--font-mono);
+  font-size: 22px;
+  color: var(--fg);
+  font-variant-numeric: tabular-nums;
+}
+
+/* Das Wasser: untere 35 %, ganze Breite, unter allem anderen. */
+.water {
+  position: fixed;
+  inset: auto 0 0 0;
+  height: var(--water-share);
+  z-index: 1;
+  overflow: hidden;
+  background: linear-gradient(180deg, rgba(6, 9, 25, 0) 0%, rgba(6, 9, 25, 0.55) 60%, #04060f 100%);
+}
+
+.water__canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+/* Die Kante zwischen Bühne und Wasser. Ein Strich, keine Linie — er soll den Blick führen,
+ * nicht das Bild teilen. */
+.water__horizon {
+  position: absolute;
+  inset: 0 0 auto 0;
+  height: 1px;
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    var(--ripple-blue) 25%,
+    var(--state-colour, var(--ripple-cyan)) 50%,
+    var(--ripple-blue) 75%,
+    transparent 100%
+  );
+  opacity: 0.45;
+  box-shadow: var(--glow-blue);
+  transition: opacity 400ms ease;
+}
+
+.settings {
+  position: fixed;
+  right: 20px;
+  bottom: 20px;
+  z-index: 40;
+  width: 40px;
+  height: 40px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  border: 1px solid var(--border);
+  background: var(--bg-panel-solid);
+  color: var(--fg-muted);
+  font-size: 17px;
+  box-shadow: var(--shadow-panel);
+  transition: color 220ms ease, border-color 220ms ease, transform 400ms ease;
+}
+
+.settings:hover {
+  color: var(--ripple-cyan);
+  border-color: var(--border-strong);
+  transform: rotate(60deg);
+}
+
+/* Schmale Fenster: aus dem Schwebenden wird eine Spalte, sonst liegen die Panels übereinander. */
+@media (max-width: 900px) {
+  .stage {
+    height: calc(var(--stage-share) - var(--taskbar-height));
+    overflow-y: auto;
+    padding: 12px;
+  }
+
+  .panel {
+    position: relative;
+    top: auto;
+    left: auto;
+    right: auto;
+    width: 100%;
+    height: auto;
+    min-height: 120px;
+    margin-bottom: 12px;
+  }
+}

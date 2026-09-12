@@ -1,0 +1,91 @@
+<!doctype html>
+<html lang="de">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <title>Kuronami</title>
+    <link rel="stylesheet" href="./styles/theme.css" />
+    <link rel="stylesheet" href="./styles/layout.css" />
+  </head>
+  <body>
+    <!--
+      Das Grundgerüst aus S21. Struktur, kein Inhalt: die Panels tragen Platzhalter, weil die
+      Runs-Liste (S22), die Freigabe-Ansicht (S23) und die Kennzahlen (S24) eigene Sessions
+      sind. Was hier schon echt ist, ist der Wassereffekt unten und der Ereignisstrom, der ihn
+      treibt. Das 3D-Centerpiece (S25) fehlt bewusst — Phase 6 startet ohne.
+    -->
+
+    <header class="taskbar" role="banner">
+      <div class="taskbar__brand">
+        <span class="taskbar__mark" aria-hidden="true">◍</span>
+        <span class="taskbar__name">Kuronami</span>
+      </div>
+      <div class="taskbar__center">
+        <span class="taskbar__state" data-ui-state="idle" id="state-badge">ruhig</span>
+      </div>
+      <div class="taskbar__right">
+        <span class="taskbar__clock" id="clock" aria-label="Uhrzeit">--:--:--</span>
+        <button class="taskbar__bell" type="button" id="notifications" aria-label="Meldungen">
+          <span aria-hidden="true">◔</span>
+          <span class="taskbar__badge" id="notification-count" hidden>0</span>
+        </button>
+        <span class="taskbar__link" id="connection" data-status="closed">getrennt</span>
+      </div>
+    </header>
+
+    <main class="stage" id="stage">
+      <section class="panel panel--runs" id="panel-runs" aria-labelledby="panel-runs-title">
+        <h2 class="panel__title" id="panel-runs-title">Läufe</h2>
+        <p class="panel__hint">Liste und Detail-Ansicht folgen in S22.</p>
+        <ul class="panel__stream" id="event-stream" aria-live="polite"></ul>
+      </section>
+
+      <section class="panel panel--plan" id="panel-plan" aria-labelledby="panel-plan-title">
+        <h2 class="panel__title" id="panel-plan-title">Plan</h2>
+        <p class="panel__hint">Aufgaben aus <code>task.*</code>.</p>
+        <dl class="panel__figures">
+          <div class="figure">
+            <dt>dazugekommen</dt>
+            <dd id="tasks-added">0</dd>
+          </div>
+          <div class="figure">
+            <dt>fertig</dt>
+            <dd id="tasks-done">0</dd>
+          </div>
+        </dl>
+      </section>
+
+      <section class="panel panel--metrics" id="panel-metrics" aria-labelledby="panel-metrics-title">
+        <h2 class="panel__title" id="panel-metrics-title">Kennzahlen</h2>
+        <p class="panel__hint">Echte Werte folgen in S24.</p>
+        <dl class="panel__figures">
+          <div class="figure">
+            <dt>Ereignisse</dt>
+            <dd id="event-count">0</dd>
+          </div>
+          <div class="figure">
+            <dt>Versuche</dt>
+            <dd id="reconnect-count">0</dd>
+          </div>
+        </dl>
+      </section>
+
+      <section class="panel panel--approvals" id="panel-approvals" aria-labelledby="panel-approvals-title">
+        <h2 class="panel__title" id="panel-approvals-title">Freigaben</h2>
+        <p class="panel__hint">Rückfragen beantworten folgt in S23.</p>
+        <p class="panel__empty" id="approvals-empty">Nichts offen.</p>
+      </section>
+    </main>
+
+    <div class="water" aria-hidden="true">
+      <canvas class="water__canvas" id="ripples"></canvas>
+      <div class="water__horizon"></div>
+    </div>
+
+    <button class="settings" type="button" id="settings" aria-label="Einstellungen">
+      <span aria-hidden="true">⚙</span>
+    </button>
+
+    <script type="module" src="./main.js"></script>
+  </body>
+</html>

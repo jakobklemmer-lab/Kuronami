@@ -1,6 +1,7 @@
 import type { Server } from "node:http";
 import { artifactRootFromEnv } from "../runtime/artifacts/store.js";
 import { createPool } from "../runtime/db/pool.js";
+import { attachEventSocket } from "../runtime/events/bus.js";
 import { buildCatalog } from "../runtime/loop/api.js";
 import { createAnthropicClient } from "../runtime/model/anthropic.js";
 import { resolveModelRouteConfig } from "../runtime/model/router.js";
@@ -116,6 +117,13 @@ async function main(): Promise<void> {
     console.log(`[gateway] http://localhost:${port} — Kanäle: ${[...channels.keys()].join(", ")}`);
   });
 
+  // Der Ereignisstrom (S21) hängt am **bestehenden** Server des Gateways, nicht an einem
+  // zweiten Port: dieser Prozess führt die Unterhaltung des Nutzers, also fallen hier die
+  // Ereignisse an, die eine Oberfläche live sehen will. Ein Upgrade ist kein Request, den
+  // Express je zu sehen bekäme — deshalb am Server und nicht als Route (siehe `bus.ts`).
+  const events = attachEventSocket(server);
+  console.log(`[gateway] Ereignisstrom: ws://localhost:${port}/events (nur lesend).`);
+
   console.log(
     `Nutzer ${identity.userId}, Tool-Katalog ${catalog.version} mit ${catalog.tools.length} Tools, Modell ${model.model}.`,
   );
@@ -158,6 +166,7 @@ async function main(): Promise<void> {
     console.log(`\n[gateway] ${reason} — herunterfahren.`);
     polling?.stop();
     await polling?.done.catch(() => undefined);
+    await events.close().catch(() => undefined);
     server.close();
     // `stopAll` schreibt je Läufer ein `runtime.stopped`. Ein übersehener Läufer hinterlässt
     // ein `runtime.started` ohne Gegenstück — seit S04 das Kennzeichen eines Absturzes.

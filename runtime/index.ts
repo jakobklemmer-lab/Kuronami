@@ -1,6 +1,7 @@
 import { formatRunMetrics } from "../context/metrics.js";
 import { artifactRootFromEnv } from "./artifacts/store.js";
 import { createPool } from "./db/pool.js";
+import { type EventServerHandle, startEventServer } from "./events/bus.js";
 import { buildCatalog, createRunner } from "./loop/api.js";
 import { MissingApiKeyError, createAnthropicClient } from "./model/anthropic.js";
 import { resolveModelRouteConfig } from "./model/router.js";
@@ -142,12 +143,30 @@ async function main(): Promise<void> {
   // Prozess endete von selbst und runtime.stopped bliebe ungeschrieben (S04). Er wird beim
   // Herunterfahren gelöscht — bliebe er stehen, hinge der Prozess nach einem sauberen Stop
   // ewig weiter, und das Skelett wäre nicht mehr zu beenden.
+  // Der Ereignisstrom (S21). `pnpm dev` ist der Prozess, den die Oberfläche beim Entwickeln
+  // ansieht, also hört er auf dem Port, den sie erwartet (EVENTS_PORT, Vorgabe 3000). Ein
+  // belegter Port beendet den Lauf **nicht**: dann bedient ihn schon jemand (typischerweise
+  // ein parallel laufendes `pnpm gateway`), und ein Lauf ohne Zuschauer ist immer noch ein
+  // Lauf. Was passiert ist, steht in der Zeile — verschwiegen wird nichts.
+  let eventServer: EventServerHandle | undefined;
+  try {
+    eventServer = await startEventServer();
+    console.log(`Ereignisstrom: ws://localhost:${eventServer.port()}/events (nur lesend).`);
+  } catch (error) {
+    const code = (error as NodeJS.ErrnoException).code;
+    if (code !== "EADDRINUSE") throw error;
+    console.warn(
+      `Ereignisstrom nicht gestartet: Port ${process.env.EVENTS_PORT ?? 3000} ist belegt. Dieser Lauf sendet keine Live-Ereignisse.`,
+    );
+  }
+
   const alive = setInterval(() => {}, 60_000);
   let stopped = false;
   async function shutdown(reason: string): Promise<void> {
     if (stopped) return;
     stopped = true;
     clearInterval(alive);
+    await eventServer?.close().catch(() => undefined);
     await runner.stop(reason);
     // Wer den Store geöffnet hat, schließt ihn — dasselbe Eigentumsmuster wie beim Pool (S03).
     memory?.close();

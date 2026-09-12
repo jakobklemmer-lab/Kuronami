@@ -5,9 +5,20 @@ progress-archiv.md nachschlagen (z. B. mit grep nach der Session-ID).
 
 ## Aktueller Stand
 
-**Phase 5 ist abgeschlossen.** Zuletzt fertig: **S20** (Erste Subagent-Besetzung), 2026-09-12,
-direkt nach S19 am selben Tag. Naechste Session: **S21** Kosten-Tracking und Modell-Routing,
-Status `ready` — der Beginn von Phase 8.
+**Phase 6 hat begonnen.** Zuletzt fertig: **S21** (Ereignisbus und UI-Grundgerüst), 2026-09-12.
+Nächste Session: **S22** Runs- und Detail-Ansicht, Status `ready`.
+
+**Der Plan wurde am 2026-09-12 umnummeriert** (S21 an aufwärts) — siehe den Abschnitt
+"Planänderung · 2026-09-12" gleich unten, bevor irgendwo mit einer alten S21–S24-Zählung
+weitergearbeitet wird.
+
+**Die Testbasis hat sich mit S21 verschoben.** `vitest.config.ts` läuft seit dieser Session nur
+noch auf `ui/**` und `phase-6/**`; die 679 Tests der Phasen 1–5 stehen weiter im Repo, laufen
+aber nicht mehr automatisch (auf Anordnung des Nutzers, Schritt 1 des S21-Auftrags). Wer eine
+Änderung an `runtime/`, `tools/`, `policy/`, `gateway/`, `heartbeat/`, `context/`, `skills/` oder
+`evals/` macht, prüft sie nicht mehr mit `pnpm test` — dafür braucht es einen Lauf mit
+angepasstem `include`. `pnpm typecheck` deckt weiterhin den **ganzen** Quellbaum ab und ist
+seither die einzige durchgehende Prüfung über die alten Schichten.
 
 ## Sessions
 
@@ -40,12 +51,62 @@ Status `ready` — der Beginn von Phase 8.
 | S18f | Eval-Suite fuer lange Laeufe | done |
 | S19 | Agenten-Registry und agent.create | done |
 | S20 | Erste Subagent-Besetzung | done |
-| S21 | Kosten-Tracking und Modell-Routing | queued |
-| S22 | Tauri-Desktop-Wrapper | queued |
-| S23 | Sprachschicht-Grundgerüst | queued |
-| S24 | Barge-in und Backend-Brücke | queued |
+| S21 | Ereignisbus und UI-Grundgerüst | done |
+| S22 | Runs- und Detail-Ansicht | ready |
+| S23 | Freigabe- und Fehler-Ansicht | queued |
+| S24 | Kennzahlen-Panels | queued |
+| S25 | Centerpiece und 3D-Welt | queued |
+| S26 | Slack-Anbindung | queued (unabhängig von S21–S25) |
+| S27 | MCP absichern | queued |
+| S28 | Kosten-Tracking und Modell-Routing | queued |
+| S29 | Tauri-Desktop-Wrapper | queued |
+| S30 | Sprachschicht-Grundgerüst | queued |
+| S31 | Barge-in und Backend-Brücke | queued |
 
-Details siehe progress-archiv.md.
+Details siehe progress-archiv.md. S21–S24 vor der Umnummerierung: dort steht das alte
+Kosten-Tracking/Tauri/Sprachschicht/Barge-in unter den alten Nummern — die Session-**Inhalte**
+sind unverändert, nur die Nummern ab S21 sind neu (siehe unten).
+
+## Planänderung · 2026-09-12
+
+**Kein Code, keine Session — reine Umnummerierung**, ausdrücklich vom Nutzer angeordnet: nach
+Phase 5 kommt laut Architektur (Abschnitt 16 bzw. der Notion-Roadmap) planmäßig Phase 6 (Neue
+Oberfläche) und Phase 7 (Weitere Kanäle), bevor Phase 8 (Kosten-Tracking, bisher S21) beginnt.
+Diese beiden Phasen hatten in `tasks.json` noch keine Sessions — nur eine Checkliste in Notion.
+Sie sind jetzt als S21–S27 eingefügt, das alte S21–S24 rutscht auf S28–S31 (Inhalt unverändert).
+
+**Phase 6 · Neue Oberfläche (S21–S25).** Checkliste aus der Notion-Roadmap in fünf Sessions
+gebündelt, in der dort vorgegebenen Reihenfolge: Ereignisbus + Grundlayout (S21) → Runs-/Detail-
+Ansicht (S22) → Freigabe-/Fehler-Ansicht (S23) → Kennzahlen-Panels (S24) → Centerpiece und
+3D-Welt (S25). Die Design-Grundlage dafür (Centerpiece: Ninja auf Stein im See, drei
+Animationszustände, Beschwörungskreise für Subagenten ohne Pathfinding; UI-Scope Desktop/Web)
+wurde bereits besprochen (siehe `areas/dashboard-website.md`) — der Nutzer baut sie als Canvas
+in Claude Design. S21 stand deshalb zunächst auf `blocked`, nicht auf `ready`, obwohl seine
+einzige Code-Abhängigkeit (S20) erfüllt war: eine neue Bedeutung für `status`, die es vorher
+nicht gab — "die Coding-Abhängigkeiten sind erfüllt, aber eine Design-Vorlage außerhalb von
+tasks.json fehlt noch".
+
+**Nachtrag 2026-09-12, mit S21 erledigt:** Der Nutzer hat die Blockade selbst aufgelöst, indem
+er den Umfang geändert hat — **Phase 6 startet ohne 3D-Centerpiece, nur mit Wasserkreisen**. Die
+Design-Vorlage war für das Centerpiece nötig, nicht für Ereignisbus und Grundlayout; ohne es
+hängt S21 an nichts mehr. Das Centerpiece bleibt S25 und braucht die Canvas weiterhin.
+
+**Phase 7 · Weitere Kanäle (S26–S27).** Von der Notion-Checkliste nur die beiden Punkte
+übernommen, die nicht "falls gewünscht"/"erst wenn nötig" heißen: Slack-Anbindung (S26,
+inklusive Freigabe per Reaktion/Thread-Antwort) und MCP-Hardening (S27). ACP-Adapter und A2A
+bleiben absichtlich draußen — dieselbe Haltung wie bei `exec.run`/`github.*` seit S20: gebaut
+wird, wenn ein echter Bedarf da ist, nicht auf Vorrat. **S26 hängt bewusst nur an S20, nicht an
+S21–S25** — Slack-Anbindung braucht die neue Oberfläche nicht, und kann deshalb vorgezogen
+werden, solange die Design-Vorlage für Phase 6 noch offen ist.
+
+**S28 (das alte S21, Kosten-Tracking) hängt jetzt an S25 UND S27** statt nur an S20: der
+Checklisten-Punkt "Kosten-Panel im Dashboard" aus Phase 8 braucht ein Dashboard, und das ist ab
+Phase 6 die neue Oberfläche, nicht mehr die alte Dev-UI aus S12b.
+
+**Was das nicht ist:** keine inhaltliche Neuplanung von S21–S24 alt (jetzt S28–S31) — deren
+`done_when` ist wortgleich übernommen. Auch keine Entscheidung, dass Phase 6 vor Phase 7 fertig
+sein muss: beide hängen unabhängig an S20, die Nummerierung folgt nur der Reihenfolge aus der
+Notion-Roadmap.
 
 ## Offene Befunde (gesamte Historie)
 
@@ -127,11 +188,214 @@ Details siehe progress-archiv.md.
 - **Die Besetzung nennt keine `notes.*`** (S20), weil ein Profil mit einem Werkzeug, das nur in
   manchen Prozessen existiert, in allen anderen gar nicht läuft (fail closed, S19). Sobald der
   Obsidian-Vault Teil jeder Verdrahtung ist, gehört er in das Profil des Lore-Writers.
+- **Der Ereignisbus sagt vor dem COMMIT an** (S21). `appendEventInTx` läuft in einer fremden
+  Transaktion (der Aufrufer verantwortet COMMIT/ROLLBACK), und `pg` kennt keinen Haken auf deren
+  Ende — eine zurückgerollte Transaktion sagt also ein Ereignis an, das nie dauerhaft wurde.
+  Vertretbar, weil der Bus ausdrücklich eine Ansage ist und nicht das Protokoll (die Oberfläche
+  liest jeden verbindlichen Stand aus `kuronami.events` zurück), aber eine bewusste Grenze: wer
+  je eine Zahl aus dem Strom aufsummiert statt sie aus der Datenbank zu falten, zählt womöglich
+  eine Einfügung mit, die es nicht gibt. Der saubere Weg wäre `pg_notify` (transaktional, wird
+  erst beim COMMIT zugestellt) mit einer eigenen lauschenden Verbindung.
+- **Die Tests der Phasen 1–5 laufen nicht mehr automatisch** (S21, auf Anordnung des Nutzers).
+  `vitest.config.ts` deckt seither nur `ui/**` und `phase-6/**`; die 679 Tests stehen weiter im
+  Repo, aber eine Änderung an `runtime/`, `tools/`, `policy/`, `gateway/`, `heartbeat/`,
+  `context/`, `skills/` oder `evals/` wird von `pnpm test` nicht mehr bemerkt. `pnpm typecheck`
+  deckt den ganzen Quellbaum weiter ab und ist seither die einzige durchgehende Prüfung dort.
+- **Der Bus hat keinen Verlauf vor dem Verbinden** (S21) außer seinem Ringpuffer der letzten
+  fünfzig Ereignisse, und der überlebt keinen Neustart. Für S22 (Runs- und Detail-Ansicht) ist
+  das der Grund, warum die Liste aus der Datenbank kommen muss und nicht aus dem Strom: der
+  Strom sagt, was **seither** geschah, nicht was ist.
+- **Der Ereignisstrom ist unauthentifiziert** (S21). Geschützt ist er durch localhost und die
+  Herkunftsprüfung (`originAllowed`, Vorgabe nur localhost — ein WebSocket kennt keine
+  Same-Origin-Regel, ohne sie könnte jede offene Seite mitlesen). Ein Token wäre der nächste
+  Schritt, sobald der Port über den Rechner hinausgeht; dann zusammen mit dem des Gateways
+  (S16), nicht daneben.
 - **Nur zwei Klassen, Abschnitt 11 kennt drei** (S18e): "klein und guenstig", "mittel",
   "stark" — der Router kennt nur die aeusseren beiden ("Routine"/"Denkarbeit"), wie im Auftrag
   woertlich verlangt ("grob klassifiziert"). Die mittlere Klasse ("Zusammenfassen, einfache
   Tool-Auswahl") bleibt vorerst unbenannt; `compactionModel` (S18a) faellt weiterhin auf das
   Orchestrator-Modell zurueck, wenn niemand explizit ein zweites uebergibt.
+
+## Ideen für später (vom Nutzer, zurückgestellt bis der Kern steht)
+
+Keine Aufgabe in tasks.json — bewusst zurückgestellt, bis das Kernprogramm (mindestens bis S24)
+fertig ist. Beim nächsten Blick auf diese Datei ansprechen, ob es jetzt an der Reihe ist.
+
+- **Team-Pipelines statt Einzelrollen.** Die Subagenten sollen zu Teams werden, die der
+  Orchestrator (Kuronami, "der CEO") selbst Schritt für Schritt durchsteuert: er holt sich
+  nacheinander Ergebnisse von einer Rolle zur nächsten (z. B. Trading: Ideen-Geber → Prüfer →
+  Backtester → Ausführer; Lore: Autor → Prüfer → Verfeinerer). Ausdrücklich **keine** Rekursion
+  (Subagent ruft Subagent) — das bleibt verboten (S19). Der Hauptagent orchestriert die Kette
+  selbst und spricht sich dabei mit dem Nutzer ab; ein Auftrag wie "entwerf mir eine Strategie"
+  soll die passenden Subagenten automatisch der Reihe nach aufrufen, nicht der Nutzer manuell
+  Schritt für Schritt. Dass Teammitglieder später automatisch untereinander zusammenarbeiten
+  (ohne dass der Orchestrator jeden Schritt anstößt), ist eine mögliche spätere Ausbaustufe —
+  explizit nicht jetzt.
+- **TradingView statt/neben Broker-API für den Trading-Agenten.** Es gibt eine Broker-API-Option,
+  aber der Nutzer würde lieber TradingView anbinden (dort lassen sich Backtests fahren und Trades
+  aufsetzen). Ob und wie sich eine TradingView-API dafür verbinden lässt, ist ungeklärt — reine
+  Recherche, sobald es dran ist.
+
+## S21 · Ereignisbus und UI-Grundgerüst · 2026-09-12
+
+Erste Session der Phase 6, direkt nach S20. Vier Schritte laut Auftrag: die Testbasis auf
+Phase 6 umstellen, das UI-Grundgerüst bauen (HTML, Farbschema, Layout, Wassereffekt,
+Ereignis-Client, Dev-Server), Tests dafür, und auf der Runtime-Seite den Ereignisbus freigeben.
+Ausdrücklich **ohne 3D-Centerpiece** — nur Wasserkreise.
+
+**Der Bus ist eine Ansage, nicht das Protokoll.** Das ist die Entscheidung, an der alles
+Weitere hängt. Die Wahrheit über einen Lauf steht weiterhin in `kuronami.events` und wird von
+dort gefaltet (S05, S12); `runtime/events/bus.ts` sagt nur "eben wurde etwas geschrieben", damit
+eine Oberfläche nicht pollen muss. Er hält keinen Zustand, den jemand wiederfinden müsste — was
+vor dem Verbinden geschah, liegt in der Datenbank. Ein Ringpuffer der letzten fünfzig Ereignisse
+ist der einzige Speicher, und der ist eine Bequemlichkeit für den Client, der sich mitten in
+einem Lauf verbindet, kein zweites Gedächtnis.
+
+**Er hängt am einzigen Schreibtor**, aus demselben Grund, aus dem der Redaction-Filter dort
+steht: `appendEventInTx` ist der einzige Weg in `kuronami.events`, also kann kein Ereignis am
+Bus vorbei entstehen. Angesagt wird der Datensatz aus dem `RETURNING` der Einfügung — also die
+**bereits gefilterte** Fassung. Der Bus liegt damit per Bauart hinter dem Filter und kann kein
+Geheimnis hinaustragen, das das Protokoll nicht ohnehin trägt; nachgemessen wurde das mit einem
+echten Lauf, in dem ein `ANTHROPIC_API_KEY=…` im Payload beim Client als
+`[redacted:anthropic-api-key]` ankam. Was er **nicht** kann: auf den COMMIT warten (siehe
+Befunde).
+
+**Ein Modul-Singleton, und das ist eine Ausnahme.** `appendEventInTx` ist an über hundert
+Stellen in dreißig Dateien aufgerufen; ein zusätzlicher Parameter durch alle wäre eine Änderung
+an jedem Aufrufer für eine Ansage, die keinen von ihnen etwas angeht. `eventBus` ist deshalb
+prozesslokal wie das Kontingent paralleler Arbeiter (S20) und die Serialisierung im Gateway
+(S16) — zwei Prozesse haben zwei Busse, und das ist richtig so: jeder sagt an, was er selbst
+geschrieben hat.
+
+**Nur lesend, und zwar benannt.** Ein Datenframe von einem verbundenen Client beendet die
+Verbindung mit 1003 und einem Grund im Text, statt stillschweigend verworfen zu werden
+(AGENTS.md: Fehler nie verstecken). Die Oberfläche schreibt über das Gateway (S16), nicht über
+diesen Port — es gibt im Client gar keine `send`-Methode, die es versuchen könnte.
+
+**Die Herkunftsprüfung ist kein Beiwerk.** Ein WebSocket unterliegt **nicht** der
+Same-Origin-Regel des Browsers: ohne `originAllowed` könnte jede beliebige Seite, die der Nutzer
+offen hat, das gesamte Protokoll dieses Prozesses mitlesen — Mailinhalte, Dateipfade,
+Freigabefragen. Vorgabe ist deshalb "nur localhost", und ein Aufruf ganz ohne `Origin` (curl,
+Test, Tauri) gilt als nicht-Browser und geht durch.
+
+**Am Server, nicht als Express-Route.** Ein Upgrade ist kein Request, den ein Express-Handler je
+zu sehen bekommt — `http.Server` reicht ihn über `upgrade` heraus, bevor die Route-Schicht
+anläuft. Der Pfad wird deshalb dort geprüft, sonst würde ein Upgrade auf irgendeinen anderen
+Pfad stillschweigend angenommen. Angeschlossen ist der Strom an **zwei** Prozessen: am
+bestehenden Server des Gateways (dort fallen die Ereignisse der Unterhaltung an) und als eigener
+kleiner Server in `runtime/index.ts` auf `EVENTS_PORT` (Vorgabe 3000, der Port, den die
+Oberfläche erwartet). Ein belegter Port beendet einen Runtime-Lauf **nicht**: dann bedient ihn
+schon jemand, und ein Lauf ohne Zuschauer ist immer noch ein Lauf — was passiert ist, steht in
+der Zeile.
+
+**Die Oberfläche kennt sechs Signale, nicht vierzig Ereignistypen.** Das Protokoll hat über
+vierzig Typen und wächst weiter; die Anzeige will davon genau wissen, ob gerade gedacht,
+gesprochen, fertig oder nichts wird, und ob eine Aufgabe dazukam oder fertig wurde. Die
+Zuordnung steht an **einer** Stelle (`signalFor`, reine Funktion) — ein neuer Ereignistyp fällt
+dadurch nicht in die falsche Schublade, sondern zunächst gar nicht auf, und das ist die richtige
+Vorgabe für eine Anzeige. Rahmen, die schon ein Signal *sind*, gehen durch: so lässt sich der
+Strom auch von einem Prüfwerkzeug treiben, ohne Protokollereignisse zu erfinden.
+
+**Mechanik getrennt von Zeichnung, Draht und Zeit als Parameter.** `RippleField` kennt weder
+`canvas` noch `requestAnimationFrame`: es bekommt eine Zeit herein und sagt, welche Ringe es
+gibt. `createEventBus` bekommt `socketFactory`, `setTimer` und `clearTimer` hereingereicht. Das
+ist kein Selbstzweck — es ist der Grund, warum "vier Zustände ergeben vier Muster" und "der
+Backoff deckelt bei zehn Sekunden" in Zahlen prüfbar sind statt in einem Screenshot, und warum
+die Tests ohne jsdom in der Node-Umgebung laufen.
+
+**Die vier Muster sind Daten, keine Zufälle.** `idle` 2400 ms Takt, `processing` 320 ms,
+`speaking` Gruppen zu dritt mit 130 ms Abstand und 1100 ms Pause dazwischen (die Form
+gesprochener Sprache, nicht nur "schneller"), `complete` ohne Takt: ein letzter großer Kreis
+beim Zustandswechsel, danach läuft das Feld leer. Ein Zustandswechsel ist selbst ein Anlass —
+sonst hinge die Anzeige beim Sprung von `idle` auf `processing` bis zu 2,4 Sekunden nach.
+
+**Kein Bundler, kein HMR.** Die Oberfläche besteht aus ES-Modulen, die ein Browser selbst
+nachlädt; zu übersetzen ist genau eines (TypeScript zu JavaScript), und der Übersetzer liegt
+seit S01 im Projekt. Ein Bundler daneben wäre ein zweites Werkzeug für eine erledigte Aufgabe
+und eine zweite Stelle, an der Modulauflösung konfiguriert wird. HMR ebenso: ein Modul im
+laufenden Bild auszutauschen verlangt, dass jedes Modul seinen Zustand zurückgeben kann — bei
+einer Oberfläche, deren Zustand aus einem Strom kommt, der sich in Millisekunden wieder
+aufbaut, ist ein Neuladen die ehrlichere und schnellere Antwort. Der Dev-Server hält `ui/` in
+seinen Grenzen (`resolveInUi`, dieselbe Haltung wie `resolvePath` für `fs.*`).
+
+### Tests
+
+32 neue, und zugleich **die gesamte laufende Suite**: `vitest.config.ts` läuft seit dieser
+Session nur noch auf `ui/**` und `phase-6/**`.
+
+- **`ui/canvas/ripples.test.ts`** (9): das Feld startet leer und wächst mit der Zeit; ein Kreis
+  verschwindet an seinem Rand; `idle` ergibt in sechs Sekunden genau drei Kreise (0/2400/4800),
+  `processing` neunzehn; `speaking` ergibt **zwei** verschiedene Abstände in genau dem
+  Verhältnis, das ein Rhythmus hat (je Gruppe `burst - 1` kurze, dazwischen eine Pause, und die
+  kürzeste Pause ist länger als der längste Gruppenabstand); `complete` setzt genau einen Kreis
+  und danach keinen mehr, und das Feld ist am Ende leer; ein Zustandswechsel wirkt sofort und
+  lässt Bestehendes auslaufen; die Zeichnung setzt je Kreis genau einen Bogen und blendet zum
+  Rand hin aus; der Renderer richtet die Fläche ein, läuft und gibt den Bildtakt wieder her;
+  und ohne 2D-Kontext bleibt der Fehler stehen, statt still nichts zu zeichnen.
+- **`ui/events/bus.test.ts`** (12): die Zuordnung von siebzehn Protokolltypen auf ihre Signale
+  (vier davon ausdrücklich auf `null` — Buchführung ohne Bühne); `task.updated` unterscheidet
+  Erledigung vom bloßen Umschreiben; kaputte Rahmen ergeben `null` statt einer Ausnahme; der
+  Strom schaltet den Zustand um und meldet den Verbindungsstand; jeder Rahmen geht an
+  `onMessage`, auch der ohne Signal; Plansignale zählen getrennt und ändern das Wasser nicht;
+  nach dem Auslaufen kehrt der Zustand von selbst zur Ruhe zurück; der Backoff wächst
+  exponentiell und deckelt bei zehn Sekunden (500, 1000, 2000, 4000, 8000, dann dreimal 10000);
+  eine gelungene Verbindung setzt den Zähler zurück; und ein selbst veranlasstes Schließen
+  lässt **keinen** Zeitgeber offen und baut auch nach einem nachgereichten `onclose` nichts
+  mehr auf.
+- **`phase-6/events-bus.test.ts`** (11, echter Server auf einem vom System vergebenen Port,
+  echter `ws`-Client): der Bus reicht an jeden Zuhörer weiter und meldet sie wieder ab; ein
+  Protokolleintrag kommt als `{type, timestamp, data}` heraus; der Ringpuffer hält nur die
+  jüngsten; ein frisch verbundener Client bekommt erst `bus.connected`, dann den Verlauf; alle
+  Clients bekommen dasselbe zugleich; **ein Datenframe von außen beendet die Verbindung mit
+  1003**; ein Upgrade auf einem anderen Pfad wird nicht angenommen; eine fremde Herkunft
+  bekommt 403 und taucht nicht in der Clientzahl auf; der Strom hängt sich an einen bestehenden
+  Server, ohne dessen Routen zu stören; und beim Schließen bleibt weder ein Client noch ein
+  Zuhörer hängen.
+
+### Gegenproben
+
+Jeder Mechanismus ist mit seinem Gegenstück geprüft: Signal/kein Signal, erlaubte/fremde
+Herkunft, richtiger/falscher Pfad, lesender/schreibender Rahmen, Abriss von außen/Schließen von
+innen, Zustand mit Rückfall zur Ruhe/ohne.
+
+Dazu **ein echter Lauf gegen die echte Datenbank**, außerhalb der Suite: ein Client am laufenden
+`pnpm dev` bekam beim Verbinden `session.resumed` und `runtime.started` aus dem tatsächlichen
+Protokoll nachgeliefert, und in einem zweiten Lauf kamen vier frisch über `appendEvent`
+geschriebene Ereignisse live an — das letzte mit einem gefälschten `ANTHROPIC_API_KEY` im
+Payload, der beim Client als `[redacted:anthropic-api-key]` ankam. Das ist der Nachweis, dass
+der Bus hinter dem Filter liegt und nicht daneben. Geprüft wurden außerdem der Dev-Server
+(Seite, Module, CSS, 404 mit Begründung, Neulade-Strom, und dass ein `..` im Pfad nicht aus
+`ui/` herausführt) und `pnpm build:ui` (drei Module übersetzt, drei Dateien kopiert).
+
+### Bewusst nicht gebaut
+
+- **Kein 3D-Centerpiece.** Ausdrückliche Vorgabe des Auftrags: Phase 6 startet ohne. Der Ninja
+  auf dem Stein, die drei Animationszustände und die Beschwörungskreise bleiben S25 und brauchen
+  weiterhin die Canvas aus Claude Design.
+- **Keine echten Inhalte in den Panels.** Läufe, Freigaben und Kennzahlen sind Platzhalter mit
+  Verweis auf S22/S23/S24. Was heute echt ist, ist der Ereignisstrom im Läufe-Panel (die letzten
+  vierzig Typen) und die beiden Plansignale — beides fällt ohnehin als Nebenprodukt der
+  Verdrahtung an.
+- **Kein SSE-Rückfall für den Ereignisstrom.** `done_when` lässt "WebSocket/SSE" offen; gebaut
+  ist der WebSocket. SSE wäre ein zweiter Weg zu denselben Daten, und den baut man, wenn ein
+  Client auftaucht, der keinen WebSocket kann.
+- **Kein Jitter im Backoff.** Jitter verhindert, dass viele Clients nach einem Serverausfall im
+  Gleichschritt zurückkommen; hier gibt es einen Client und einen lokalen Prozess. Er würde die
+  Wartezeit dafür unvorhersagbar machen, auch für den Test.
+- **Keine Authentifizierung am Ereignisstrom.** Er läuft auf localhost und prüft die Herkunft;
+  ein Token wäre der nächste Schritt, sobald der Port je über den Rechner hinausgeht — dann
+  aber zusammen mit dem des Gateways (S16) und nicht daneben.
+
+### Offene Befunde (Details zu S21)
+
+Siehe die neuen Einträge oben unter "Offene Befunde (gesamte Historie)": die Ansage vor dem
+COMMIT, die stillgelegte Testbasis der Phasen 1–5 und der fehlende Verlauf vor dem Verbinden.
+
+- `pnpm typecheck` (beide Projekte) und `pnpm lint` grün, `pnpm test` grün mit 32 Tests.
+- `pnpm build:ui` läuft durch, `pnpm dev:ui` bedient Port 3001, `pnpm dev` Port 3000.
+- `tasks.json`: S21 auf `done`, S22 von `queued` auf `ready`.
+
+Status: abgeschlossen. Nächste Session: S22 Runs- und Detail-Ansicht.
 
 ## S20 · Erste Subagent-Besetzung · 2026-09-12
 

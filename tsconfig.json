@@ -20,7 +20,8 @@
     "tools/**/*.ts",
     "policy/**/*.ts",
     "gateway/**/*.ts",
-    "evals/**/*.ts"
+    "evals/**/*.ts",
+    "phase-6/**/*.ts"
   ],
-  "exclude": ["node_modules", "dist", "build"]
+  "exclude": ["node_modules", "dist", "build", "ui"]
 }
