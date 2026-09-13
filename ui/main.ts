@@ -1,111 +1,48 @@
-import { ApiError, createApiClient } from "./api/client.js";
-import { type BusMessage, type UiState, createEventBus } from "./events/bus.js";
-import { type RunStatus, runStatusClass, runStatusLabel } from "./runs/status.js";
-import { loadToken, saveToken } from "./settings.js";
+import { createApiClient } from "./api/client.js";
+import { createEventBus } from "./events/bus.js";
+import { mountMicButton } from "./mic/button.js";
+import { createMicStateStore } from "./mic/state.js";
+import { detachView } from "./router/detach.js";
+import {
+  DEFAULT_ROUTE,
+  type RouteId,
+  type SettingsSectionId,
+  hashFor,
+  parseHash,
+} from "./router/router.js";
+import { loadToken } from "./settings.js";
+import { loadSettings, settingsBus } from "./settings/store.js";
+import { applyAppearance, settingsView } from "./settings/view.js";
+import { mountSidebar } from "./sidebar/view.js";
+import { createToast } from "./toast.js";
+import { calendarView } from "./views/calendar.js";
+import { filesView } from "./views/files.js";
+import { homeView } from "./views/home.js";
+import { mailView } from "./views/mail.js";
+import { researchView } from "./views/research.js";
+import { systemView } from "./views/system.js";
+import { tradingView } from "./views/trading.js";
+import type { View, ViewContext } from "./views/types.js";
 
 /**
- * Die Verdrahtung: Ereignisstrom → Zustand und Anzeige, dazu die Runs-Liste/-Detail (S22),
- * Freigaben und Fehler (S23) und Kennzahlen (S24) über den authentifizierten HTTP-Client
- * (`api/client.ts`).
- *
- * **S25-Neufassung.** Das Grundgerüst folgt jetzt 1:1 der vom Nutzer gelieferten Bildvorlage
- * (Seitenleiste, echtes Hintergrundfoto, Uhr/Datum-Kopfzeile, vier Glaskarten) statt der
- * vorherigen eigenen Fassung dieser Session (Taskbar, Wasserkreise, Centerpiece) — siehe
- * `progress.md` (S25). Die Wasserkreise (`canvas/ripples.ts`) und ein Ninja-Centerpiece
- * hätten in dieser Vorlage keinen Platz mehr und sind hier bewusst nicht mehr verdrahtet;
- * `ripples.ts` bleibt unberührt im Baum liegen (S21, eigene Historie), nur ohne Aufrufer.
- *
- * Bewusst die einzige Datei der Oberfläche, die das Dokument anfasst. Alle anderen Module
- * kennen weder `document` noch `window` und bleiben dadurch ohne Browser prüfbar; hier steht
- * dafür jede Entscheidung, die einen DOM-Knoten braucht.
+ * Die Wurzel des UI-Zwischenschubs — die einzige Datei der Oberfläche, die `document`/`window`
+ * anfasst (dieselbe Haltung wie vor dem Umbau, siehe die alte Fassung in der Git-Historie): sie
+ * baut die Hülle (Seitenleiste, Mic-Dock, Szene), verdrahtet den Router (genau eine aktive
+ * Ansicht, Punkt 4a) und reicht `api`/`bus`/`mic`/`navigate`/`detach` als `ViewContext` an die
+ * gemountete Ansicht durch. Jede Ansicht bleibt dadurch unabhängig von der Hülle testbar (auch
+ * wenn `ui/` insgesamt bei DOM-Code auf Tests verzichtet, siehe `ui/views/types.ts`).
  */
 
-interface RunSummary {
-  sessionId: string;
-  threadId: string;
-  channel: string;
-  createdAt: string;
-  status: RunStatus | null;
-  stepCount: number;
-  pendingUserInput: number;
-  foldError: string | null;
-}
-
-interface RunMetrics {
-  modelCalls: number;
-  toolCalls: number;
-  failedToolCalls: number;
-  cacheHitRate: number;
-  approvalsRequested: number;
-}
-
-interface RunsResponse {
-  runs: RunSummary[];
-  metrics: RunMetrics;
-}
-
-interface RunStepArtifact {
-  uri: string;
-  mimeType: string;
-  summary: string;
-}
-
-interface RunStepView {
-  stepId: string;
-  toolName: string | null;
-  status: string;
-  attempt: number;
-  error: string | null;
-  artifacts: RunStepArtifact[];
-}
-
-interface RunDetail {
-  sessionId: string;
-  channel: string;
-  status: RunStatus | null;
-  steps: RunStepView[];
-}
-
-interface AskOption {
-  id: string;
-  label: string;
-}
-
-interface PendingApproval {
-  askId: string;
-  question: string;
-  options: AskOption[];
-}
-
-interface PendingResponse {
-  pending: PendingApproval[];
-}
-
-const STATE_LABEL: Record<UiState, string> = {
-  idle: "ruhig",
-  processing: "arbeitet",
-  speaking: "antwortet",
-  complete: "fertig",
+const VIEWS: Record<RouteId, View> = {
+  home: homeView,
+  mail: mailView,
+  calendar: calendarView,
+  trading: tradingView,
+  research: researchView,
+  files: filesView,
+  system: systemView,
+  settings: settingsView,
 };
-
-const STATUS_LABEL = {
-  connecting: "verbindet",
-  open: "verbunden",
-  closed: "getrennt",
-} as const;
-
-/** Ereignistypen, die einen bleibenden Eintrag im Fehler-Verlauf verdienen (S23) — bewusst
- * eine handvoll, keine Ableitung aus der ganzen Taxonomie, dasselbe Prinzip wie `signalFor`
- * in `ui/events/bus.ts`: eine Stelle, eine reine Zuordnung. */
-const ERROR_EVENT_TYPES = new Set(["step.failed", "tool.failed", "session.failed", "error.raised"]);
-
-/** Wie viele Fehler das Panel hält, bevor die ältesten verschwinden. */
-const ERROR_LIMIT = 20;
-
-/** Wartezeit, bevor ein Ereignis die Runs-/Freigabenliste neu lädt — ein Zug löst mehrere
- * Ereignisse kurz hintereinander aus, und jedes einzelne einen eigenen Abruf wäre unnötiger
- * Verkehr für dieselbe, sich noch ändernde Antwort. */
-const REFRESH_DEBOUNCE_MS = 400;
 
 function element<T extends Element>(id: string): T {
   const found = document.getElementById(id);
@@ -113,344 +50,71 @@ function element<T extends Element>(id: string): T {
   return found as unknown as T;
 }
 
-/** Datum/Uhrzeit der Kopfzeile (`hero__date`/`hero__time`) — an derselben Stelle wie in der
- * Vorlage, nur mit echter, laufender Zeit statt eines eingefrorenen Bildschirmfotos. */
-function startHeroClock(dateTarget: HTMLElement, timeTarget: HTMLElement): void {
-  const tick = (): void => {
-    const now = new Date();
-    dateTarget.textContent = now.toLocaleDateString("de-DE", {
-      weekday: "long",
-      day: "numeric",
-      month: "long",
-      year: "numeric",
-    });
-    timeTarget.textContent = now.toLocaleTimeString("de-DE", { hour12: false });
-  };
-  tick();
-  globalThis.setInterval(tick, 1000);
-}
-
-/** Eine Fehlermeldung, die auch ohne Netz und ohne Token etwas Konkretes sagt (AGENTS.md:
- * Fehler nie verstecken oder glätten). */
-function describeApiError(error: unknown): string {
-  if (error instanceof ApiError) {
-    if (error.status === "no_token") return "Kein Token hinterlegt — siehe Einstellungen (⚙).";
-    if (error.status === 401) return "Token abgelehnt — in den Einstellungen prüfen.";
-    return error.message;
-  }
-  return error instanceof Error ? error.message : String(error);
-}
-
-function shortId(id: string): string {
-  return id.length > 16 ? `${id.slice(0, 16)}…` : id;
-}
-
-function formatTime(iso: string): string {
-  return new Date(iso).toLocaleTimeString("de-DE", { hour12: false });
-}
-
 function main(): void {
-  const stateBadge = element<HTMLElement>("state-badge");
-  const connectionDot = element<HTMLElement>("connection-dot");
-  const connectionLabel = element<HTMLElement>("connection-label");
-  const eventCount = element<HTMLElement>("event-count");
-  const reconnectCount = element<HTMLElement>("reconnect-count");
-  const tasksAdded = element<HTMLElement>("tasks-added");
-  const tasksDone = element<HTMLElement>("tasks-done");
-  const notificationCount = element<HTMLElement>("notification-count");
+  const sceneEl = element<HTMLElement>("scene");
+  const sidebarEl = element<HTMLElement>("sidebar");
+  const outletEl = element<HTMLElement>("view-outlet");
+  const micDockEl = element<HTMLElement>("mic-dock");
+  const toastEl = element<HTMLElement>("toast");
 
-  const runsHint = element<HTMLElement>("runs-hint");
-  const runsList = element<HTMLElement>("runs-list");
-  const runDetail = element<HTMLElement>("run-detail");
-  const runDetailStatus = element<HTMLElement>("run-detail-status");
-  const runDetailId = element<HTMLElement>("run-detail-id");
-  const runDetailSteps = element<HTMLElement>("run-detail-steps");
+  const toast = createToast(toastEl);
 
-  const metricModelCalls = element<HTMLElement>("metric-model-calls");
-  const metricToolCalls = element<HTMLElement>("metric-tool-calls");
-  const metricCacheHitRate = element<HTMLElement>("metric-cache-hit-rate");
-  const metricApprovals = element<HTMLElement>("metric-approvals");
-
-  const approvalsHint = element<HTMLElement>("approvals-hint");
-  const approvalsList = element<HTMLElement>("approvals-list");
-  const approvalsEmpty = element<HTMLElement>("approvals-empty");
-  const errorsList = element<HTMLElement>("errors-list");
-  const errorsEmpty = element<HTMLElement>("errors-empty");
-
-  const settingsButton = element<HTMLButtonElement>("settings");
-  const settingsPanel = element<HTMLElement>("settings-panel");
-  const settingsToken = element<HTMLInputElement>("settings-token");
-  const settingsSave = element<HTMLButtonElement>("settings-save");
-  const settingsStatus = element<HTMLElement>("settings-status");
-
-  startHeroClock(element<HTMLElement>("hero-date"), element<HTMLElement>("hero-time"));
-
-  // Der Port des Backends lässt sich über `?events=3005` überschreiben — historisch der Name
-  // für den Ereignisstrom (S21), seit S22 aber auch die Basis für `/runs` und `/channels/*`:
-  // wer auf einen anderen Prozess zeigt (typischerweise `pnpm gateway` statt `pnpm dev`),
-  // bekommt beides von dort, nicht den Strom von hier und die REST-Antworten von woanders.
+  // Der Port des Backends lässt sich über `?events=3005` überschreiben (S21 ff.) — historisch
+  // der Name für den Ereignisstrom, seit S22 auch die Basis für `/runs` und `/channels/*`.
   const params = new URLSearchParams(globalThis.location.search);
   const backendPort = params.get("events") ?? "3000";
   const hostname = globalThis.location.hostname || "localhost";
   const backendOrigin = `http://${hostname}:${backendPort}`;
   const bus = createEventBus({ url: `ws://${hostname}:${backendPort}/events` });
   const api = createApiClient({ baseUrl: backendOrigin, token: () => loadToken() });
+  const mic = createMicStateStore();
 
   // ---------------------------------------------------------------------
-  // Einstellungen (S22): der Bearer-Token, den /runs und /channels/web/* verlangen.
+  // Erscheinungsbild (Punkt 5): einmal beim Start, danach bei jeder Änderung aus der
+  // Einstellungsseite (`settingsBus`) — die Hülle liegt ausserhalb jeder gerouteten Ansicht.
   // ---------------------------------------------------------------------
-  settingsToken.value = loadToken() ?? "";
-  settingsButton.addEventListener("click", () => {
-    settingsPanel.hidden = !settingsPanel.hidden;
-  });
-  settingsSave.addEventListener("click", () => {
-    saveToken(settingsToken.value.trim());
-    settingsStatus.textContent = "Gespeichert.";
-    globalThis.setTimeout(() => {
-      settingsStatus.textContent = "";
-    }, 2000);
-    void refreshRuns();
-    void refreshApprovals();
-  });
+  void applyAppearance(loadSettings(), sceneEl);
+  settingsBus.subscribe((settings) => void applyAppearance(settings, sceneEl));
 
-  // ---------------------------------------------------------------------
-  // Läufe (S22): Liste und Detail, gefüttert aus /runs bzw. /runs/:id.
-  // ---------------------------------------------------------------------
-  let openRunId: string | null = null;
-
-  function renderRunsList(runs: RunSummary[]): void {
-    runsList.hidden = false;
-    runsList.replaceChildren(
-      ...runs.map((run) => {
-        const item = document.createElement("li");
-        item.className = "run-row";
-        const badge = document.createElement("span");
-        badge.className = runStatusClass(run.status);
-        badge.textContent = runStatusLabel(run.status);
-        const label = document.createElement("span");
-        label.className = "run-row__id";
-        label.textContent = `${shortId(run.sessionId)} · ${run.channel}`;
-        const meta = document.createElement("span");
-        meta.className = "run-row__meta";
-        meta.textContent =
-          run.foldError ??
-          `${run.stepCount} Schritt(e)${run.pendingUserInput > 0 ? " · Rückfrage" : ""}`;
-        item.append(badge, label, meta);
-        item.addEventListener("click", () => void openRun(run.sessionId));
-        return item;
-      }),
-    );
+  function navigate(route: RouteId, section?: SettingsSectionId): void {
+    globalThis.location.hash = hashFor(route, section);
   }
 
-  function renderRunDetail(detail: RunDetail): void {
-    runDetailStatus.className = runStatusClass(detail.status);
-    runDetailStatus.textContent = runStatusLabel(detail.status);
-    runDetailId.textContent = `${detail.sessionId} · ${detail.channel}`;
-    runDetailSteps.replaceChildren(
-      ...detail.steps.map((step) => {
-        const item = document.createElement("li");
-        item.className = `run-step run-step--${step.status}`;
-        const head = document.createElement("div");
-        head.textContent = `${step.toolName ?? "(ohne Werkzeug)"} — ${step.status}`;
-        item.append(head);
-        if (step.error) {
-          const error = document.createElement("p");
-          error.className = "run-step__error";
-          error.textContent = step.error;
-          item.append(error);
-        }
-        for (const artifact of step.artifacts) {
-          const link = document.createElement("p");
-          link.className = "run-step__artifact";
-          link.textContent = `📄 ${artifact.summary} (${artifact.mimeType})`;
-          item.append(link);
-        }
-        return item;
-      }),
-    );
+  function detach(route: RouteId, section?: SettingsSectionId): void {
+    detachView(route, {
+      section,
+      onBlocked: () =>
+        toast.show("Das Fenster wurde vom Browser blockiert — Popups für diese Seite erlauben."),
+    });
   }
 
-  async function openRun(sessionId: string): Promise<void> {
-    openRunId = sessionId;
-    runsList.hidden = true;
-    runDetail.hidden = false;
-    try {
-      const detail = await api.get<RunDetail>(`/runs/${encodeURIComponent(sessionId)}`);
-      renderRunDetail(detail);
-    } catch (error) {
-      runDetailId.textContent = describeApiError(error);
-    }
-  }
-
-  element<HTMLButtonElement>("run-detail-back").addEventListener("click", () => {
-    openRunId = null;
-    runDetail.hidden = true;
-    runsList.hidden = false;
-  });
-
-  async function refreshRuns(): Promise<void> {
-    try {
-      const data = await api.get<RunsResponse>("/runs");
-      runsHint.hidden = true;
-      renderRunsList(data.runs);
-      renderMetrics(data.metrics);
-      if (openRunId) {
-        const detail = await api.get<RunDetail>(`/runs/${encodeURIComponent(openRunId)}`);
-        renderRunDetail(detail);
-      }
-    } catch (error) {
-      runsHint.hidden = false;
-      runsHint.textContent = describeApiError(error);
-      runsList.hidden = true;
-    }
-  }
-
-  function renderMetrics(metrics: RunMetrics): void {
-    metricModelCalls.textContent = String(metrics.modelCalls);
-    metricToolCalls.textContent = `${metrics.toolCalls} (${metrics.failedToolCalls} fehlgeschlagen)`;
-    metricCacheHitRate.textContent = `${(metrics.cacheHitRate * 100).toFixed(1)} %`;
-    metricApprovals.textContent = String(metrics.approvalsRequested);
-  }
+  const sidebar = mountSidebar(sidebarEl, { navigate, toast });
+  mountMicButton(micDockEl, mic);
+  bus.onStatus((status, attempts) => sidebar.setConnectionStatus(status, attempts));
 
   // ---------------------------------------------------------------------
-  // Freigaben (S23): offene Rückfragen aus /channels/web/pending beantworten.
+  // Router (Punkt 4a): genau eine aktive Ansicht, adressiert über den Hash. Ein Wechsel räumt
+  // die vorherige Ansicht über ihre eigene Aufräumfunktion auf, bevor die nächste mountet.
   // ---------------------------------------------------------------------
-  function renderApprovals(pending: PendingApproval[]): void {
-    approvalsEmpty.hidden = pending.length > 0;
-    approvalsList.replaceChildren(
-      ...pending.map((ask) => {
-        const item = document.createElement("li");
-        item.className = "approval-row";
-        const question = document.createElement("p");
-        question.textContent = ask.question;
-        item.append(question);
-        const options = document.createElement("div");
-        options.className = "approval-row__options";
-        for (const option of ask.options) {
-          const button = document.createElement("button");
-          button.type = "button";
-          button.textContent = option.label;
-          button.addEventListener("click", () => void answerApproval(ask.askId, option.id));
-          options.append(button);
-        }
-        item.append(options);
-        return item;
-      }),
-    );
+  let cleanupCurrentView: (() => void) | null = null;
+
+  function renderRoute(): void {
+    const parsed = parseHash(globalThis.location.hash);
+    cleanupCurrentView?.();
+    outletEl.innerHTML = "";
+    sidebar.setActive(parsed.view);
+    const ctx: ViewContext = { api, bus, mic, navigate, detach, section: parsed.section };
+    cleanupCurrentView = VIEWS[parsed.view].mount(outletEl, ctx);
   }
 
-  async function answerApproval(askId: string, choiceId: string): Promise<void> {
-    try {
-      await api.post("/channels/web/answers", { askId, choiceId });
-      await refreshApprovals();
-      scheduleRefresh();
-    } catch (error) {
-      approvalsHint.hidden = false;
-      approvalsHint.textContent = describeApiError(error);
-    }
+  globalThis.addEventListener("hashchange", renderRoute);
+  if (globalThis.location.hash.length === 0) {
+    globalThis.location.hash = hashFor(DEFAULT_ROUTE);
+  } else {
+    renderRoute();
   }
-
-  async function refreshApprovals(): Promise<void> {
-    try {
-      const data = await api.get<PendingResponse>("/channels/web/pending");
-      approvalsHint.hidden = true;
-      renderApprovals(data.pending);
-    } catch (error) {
-      approvalsHint.hidden = false;
-      approvalsHint.textContent = describeApiError(error);
-      renderApprovals([]);
-    }
-  }
-
-  // ---------------------------------------------------------------------
-  // Fehler (S23): bleibt sichtbar, solange die Seite offen ist — kein roter Punkt, der mit
-  // dem nächsten Ereignis wieder verschwindet.
-  // ---------------------------------------------------------------------
-  function recordError(message: BusMessage): void {
-    errorsEmpty.hidden = true;
-    const item = document.createElement("li");
-    item.className = "error-row";
-    const stamp = document.createElement("time");
-    stamp.dateTime = message.timestamp;
-    stamp.textContent = formatTime(message.timestamp);
-    const label = document.createElement("span");
-    const reason =
-      typeof message.data?.error === "string"
-        ? message.data.error
-        : typeof message.data?.reason === "string"
-          ? message.data.reason
-          : message.type;
-    label.textContent = `${message.type}: ${reason}`;
-    item.append(stamp, label);
-    errorsList.prepend(item);
-    while (errorsList.childElementCount > ERROR_LIMIT) errorsList.lastElementChild?.remove();
-  }
-
-  // ---------------------------------------------------------------------
-  // Ereignisstrom → Wasser, Taskbar, Plansignale (S21) und ein gebündeltes Neuladen der
-  // Läufe-/Freigabenliste (S22/S23): viele Ereignisse eines Zugs sollen genau einen Abruf
-  // auslösen, nicht einen je Ereignis.
-  // ---------------------------------------------------------------------
-  let refreshTimer: ReturnType<typeof setTimeout> | null = null;
-  function scheduleRefresh(): void {
-    if (refreshTimer !== null) return;
-    refreshTimer = globalThis.setTimeout(() => {
-      refreshTimer = null;
-      void refreshRuns();
-      void refreshApprovals();
-    }, REFRESH_DEBOUNCE_MS);
-  }
-
-  let seen = 0;
-  let added = 0;
-  let done = 0;
-  let unread = 0;
-
-  bus.onState((state) => {
-    document.body.dataset.uiState = state;
-    stateBadge.dataset.uiState = state;
-    stateBadge.textContent = STATE_LABEL[state];
-  });
-
-  bus.onStatus((status, attempts) => {
-    connectionDot.dataset.status = status;
-    connectionLabel.textContent =
-      status === "connecting" && attempts > 0
-        ? `${STATUS_LABEL.connecting} (${attempts})`
-        : STATUS_LABEL[status];
-    reconnectCount.textContent = String(attempts);
-  });
-
-  bus.onMessage((message: BusMessage) => {
-    seen += 1;
-    eventCount.textContent = String(seen);
-    if (message.type === "bus.connected") return;
-    if (ERROR_EVENT_TYPES.has(message.type)) recordError(message);
-    scheduleRefresh();
-  });
-
-  bus.on("task_added", () => {
-    added += 1;
-    tasksAdded.textContent = String(added);
-  });
-  bus.on("task_done", () => {
-    done += 1;
-    tasksDone.textContent = String(done);
-  });
-  bus.on("speaking", () => {
-    unread += 1;
-    notificationCount.textContent = String(unread);
-    notificationCount.hidden = false;
-  });
-
-  element<HTMLElement>("notifications").addEventListener("click", () => {
-    unread = 0;
-    notificationCount.hidden = true;
-  });
 
   bus.connect();
-  void refreshRuns();
-  void refreshApprovals();
 }
 
 main();

@@ -26,6 +26,7 @@ export const STATIC_FILES = [
   "index.html",
   "styles/theme.css",
   "styles/layout.css",
+  "styles/views.css",
   "assets/lake.jpg",
 ] as const;
 

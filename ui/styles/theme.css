@@ -1,75 +1,89 @@
 /*
- * Farbschema und Grundstimmung.
+ * Design-Tokens und Grundstimmung — UI-Zwischenschub (Punkt 7: "AI-Slop entfernen").
  *
- * S25-Neufassung: 1:1 an der vom Nutzer gelieferten Bildvorlage gebaut (Seitenleiste, echtes
- * Hintergrundfoto `assets/lake.jpg`, Glaskarten) — ersetzt den vorherigen eigenen Entwurf
- * (Taskbar oben, Wasserkreise, Centerpiece) aus dieser Session vollständig, auf ausdrücklichen
- * Auftrag. Die Farbwerte selbst (dunkel, Off-White-Akzent, Cyan als Signalfarbe) bleiben aus
- * S21, weil sie zur Vorlage ohnehin passen — nur ihre Verwendung ändert sich.
+ * Gegenueber der S25-Fassung geaendert: keine Neonfarben, kein `text-shadow`/`box-shadow`-Glow,
+ * kein flaechendeckender Blur mehr auf jeder Karte (siehe `ui/styles/views.css` — Panels
+ * bekommen stattdessen je nach Funktion unterschiedliche, ueberwiegend deckende Flaechen). Die
+ * Farbwerte selbst sind jetzt *Vorgaben*, keine Festwerte: `ui/theme/palette.ts` schreibt sie zur
+ * Laufzeit neu, wenn ein Hintergrund gewaehlt wird (Punkt 5) — jede Regel im ganzen Baum liest
+ * ausschliesslich diese Custom Properties, nie einen festen Farbwert.
+ *
+ * Typografische Stufen (Punkt 7: "Hierarchie entsteht ueber Groesse, Abstand und Kontrast"):
+ * sieben statt zwei Groessen, klar unterscheidbar statt beliebig gestuft.
  */
 
 :root {
-  /* Grundflächen */
-  --bg: #05070f;
-  --bg-deep: #030409;
-  --bg-panel: rgba(8, 11, 24, 0.6);
-  --bg-panel-solid: #10142a;
-  --bg-sidebar: rgba(5, 7, 16, 0.6);
+  --bg: #0b0e17;
+  --bg-deep: #05070d;
+  --bg-panel: #12162a;
+  --bg-panel-solid: #161b32;
+  --bg-sidebar: #080a12;
+  --scrim: rgba(3, 4, 9, 0.72);
+  --scene-image: url("../assets/lake.jpg");
 
-  /* Schrift */
   --fg: #e8e8e8;
   --fg-muted: rgba(232, 232, 232, 0.62);
   --fg-faint: rgba(232, 232, 232, 0.38);
 
-  /* Signalfarben (aus S21 übernommen — nur noch für Zustandsabzeichen und Kennzahlen in
-   * Gebrauch, nicht mehr für ein Wassereffekt-Canvas). */
-  --ripple-blue: #4a7c9c;
-  --ripple-cyan: #61dafb;
+  --accent: #6fa0c9;
+  --accent-strong: rgba(111, 160, 201, 0.4);
 
-  --state-idle: var(--ripple-blue);
-  --state-processing: var(--ripple-cyan);
-  --state-speaking: #8de9ff;
-  --state-complete: #7de0a8;
-  --state-error: #ff7a7a;
+  --state-blocked: #d99a52;
+  --state-awaiting: #d9c25a;
+  --state-complete: #7fbf8f;
+  --state-error: #d97a7a;
 
-  /* Run-Status (S22), acht Zustände wie kuronami.task_status. */
   --run-queued: var(--fg-faint);
-  --run-ready: var(--ripple-blue);
-  --run-running: var(--state-processing);
-  --run-blocked: #f5b26b;
-  --run-awaiting-user: var(--state-speaking);
+  --run-ready: var(--accent);
+  --run-running: var(--accent);
+  --run-blocked: var(--state-blocked);
+  --run-awaiting-user: var(--state-awaiting);
   --run-completed: var(--state-complete);
   --run-failed: var(--state-error);
   --run-canceled: var(--fg-muted);
   --run-unknown: var(--fg-faint);
 
-  /* Kanten, Schatten, Glanz */
   --border: rgba(232, 232, 232, 0.1);
-  --border-strong: rgba(97, 218, 251, 0.28);
-  --shadow-panel: 0 18px 48px rgba(0, 0, 0, 0.45), 0 2px 0 rgba(232, 232, 232, 0.04) inset;
-  --shadow-float: 0 28px 64px rgba(0, 0, 0, 0.55);
-  --glow-cyan: 0 0 24px rgba(97, 218, 251, 0.28);
+  --border-strong: var(--accent-strong);
+  --shadow-panel: 0 12px 28px rgba(0, 0, 0, 0.4);
 
-  /* Maße */
-  --sidebar-width: 224px;
-  --radius: 16px;
-  --radius-sm: 8px;
+  --sidebar-width: 232px;
+  --sidebar-width-collapsed: 64px;
+  --radius: 10px;
+  --radius-sm: 6px;
+
+  --gap: 16px;
+  --pad: 18px;
+
+  /* Typstufen — sieben statt zwei. */
+  --text-2xl: 40px;
+  --text-xl: 22px;
+  --text-lg: 16px;
+  --text-md: 14px;
+  --text-sm: 12.5px;
+  --text-xs: 11px;
+  --text-2xs: 10px;
 
   --font-ui: "Inter", "Segoe UI", system-ui, -apple-system, sans-serif;
   --font-mono: "JetBrains Mono", "Cascadia Mono", ui-monospace, "SF Mono", monospace;
 
+  --motion-fast: 140ms;
+  --motion-medium: 320ms;
+  --motion-slow: 2400ms;
+  --ease-standard: cubic-bezier(0.2, 0.8, 0.2, 1);
+
   color-scheme: dark;
+}
+
+[data-density="compact"] {
+  --gap: 10px;
+  --pad: 12px;
 }
 
 * {
   box-sizing: border-box;
 }
 
-/* Ohne diese Regel verliert das Attribut `hidden` gegen jede Klasse, die auf demselben
- * Element selbst ein `display` setzt (z. B. `.run-detail`, `.settings-panel`) — beide haben
- * dieselbe Spezifität, und Autor-CSS gewinnt gegen das UA-Stylesheet. `!important` ist hier
- * kein Nothelfer, sondern die Zusage, die `hidden` erst zu einem verlässlichen Schalter macht
- * (`el.hidden = true/false` in `main.ts`, nie `style.display`). */
 [hidden] {
   display: none !important;
 }
@@ -82,11 +96,10 @@ body {
 }
 
 body {
-  /* Fallback, falls `assets/lake.jpg` einmal nicht lädt — `.scene` liegt normalerweise darüber. */
   background: var(--bg-deep);
   color: var(--fg);
   font-family: var(--font-ui);
-  font-size: 14px;
+  font-size: var(--text-md);
   line-height: 1.5;
   overflow: hidden;
   -webkit-font-smoothing: antialiased;
@@ -97,13 +110,12 @@ h2,
 h3 {
   margin: 0;
   font-weight: 500;
-  letter-spacing: 0.02em;
 }
 
 code {
   font-family: var(--font-mono);
   font-size: 0.92em;
-  color: var(--ripple-cyan);
+  color: var(--accent);
 }
 
 button {
@@ -114,32 +126,22 @@ button {
   cursor: pointer;
 }
 
+input,
+select {
+  font: inherit;
+  color: inherit;
+}
+
 :focus-visible {
-  outline: 2px solid var(--ripple-cyan);
+  outline: 1.5px solid var(--accent);
   outline-offset: 2px;
 }
 
-/* Das Zustandsabzeichen im Header (`hero__state`, vormals `taskbar__state`) trägt seine Farbe
- * über dieselbe Variable, die `main.ts` auf `<body data-ui-state>` setzt. */
-[data-ui-state="idle"] {
-  --state-colour: var(--state-idle);
-}
-[data-ui-state="processing"] {
-  --state-colour: var(--state-processing);
-}
-[data-ui-state="speaking"] {
-  --state-colour: var(--state-speaking);
-}
-[data-ui-state="complete"] {
-  --state-colour: var(--state-complete);
-}
-
-/* Das Status-Abzeichen eines Runs (S22): eine Pille wie `.hero__state`, nur ohne festen
- * Platz im Header — es taucht in der Läufe-Liste und im Detail auf. */
+/* Status-Abzeichen eines Runs (S22) — unveraendert in der Bedeutung, nur ohne Glow. */
 .run-status {
   display: inline-flex;
   align-items: center;
-  font-size: 10px;
+  font-size: var(--text-2xs);
   letter-spacing: 0.08em;
   text-transform: uppercase;
   padding: 2px 8px;

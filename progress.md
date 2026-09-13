@@ -13,6 +13,15 @@ absichern), beide `status: "done"`. Nächste Session: **S25** in seiner ursprün
 dorthin zurückkehrt — S28 (Kosten-Tracking) bleibt entsprechend blockiert, da es an S25 **und**
 S27 hängt.
 
+**UI-Zwischenschub, 2026-09-13 (eigene Sitzung, nach S25–S27).** Reine Oberflächen-Überarbeitung
+auf ausdrücklichen Nutzerauftrag, ausdrücklich **kein** Sprint der S-Reihe — siehe den Abschnitt
+"UI-Zwischenschub" am Ende dieser Datei für alle Einzelheiten. Kurzfassung: Emblem, einklappbare
+Sidebar, eine neu gebaute Startseite als persönliches Cockpit (Läufe/Freigaben/Fehler/Kennzahlen
+aus S22–S24 dafür **nicht gelöscht**, sondern auf eine neue Route `#/system` umgezogen), Abdocken
+per nativem Drag-and-Drop, eine vollständige Einstellungsseite, herkunftsbasierte Farbableitung
+für den Hintergrund und ein Mic-Button mit sechs Agentenzuständen. Berührt nur `ui/**` — Backend,
+Policy-Engine und Agenten-Loop unverändert, `tasks.json` unverändert (kein S-Sprint).
+
 **Der Plan wurde am 2026-09-12 umnummeriert** (S21 an aufwärts) — siehe den Abschnitt
 "Planänderung · 2026-09-12" gleich unten, bevor irgendwo mit einer alten S21–S24-Zählung
 weitergearbeitet wird.
@@ -1884,3 +1893,247 @@ Drei, alle bestätigt und danach zurückgesetzt:
 - `tasks.json`: S18b auf `done`, S18c von `queued` auf `ready`.
 
 Status: abgeschlossen. Nächste Session: S18c Skill-System (progressive Offenlegung).
+
+## UI-Zwischenschub · 2026-09-13
+
+Zwischenschub, ausdrücklich **nicht** Teil der S-Reihe — reine Oberflächen-Überarbeitung des
+bestehenden Dashboards auf Nutzerauftrag, nach S25–S27, in einer eigenen Sitzung desselben Tages.
+`tasks.json` bleibt unangetastet: es gibt keinen neuen Sprint-Eintrag dafür. Es läuft weiterhin
+ausschließlich die Web-App auf localhost, kein Tauri-Client — nichts in dieser Sitzung setzt
+einen voraus.
+
+**Wichtige Randbemerkung zum Auftrag:** der angekündigte Screenshot ("verbindliche Vorlage für
+die Startseite") kam in der Nachricht nie an — der Platzhaltertext `[SCREENSHOT HIER ANHAENGEN]`
+blieb wörtlich stehen. Statt nachzufragen (Auftragslage: Entscheidungen treffen und ausführen,
+nicht bei jeder Lücke stoppen), wurde die Startseite nach der sehr detaillierten Textbeschreibung
+gebaut — inklusive der im Fertig-Kriterium wörtlich genannten Elemente (Markets, Inbox, Agenda,
+Notes, drei Knöpfe, Mic-Button, System). Wo die Textbeschreibung selbst eine Lücke ließ, stehen
+unten benannte, begründete Entscheidungen statt geratener Standardlösungen.
+
+### Was gebaut wurde
+
+**1. Emblem 黒波.** Als echter, eingebetteter SVG-Pfad (`ui/emblem.ts`), keine Textglyphe. Die
+Pfaddaten stammen aus den echten Konturen von "Yu Gothic Bold" (GDI+ `GraphicsPath.AddString`,
+auf diesem Rechner unter Windows vorhanden) — nicht von Hand nachgezeichnet, um nicht versehentlich
+ein falsches oder unleserliches Kanji zu erzeugen. Das Ergebnis ist ein fester Satz M/L/C-Befehle,
+`fill-rule="evenodd"` (dieselbe Regel, mit der GDI+ selbst gerendert hat), Farbe ausschließlich
+über `currentColor`. Sitzt links neben der Wortmarke, vertikal mittig, ohne Schatten/Verlauf/
+Animation. Per Rasterprobe visuell geprüft, bevor die Pfaddaten übernommen wurden (siehe
+Scratchpad-Skripte, nicht Teil des Commits).
+
+**2. Sidebar einklappbar** (`ui/sidebar/collapse.ts`, `ui/sidebar/view.ts`). Umschalter im Kopf
+plus Strg/Cmd+B. Eingeklappt bleibt eine 64px-Icon-Leiste, das Emblem bleibt sichtbar. Zustand in
+`localStorage`, nach Neuladen wiederhergestellt. Der Übergang läuft über die echte `width`-
+Eigenschaft der Seitenleiste (kein Sprung im Ansichts-Auslass, da beide Teile derselben
+Flexbox-Reflow-Berechnung folgen — bewusst keine animierte Custom Property, die ohne
+`@property`-Registrierung ohnehin nicht interpoliert würde).
+
+**3. Home neu als persönliches Cockpit** (`ui/views/home.ts`). Der bisherige Projekt-/Buildstatus
+ist komplett raus. Vier Panels gegen Mock-Provider (`ui/mock/data.ts`), jedes hinter einem eigenen
+typisierten `*Provider`-Interface mit `load(): Promise<...>` — derselbe Vertrag wie ein späterer
+HTTP-Aufruf, ein Austausch gegen eine echte Quelle ändert an den Views nichts. Bewusst
+unterschiedlich behandelt (Punkt 7): Markets als dichte Kurstabelle, Inbox als Liste mit
+Ungelesen-Punkt, Agenda als Zeitleiste, Notes als horizontale Kartenreihe ohne Außenrahmen ums
+ganze Panel. Drei Knöpfe (System, Einstellungen, Dateien) — echte Navigation, keine
+Platzhalter-Aktionen (siehe die Begründung zu S25 oben: ein Knopf ohne Wirkung wäre eine
+vorgetäuschte Funktion, genau das Muster, das dort schon einmal bewusst vermieden wurde). Dazu
+ein knapper System-Statusstreifen (echter Verbindungsstatus aus dem Ereignisbus, kein Mock).
+
+**Entscheidung, die im Text nicht explizit stand:** die bisherige echte Home-Funktionalität
+(Läufe/Freigaben & Fehler/Plan/Kennzahlen, S22–S24 — echt angebunden, mit funktionierender
+Freigabe-Beantwortung) wurde **nicht gelöscht**. Sie ist unverändert in ihrer Anbindung auf eine
+neue, eigene Route `#/system` umgezogen (`ui/views/system.ts`, fast wörtliche Transplantation der
+bisherigen `main.ts`-Logik, nur auf einen Container statt globale `document.getElementById`
+umgestellt). Begründung: der Auftrag verlangt, dass Home „ausschließlich zeigt, was ich selbst
+täglich brauche" — er verlangt nicht, echte, getestete, ans Gateway angebundene Funktionalität
+ersatzlos zu streichen. „System" taucht im Fertig-Kriterium ohnehin als eigenes Home-Element auf,
+was diese Lesart stützt: ein knapper Statusstreifen auf dem Cockpit, ein voller Bildschirm auf der
+eigenen Route dahinter.
+
+**4. Navigation und Abdocken** (`ui/router/router.ts`, `ui/router/detach.ts`,
+`ui/sidebar/view.ts`). Hash-Routing (`#/mail`, `#/settings/appearance`, …) statt echter Pfade —
+`ui/serve.ts`/`ui/build.ts` liefern Dateien anhand ihres Pfads aus, ein SPA-Fallback für jeden
+Pfad wäre eine Änderung an der Ausliefer-Infrastruktur nur für dieselbe `index.html`; der
+Hash-Teil ist rein client-seitig und trotzdem eine direkt aufrufbare, merkbare Adresse. Klick auf
+einen Sidebar-Eintrag tauscht die eine aktive Ansicht im Hauptfenster (`ui/main.ts` mountet/
+unmountet, keine Tab-Leiste, keine gestapelten Ansichten).
+
+Abdocken per nativem HTML5-Drag-and-Drop: `dragend` auf einem Sidebar-Eintrag liest
+`dataTransfer.dropEffect` — `"none"` heißt „auf keiner registrierten Dropzone gelandet", die
+Seitenleiste selbst registriert sich per `dragover`/`drop` als gültiges Ziel, damit ein Drop
+zurück auf sich selbst nicht zählt. `detachView` (`ui/router/detach.ts`) ist die **einzige**
+Stelle im Browser-Client, die `window.open` kennt — dokumentiert als die Stelle, die beim
+künftigen Tauri-Client gegen `WebviewWindow` getauscht wird, kein zweiter Ort im Baum. Ein
+blockiertes Popup zeigt einen Toast (`ui/toast.ts`) statt still zu scheitern.
+
+**5. Einstellungsseite** (`ui/settings/store.ts`, `ui/settings/view.ts`). Eigene Ansicht mit
+linker Abschnittsnavigation, sieben Abschnitte wie im Auftrag benannt. Ein einziges
+`localStorage`-Objekt, in Abschnitte gegliedert, `normalizeSettings` verschmilzt gespeicherte
+Werte mit Vorgaben Feld für Feld (ein älterer Stand mit weniger Feldern bricht nichts). Jede
+Änderung wirkt sofort, kein „Speichern"-Knopf. Wo die Anbindung fehlt (Modelle, Freigaben,
+Gedächtnis-Aktionen, Integrationen, ganz Sprache), bleibt das Feld sichtbar, aber `disabled`, mit
+einem Hinweistext, der auf die tatsächliche Stelle zeigt (`runtime/model/router.ts`,
+`policy/engine.ts`, `.env`, S30/S31) — nicht weggelassen. Der Bearer-Token (`GATEWAY_WEB_TOKEN`,
+bisher im schwebenden Zahnrad-Panel) ist jetzt hier, unter System, echt funktionsfähig
+(`ui/settings.ts`, unverändert wiederverwendet).
+
+**Austauschbarer Hintergrund mit Farbableitung** (`ui/theme/palette.ts`, `ui/theme/background.ts`,
+`ui/theme/resize.ts`) — der aufwendigste Teil, siehe „Gefundene und behobene Fehler" unten für
+zwei echte Bugs, die erst beim eigenen Browsertest auffielen. Reine Farbmathematik
+(`palette.ts`, vollständig geprüft, kein `document`) getrennt von der DOM-Seite
+(`background.ts`, Bild laden/herunterrechnen/Pixel lesen, ungetestet wie der Rest der
+DOM-Verdrahtung). Drei Pflichten aus dem Auftrag, jede ein eigener, benannter, geprüfter Schritt:
+Sättigung gedeckelt (`clampSaturation`, nie über 45 %), Kontrast der Textfarbe gegen die
+tatsächliche Fläche geprüft und bei Bedarf korrigiert (`ensureContrast`, WCAG-Formel, mindestens
+4,5:1 — geprüft gegen den **hellsten** Bildpixel nach der deckenden Ebene, nicht gegen den
+Durchschnitt, der ungünstigste realistische Fall), eine deckende Ebene hinter Inhaltsflächen
+(`.scene`-Verlauf, siehe unten). Zwei mitgelieferte Hintergründe (See = `assets/lake.jpg`, Leere =
+ein erzeugter, unauffälliger dunkler Verlauf als Daten-URI, kein neues Bild-Asset) plus eigenes
+Bild hochladen (vor dem Speichern auf max. 1600px herunterskaliert, `resize.ts`, damit ein
+einzelnes Kamerafoto nicht das `localStorage`-Kontingent sprengt).
+
+**6. Mic-Button und sechs Agentenzustände** (`ui/mic/state.ts`, `ui/mic/button.ts`). Eine einzige
+Zustandsquelle (`createMicStateStore`), fest im Mic-Dock außerhalb jeder gerouteten Ansicht,
+deshalb von überall erreichbar. Klick bzw. Strg/Cmd+M schaltet `idle`↔`listening` — die einzige
+heute echte Interaktion, da eine echte Spracherkennung erst mit S30/S31 kommt. Die sechs Zustände
+unterscheiden sich ausschließlich über Form/Deckkraft/Bewegungsruhe (ein Ring: unsichtbar bei
+idle, langsam atmend bei listening, gestrichelt rotierend bei thinking, schneller atmend bei
+speaking, dick rotierend bei executing, voll sichtbar stehend bei complete) — keine Farbwechsel,
+kein Leuchten. Für die Vorführung aller sechs Zustände (Auftrag: „vorerst gegen Mock schaltbar")
+steht ein Demo-Knopf unter Einstellungen › System, der die eine Zustandsquelle durchschaltet —
+bewusst dort und nicht im normalen Bedienfluss, damit er als das erkennbar bleibt, was er ist:
+ein Mock-Schalter, kein vorgetäuschtes Feature.
+
+**7. AI-Slop entfernt.** Konkret entfernt, mit Fundstelle:
+- `--glow-cyan`-Token und der `text-shadow` auf der alten Sidebar-Marke (`◍`) — komplett weg,
+  zusammen mit der Marke selbst (ersetzt durch das schattenlose Emblem).
+- `backdrop-filter: blur()` auf Seitenleiste **und** jeder Karte (vorher identisch auf beiden) —
+  jetzt nirgends mehr; Flächen sind stattdessen überwiegend deckend (siehe Fehlerkorrektur unten).
+- Die feste Signalfarbe `--ripple-cyan`/`--ripple-blue` — ersetzt durch `--accent`, laufzeit-
+  abgeleitet aus dem Hintergrundbild, sättigungsgedeckelt statt fest auf Cyan verdrahtet.
+- Unicode-Symbole als Icons (`⌂ ✉ ▦ ↗ ◎ ▤ ⚙ ◔` — dieselbe Rendering-Unsicherheit wie eine
+  Kanji-Textglyphe ohne installierte Schrift) und ein echtes Emoji (`📄` im alten `main.ts`) —
+  ersetzt durch eine eigene, strichbasierte 20×20-SVG-Icon-Familie (`ui/icons.ts`, 18 Symbole,
+  einheitlicher Stil, `currentColor`).
+- Vier uniform gerundete, gleich große Karten in identischem Abstand (die alte S25-Vorlagen-
+  Übernahme) — ersetzt durch funktional unterschiedlich behandelte Panels/Ansichten (siehe
+  Punkt 3 oben, und die Detailseiten: Tabelle für Trading, Liste für Mail, Zeitleiste für
+  Calendar, Kartenreihe für Notes/Files/Research).
+- Typografie trägt jetzt Ordnung über sieben statt zwei Stufen (`--text-2xl` … `--text-2xs`,
+  `ui/styles/theme.css`), Bewegung ist auf die Sidebar-Breite, den Mic-Ring und die Zustands-
+  Übergänge begrenzt — nicht dekorativ auf Karten oder Text.
+
+### Gefundene und behobene Fehler (beim eigenen Browsertest)
+
+Der Auftrag verlangt „vor jeder Bewertung als fertig im Browser prüfen" — genau dabei fielen zwei
+echte Bugs auf, keiner davon über Unit-Tests sichtbar (beide sind Zusammenspiel zwischen
+`palette.ts` und dem tatsächlich gerenderten CSS, nicht Fehler in der reinen Farbmathematik
+selbst, die weiterhin alle 22 Tests bestand):
+
+1. **`--bg-panel`/`--bg-sidebar` waren in der Ableitung nur 60 % deckend** (`toRgba(bg, 0.6)`) —
+   ein Rest des alten Glas-Looks, den Punkt 7 eigentlich verlangt zu entfernen; die *statischen*
+   Vorgabewerte in `theme.css` waren schon opak, die *Laufzeit*-Ableitung fiel beim Umbau aber auf
+   das alte Muster zurück. Sichtbar erst mit einem extremen Testbild (100 % gesättigtes Rot als
+   hochgeladener Hintergrund): Karten und Einstellungsfelder wurden von der Fotofarbe durchtränkt
+   statt lesbar dunkel zu bleiben. Behoben: beide Token sind jetzt `toHex(...)`, vollständig opak.
+2. **Der `.scene`-Verlauf war am oberen Rand viel heller** (10–35 % Deckkraft) **als die Deckkraft,
+   die die Kontrastrechnung selbst voraussetzt** (`SCRIM_ALPHA = 0.72`) — die rechnerisch
+   bewiesene Kontrastgarantie hielt dadurch nicht überall, wo sie auf dem Bildschirm tatsächlich
+   gebraucht wird. Behoben: der Verlauf liegt jetzt durchgehend bei mindestens `--scrim` (0,72)
+   und wird nach unten nur noch dunkler, nie heller — die reale Fläche entspricht damit wieder der
+   Fläche, gegen die `ensureContrast` tatsächlich rechnet.
+
+Nachgewiesen mit einem selbst erzeugten, garantiert opaken 100×100-Rot-Testbild (ein zufällig
+verwendeter Base64-Schnipsel für den ersten Versuch war ungewollt ein *transparenter* 1×1-Pixel —
+kein App-Fehler, ein Fehler im eigenen Testaufbau, der beim Nachrechnen auffiel und korrigiert
+wurde): nach der Korrektur blieb die Oberfläche durchgehend dunkel mit einem erkennbaren, aber
+gedämpften Rotton, Text weiterhin klar lesbar, `--accent` korrekt aus dem roten Farbton
+abgeleitet (`#c46464`, Sättigung sauber auf 45 % gedeckelt statt der vollen 100 % des Fotos).
+
+Ein dritter, kleinerer Fund: das Akzentfarbfeld in den Einstellungen zeigte kurz nach dem Laden
+einen veralteten Platzhalter statt der tatsächlich wirksamen Farbe — eine Wettlaufsituation, weil
+die Bildableitung asynchron läuft (Bild laden) und die Einstellungsseite ihren Wert synchron beim
+Mounten liest, bevor die Ableitung fertig ist. Behoben mit einem eigenen, schmalen Ereignis
+(`kuronami:palette-applied`, `ui/theme/background.ts`), auf das die Einstellungsseite reagiert,
+ohne sich in die `settingsBus`-Emit-Kette einzuklinken (das hätte eine Endlosschleife riskiert, da
+`applyAppearance` selbst ein `settingsBus`-Abonnent ist).
+
+### Geprüft im Browser
+
+`pnpm exec tsx ui/dev.ts`, echter Chrome-Tab: Home (alle vier Panels mit Mock-Daten, drei Knöpfe,
+System-Streifen mit echtem, per WebSocket verbundenem Status), Sidebar ein-/ausklappen per Klick
+**und** per Kürzel, Neuladen bestätigt Persistenz; drei Sidebar-Einträge (Mail, Calendar, Trading)
+einzeln angeklickt, jeweils die einzige aktive Ansicht ausgetauscht; System-Route zeigt die
+transplantierte Läufe-/Freigaben-/Plan-/Kennzahlen-Ansicht mit ehrlichen Fehlermeldungen ohne
+laufendes Backend (`Failed to fetch`, wie vor dem Umbau); Einstellungen mit allen sieben
+Abschnitten durchgeklickt, Hintergrund zweimal gewechselt (See, Leere, dazu das oben beschriebene
+Rot-Testbild) mit sichtbar mitziehender Farbgebung und bestätigtem Kontrast; alle sechs
+Mic-Zustände über den Demo-Knopf durchgeschaltet und einzeln per Bildschirmausschnitt bestätigt
+(`idle`/`listening`/`thinking`/`speaking`/`executing`/`complete`, sechs unterscheidbare, rein
+formale/deckkraft-/bewegungsbasierte Darstellungen).
+
+**Abdocken:** die eigentliche Verdrahtung wurde direkt im Seitenkontext bewiesen (echte
+`DragEvent`-Objekte gegen den tatsächlich laufenden Code dispatcht, nicht nachgebaut) — ein
+Eintrag ohne gültiges Ziel löst zuverlässig `window.open` mit der korrekten Route/URL/den
+korrekten Fenstermaßen aus, ein blockierter Popup zeigt zuverlässig den Toast-Hinweis. Ein
+vollständiger End-zu-Ende-Nachweis mit einer echten, per Maus ausgeführten OS-Drag-Geste und
+einem tatsächlich zweiten Browserfenster ließ sich mit den verfügbaren Automatisierungswerkzeugen
+nicht führen (siehe „Bewusst nicht geprüft" unten) — der Nutzer sollte das beim eigenen
+Durchklicken mit echter Maus bestätigen.
+
+### Bewusst nicht geprüft (Werkzeuggrenzen der Automatisierung, keine offenen App-Fehler)
+
+- **Echte, mausgeführte native Drag-and-Drop-Geste.** Synthetische Maus-Events (Mousedown/Move/Up)
+  lösen in Chrome keine native HTML5-Drag-Geste aus — nachgewiesen durch einen direkten Versuch
+  (kein `dragstart` feuerte). Ersatzweise direkt mit echten `DragEvent`-Objekten gegen den
+  laufenden Code geprüft (siehe oben) — das beweist die Verdrahtung, nicht die Geste selbst.
+- **„Drop zurück auf die Seitenleiste zählt nicht als Abdocken"** ließ sich aus demselben Grund
+  nur eingeschränkt nachstellen: `DataTransfer.dropEffect` lässt sich außerhalb einer echten,
+  browser-internen Drag-Operation nicht dauerhaft setzen (eigens nachgewiesen: eine Zuweisung
+  direkt nach dem Erzeugen eines `DataTransfer` wird sofort wieder auf `"none"` zurückgesetzt) —
+  eine dokumentierte Eigenheit synthetischer `DataTransfer`-Objekte, kein App-Fehler. Bewiesen
+  stattdessen ausschließlich über die reinen Logik-Tests (`shouldDetachOnDragEnd`,
+  `detach.test.ts`), die exakt diese beiden Fälle abdecken.
+- **Ein echtes zweites Fenster mit einer eigenen Fenstergröße.** `window.open` aus injiziertem
+  Skript heraus hat in dieser Automatisierungsumgebung keine „echte" Nutzeraktivierung
+  (`navigator.userActivation.isActive === false`) und wird deshalb vom Popup-Blocker abgewiesen —
+  dieselbe Regel wie im echten Alltag für ein Skript, das ohne Klick ein Fenster öffnen will. Der
+  korrekte Hinweis dafür (Toast) wurde bestätigt; das tatsächliche Fenster nicht.
+- **Schmales Fenster (< 760 px).** Der Fenster-Größenänderungs-Befehl der Automatisierung griff
+  nicht zuverlässig (dieselbe Einschränkung wie schon in S25 vermerkt) — die `@media`-Regeln
+  (`ui/styles/layout.css`, `ui/styles/views.css`) wurden geschrieben und durchgesehen, aber nicht
+  in einem echten schmalen Fenster bestätigt.
+
+### Bewusst nicht gebaut
+
+- **Kein neuer Sidebar-Bereich außer „System".** Die im Auftrag genannten Bereiche (Home, Mail,
+  Calendar, Trading, Research, Files, Settings) blieben inhaltlich unangetastet; „System" kam als
+  achter Eintrag dazu, ausschließlich um die bestehende, echte Funktionalität aus S22–S24
+  unterzubringen (siehe oben) — keine neue Datenquelle, keine neue Fachlichkeit.
+- **Keine echte Anbindung für Modelle/Freigaben/Gedächtnis-Aktionen/Integrationen/Sprache** in den
+  Einstellungen — wie in Punkt 5 oben beschrieben, sichtbar deaktiviert mit Hinweistext, nicht
+  gebaut, weil außerhalb des Auftrags ("keine Änderung am Backend, an der Policy-Engine oder am
+  Agenten-Loop").
+- **Kein echter Mic-Zustand aus echten Ereignissen.** Nur Klick/Kürzel (`idle`↔`listening`) und
+  der Demo-Zyklus — eine automatische Ableitung aus Ereignisbus-Signalen wäre eine Entscheidung
+  über Bedeutung ("wann genau ist der Agent am Handeln vs. am Denken"), die dem eigentlichen
+  Sprachschicht-Auftrag (S30/S31) gehört, nicht diesem Zwischenschub.
+- **`ui/canvas/ripples.ts` bleibt unverändert unverdrahtet liegen** — unverändert gegenüber S25,
+  aus denselben Gründen (siehe dortige offene Befunde).
+
+### Tests
+
+`ui/`-Testbaum: 16 Dateien, 120 Tests, alle grün (u. a. `theme/palette.test.ts` mit 22 Tests für
+die komplette Farbmathematik inkl. Kontrastformel, `router/detach.test.ts` mit 6 Tests für die
+Abdock-Entscheidung, `mic/state.test.ts` mit 9 Tests für alle sechs Zustandsübergänge,
+`settings/store.test.ts` mit 7 Tests für Persistenz/Normalisierung). DOM-berührender Code
+(`ui/main.ts`, alle `ui/views/*.ts`, `ui/sidebar/view.ts`, `ui/mic/button.ts`,
+`ui/theme/background.ts`, `ui/settings/view.ts`) bleibt aus Prinzip ungetestet — dieselbe
+Trennung wie im ganzen `ui/`-Baum seit S21: reine Logik geprüft, DOM-Verdrahtung im Browser
+bestätigt. `pnpm typecheck` (beide `tsconfig.json`), `pnpm lint` (Biome, ganzer Baum) und
+`pnpm exec tsx ui/build.ts` grün.
+
+Status: abgeschlossen. `tasks.json` unverändert (kein S-Sprint). Nächste Session: wieder am
+regulären Plan, S25 im ursprünglichen Sinn (Centerpiece) oder eine Nutzerentscheidung, dass die
+Bildvorlagen-Oberfläche das ursprüngliche Fertig-Kriterium ersetzt — siehe die offenen Befunde zu
+S25 oben, unverändert durch diesen Zwischenschub.
