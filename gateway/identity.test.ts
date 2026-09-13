@@ -20,6 +20,7 @@ const identity: GatewayIdentity = {
   telegramUserIds: ["11111111", "22222222"],
   slackSigningSecret: "slack-geheim-9012",
   slackUserIds: ["U111", "U222"],
+  voiceToken: "sprach-geheim-3456",
 };
 
 describe("Web-Kanal", () => {
@@ -144,6 +145,7 @@ describe("Identitätstabelle aus der Umgebung", () => {
       telegramUserIds: ["111", "222"],
       slackSigningSecret: "",
       slackUserIds: [],
+      voiceToken: "",
     });
     expect(configuredChannels(found)).toEqual(["web", "telegram"]);
   });

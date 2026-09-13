@@ -19,10 +19,17 @@ import type { AskOption } from "../runtime/session/state.js";
  * stimmt: `gateway/` darf auf `runtime/` zeigen, umgekehrt nie (Abschnitt 3, harte Regel).
  */
 
-/** Die Kanäle, die das Gateway heute bedient. Mail und Sprache kommen später dazu. */
-export type ChannelId = "web" | "telegram" | "slack";
+/**
+ * Die Kanäle, die das Gateway heute bedient. Mail kommt später dazu.
+ *
+ * `voice` seit S30: die Sprachschicht ist ein **eigener Prozess** (Python, Pipecat, siehe
+ * `voice/`), und er redet mit diesem Gateway genauso wie Telegram oder Slack — über HTTP, mit
+ * einem eigenen Geheimnis, in der normalisierten Nachrichtenform. Dass er woanders läuft und in
+ * einer anderen Sprache geschrieben ist, ändert an seiner Rolle nichts: er ist ein Kanal.
+ */
+export type ChannelId = "web" | "telegram" | "slack" | "voice";
 
-export const CHANNEL_IDS: readonly ChannelId[] = ["web", "telegram", "slack"];
+export const CHANNEL_IDS: readonly ChannelId[] = ["web", "telegram", "slack", "voice"];
 
 export function isChannelId(value: unknown): value is ChannelId {
   return typeof value === "string" && (CHANNEL_IDS as readonly string[]).includes(value);

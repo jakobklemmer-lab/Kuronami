@@ -16,13 +16,31 @@ export interface MicButtonHandle {
   el: HTMLElement;
 }
 
+export interface MicButtonOptions {
+  /** Worauf `data-agent-state` gesetzt wird. Vorgabe: der Wirt selbst. */
+  stateTarget?: HTMLElement;
+  /**
+   * Was ein Klick (oder Strg/Cmd+M) auslöst. Vorgabe: `mic.toggleListening()` — der
+   * Zustandswechsel ohne Gegenstück, wie bis S29.
+   *
+   * Seit S30 reicht `ui/main.ts` hier den Sprach-Controller herein: dann öffnet der Knopf eine
+   * echte Sitzung, und die Zustände kommen aus der Pipeline statt aus diesem Umschalter. Der
+   * Knopf selbst weiß davon nichts — er kennt weiterhin nur "der Nutzer hat gedrückt".
+   */
+  onToggle?: () => void;
+}
+
 const WAVE_BARS = 5;
 
 export function mountMicButton(
   host: HTMLElement,
   mic: MicStateStore,
-  stateTarget: HTMLElement = host,
+  options: MicButtonOptions | HTMLElement = {},
 ): MicButtonHandle {
+  const settings: MicButtonOptions =
+    options instanceof HTMLElement ? { stateTarget: options } : options;
+  const stateTarget = settings.stateTarget ?? host;
+  const toggle = settings.onToggle ?? (() => void mic.toggleListening());
   host.innerHTML = `
     <div class="mic-dock">
       <span class="mic-dock__wave" aria-hidden="true">
@@ -51,12 +69,12 @@ export function mountMicButton(
   render();
   mic.subscribe(render);
 
-  button?.addEventListener("click", () => mic.toggleListening());
+  button?.addEventListener("click", () => toggle());
 
   document.addEventListener("keydown", (event) => {
     if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "m") {
       event.preventDefault();
-      mic.toggleListening();
+      toggle();
     }
   });
 

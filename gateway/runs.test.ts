@@ -24,6 +24,7 @@ const identity: GatewayIdentity = {
   telegramUserIds: [],
   slackSigningSecret: "",
   slackUserIds: [],
+  voiceToken: "",
 };
 
 let server: Server;

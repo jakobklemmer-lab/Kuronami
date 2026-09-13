@@ -957,6 +957,49 @@ Anzahl eines bereits vorhandenen Ereignistyps ist, verdoppelte sonst eine Wahrhe
 
 ---
 
+## 12a. Sprachschicht (S30/S31)
+
+Die Nummer trägt ein `a`, weil die Abschnitte 13 bis 18 an hundert Stellen im Quelltext als
+"Abschnitt 13", "Abschnitt 17" zitiert werden. Eine Umnummerierung machte jedes dieser Zitate
+still falsch — dieselbe Überlegung wie bei den Sessions S18a bis S18f.
+
+**Ein eigener Prozess, in Python, hinter dem Gateway.** Abschnitt 4.1 hat das vorweggenommen:
+Pipecat ist Python, und das ist die eine Ausnahme von "TypeScript auf Node" — eine Prozessgrenze,
+kein zweiter Stack im Kern. Er liegt unter `voice/`, teilt keinen Code mit `runtime/`, `tools/`
+oder `policy/` und spricht mit der Runtime ausschließlich über den Sprach-Kanal des Gateways.
+
+```
+transport.input() → VADProcessor(Silero) → STT(Deepgram) → KuronamiBridge
+                  → TTS(ElevenLabs) → LatencyProbe → transport.output()
+```
+
+**Der Agent steht dort, wo sonst das Modell steht.** In einer üblichen Pipecat-Pipeline sitzt an
+der Stelle von `KuronamiBridge` ein LLM-Dienst. Hier sitzt das Gateway: die Antwort dieses Systems
+ist kein Modellausgang, sondern ein Lauf mit Werkzeugen, Freigaben und Gedächtnis, und der gehört
+hinter dieselbe Tür wie Telegram und Slack. Daraus folgt der Kanal `voice` in `ChannelId` — und
+damit, dass eine Freigabeanfrage, die in einem Sprachzug entsteht, über `deriveAskRoutes` (S16)
+von selbst wieder in der Sprachsitzung landet und nicht in einem Browserfenster.
+
+**Zwei Ausweise, nicht einer.** Der WebSocket-Rand der Sprachschicht prüft `VOICE_SESSION_TOKEN`
+(wer darf sprechen), das Gateway prüft `VOICE_BRIDGE_TOKEN` (wer darf Züge auslösen). Sie sind
+verschieden, weil es zwei Prozesse mit zwei Lebensläufen sind: ein abhandengekommener Token soll
+eine Tür öffnen, nicht zwei.
+
+**Unterbrechen heißt nicht abbrechen.** Redet der Nutzer dazwischen, fällt die Ausgabe sofort weg
+und die noch unterwegs befindliche Antwort wird verworfen. Der Lauf im Gateway wird **nicht**
+abgebrochen: `runner.cancel()` schriebe `session.canceled` (S05), und die Session der
+Sprachschicht ist dieselbe durchgehende Unterhaltung wie im Web. Dazwischenreden beendete damit
+das Gespräch statt es zu lenken.
+
+**Was die 800 ms aus dem Fertig-Kriterium bedeuten.** Ein Sprachzug besteht aus fünf Strecken:
+`erkennung` (Deepgram), `bruecke`, `agent`, `uebergabe`, `stimme` (ElevenLabs). Das Budget gilt
+für alle außer `agent` — die Denkzeit des Modells ist keine Eigenschaft dieser Schicht und ließe
+sich hier durch nichts drücken. Sie wird trotzdem gemessen und ausgewiesen. Die Definition steht
+in `voice/pipeline/latency.py`, gemessen wird mit `voice/bench/measure.py`, und was dabei
+unbelegt bleibt, steht in `voice/README.md`.
+
+---
+
 ## 13. Startwerte
 
 | Stellgröße | Startwert |

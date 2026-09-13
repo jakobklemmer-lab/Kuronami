@@ -91,6 +91,15 @@ export interface GatewayIdentity {
   slackSigningSecret: string;
   /** Erlaubte Slack-Nutzerkennungen. Leer: Slack nimmt nichts an. */
   slackUserIds: readonly string[];
+  /**
+   * Bearer-Token des Sprach-Kanals (S30). Leer heißt: der Kanal nimmt nichts an.
+   *
+   * Ein **eigener** Token und nicht `webToken`: die Sprachschicht ist ein zweiter Prozess mit
+   * einem eigenen Lebenslauf, möglicherweise in einem eigenen Container. Ihn denselben Ausweis
+   * tragen zu lassen wie den Browser hieße, dass ein Wechsel des einen den anderen aussperrt —
+   * und dass ein abhandengekommener Token zwei Türen öffnet statt einer.
+   */
+  voiceToken: string;
 }
 
 /**
@@ -157,6 +166,55 @@ export function authenticateWeb(identity: GatewayIdentity, credential: WebCreden
     replyTo: credential.replyTo?.trim() || identity.userId,
   };
   return { ok: true, principal: new Identity(identity.userId, sender, "web:bearer") };
+}
+
+export interface VoiceCredential {
+  token: string | null;
+  /** Anzeigename der Sprachsitzung. Reine Anzeige, nie eine Berechtigung. */
+  displayName?: string;
+  /** Das Postfach dieser Sprachsitzung. Vorgabe `voice` — eine Sitzung je Nutzer. */
+  replyTo?: string;
+}
+
+/**
+ * Sprache: ein Bearer-Token, mehr nicht — dasselbe Muster wie beim Web-Kanal.
+ *
+ * **Eine Prüfung genügt hier, anders als bei Telegram und Slack**, und der Unterschied ist kein
+ * Nachlassen: dort beweist das Geheimnis nur, dass die Zustellung *vom Anbieter* kommt, während
+ * jeder Fremde dem Bot schreiben kann — deshalb dort zusätzlich die Absenderliste. Hier gibt es
+ * keinen fremden Absender: die Gegenstelle ist der eigene Sprachprozess, und wer seinen Token
+ * hat, ist der Betreiber. Die Frage "wer spricht da eigentlich ins Mikrofon" beantwortet dieser
+ * Token allerdings **nicht** — sie ist offen und steht als solche in den Befunden zu S30.
+ */
+export function authenticateVoice(
+  identity: GatewayIdentity,
+  credential: VoiceCredential,
+): AuthResult {
+  if (identity.voiceToken.length === 0) {
+    return {
+      ok: false,
+      reason: "channel_not_configured",
+      message: "Der Sprach-Kanal ist ohne VOICE_BRIDGE_TOKEN nicht bedienbar.",
+    };
+  }
+  if (credential.token === null || credential.token.length === 0) {
+    return {
+      ok: false,
+      reason: "missing_credential",
+      message: "Es fehlt ein Bearer-Token im Authorization-Header.",
+    };
+  }
+  if (!secretEquals(credential.token, identity.voiceToken)) {
+    return { ok: false, reason: "bad_credential", message: "Der Bearer-Token stimmt nicht." };
+  }
+
+  const sender: Sender = {
+    channel: "voice",
+    channelUserId: identity.userId,
+    displayName: credential.displayName?.trim() || "Sprache",
+    replyTo: credential.replyTo?.trim() || "voice",
+  };
+  return { ok: true, principal: new Identity(identity.userId, sender, "voice:bearer") };
 }
 
 export interface TelegramCredential {
@@ -351,6 +409,7 @@ export function identityFromEnv(env: NodeJS.ProcessEnv = process.env): GatewayId
       .split(",")
       .map((entry) => entry.trim())
       .filter((entry) => entry.length > 0),
+    voiceToken: env.VOICE_BRIDGE_TOKEN?.trim() ?? "",
   };
 }
 
@@ -360,5 +419,6 @@ export function configuredChannels(identity: GatewayIdentity): ChannelId[] {
   if (identity.webToken.length > 0) found.push("web");
   if (identity.telegramUserIds.length > 0) found.push("telegram");
   if (identity.slackUserIds.length > 0) found.push("slack");
+  if (identity.voiceToken.length > 0) found.push("voice");
   return found.filter(isChannelId);
 }

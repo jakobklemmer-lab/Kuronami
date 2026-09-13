@@ -24,6 +24,7 @@ import { researchView } from "./views/research.js";
 import { systemView } from "./views/system.js";
 import { tradingView } from "./views/trading.js";
 import type { View, ViewContext } from "./views/types.js";
+import { createVoiceController } from "./voice/controller.js";
 
 /**
  * Die Wurzel der Oberfläche — die einzige Datei, die `document`/`window` direkt anfasst und
@@ -89,8 +90,34 @@ function main(): void {
     document.body.dataset.focus = on ? "off" : "on";
   }
 
+  /**
+   * Die Sprachschicht (S30/S31). Der Mic-Knopf öffnet ab hier eine echte Sitzung zum
+   * Pipecat-Prozess statt nur den Zustand umzuschalten; Adresse und Sitzungsgeheimnis kommen
+   * bei **jedem** Druck frisch aus den Einstellungen, damit eine Änderung dort sofort gilt.
+   *
+   * Läuft kein Sprachprozess, sagt der Knopf das genauso ehrlich wie die Karten es tun, wenn
+   * kein Gateway läuft — kein stiller Nichtstuer.
+   */
+  const voice = createVoiceController({
+    mic,
+    url: loadSettings().speech.endpoint ?? undefined,
+    token: () => loadSettings().speech.sessionToken,
+    notify: (message) => toast.show(message),
+    onTranscript: (text, final) => {
+      if (final && text.length > 0) toast.show(`Verstanden: „${text}"`);
+    },
+    onReply: (text) => toast.show(text),
+    onApproval: (approval) => {
+      const options = approval.options.map((option) => option.label).join(" / ");
+      toast.show(`Freigabe: ${approval.question} (${options})`);
+    },
+  });
+
   const sidebar = mountSidebar(sidebarEl, { navigate, toast });
-  mountMicButton(sidebar.micHost, mic, sidebarEl);
+  mountMicButton(sidebar.micHost, mic, {
+    stateTarget: sidebarEl,
+    onToggle: () => voice.toggle(),
+  });
   bus.onStatus((status, attempts) => sidebar.setConnectionStatus(status, attempts));
 
   document.addEventListener("keydown", (event) => {

@@ -297,7 +297,8 @@
     "id": "S30",
     "title": "Sprachschicht-Grundgerüst",
     "phase": 9,
-    "status": "queued",
+    "status": "done",
+    "note": "Pipecat 1.10.0 läuft als eigener Python-Prozess im Container (voice/), gestartet und gegen einen echten WebSocket-Client gefahren. Deepgram und ElevenLabs sind an genau einer Stelle angebunden (voice/pipeline/services.py) und stehen im gebauten Graphen — nachgewiesen in tests/test_app.py. Ein echter Anbieteraufruf steht aus: es gibt weder einen Deepgram- noch einen ElevenLabs-Schlüssel (offener Befund, siehe progress.md). Dazu: Kanal `voice` im Gateway samt eigenem Token, und der Mic-Knopf der Oberfläche hat seit hier ein Gegenstück.",
     "done_when": "Pipecat läuft, Deepgram und ElevenLabs angebunden",
     "depends_on": ["S29"]
   },
@@ -305,7 +306,8 @@
     "id": "S31",
     "title": "Barge-in und Backend-Brücke",
     "phase": 9,
-    "status": "queued",
+    "status": "done",
+    "note": "Unterbrechen gemessen: 5 von 5 gültigen Läufen, Median 139 ms, Maximum 177 ms vom ersten lauten Block bis zur Stille beim Hörer — eine End-zu-End-Zahl, die an keinem Anbieter hängt. Die Sprachschicht selbst braucht 1,1 ms Median (Budget 800 ms); die Denkzeit des Agenten ist ausgewiesen, aber ausdrücklich nicht Teil des Budgets (Begründung in voice/pipeline/latency.py). Was unbelegt bleibt, weil keine Anbieter-Schlüssel vorliegen: die Laufzeit von Deepgram und ElevenLabs.",
     "done_when": "Unterbrechen funktioniert, unter 800 ms End-zu-End",
     "depends_on": ["S30"]
   }

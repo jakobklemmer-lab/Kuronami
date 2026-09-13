@@ -193,14 +193,32 @@ function renderIntegrations(settings: KuronamiSettings): string {
   `;
 }
 
-function renderSpeech(): string {
+function renderSpeech(settings: KuronamiSettings): string {
+  const endpoint = settings.speech.endpoint ?? "";
+  const token = settings.speech.sessionToken ?? "";
   return `
     <section class="settings-section" aria-labelledby="section-speech-title">
       <h2 class="settings-section__title" id="section-speech-title">Sprache</h2>
-      ${disabledHint("Die Sprachschicht ist noch nicht gebaut (S30/S31 stehen in tasks.json als queued) — alle Felder hier sind vorbereitet, aber ohne Wirkung.")}
+      <div class="field">
+        <label class="field__label" for="setting-voice-endpoint">Sprachprozess</label>
+        <input class="field__control" id="setting-voice-endpoint" type="text" value="${endpoint}" placeholder="ws://localhost:8790" data-role="voice-endpoint" />
+        <p class="field__hint">Der Pipecat-Prozess aus <code>voice/</code> (S30). Leer = <code>ws://&lt;dieser Host&gt;:8790</code>.</p>
+      </div>
+      <div class="field">
+        <label class="field__label" for="setting-voice-token">Sitzungs-Token (VOICE_SESSION_TOKEN)</label>
+        <input class="field__control" id="setting-voice-token" type="password" autocomplete="off" value="${token}" placeholder="Token einfügen" data-role="voice-token" />
+        <p class="field__hint">Nicht derselbe wie der Verbindungs-Token unter System: der gehört dem Gateway, dieser dem Sprachprozess.</p>
+        <span class="field__status" data-role="voice-status"></span>
+      </div>
+      <div class="field field--row">
+        <label class="field__label" for="setting-barge-in">Barge-in (unterbrechen während der Wiedergabe)</label>
+        <input class="field__control" id="setting-barge-in" type="checkbox" checked disabled />
+        ${disabledHint("Seit S31 immer an: die Pipeline unterbricht, sobald das VAD den Nutzer hört. Ein Schalter dafür wäre eine Wahl, die es im Sprachprozess nicht gibt.")}
+      </div>
       <div class="field">
         <label class="field__label" for="setting-input-device">Eingabegerät</label>
         <select class="field__control" id="setting-input-device" disabled><option>Standardmikrofon</option></select>
+        ${disabledHint("Die Gerätewahl liegt beim Browser — Kuronami nimmt, was dort als Standard eingestellt ist.")}
       </div>
       <div class="field">
         <label class="field__label" for="setting-output-device">Ausgabegerät</label>
@@ -209,10 +227,7 @@ function renderSpeech(): string {
       <div class="field">
         <label class="field__label" for="setting-wake-word">Wake Word</label>
         <input class="field__control" id="setting-wake-word" type="text" value="Kuronami" disabled />
-      </div>
-      <div class="field field--row">
-        <label class="field__label" for="setting-barge-in">Barge-in (unterbrechen während der Wiedergabe)</label>
-        <input class="field__control" id="setting-barge-in" type="checkbox" disabled />
+        ${disabledHint("Kein Wake-Word gebaut: die Sitzung beginnt mit dem Mic-Knopf (oder Strg/Cmd+M), nicht mit einem Wort.")}
       </div>
     </section>
   `;
@@ -354,6 +369,36 @@ export const settingsView: View = {
           tokenStatus.textContent = "";
         }, 2000);
       }
+    });
+
+    // Sprachschicht (S30): Adresse und Sitzungsgeheimnis des Pipecat-Prozesses. Beide gelten
+    // beim nächsten Druck auf den Mic-Knopf — der Controller liest sie bei jedem Start neu,
+    // damit ein geänderter Wert nicht erst nach einem Neuladen greift.
+    const voiceStatus = container.querySelector<HTMLElement>('[data-role="voice-status"]');
+    function confirmSaved(): void {
+      if (!voiceStatus) return;
+      voiceStatus.textContent = "Gespeichert — gilt ab der nächsten Sprachsitzung.";
+      globalThis.setTimeout(() => {
+        voiceStatus.textContent = "";
+      }, 2500);
+    }
+
+    const endpointInput = container.querySelector<HTMLInputElement>('[data-role="voice-endpoint"]');
+    endpointInput?.addEventListener("change", () => {
+      const value = endpointInput.value.trim();
+      settingsBus.emit(
+        updateSettingsSection("speech", { endpoint: value.length > 0 ? value : null }),
+      );
+      confirmSaved();
+    });
+
+    const voiceTokenInput = container.querySelector<HTMLInputElement>('[data-role="voice-token"]');
+    voiceTokenInput?.addEventListener("change", () => {
+      const value = voiceTokenInput.value.trim();
+      settingsBus.emit(
+        updateSettingsSection("speech", { sessionToken: value.length > 0 ? value : null }),
+      );
+      confirmSaved();
     });
 
     for (const link of container.querySelectorAll<HTMLElement>(".settings-nav__link")) {

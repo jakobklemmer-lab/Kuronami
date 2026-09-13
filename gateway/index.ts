@@ -12,6 +12,7 @@ import { createSlackClient } from "./channels/slack/client.js";
 import { createTelegramChannel, startTelegramPolling } from "./channels/telegram/channel.js";
 import type { TelegramChannelDeps } from "./channels/telegram/channel.js";
 import { createTelegramClient } from "./channels/telegram/client.js";
+import { type VoiceChannel, createVoiceChannel } from "./channels/voice/channel.js";
 import { createWebChannel } from "./channels/web.js";
 import { createConversations } from "./conversation.js";
 import { type GatewayDeps, redeliverPending } from "./core.js";
@@ -133,8 +134,18 @@ async function main(): Promise<void> {
     channels.set("slack", createSlackChannel(slack));
   }
 
+  // Der Sprach-Kanal (S30). Er braucht keinen Client nach draußen — die Gegenstelle ruft **uns**
+  // an (`voice/pipeline/gateway.py`), und was hinausgeht, liegt solange im Postfach. Deshalb
+  // reicht hier der Token als Schalter; ein fehlender Sprachprozess ist kein Startfehler,
+  // sondern nur ein Postfach, das niemand leert.
+  let voice: VoiceChannel | undefined;
+  if (available.includes("voice")) {
+    voice = createVoiceChannel();
+    channels.set("voice", voice);
+  }
+
   const port = Number(process.env.GATEWAY_PORT ?? 8788);
-  const app = createServer({ gateway, identity, web, telegram, slack });
+  const app = createServer({ gateway, identity, web, telegram, slack, voice });
   const server: Server = app.listen(port, () => {
     console.log(`[gateway] http://localhost:${port} — Kanäle: ${[...channels.keys()].join(", ")}`);
   });
@@ -184,6 +195,11 @@ async function main(): Promise<void> {
   if (polling) console.log("Telegram: Long-Polling läuft.");
   else if (telegram) console.log("Telegram: Webhook-Betrieb (POST /channels/telegram/webhook).");
   if (slack) console.log("Slack: Events API (POST /channels/slack/events).");
+  if (voice) {
+    console.log(
+      "Sprache: POST /channels/voice/messages und /answers. Der Sprachprozess läuft eigenständig (voice/, Python).",
+    );
+  }
 
   let stopped = false;
   async function shutdown(reason: string): Promise<void> {

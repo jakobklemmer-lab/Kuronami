@@ -123,6 +123,54 @@ services:
     volumes:
       - ./artifacts:/app/artifacts
 
+  # Die Sprachschicht (S30/S31) — der einzige Python-Prozess des Systems. Abschnitt 4.1 nennt
+  # das eine **Prozessgrenze, keinen zweiten Stack**: er teilt keinen Code mit der Runtime und
+  # spricht mit ihr nur über den Sprach-Kanal des Gateways (POST /channels/voice/messages).
+  #
+  # Anders als `runtime`, `gateway` und `heartbeat` ist dieser Dienst **kein Platzhalter**: das
+  # Dockerfile existiert, das Image baut, und `docker compose run --rm voice-test` fährt seine
+  # Tests. Er läuft trotzdem nicht mit `docker compose up` los (Profil `voice`) — eine Sitzung
+  # beginnt, wenn jemand das Mikrofon drückt, nicht wenn ein Rechner hochfährt.
+  voice:
+    profiles: ["voice"]
+    build:
+      context: .
+      dockerfile: voice/Dockerfile
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      # Im Compose-Netz erreicht die Brücke das Gateway unter seinem Dienstnamen.
+      VOICE_GATEWAY_URL: "http://gateway:8788"
+      # Im Container muss der WebSocket-Rand auf allen Adressen lauschen, sonst erreicht ihn der
+      # veröffentlichte Port nicht. Die Grenze nach außen zieht `ports` unten, nicht `VOICE_HOST`.
+      VOICE_HOST: "0.0.0.0"
+    ports:
+      # Nur Loopback. Der Rand trägt das Sitzungsgeheimnis (VOICE_SESSION_TOKEN) und damit den
+      # Zugang zum Agenten — er gehört so wenig ins Netz wie der Gateway-Port.
+      - "127.0.0.1:8790:8790"
+    depends_on:
+      - gateway
+
+  # Der Testlauf der Sprachschicht. Eigener Dienst statt eines Handgriffs im Dockerfile, damit
+  # `docker compose run --rm voice-test` genügt und niemand die Aufrufzeile suchen muss.
+  voice-test:
+    profiles: ["voice"]
+    build:
+      context: .
+      dockerfile: voice/Dockerfile
+    working_dir: /app/voice
+    command: ["python", "-m", "pytest", "-q"]
+
+  # Der Messstand (S31): Latenz und Unterbrechen gegen eine echte Pipeline, ohne Anbieter und
+  # ohne Backend. Was er misst und was nicht, steht in voice/README.md.
+  voice-bench:
+    profiles: ["voice"]
+    build:
+      context: .
+      dockerfile: voice/Dockerfile
+    command: ["python", "-m", "voice.bench.measure", "--runs", "5", "--agent-delay", "1.5"]
+
 volumes:
   postgres-data:
   n8n-data:

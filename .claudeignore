@@ -21,6 +21,8 @@ venv/
 context/**/*.test.ts
 runtime/**/*.test.ts
 gateway/**/*.test.ts
+# Ausnahme (S30): der Sprach-Kanal ist neu und seine Tests laufen (siehe vitest.config.ts).
+!gateway/channels/voice/**/*.test.ts
 heartbeat/**/*.test.ts
 policy/**/*.test.ts
 tools/**/*.test.ts

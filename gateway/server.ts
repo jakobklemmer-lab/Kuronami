@@ -9,10 +9,12 @@ import type { SlackChannelDeps } from "./channels/slack/channel.js";
 import { isUrlVerification } from "./channels/slack/normalize.js";
 import { handleUpdate } from "./channels/telegram/channel.js";
 import type { TelegramChannelDeps } from "./channels/telegram/channel.js";
+import type { VoiceChannel } from "./channels/voice/channel.js";
 import type { WebChannel } from "./channels/web.js";
 import { type GatewayDeps, receiveDecision, receiveMessage } from "./core.js";
 import {
   type GatewayIdentity,
+  authenticateVoice,
   authenticateWeb,
   bearerToken,
   verifySlackSignature,
@@ -41,6 +43,8 @@ export interface ServerDeps {
   telegram?: TelegramChannelDeps;
   /** Fehlt sie, gibt es keine Slack-Route — der Kanal ist dann nicht konfiguriert. */
   slack?: SlackChannelDeps;
+  /** Fehlt sie, gibt es keine Sprach-Routen (S30). Der Python-Prozess läuft dann ins Leere. */
+  voice?: VoiceChannel;
 }
 
 /** `express.json({verify})` legt hier die rohen Bytes ab — die Slack-Signatur läuft über genau
@@ -128,6 +132,7 @@ export function createServer(deps: ServerDeps): express.Express {
         deps.web.id,
         ...(deps.telegram ? ["telegram"] : []),
         ...(deps.slack ? ["slack"] : []),
+        ...(deps.voice ? ["voice"] : []),
       ],
       user: deps.identity.userId,
     });
@@ -320,6 +325,106 @@ export function createServer(deps: ServerDeps): express.Express {
     } catch (error) {
       next(error);
     }
+  });
+
+  /**
+   * Der Sprach-Kanal (S30/S31). Drei Routen, dieselbe Form wie beim Web-Kanal: Nachrichten,
+   * Entscheidungen, Postfach.
+   *
+   * **Bewusst neben den Web-Routen und nicht mit ihnen verschmolzen.** Die Versuchung ist da —
+   * die Rümpfe gleichen sich bis auf den Kanalnamen. Dagegen steht, dass die Tests der
+   * Web-Routen seit S21 nicht mehr automatisch laufen (`vitest.config.ts`): eine Änderung dort
+   * wäre eine Änderung am Herzstück der Außengrenze ohne laufendes Netz darunter. Sechzig
+   * Zeilen Wiederholung sind der billigere Preis. Wenn die alten Tests wieder laufen, gehört
+   * das hier zusammengelegt — bis dahin steht der Grund in dieser Zeile.
+   */
+  function voicePrincipal(req: express.Request, res: express.Response) {
+    if (!deps.voice) {
+      res.status(404).json({ error: "Der Sprach-Kanal ist in diesem Gateway nicht aktiv." });
+      return null;
+    }
+    const auth = authenticateVoice(deps.identity, {
+      token: bearerToken(req.header("authorization")),
+      displayName: typeof req.body?.displayName === "string" ? req.body.displayName : undefined,
+      replyTo:
+        typeof req.body?.replyTo === "string"
+          ? req.body.replyTo
+          : (req.query.replyTo as string | undefined),
+    });
+    if (!auth.ok) {
+      const status = auth.reason === "channel_not_configured" ? 403 : 401;
+      res.status(status).json({ error: auth.message, reason: auth.reason });
+      return null;
+    }
+    return auth.principal;
+  }
+
+  app.post("/channels/voice/messages", async (req, res, next) => {
+    try {
+      const principal = voicePrincipal(req, res);
+      if (!principal || !deps.voice) return;
+
+      const content = req.body?.content;
+      if (typeof content !== "string") {
+        res.status(400).json({ error: "content (string) ist erforderlich." });
+        return;
+      }
+
+      const outcome = await receiveMessage(deps.gateway, principal, {
+        channel: "voice",
+        sender: principal.sender,
+        content,
+        // Anhänge gibt es hier nicht: ein Mikrofon liefert Ton, und der Ton ist beim Eintreffen
+        // schon zu Text geworden (S30). Eine Aufnahme mitzuliefern wäre eine eigene Entscheidung
+        // über Aufbewahrung und Datenschutz und gehört nicht nebenbei in diese Zeile.
+        attachments: [],
+        receivedAt: new Date(),
+        externalId:
+          typeof req.body?.externalId === "string" && req.body.externalId.length > 0
+            ? `voice:${req.body.externalId}`
+            : `voice:${randomUUID()}`,
+      });
+
+      res.status(200).json({ ...outcome, deliveries: deps.voice.drain(principal.sender.replyTo) });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.post("/channels/voice/answers", async (req, res, next) => {
+    try {
+      const principal = voicePrincipal(req, res);
+      if (!principal || !deps.voice) return;
+
+      const { askId, choiceId } = req.body ?? {};
+      if (typeof askId !== "string" || typeof choiceId !== "string") {
+        res.status(400).json({ error: "askId und choiceId (beide string) sind erforderlich." });
+        return;
+      }
+
+      const outcome = await receiveDecision(deps.gateway, principal, {
+        channel: "voice",
+        sender: principal.sender,
+        askId,
+        choiceId,
+        receivedAt: new Date(),
+        externalId:
+          typeof req.body?.externalId === "string" && req.body.externalId.length > 0
+            ? `voice:${req.body.externalId}`
+            : `voice:${randomUUID()}`,
+      });
+
+      res.status(200).json({ ...outcome, deliveries: deps.voice.drain(principal.sender.replyTo) });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  /** Holt ab, was außerhalb eines Sprachzugs zugestellt wurde (der Heartbeat etwa). */
+  app.get("/channels/voice/outbox", (req, res) => {
+    const principal = voicePrincipal(req, res);
+    if (!principal || !deps.voice) return;
+    res.json({ deliveries: deps.voice.drain(principal.sender.replyTo) });
   });
 
   app.post("/channels/telegram/webhook", async (req, res, next) => {

@@ -18,10 +18,15 @@ Bildvorlage (beide unten) sind **S28** (Kosten-Tracking) und **S29** (Tauri-Desk
 `done`. S28 ist gegen die echte Datenbank nachgewiesen, S29 als gebaute und gestartete
 Desktop-App (MSI + NSIS). **S25 ist auf Nutzeranweisung vom 2026-09-13 stillgelegt** — "S25 wird
 komplett ignoriert, eventuell nochmal am Schluss des Projekts diskutabel, aber nicht jetzt";
-die S25-Abhängigkeit von S28 wurde deshalb entfernt. Nächste offene Aufgaben: **S30**
-(Sprachschicht-Grundgerüst) und danach S31. Offen geblieben ist der zweite Titelteil von S28,
-das **Modell-Routing**: `runtime/model/router.ts` ist weiterhin an keinen produktiven Aufrufer
-verdrahtet (Befund seit S18e).
+die S25-Abhängigkeit von S28 wurde deshalb entfernt. Offen geblieben ist der zweite Titelteil von
+S28, das **Modell-Routing**: `runtime/model/router.ts` ist weiterhin an keinen produktiven
+Aufrufer verdrahtet (Befund seit S18e).
+
+**Phase 9 abgeschlossen, 2026-09-13.** **S30** (Sprachschicht-Grundgerüst) und **S31** (Barge-in
+und Backend-Brücke) sind `done` — siehe den Abschnitt "S30/S31" am Ende dieser Datei. Damit ist
+der Sessionplan aus `tasks.json` **abgearbeitet**: alle S01–S31 sind `done`, außer S25
+(stillgelegt auf Nutzeranweisung). Die nächste Sitzung hat keine vorgegebene Aufgabe mehr; was
+offen ist, steht unter "Offene Befunde".
 
 **UI-Zwischenschub, 2026-09-13 (eigene Sitzung, nach S25–S27).** Reine Oberflächen-Überarbeitung
 auf ausdrücklichen Nutzerauftrag, ausdrücklich **kein** Sprint der S-Reihe — siehe den Abschnitt
@@ -84,8 +89,8 @@ seither die einzige durchgehende Prüfung über die alten Schichten.
 | S27 | MCP absichern | done |
 | S28 | Kosten-Tracking und Modell-Routing | done (Routing-Teil offen) |
 | S29 | Tauri-Desktop-Wrapper | done |
-| S30 | Sprachschicht-Grundgerüst | queued |
-| S31 | Barge-in und Backend-Brücke | queued |
+| S30 | Sprachschicht-Grundgerüst | done (Anbieter verdrahtet, nie gerufen — kein Schlüssel) |
+| S31 | Barge-in und Backend-Brücke | done |
 
 Details siehe progress-archiv.md. S21–S24 vor der Umnummerierung: dort steht das alte
 Kosten-Tracking/Tauri/Sprachschicht/Barge-in unter den alten Nummern — die Session-**Inhalte**
@@ -326,6 +331,39 @@ Notion-Roadmap.
   Frage aus Abschnitt 17. Nur `tools/list`/`tools/call` sind gebaut, keine MCP-Ressourcen oder
   -Prompts, und jeder Server bekommt genau eine Risikostufe für alle seine Tools, keine
   feinere Abstufung je Fernwerkzeug.
+- **Deepgram und ElevenLabs sind verdrahtet, aber nie gerufen worden** (S30) — dieselbe Lage wie
+  bei `ANTHROPIC_API_KEY` seit S16: es gibt keine Schlüssel. Nachgewiesen ist, dass beide Dienste
+  im gebauten Graphen stehen und die Pipeline mit ihnen hochkommt; **nicht** nachgewiesen ist,
+  wie schnell oder wie gut sie antworten. Damit bleibt auch die eine Hälfte des 800-ms-Budgets
+  unbelegt: die Strecken `erkennung` und `stimme` sind im Messstand die Stand-ins. Mit Schlüsseln
+  ist die echte Messung eine Umgebungsvariable entfernt (`VOICE_MODE=live`, derselbe Messstand).
+- **Der WebSocket-Rand der Sprachschicht prüft erst in der Brücke** (S30). Pipecats Transporte
+  nehmen eine Verbindung an, bevor ein Frame entsteht; das Sitzungsgeheimnis wird deshalb als
+  erste Nachricht geprüft (`voice.hello`), und bis dahin geht kein Transkript ins Backend.
+  Audio **fließt** aber schon vorher in die Erkennung — im Live-Betrieb hieße das: ein fremder
+  Prozess auf demselben Rechner könnte Deepgram-Kosten verursachen, ohne je etwas auszulösen.
+  Der saubere Ort wäre ein `process_request`-Haken am Server, den der Transport heute nicht
+  durchreicht.
+- **Die Sprachschicht weiß nicht, wer spricht** (S30). Der Token sagt "dieser Prozess darf", nicht
+  "dieser Mensch ist es". Für ein Ein-Personen-System auf Loopback ist das die richtige Körnung;
+  eine Sprecherverifikation wäre eine eigene Entscheidung, keine vergessene Zeile.
+- **Kein Wake-Word** (S30/S31): eine Sitzung beginnt mit dem Mic-Knopf oder Strg/Cmd+M. Das Feld
+  in den Einstellungen steht sichtbar und deaktiviert da, mit genau diesem Hinweis.
+- **Zwei der sechs Mic-Zustände kommen weiterhin nicht aus der Sprachschicht** (S31): `executing`
+  und `complete`. Hinter einem einzelnen HTTP-Aufruf ans Gateway lässt sich "denkt nach" nicht von
+  "ruft gerade ein Werkzeug auf" unterscheiden; wer das sehen will, sieht es am Ereignisstrom
+  (S21), wo jeder Werkzeugaufruf einzeln steht. Einen Zustand zu senden, den diese Schicht nicht
+  kennt, wäre eine Anzeige, die rät.
+- **Der Messstand misst mit dem Energie-Detektor, nicht mit Silero** (S31). Grund: Silero hält
+  synthetischen Ton zu Recht für keine Stimme — nachgeprüft mit Sinus, Rauschen und einem
+  Formantengemisch, alle drei `QUIET`. Blockgröße und Zeitzählung sind identisch, die Frage "ist
+  das eine Stimme" ist es nicht. Sileros eigene Rechenzeit je Block steckt damit nicht in den
+  gemessenen Zahlen.
+- **Die Sprach-Routen im Gateway wiederholen die Web-Routen** (S30), rund sechzig Zeilen. Bewusst
+  nicht zusammengelegt: die Tests der Web-Routen laufen seit S21 nicht mehr automatisch, und eine
+  Änderung am Herzstück der Außengrenze ohne laufendes Netz darunter wäre der schlechtere Handel.
+  Gehört zusammengelegt, sobald die alten Tests wieder laufen; der Grund steht als Kommentar an
+  der Stelle.
 
 ## Ideen für später (vom Nutzer, zurückgestellt bis der Kern steht)
 
@@ -2349,3 +2387,193 @@ Fehlschlag — abgedockt ist abgedockt). `pnpm typecheck` und `pnpm lint` grün.
   neu installieren.
 
 Status: abgeschlossen.
+
+## S30 und S31 · Sprachschicht, Barge-in und Backend-Brücke · 2026-09-13
+
+Zwei Sessions in einer Sitzung, weil sie ein Ding sind: S30 baut die Pipeline, S31 macht sie
+unterbrechbar und misst sie. Beide Fertig-Kriterien sind erfüllt — mit einer Einschränkung, die
+weiter unten wörtlich steht und nicht kleingeredet wird.
+
+**Auftrag S30:** "Pipecat läuft, Deepgram und ElevenLabs angebunden."
+**Auftrag S31:** "Unterbrechen funktioniert, unter 800 ms End-zu-End."
+
+### Was gebaut wurde
+
+Ein eigener Prozess unter `voice/`, Python, Pipecat 1.10.0, im Container. Abschnitt 4.1 hatte das
+seit Phase 0 vorgesehen ("die Sprachschicht in Phase 9 nutzt Pipecat und damit Python … eine
+Prozessgrenze, kein zweiter Stack"), und genau so ist er gebaut: kein Import aus `runtime/`,
+`tools/`, `policy/` oder `gateway/`, und kein TypeScript-Modul kennt einen Pfad unter `voice/`.
+
+```
+transport.input() → VADProcessor(Silero) → STT(Deepgram) → KuronamiBridge
+                  → TTS(ElevenLabs) → LatencyProbe → transport.output()
+```
+
+Die Reihenfolge ist kein Geschmack: das VAD muss vor die Erkennung (sonst gibt es keinen Zeitpunkt
+"Nutzer hat aufgehört"), die Brücke zwischen Erkennung und Stimme, die Messsonde **hinter** die
+Stimme — davor gäbe es kein Audio zu messen.
+
+**Python läuft nicht auf diesem Rechner.** Es ist keines installiert (`python --version` verweist
+auf den Store-Platzhalter). Das ist kein Hindernis, sondern passt zur Prozessgrenze: Image bauen,
+`docker compose run --rm voice-test`, fertig. Node bleibt Node.
+
+### Der Agent steht, wo sonst das Modell steht
+
+In einer üblichen Pipecat-Pipeline sitzt an der Stelle von `KuronamiBridge` ein LLM-Dienst. Hier
+sitzt das **Gateway**: die Antwort dieses Systems ist kein Modellausgang, sondern ein Lauf mit
+Werkzeugen, Freigaben und Gedächtnis. Daraus folgt der Kanal `voice` in `ChannelId` — und damit,
+dass eine Freigabeanfrage aus einem Sprachzug über `deriveAskRoutes` (S16) von selbst wieder in
+der Sprachsitzung landet statt in einem Browserfenster, das vielleicht gar nicht offen ist.
+
+Neu im Gateway: `gateway/channels/voice/channel.ts` (Postfach wie beim Web-Kanal),
+`authenticateVoice` in `identity.ts`, und drei Routen (`/channels/voice/messages`, `/answers`,
+`/outbox`). **Zwei Ausweise, nicht einer:** `VOICE_SESSION_TOKEN` schützt den WebSocket-Rand der
+Sprachschicht, `VOICE_BRIDGE_TOKEN` den Kanal im Gateway. Zwei Prozesse mit zwei Lebensläufen; ein
+abhandengekommener Token soll eine Tür öffnen, nicht zwei.
+
+### Das Draht-Protokoll: rohes PCM und JSON, kein Protobuf
+
+Pipecat bringt einen Protobuf-Serialisierer mit, und er scheidet hier aus einem harten Grund aus:
+`ui/` wird seit Phase 6 **ohne Bundler** ausgeliefert (S29), also ohne npm-Import und damit ohne
+Protobuf-Bibliothek. Ein Protokoll, das der eigene Client nicht sprechen kann, ist keines.
+
+Also `KuronamiVoiceSerializer`: Binärrahmen sind rohes PCM (16 Bit, little endian, mono),
+Textrahmen sind eine JSON-Zeile mit `type`. Die Abtastraten stehen **nicht** im Protokoll fest,
+sondern in der ersten Servernachricht (`ready`) — ein Client, der sie rät, spielt irgendwann Audio
+in der falschen Geschwindigkeit ab, und das fällt erst im Betrieb auf.
+
+### Unterbrechen heißt nicht abbrechen
+
+Ohne LLM-Dienst gibt es auch keinen LLM-Aggregator, und der wäre in einer Standard-Pipeline die
+Stelle, die bei einsetzender Nutzerstimme `broadcast_interruption()` auslöst. Also tut es die
+Brücke: sagt das VAD "der Nutzer redet", während die Stimme läuft **oder** ein Zug in der Luft ist,
+fällt die Ausgabe des Transports sofort weg und die unterwegs befindliche Antwort wird verworfen.
+
+`runner.cancel()` wird dabei ausdrücklich **nicht** gerufen. Es schriebe `session.canceled` (S05),
+und die Session der Sprachschicht ist dieselbe durchgehende Unterhaltung wie im Web und auf
+Telegram (`gateway/conversation.ts`). Dazwischenreden würde damit das Gespräch beenden statt es zu
+lenken. Der angestoßene Zug läuft im Gateway zu Ende und steht dort im Protokoll — er wird nur
+nicht mehr vorgelesen.
+
+Beim Bauen aufgefallen und korrigiert: `broadcast_interruption()` erreicht die **anderen**
+Prozessoren, nicht den Absender. Die Brücke muss ihren eigenen Zug deshalb selbst fallenlassen,
+sonst spräche die schon unterwegs befindliche Antwort gleich über den Nutzer hinweg. Der Test
+dafür (`test_barge_in_verwirft_die_antwort_die_noch_unterwegs_war`) war zuerst rot.
+
+### Freigaben per Stimme
+
+Per Telegram gibt es Knöpfe, per Slack eine Reaktion — per Stimme gibt es nur Text. Ohne eine
+Zuordnung liefe ein Sprachgespräch auf den ersten Freigabepunkt zu und bliebe dort stehen. Also
+`choices.py`: die Frage wird mit ihren Optionen vorgelesen, die nächste Äußerung dagegen
+abgeglichen, **ohne Modell und ohne Raten**. Kein Treffer heißt Nachfragen.
+
+Die Reihenfolge der fünf Wege ist das Ergebnis eines roten Tests: **die Verneinung steht ganz
+vorn**. "Nein, nicht genehmigen" stolperte sonst über die Beschriftung "Genehmigen" und wurde als
+Zustimmung gelesen — das ist kein Randfall, sondern die naheliegendste Art, eine Freigabe
+abzulehnen, und der teuerste denkbare Fehlgriff.
+
+### Was die 800 ms bedeuten — und was gemessen wurde
+
+Ein Sprachzug besteht aus fünf Strecken, und nur vier gehören dieser Schicht:
+
+| Strecke | von → bis | gehört zu |
+|---|---|---|
+| `erkennung` | Ende des Sprechens → endgültiges Transkript | Deepgram |
+| `bruecke` | Transkript → Anfrage am Gateway | der Sprachschicht |
+| `agent` | Anfrage → Antwort | dem Modell und seinen Werkzeugen |
+| `uebergabe` | Antwort → Sprechauftrag | der Sprachschicht |
+| `stimme` | Sprechauftrag → erstes Audio-Byte | ElevenLabs |
+
+**Das Budget gilt für alles außer `agent`.** Die Denkzeit des Modells mit hineinzurechnen hieße,
+eine Eigenschaft des Modells als Eigenschaft dieser Schicht auszugeben — sie ließe sich durch keine
+Verbesserung hier drücken. Ausgewiesen wird sie trotzdem: vier Sekunden Antwortzeit sind für ein
+Gespräch eine schlechte Nachricht, auch wenn sie nicht hierher gehören. Die Definition steht in
+`voice/pipeline/latency.py`, bevor gemessen wird, nicht danach.
+
+Gemessen mit `voice/bench/measure.py` — echte Pipeline, echter WebSocket, echte HTTP-Fahrt zum
+Backend; ersetzt sind nur die beiden Anbieter, das Backend (ein Doppel mit einstellbarer Denkzeit)
+und der Sprachdetektor. Fünf Läufe je Szenario, Backend-Denkzeit 1,5 s:
+
+| | min | median | max |
+|---|---|---|---|
+| Sprachschicht (Budget 800 ms) | 1,08 ms | 1,22 ms | 1,86 ms |
+| Gesamt inkl. Agent | 1502,7 ms | 1503,1 ms | 1505,6 ms |
+| **Barge-in (Reden bis Stille, beim Hörer)** | **137,8 ms** | **140,3 ms** | **175,7 ms** |
+
+Die Barge-in-Zahl ist die belastbarste der drei: gemessen vom ersten lauten Block, den der Client
+schickt, bis zum letzten Audio-Block, der bei ihm ankommt — **eine echte End-zu-End-Zahl, die an
+keinem Anbieter hängt.** VAD-Anlaufzeit, Unterbrechung, geleerter Puffer und Draht sind dieselben
+wie im Betrieb. Fünf von fünf Läufen galten (ein Lauf zählt nur, wenn beim Hineinreden tatsächlich
+eine Stimme lief; das prüft der Messstand selbst und verwirft sonst).
+
+**Was die 1,1 ms nicht sagen.** Sie messen die Eigenzeit der Pipeline, nicht die Anbieter. Der
+ehrliche Satz dazu: das Budget von 800 ms steht der Erkennung und der Stimme **vollständig** zur
+Verfügung, weil die Schicht dazwischen praktisch nichts kostet — ob es am Ende reicht, entscheiden
+Deepgram und ElevenLabs, und das ist ungemessen.
+
+### Der zweite Sprachdetektor, und warum er nötig war
+
+Silero sagt zu synthetischem Ton "keine Stimme". Nachgeprüft, nicht vermutet: ein 220-Hz-Sinus,
+weißes Rauschen und ein gebasteltes Formantengemisch werden alle drei durchgehend als `QUIET`
+eingestuft. Im Betrieb ist das genau richtig — ein Lüfter oder ein Türschlag darf den Agenten nicht
+unterbrechen. Für eine **wiederholbare Messung** ist dieselbe Stärke ein Hindernis: sie braucht
+einen Reiz, den der Messende selbst erzeugt und exakt platziert.
+
+Also `VOICE_VAD=energy` (`voice/pipeline/vad.py`), mit derselben Blockgröße (512 Abtastwerte bei
+16 kHz, exakt Sileros) und damit derselben Zeitzählung in der Basisklasse. Was sich unterscheidet,
+ist allein die Antwort auf "ist das eine Stimme", nicht "wann fing sie an". `silero` bleibt die
+Vorgabe.
+
+### Die Oberfläche hat jetzt ein Gegenstück zum Mic-Knopf
+
+`ui/mic/state.ts` sagte seit dem UI-Zwischenschub selbst, die sechs Zustände seien "vorerst gegen
+Mock schaltbar, bis eine echte Spracherkennung (S30/S31) dahintersteht". Sie steht jetzt:
+`ui/voice/session.ts` (Protokoll, ohne Browser prüfbar), `ui/voice/audio.ts` (Mikrofon per
+AudioWorklet, Wiedergabe mit Schlange und `flush` — die Hörerseite des Barge-in),
+`ui/voice/controller.ts` (Verbindung, Mikrofon und Lautsprecher gehören immer zusammen).
+
+Der Mic-Knopf bekam dafür einen optionalen `onToggle`; ohne ihn verhält er sich wie bisher. Vier
+der sechs Zustände kommen jetzt aus der Pipeline (`idle`, `listening`, `thinking`, `speaking`);
+`executing` und `complete` bleiben bewusst aus, siehe offene Befunde.
+
+In den Einstellungen (Abschnitt Sprache) sind zwei Felder **echt** geworden — Adresse des
+Sprachprozesses und Sitzungs-Token; die übrigen bleiben sichtbar und deaktiviert, jeweils mit dem
+Grund. Der Barge-in-Schalter ist angehakt und deaktiviert: die Pipeline unterbricht immer, und ein
+Schalter dafür wäre eine Wahl, die es im Sprachprozess nicht gibt.
+
+### Tests
+
+* **65 Python-Tests** (`docker compose run --rm voice-test`), alle grün. Die Brücken-Tests laufen
+  mit Pipecats eigenem `run_test`, also in einer **echten** Pipeline mit StartFrame, Task-Manager
+  und beiden Frame-Richtungen — ersetzt ist nur das Backend.
+* **183 TypeScript-Tests** (`pnpm test`), alle grün; neu sind 19 für den Sprach-Kanal am Gateway
+  und 22 für den Sprach-Client der Oberfläche.
+* `vitest.config.ts` nimmt dafür **genau einen** Ordner zusätzlich auf
+  (`gateway/channels/voice/**`). Die 679 alten Tests der Phasen 1–5 bleiben aus dem Lauf, wie in
+  S21 angeordnet; die Ausnahme steht als Kommentar über der Zeile.
+* **Gegenprobe für die angefassten alten Pfade:** `identity.ts`, `types.ts`, `server.ts` und
+  `index.ts` des Gateways sind geändert worden, und ihre Tests laufen normalerweise nicht mehr
+  mit. Sie wurden deshalb einmal von Hand mit angepasster `include` gefahren: **124 Tests in 11
+  Dateien grün**, darunter `gateway.test.ts` mit 23 Tests gegen die echte Datenbank.
+* `pnpm typecheck` und `pnpm lint` grün, `pnpm build:ui` baut (36 Module).
+
+### Bewusst nicht gebaut
+
+* **Kein Wake-Word.** Eine Sitzung beginnt mit dem Knopf.
+* **Keine Aufnahme als Anhang.** `InboundMessage.attachments` ist für `voice` immer leer — eine
+  Tonaufnahme aufzubewahren wäre eine eigene Entscheidung über Aufbewahrung und Datenschutz und
+  gehört nicht nebenbei in eine Zeile am HTTP-Rand.
+* **Keine Wiederverbindung im Sprach-Client**, anders als beim Ereignisstrom. Der Strom ist eine
+  Anzeige, die von selbst zurückkommen soll; eine Sprachsitzung ist eine Handlung des Nutzers —
+  sie ungefragt neu aufzumachen hieße, das Mikrofon ohne Auftrag wieder einzuschalten.
+* **Kein Zusammenlegen der Sprach- und Web-Routen im Gateway.** Grund und Bedingung stehen als
+  Kommentar an der Stelle und in den offenen Befunden.
+
+### Offene Befunde (S30/S31)
+
+Stehen vollständig oben unter "Offene Befunde (gesamte Historie)". Der wichtigste in einem Satz:
+**Deepgram und ElevenLabs sind verdrahtet und im gebauten Graphen nachgewiesen, aber nie gerufen
+worden — es gibt keine Schlüssel**, dieselbe Lage wie bei `ANTHROPIC_API_KEY` seit S16.
+
+Status: abgeschlossen. Damit ist der Sessionplan aus `tasks.json` abgearbeitet — S01 bis S31 sind
+`done`, außer S25 (stillgelegt auf Nutzeranweisung vom 2026-09-13).

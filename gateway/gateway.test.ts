@@ -342,6 +342,7 @@ async function makeRig(
     telegramUserIds: [TELEGRAM_USER],
     slackSigningSecret: "slack-geheim",
     slackUserIds: [SLACK_USER],
+    voiceToken: "voice-geheim",
   };
 
   const conversations = createConversations({

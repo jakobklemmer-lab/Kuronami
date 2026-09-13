@@ -55,6 +55,19 @@ export interface SpeechSettings {
   outputDevice: string | null;
   wakeWord: string;
   bargeIn: boolean;
+  /**
+   * Adresse des Sprachprozesses (S30), z. B. `ws://localhost:8790`. Leer = die Vorgabe aus
+   * `ui/voice/session.ts`.
+   */
+  endpoint: string | null;
+  /**
+   * `VOICE_SESSION_TOKEN` — das gemeinsame Geheimnis des WebSocket-Randes der Sprachschicht.
+   *
+   * Ein **anderer** Wert als der Verbindungs-Token unter System: der gehört dem Gateway
+   * (`GATEWAY_WEB_TOKEN`), dieser dem Sprachprozess. Zwei Prozesse, zwei Ausweise — derselbe
+   * Grund wie in `gateway/identity.ts`.
+   */
+  sessionToken: string | null;
 }
 
 export interface KuronamiSettings {
@@ -90,7 +103,12 @@ export const DEFAULT_SETTINGS: KuronamiSettings = {
     inputDevice: null,
     outputDevice: null,
     wakeWord: "Kuronami",
-    bargeIn: false,
+    // Seit S31 ist Barge-in gebaut und in der Pipeline **immer** an: sie unterbricht, sobald
+    // das VAD den Nutzer hört. Dieses Feld bleibt trotzdem stehen — es beschreibt, was die
+    // Oberfläche anzeigt, und hat heute keinen Schalter im Sprachprozess dahinter.
+    bargeIn: true,
+    endpoint: null,
+    sessionToken: null,
   },
 };
 

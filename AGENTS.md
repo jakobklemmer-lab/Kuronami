@@ -168,11 +168,30 @@ Historie. Kein Zwischenzustand bleibt uncommittet liegen, auch nicht "bis zur n�
 Freigabe". Das Fertig-Kriterium einer Session ist erst erfüllt, wenn Tests grün UND der
 Commit geschrieben ist.
 
+## Die Sprachschicht ist Python und bleibt hinter ihrer Prozessgrenze
+
+`voice/` (seit S30) ist der einzige Python-Teil des Systems. Er importiert **nichts** aus
+`runtime/`, `tools/`, `policy/` oder `gateway/` und spricht mit der Runtime ausschließlich über
+den Sprach-Kanal des Gateways (`POST /channels/voice/messages`). Umgekehrt kennt kein
+TypeScript-Modul einen Pfad unter `voice/`. Das ist keine Stilfrage: es ist der Grund, warum
+Abschnitt 4.1 Pipecat überhaupt zulässt — eine Prozessgrenze, kein zweiter Stack im Kern.
+
+Python läuft nicht auf dem Entwicklungsrechner, sondern im Container. Auch die Tests:
+
+```
+docker compose run --rm voice-test
+```
+
 ## Testbefehl
 
 ```
 pnpm install && pnpm typecheck && pnpm lint && pnpm test
 ```
+
+`pnpm test` deckt seit S21 nur `ui/**`, `phase-6/**` und (seit S30) `gateway/channels/voice/**`
+ab. Wer `runtime/`, `tools/`, `policy/`, `gateway/` außerhalb des Sprach-Kanals, `heartbeat/`,
+`context/`, `skills/` oder `evals/` ändert, braucht dafür einen Lauf mit angepasstem `include` —
+`pnpm typecheck` bleibt die einzige durchgehende Prüfung über alle Schichten.
 
 ## Codestil
 
