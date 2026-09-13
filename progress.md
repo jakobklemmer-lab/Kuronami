@@ -5,8 +5,9 @@ progress-archiv.md nachschlagen (z. B. mit grep nach der Session-ID).
 
 ## Aktueller Stand
 
-**Phase 6 hat begonnen.** Zuletzt fertig: **S21** (Ereignisbus und UI-Grundgerüst), 2026-09-12.
-Nächste Session: **S22** Runs- und Detail-Ansicht, Status `ready`.
+**Phase 6 läuft.** Zuletzt fertig: **S24** (Kennzahlen-Panels), 2026-09-13, zusammen mit einem
+Nachtrag zu S21 (Ereignisbus über `pg_notify` statt Ansage vor dem COMMIT — siehe unten).
+Nächste Session: **S25** Centerpiece und 3D-Welt, Status `ready`.
 
 **Der Plan wurde am 2026-09-12 umnummeriert** (S21 an aufwärts) — siehe den Abschnitt
 "Planänderung · 2026-09-12" gleich unten, bevor irgendwo mit einer alten S21–S24-Zählung
@@ -51,11 +52,11 @@ seither die einzige durchgehende Prüfung über die alten Schichten.
 | S18f | Eval-Suite fuer lange Laeufe | done |
 | S19 | Agenten-Registry und agent.create | done |
 | S20 | Erste Subagent-Besetzung | done |
-| S21 | Ereignisbus und UI-Grundgerüst | done |
-| S22 | Runs- und Detail-Ansicht | ready |
-| S23 | Freigabe- und Fehler-Ansicht | queued |
-| S24 | Kennzahlen-Panels | queued |
-| S25 | Centerpiece und 3D-Welt | queued |
+| S21 | Ereignisbus und UI-Grundgerüst (+ Nachtrag: `pg_notify`) | done |
+| S22 | Runs- und Detail-Ansicht | done |
+| S23 | Freigabe- und Fehler-Ansicht | done |
+| S24 | Kennzahlen-Panels | done |
+| S25 | Centerpiece und 3D-Welt | ready |
 | S26 | Slack-Anbindung | queued (unabhängig von S21–S25) |
 | S27 | MCP absichern | queued |
 | S28 | Kosten-Tracking und Modell-Routing | queued |
@@ -188,14 +189,17 @@ Notion-Roadmap.
 - **Die Besetzung nennt keine `notes.*`** (S20), weil ein Profil mit einem Werkzeug, das nur in
   manchen Prozessen existiert, in allen anderen gar nicht läuft (fail closed, S19). Sobald der
   Obsidian-Vault Teil jeder Verdrahtung ist, gehört er in das Profil des Lore-Writers.
-- **Der Ereignisbus sagt vor dem COMMIT an** (S21). `appendEventInTx` läuft in einer fremden
-  Transaktion (der Aufrufer verantwortet COMMIT/ROLLBACK), und `pg` kennt keinen Haken auf deren
-  Ende — eine zurückgerollte Transaktion sagt also ein Ereignis an, das nie dauerhaft wurde.
-  Vertretbar, weil der Bus ausdrücklich eine Ansage ist und nicht das Protokoll (die Oberfläche
-  liest jeden verbindlichen Stand aus `kuronami.events` zurück), aber eine bewusste Grenze: wer
-  je eine Zahl aus dem Strom aufsummiert statt sie aus der Datenbank zu falten, zählt womöglich
-  eine Einfügung mit, die es nicht gibt. Der saubere Weg wäre `pg_notify` (transaktional, wird
-  erst beim COMMIT zugestellt) mit einer eigenen lauschenden Verbindung.
+- ~~Der Ereignisbus sagt vor dem COMMIT an~~ (S21) — **erledigt im Nachtrag zu S21**:
+  `appendEventInTx` sagt seither per `SELECT pg_notify(...)` an (in derselben Transaktion wie
+  die Einfügung), und `runtime/events/notify.ts` hält eine eigene, dauerhaft lauschende
+  Verbindung, die den vollen Datensatz über `readEventById` zurückliest, sobald die
+  Benachrichtigung ankommt. Ein ROLLBACK sagt jetzt nachweislich nichts mehr an
+  (`notify.test.ts`, echte Datenbank). Nebeneffekt, bewusst in Kauf genommen und dokumentiert
+  in `runtime/events/bus.ts`: der NOTIFY-Kanal ist global, nicht je Prozess — jeder Prozess mit
+  einem eigenen Bus sieht seither **jedes** committete Ereignis im System, nicht mehr nur, was
+  er selbst geschrieben hat. Für S22 (Runs über alle Kanäle, auch Hintergrundläufe) ist das die
+  richtige Reichweite; sicher bleibt es, weil die Redaction an der Zeile hängt, nicht am
+  Absender.
 - **Die Tests der Phasen 1–5 laufen nicht mehr automatisch** (S21, auf Anordnung des Nutzers).
   `vitest.config.ts` deckt seither nur `ui/**` und `phase-6/**`; die 679 Tests stehen weiter im
   Repo, aber eine Änderung an `runtime/`, `tools/`, `policy/`, `gateway/`, `heartbeat/`,
@@ -215,6 +219,68 @@ Notion-Roadmap.
   woertlich verlangt ("grob klassifiziert"). Die mittlere Klasse ("Zusammenfassen, einfache
   Tool-Auswahl") bleibt vorerst unbenannt; `compactionModel` (S18a) faellt weiterhin auf das
   Orchestrator-Modell zurueck, wenn niemand explizit ein zweites uebergibt.
+- **"Run" heißt Session, nicht Task** (S22), obwohl `kuronami.tasks` mit acht Statuswerten die
+  einzige bestehende Entsprechung war. Begründung: `ui/index.html` nennt das Panel seit S21
+  "Läufe", die Architektur benutzt "Lauf" durchgängig für eine Session-Ausführung, und nur eine
+  Session hat ein Schritt-für-Schritt-Protokoll mit Artefakten — genau, was S22s Fertig-Kriterium
+  verlangt. `RunStatus` (`runtime/session/run-status.ts`) ist eine **neue**, achtwertige
+  Verfeinerung von `SessionStatus` (S05, weiterhin fünf Werte, unverändert und ungetestet
+  gegenüber Fremdaufrufern) — kein Umbau des bestehenden Typs, um dessen feste Tests
+  ("`session.created` allein ist `running`") nicht zu brechen. Die drei neuen Werte (`queued`,
+  `ready`, `blocked`) sind ehrlich aus dem Protokoll herleitbar: `queued`/`ready` aus der Lücke
+  zwischen `session.created` und `runtime.started` (die es laut `manager.ts` wirklich gibt, "eine
+  zweite Transaktion, bewusst"), `blocked` aus einem offenen `agent.delegated` ohne
+  `agent.returned`. Bewusst **nicht** gebaut: ein Zustand für "Prozess ist abgestürzt" — das
+  bräuchte eine Liveness-Aussage, die aus reiner Protokoll-Faltung nicht ehrlich herleitbar ist
+  (nur ein Prozess selbst weiß, ob er noch lebt), und wäre eine geratene Vermutung, die aussieht
+  wie eine Tatsache.
+- **`listRuns` lässt eine einzelne kaputte Session nicht die ganze Übersicht mitreißen** (S22) —
+  gefunden beim echten Testlauf gegen die geteilte Dev-Datenbank: eine Altlast-Session mit einem
+  `step.started` ohne `step_id` (vermutlich aus einem sehr frühen Ad-hoc-Lauf) ließ
+  `deriveSessionState` werfen und riss die komplette Liste um. `RunSummary.status` ist seither
+  `RunStatus | null`, `foldError` trägt den Fehlertext (AGENTS.md: Fehler nie verstecken) — die
+  Zeile bleibt sichtbar, nur ohne verlässlichen Status. `getRunDetail` für **eine** angefragte
+  Session lässt denselben Fehler dagegen offen durch: dort hat der Aufrufer explizit nach genau
+  dieser Session gefragt.
+- **`/runs` und `/runs/:id` liegen nur am Gateway, nicht am kleinen Ereignisserver aus S21**
+  (S22). Der Server aus `runtime/events/bus.ts` bleibt bei genau zwei Aufgaben (`/events`,
+  `/health`) wie in S21 entworfen; die Runs-API braucht `kuronami.sessions`/`artifacts` und
+  gehört fachlich zum Gateway. Praktisch heißt das: `pnpm dev` (Runtime ohne Kanal) zeigt weiter
+  nur den Ereignisstrom, ein Testlauf von S22 braucht `pnpm gateway`.
+- **CORS am Gateway, gefunden beim echten Ausprobieren im Browser** (S22). Ein `fetch()` von der
+  Oberfläche (eigener Ursprung im Dev-Betrieb, `ui/dev.ts` Port 3001) gegen das Gateway (Port
+  8788) schlug mit "Failed to fetch" fehl — der `Authorization`-Header löst einen Preflight aus,
+  den `gateway/server.ts` nicht beantwortete. Behoben mit derselben Herkunftsprüfung wie am
+  Ereignisstrom (`originAllowed` aus `bus.ts`, Vorgabe nur localhost) statt einer zweiten,
+  abweichenden Liste. Ohne den echten Browsertest (nicht nur `curl`/Node-`fetch`, die CORS gar
+  nicht durchsetzen) wäre das nicht aufgefallen — Node-Tests allein hätten grün gemeldet, obwohl
+  die Oberfläche im echten Browser nie eine Antwort bekommen hätte.
+- **`/runs`, `/runs/:id` und der Bearer-Token in den Einstellungen sind unauthentifiziert
+  gegenüber jedem lokalen Aufrufer, der den Token kennt oder rät** (S22/S23) — genau dieselbe
+  Vertrauensgrenze wie `/channels/web/*` seit S16 (localhost, ein Token). Der Token liegt in
+  `localStorage` der Oberfläche (`ui/settings.ts`), je Browserprofil, nie an Kuronami selbst
+  gerichtet. Kein zusätzlicher Schritt gegenüber S16 — dieselbe offene Frage ("Token, sobald der
+  Port über den Rechner hinausgeht") gilt jetzt auch hier, nicht daneben.
+- **Der Fehler-Verlauf im Panel "Freigaben & Fehler" ist rein flüchtig** (S23): er sammelt
+  `step.failed`/`tool.failed`/`session.failed`/`error.raised` aus dem **Live-Strom**, gedeckelt
+  auf zwanzig Zeilen, und ist nach einem Neuladen leer. Das erfüllt das Fertig-Kriterium wörtlich
+  ("bleibt sichtbar", nicht "übersteht ein Neuladen") und braucht keine neue Aggregatabfrage über
+  alle Sessions. Ein historischer Fehlerabruf über einen Neustart hinweg ist der nächste Schritt,
+  sobald jemand ein Postmortem über den aktuellen Lauf hinaus braucht.
+- **`/channels/web/pending`/`/answers` bedienen nur die eine Gateway-Unterhaltung** (S23), nicht
+  beliebige Sessions im System. Bewusst so: ein delegierter Arbeiter kann seit S19 ohnehin auf
+  keine Freigabe warten (sein Lauf schlägt fehl statt anzuhalten), `awaiting_user` kommt also in
+  der Praxis nur bei der einen Unterhaltung vor, die ein Mensch führt — und genau die bedienen
+  die beiden Endpunkte bereits seit S16.
+- **Die Kennzahlen in `/runs` sind über alle Sessions der Liste summiert** (S24,
+  `combineRunMetrics` in `context/metrics.ts`), nicht über einen einzelnen Lauf oder einen
+  Prozess seit seinem Start. Die beiden Quoten (Cache-Trefferquote, Auslagerungsanteil) werden
+  aus den summierten Zählern neu gebildet, nicht gemittelt — ein Mittel über Quoten gewichtete
+  jeden Lauf gleich, unabhängig davon, wie viel dahinterstand. Was Abschnitt 12 zusätzlich nennt
+  (Freigaben pro Aufgabe, Wartezeit auf Freigabe, Tool-Latenz) bleibt weiterhin ausdrücklich
+  außerhalb von `context/metrics.ts` — das sind Zeitmessungen über Ereignispaare hinweg und
+  brauchen eine eigene, noch nicht eingeplante Beobachtbarkeits-Session (Entscheidung aus S18a,
+  hier nur bestätigt, nicht neu getroffen).
 
 ## Ideen für später (vom Nutzer, zurückgestellt bis der Kern steht)
 
@@ -235,6 +301,183 @@ fertig ist. Beim nächsten Blick auf diese Datei ansprechen, ob es jetzt an der 
   aber der Nutzer würde lieber TradingView anbinden (dort lassen sich Backtests fahren und Trades
   aufsetzen). Ob und wie sich eine TradingView-API dafür verbinden lässt, ist ungeklärt — reine
   Recherche, sobald es dran ist.
+
+## S21-Nachtrag · Ereignisbus über pg_notify · 2026-09-13
+
+Auf ausdrücklichen Auftrag: der offene Befund aus S21 ("Der Ereignisbus sagt vor dem COMMIT
+an") beheben, bevor S22 beginnt. Direkt im Anschluss S22–S24 in derselben Sitzung.
+
+**`log.ts` sagt seither per `pg_notify` an, nicht mehr direkt.** `appendEventInTx` ruft
+`SELECT pg_notify($1, $2)` mit `EVENT_NOTIFY_CHANNEL` und der `event_id` — in derselben
+Transaktion wie die Einfügung, also transaktional: Postgres stellt die Benachrichtigung nur
+zu, wenn diese Transaktion committet, und verwirft sie stillschweigend bei einem ROLLBACK.
+Der Kanal trägt nur die ID (NOTIFY-Payloads sind auf ~8000 Byte begrenzt, ein Werkzeugergebnis
+würde das leicht sprengen); `runtime/events/notify.ts` liest den vollen — bereits gefilterten —
+Datensatz über die neue Funktion `readEventById` zurück und ruft erst dann
+`eventBus.publishRecord`. `log.ts` importiert `bus.ts` seither gar nicht mehr: die Ansage ist
+vollständig von der Runtime-Seite in die lauschende Seite gewandert, eine engere Kopplung
+weniger.
+
+**Eine eigene, dauerhaft lauschende Verbindung, geliehen aus dem Pool.** `LISTEN` gilt für die
+Verbindung, auf der es lief — ein `Pool`, der Verbindungen zwischen Aufrufen tauscht, kann das
+nicht halten. `startEventNotifyListener` holt sich eine Verbindung über `pool.connect()` und
+gibt sie nie zurück, solange sie lauscht; bei einem Abriss (Netzwerk, `pg_terminate_backend`,
+ein Neustart des Servers) verwirft sie `release(true)` und baut nach exponentiellem Backoff
+(250 ms bis 10 s, ohne Jitter — ein Prozess, ein Client, dieselbe Begründung wie beim
+WebSocket-Client der Oberfläche) eine neue auf.
+
+**Der Kanal ist global, nicht je Prozess — eine bewusste Verschiebung gegenüber S21.** Jeder
+Prozess mit einem eigenen Bus (Runtime, Gateway) lauscht auf denselben, festen
+`EVENT_NOTIFY_CHANNEL` und sieht seither **jedes** committete Ereignis im System, nicht mehr
+nur, was er selbst geschrieben hat. S21 hatte das Gegenteil als richtig begründet ("jeder sagt
+an, was er selbst geschrieben hat") — das war aber eine Eigenschaft der Implementierung (ein
+direkter In-Prozess-Aufruf kennt nur eigene Schreibvorgänge), keine bewusste Sicherheitsgrenze.
+Sicher bleibt es unverändert, weil die Redaction am Schreibtor (`log.ts`) hängt, nicht am
+Absender — und für S22 (eine Übersicht über alle Runs, auch Hintergrundläufe) ist die neue,
+weitere Reichweite genau richtig.
+
+### Tests
+
+4 neue, echte Datenbank: eine Ansage kommt genau nach dem COMMIT an, nie davor; ein
+ROLLBACK sagt nie etwas an; der zugestellte Datensatz ist der redigierte aus der Zeile, nicht
+irgendeine Fassung aus dem Payload; und nach `pg_terminate_backend` auf die lauschende
+Verbindung baut sie sich selbst neu auf und liefert danach wieder zu (`notify.test.ts`).
+
+### Bewusst nicht gebaut
+
+- **Kein Jitter im Backoff**, aus demselben Grund wie beim Ereignis-Client der Oberfläche.
+- **Kein Kanal je Prozess.** Siehe oben — die globale Reichweite ist hier ein Gewinn, kein
+  Kompromiss.
+
+Status: abgeschlossen. `pnpm typecheck && pnpm lint` grün, neue Tests grün (siehe S22 für den
+gemeinsamen Testlauf-Nachweis dieser Sitzung).
+
+## S22 · Runs- und Detail-Ansicht · 2026-09-13
+
+**"Run" heißt Session, nicht Task** — die ausführliche Begründung steht oben unter "Offene
+Befunde". `RunStatus` (`runtime/session/run-status.ts`, acht Werte: `queued`, `ready`,
+`running`, `blocked`, `awaiting_user`, `completed`, `failed`, `canceled`) ist eine neue,
+zusätzliche Faltung desselben Protokolls, die `SessionStatus` (S05) unangetastet lässt —
+dasselbe Muster wie `deriveLoopState` (S12) neben `deriveSessionState`.
+
+**`runtime/session/runs.ts`** faltet `listRuns`/`getRunDetail` aus Protokoll, Session-Zeile und
+Artefakt-Metadaten (`headArtifact`, S06) in einem Durchgang: Kennzahlen (`context/metrics.ts`,
+S24 unten) fallen dabei als Nebenprodukt an, ohne das Protokoll ein zweites Mal zu lesen. Liegt
+in `runtime/`, nicht in `gateway/` — Abschnitt 3 erlaubt Runtime → Context, nie Runtime →
+Surface, und `gateway/server.ts` ruft diese Datei nur auf.
+
+**`GET /runs` und `GET /runs/:id` liegen ausschließlich am Gateway**, hinter demselben
+Bearer-Token wie jeder andere Lesepfad dort (`webPrincipal`). Dafür bekam die Oberfläche zum
+ersten Mal ein Gedächtnis für ein Betreiber-Geheimnis: `ui/settings.ts` hält den Token in
+`localStorage`, bedient über ein neues Einstellungen-Popup (das Zahnrad aus S21 war bis jetzt
+ohne Funktion). `ui/api/client.ts` bündelt Token, Fehlerform (kein Token / abgelehnter Token /
+Netzwerk- oder Serverfehler) und JSON-Parsing für `/runs` **und** die S23-Endpunkte gleich mit.
+
+**Zwei echte Fehler beim Ausprobieren gefunden, nicht nur beim Schreiben:**
+- `[hidden]` verlor gegen jede Klasse, die selbst ein `display` setzt (`.run-detail`,
+  `.settings-panel`) — beide Regeln haben dieselbe Spezifität, Autor-CSS gewinnt gegen das
+  UA-Stylesheet. Ein globales `[hidden] { display: none !important; }` in `theme.css` macht
+  `el.hidden` erst zu dem verlässlichen Schalter, den `main.ts` voraussetzt.
+- CORS am Gateway fehlte: siehe "Offene Befunde" oben. Behoben mit derselben
+  Herkunftsprüfung wie am Ereignisstrom.
+
+Beide Funde kamen aus einem echten Rundgang im Browser (Chrome, per `claude-in-chrome`) gegen
+einen echten Gateway-Prozess mit echter Datenbank — ein reiner Node-Test hätte beides nicht
+gezeigt (`fetch` in Node erzwingt kein CORS, und ein `hidden`/CSS-Konflikt fällt nur im
+gerenderten DOM auf).
+
+### Tests
+
+19 neue: `run-status.test.ts` (8, alle acht Zustände plus die Vorrangregeln), `runs.test.ts`
+(4, echte Datenbank, echtes Artefakt über `writeArtifact`), `notify.test.ts` (4, siehe oben),
+`gateway/runs.test.ts` (7, echter Server, echter `fetch`, inklusive der drei CORS-Fälle:
+erlaubter Ursprung mit Preflight, dieselbe Kopfzeile auf der echten Antwort, keine Freigabe für
+einen fremden Ursprung), dazu `ui/api/client.test.ts` (4), `ui/settings.test.ts` (3) und
+`ui/runs/status.test.ts` (3) ohne Browser, mit eingesetztem `fetch`/Speicher (dasselbe Muster
+wie `socketFactory` in `ui/events/bus.ts`).
+
+### Bewusst nicht gebaut
+
+- **Kein Zustand für "Prozess abgestürzt"** in `RunStatus` — siehe "Offene Befunde".
+- **Keine Runs-API am kleinen Ereignisserver aus S21** (`runtime/events/bus.ts`) — dessen Aufgabe
+  bleibt `/events` und `/health`.
+- **Keine feinere Freigabe je Route** — `/runs` und `/runs/:id` tragen genau dieselbe
+  Vertrauensgrenze wie `/channels/web/*` seit S16, kein eigenes Berechtigungsmodell.
+
+Status: abgeschlossen. `pnpm typecheck && pnpm lint` grün. `tasks.json`: S22 auf `done`.
+
+## S23 · Freigabe- und Fehler-Ansicht · 2026-09-13
+
+**Freigaben brauchten keinen neuen Endpunkt.** `/channels/web/pending` und
+`/channels/web/answers` stehen seit S16 und bedienen genau die eine Unterhaltung, die ein
+Mensch führt — nach S19 die einzige, die je auf `awaiting_user` stehen kann (ein delegierter
+Arbeiter schlägt fehl, statt auf eine Freigabe zu warten). Die Oberfläche zeigt seither jede
+offene, strukturierte Rückfrage im Panel "Freigaben & Fehler" mit ihren Optionen als Knöpfe;
+ein Klick ruft `answerApproval` (`POST /channels/web/answers`) und lädt danach Freigaben **und**
+Runs neu — eine beantwortete Rückfrage ändert schließlich auch den Run-Status.
+
+**Der Fehler-Verlauf ist neu und lebt vom Live-Strom, nicht von einer Datenbankabfrage.**
+`ERROR_EVENT_TYPES` (`step.failed`, `tool.failed`, `session.failed`, `error.raised`) ist eine
+kleine, feste Zuordnung — dasselbe Prinzip wie `signalFor` in `ui/events/bus.ts`: eine Stelle,
+eine reine Funktion, kein neuer Ereignistyp. Jeder Treffer bleibt als eigene Zeile stehen (bis
+zu zwanzig, älteste fällt zuerst), statt wie bisher irgendwo im ungefilterten Ereignisstrom zu
+verschwinden — genau der Unterschied zwischen "bleibt sichtbar" und "war kurz ein roter Punkt",
+den das Fertig-Kriterium wörtlich verlangt.
+
+### Tests
+
+Keine neuen: die Backend-Seite (`/channels/web/pending`/`/answers`) ist seit S16 getestet
+(`gateway/gateway.test.ts`), und die neue Oberflächen-Logik in `main.ts` ist reine
+DOM-Verdrahtung ohne Zweigstellen, die eine Prüfung ohne Browser lohnen würden — dasselbe
+Prinzip wie bei `main.ts` seit S21 (dort bereits ohne eigene Tests, aus demselben Grund). Von
+Hand geprüft im echten Browser gegen einen echten Gateway-Prozess mit drei präparierten
+Sessions (laufend, abgeschlossen, fehlgeschlagen): Liste, Detail und Kennzahlen zeigten die
+echten Werte; die Freigaben-Prüfung blieb auf den Test-Stub beschränkt (siehe "Offene Befunde"
+zu S22 für die Grenzen dieses Rundgangs).
+
+### Bewusst nicht gebaut
+
+- **Keine Möglichkeit, eine beliebige Session im System zu beantworten** — nur die eine
+  Gateway-Unterhaltung, siehe "Offene Befunde".
+- **Kein historischer Fehlerabruf über einen Neustart hinweg** — der Live-Strom erfüllt das
+  Fertig-Kriterium bereits wörtlich.
+
+Status: abgeschlossen. `pnpm typecheck && pnpm lint` grün. `tasks.json`: S23 auf `done`.
+
+## S24 · Kennzahlen-Panels · 2026-09-13
+
+**Kein neuer Endpunkt, keine neue Faltung der Einzelwerte** — `context/metrics.ts` hatte
+`deriveRunMetrics` (Abschnitt 12) bereits seit S12, nur ohne Aufrufer, der viele Sessions
+zusammenzieht. Neu ist `combineRunMetrics`: summiert Modellaufrufe, Token, Tool-Aufrufe,
+Rückfragen, Kompaktierungen über alle Runs aus `listRuns` (S22), und bildet die beiden Quoten
+(Cache-Trefferquote, Auslagerungsanteil) am Ende aus den summierten Zählern neu — ein Mittel
+über bereits gemittelte Quoten hätte jeden Lauf gleich gewichtet, unabhängig davon, wie viel
+dahinterstand.
+
+Die Oberfläche zeigt seither vier weitere Kennzahlen neben den beiden bestehenden
+(Ereignisse, Wiederverbindungsversuche, beide weiterhin real und live aus dem Ereignisstrom):
+Modellaufrufe, Tool-Aufrufe samt Fehlschlägen, Cache-Trefferquote, Rückfragen — dieselbe
+Antwort von `/runs`, die S22 bereits abruft, kein zweiter Netzwerkaufruf.
+
+Im echten Rundgang (siehe S22/S23) zeigte das Panel gegen die reale, seit Wochen gewachsene
+Entwicklungsdatenbank 28 Modellaufrufe, 24 Tool-Aufrufe (0 fehlgeschlagen), 63,1 % Cache-Trefferquote
+und 4 Rückfragen — reale, aus dem Protokoll gefaltete Werte, kein erfundener Platzhalter.
+
+### Tests
+
+Keine neuen über S22 hinaus: `combineRunMetrics` ist über `runs.test.ts`s Prüfung von
+`listRuns`s `metrics`-Feld mitgeprüft (eine dedizierte Datei für eine elf Zeilen lange
+Summierung wäre hier mehr Aufwand als Erkenntnisgewinn).
+
+### Bewusst nicht gebaut
+
+- **Die drei Kennzahlen, die Abschnitt 12 zusätzlich nennt** (Freigaben pro Aufgabe, Wartezeit
+  auf Freigabe, Tool-Latenz) — brauchen Zeitmessungen über Ereignispaare hinweg und bleiben
+  einer eigenen, noch nicht eingeplanten Beobachtbarkeits-Session vorbehalten (Entscheidung aus
+  S18a, hier nur bestätigt).
+
+Status: abgeschlossen. `pnpm typecheck && pnpm lint` grün. `tasks.json`: S24 auf `done`, S25 von
+`queued` auf `ready`.
 
 ## S21 · Ereignisbus und UI-Grundgerüst · 2026-09-12
 

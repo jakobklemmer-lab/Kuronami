@@ -9,10 +9,10 @@
   </head>
   <body>
     <!--
-      Das Grundgerüst aus S21. Struktur, kein Inhalt: die Panels tragen Platzhalter, weil die
-      Runs-Liste (S22), die Freigabe-Ansicht (S23) und die Kennzahlen (S24) eigene Sessions
-      sind. Was hier schon echt ist, ist der Wassereffekt unten und der Ereignisstrom, der ihn
-      treibt. Das 3D-Centerpiece (S25) fehlt bewusst — Phase 6 startet ohne.
+      Das Grundgerüst aus S21, seit S22-S24 mit echtem Inhalt: Läufe-Liste und -Detail (S22),
+      Freigaben und ein Fehler-Verlauf (S23), Kennzahlen aus Abschnitt 12 (S24) — alle über
+      `/runs` bzw. `/channels/web/*` am Gateway, hinter dem Bearer-Token aus den Einstellungen
+      (Zahnrad unten rechts). Das 3D-Centerpiece (S25) fehlt weiterhin bewusst.
     -->
 
     <header class="taskbar" role="banner">
@@ -36,8 +36,16 @@
     <main class="stage" id="stage">
       <section class="panel panel--runs" id="panel-runs" aria-labelledby="panel-runs-title">
         <h2 class="panel__title" id="panel-runs-title">Läufe</h2>
-        <p class="panel__hint">Liste und Detail-Ansicht folgen in S22.</p>
-        <ul class="panel__stream" id="event-stream" aria-live="polite"></ul>
+        <p class="panel__hint" id="runs-hint">Ohne Token keine Liste — siehe Einstellungen.</p>
+        <ul class="panel__runs-list" id="runs-list" hidden></ul>
+        <div class="run-detail" id="run-detail" hidden>
+          <button class="run-detail__back" type="button" id="run-detail-back">← Läufe</button>
+          <div class="run-detail__head">
+            <span class="run-status" id="run-detail-status"></span>
+            <code id="run-detail-id"></code>
+          </div>
+          <ol class="run-detail__steps" id="run-detail-steps"></ol>
+        </div>
       </section>
 
       <section class="panel panel--plan" id="panel-plan" aria-labelledby="panel-plan-title">
@@ -57,7 +65,7 @@
 
       <section class="panel panel--metrics" id="panel-metrics" aria-labelledby="panel-metrics-title">
         <h2 class="panel__title" id="panel-metrics-title">Kennzahlen</h2>
-        <p class="panel__hint">Echte Werte folgen in S24.</p>
+        <p class="panel__hint">Verbindung und Abschnitt 12, über alle Runs summiert.</p>
         <dl class="panel__figures">
           <div class="figure">
             <dt>Ereignisse</dt>
@@ -67,13 +75,33 @@
             <dt>Versuche</dt>
             <dd id="reconnect-count">0</dd>
           </div>
+          <div class="figure">
+            <dt>Modellaufrufe</dt>
+            <dd id="metric-model-calls">–</dd>
+          </div>
+          <div class="figure">
+            <dt>Tool-Aufrufe</dt>
+            <dd id="metric-tool-calls">–</dd>
+          </div>
+          <div class="figure">
+            <dt>Cache-Trefferquote</dt>
+            <dd id="metric-cache-hit-rate">–</dd>
+          </div>
+          <div class="figure">
+            <dt>Rückfragen</dt>
+            <dd id="metric-approvals">–</dd>
+          </div>
         </dl>
       </section>
 
       <section class="panel panel--approvals" id="panel-approvals" aria-labelledby="panel-approvals-title">
-        <h2 class="panel__title" id="panel-approvals-title">Freigaben</h2>
-        <p class="panel__hint">Rückfragen beantworten folgt in S23.</p>
+        <h2 class="panel__title" id="panel-approvals-title">Freigaben &amp; Fehler</h2>
+        <p class="panel__hint" id="approvals-hint">Ohne Token keine Rückfragen — siehe Einstellungen.</p>
+        <ul class="panel__approvals-list" id="approvals-list"></ul>
         <p class="panel__empty" id="approvals-empty">Nichts offen.</p>
+        <h3 class="panel__subtitle">Fehler</h3>
+        <ul class="panel__errors-list" id="errors-list"></ul>
+        <p class="panel__empty" id="errors-empty">Keiner seit dem Verbinden.</p>
       </section>
     </main>
 
@@ -85,6 +113,24 @@
     <button class="settings" type="button" id="settings" aria-label="Einstellungen">
       <span aria-hidden="true">⚙</span>
     </button>
+
+    <div class="settings-panel" id="settings-panel" hidden>
+      <h2 class="panel__title">Einstellungen</h2>
+      <label class="settings-panel__field" for="settings-token">
+        Bearer-Token (GATEWAY_WEB_TOKEN)
+      </label>
+      <input
+        class="settings-panel__input"
+        id="settings-token"
+        type="password"
+        autocomplete="off"
+        placeholder="Token einfügen"
+      />
+      <div class="settings-panel__row">
+        <button class="settings-panel__save" type="button" id="settings-save">Speichern</button>
+        <span class="settings-panel__status" id="settings-status"></span>
+      </div>
+    </div>
 
     <script type="module" src="./main.js"></script>
   </body>

@@ -222,8 +222,210 @@
 
 .panel__figures {
   display: flex;
-  gap: 22px;
+  flex-wrap: wrap;
+  gap: 14px 22px;
   margin: auto 0 0;
+}
+
+.panel__subtitle {
+  margin: 8px 0 0;
+  font-size: 10px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--fg-faint);
+}
+
+/* Läufe-Liste und -Detail (S22). Beide teilen sich den Platz von `.panel--runs`: entweder die
+ * Liste oder das Detail ist sichtbar, nie beide (siehe `main.ts`). */
+.panel__runs-list,
+.panel__approvals-list,
+.panel__errors-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  overflow-y: auto;
+  flex: 1;
+  min-height: 0;
+  scrollbar-width: thin;
+}
+
+.run-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 2px;
+  border-bottom: 1px solid rgba(232, 232, 232, 0.04);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.run-row:hover {
+  background: rgba(232, 232, 232, 0.04);
+}
+
+.run-row__id {
+  font-family: var(--font-mono);
+  color: var(--fg);
+}
+
+.run-row__meta {
+  margin-left: auto;
+  color: var(--fg-faint);
+  font-size: 11px;
+  text-align: right;
+}
+
+.run-detail {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  flex: 1;
+  min-height: 0;
+}
+
+.run-detail__back {
+  align-self: flex-start;
+  font-size: 11px;
+  color: var(--fg-muted);
+}
+
+.run-detail__back:hover {
+  color: var(--ripple-cyan);
+}
+
+.run-detail__head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 11px;
+  color: var(--fg-faint);
+}
+
+.run-detail__steps {
+  margin: 0;
+  padding: 0 0 0 16px;
+  overflow-y: auto;
+  flex: 1;
+  min-height: 0;
+  font-size: 12px;
+}
+
+.run-step {
+  padding: 4px 0;
+  border-bottom: 1px solid rgba(232, 232, 232, 0.04);
+}
+
+.run-step--failed {
+  color: var(--state-error);
+}
+
+.run-step__error {
+  margin: 2px 0 0;
+  font-size: 11px;
+  color: var(--state-error);
+  white-space: pre-wrap;
+}
+
+.run-step__artifact {
+  margin: 2px 0 0;
+  font-size: 11px;
+  color: var(--fg-muted);
+}
+
+/* Freigaben und Fehler (S23). */
+.approval-row {
+  padding: 8px 0;
+  border-bottom: 1px solid rgba(232, 232, 232, 0.06);
+  font-size: 12px;
+}
+
+.approval-row__options {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 6px;
+}
+
+.approval-row__options button {
+  padding: 4px 10px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  font-size: 11px;
+  color: var(--fg);
+}
+
+.approval-row__options button:hover {
+  border-color: var(--ripple-cyan);
+  color: var(--ripple-cyan);
+}
+
+.error-row {
+  display: flex;
+  gap: 8px;
+  padding: 3px 0;
+  font-size: 11px;
+  color: var(--state-error);
+}
+
+.error-row time {
+  color: var(--fg-faint);
+  font-variant-numeric: tabular-nums;
+}
+
+/* Einstellungen (S22): der Bearer-Token, den /runs und /channels/web/* verlangen. */
+.settings-panel {
+  position: fixed;
+  right: 20px;
+  bottom: 70px;
+  z-index: 40;
+  width: min(280px, calc(100vw - 40px));
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 14px 16px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg-panel-solid);
+  box-shadow: var(--shadow-panel);
+}
+
+.settings-panel__field {
+  font-size: 11px;
+  color: var(--fg-muted);
+}
+
+.settings-panel__input {
+  padding: 6px 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg-deep);
+  color: var(--fg);
+  font-family: var(--font-mono);
+  font-size: 12px;
+}
+
+.settings-panel__row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.settings-panel__save {
+  padding: 5px 12px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  font-size: 11px;
+  color: var(--fg);
+}
+
+.settings-panel__save:hover {
+  border-color: var(--ripple-cyan);
+  color: var(--ripple-cyan);
+}
+
+.settings-panel__status {
+  font-size: 11px;
+  color: var(--state-complete);
 }
 
 .figure dt {

@@ -30,6 +30,19 @@
   --state-complete: #7de0a8;
   --state-error: #ff7a7a;
 
+  /* Run-Status (S22), acht Zustände wie kuronami.task_status — jeder mit eigener Farbe, damit
+   * ein Blick auf die Liste genügt und niemand die Beschriftung lesen muss, um "läuft" von
+   * "fehlgeschlagen" zu unterscheiden. */
+  --run-queued: var(--fg-faint);
+  --run-ready: var(--ripple-blue);
+  --run-running: var(--state-processing);
+  --run-blocked: #f5b26b;
+  --run-awaiting-user: var(--state-speaking);
+  --run-completed: var(--state-complete);
+  --run-failed: var(--state-error);
+  --run-canceled: var(--fg-muted);
+  --run-unknown: var(--fg-faint);
+
   /* Kanten, Schatten, Glanz */
   --border: rgba(232, 232, 232, 0.1);
   --border-strong: rgba(97, 218, 251, 0.28);
@@ -53,6 +66,15 @@
 
 * {
   box-sizing: border-box;
+}
+
+/* Ohne diese Regel verliert das Attribut `hidden` gegen jede Klasse, die auf demselben
+ * Element selbst ein `display` setzt (z. B. `.run-detail`, `.settings-panel`) — beide haben
+ * dieselbe Spezifität, und Autor-CSS gewinnt gegen das UA-Stylesheet. `!important` ist hier
+ * kein Nothelfer, sondern die Zusage, die `hidden` erst zu einem verlässlichen Schalter macht
+ * (`el.hidden = true/false` in `main.ts`, nie `style.display`). */
+[hidden] {
+  display: none !important;
 }
 
 html,
@@ -113,6 +135,49 @@ button {
 }
 [data-ui-state="complete"] {
   --state-colour: var(--state-complete);
+}
+
+/* Das Status-Abzeichen eines Runs (S22): eine Pille wie `.taskbar__state`, nur ohne festen
+ * Platz in der Taskbar — es taucht in der Läufe-Liste und im Detail auf. */
+.run-status {
+  display: inline-flex;
+  align-items: center;
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  padding: 2px 8px;
+  border-radius: 999px;
+  border: 1px solid currentcolor;
+  white-space: nowrap;
+}
+
+.run-status--queued {
+  color: var(--run-queued);
+}
+.run-status--ready {
+  color: var(--run-ready);
+}
+.run-status--running {
+  color: var(--run-running);
+}
+.run-status--blocked {
+  color: var(--run-blocked);
+}
+.run-status--awaiting-user {
+  color: var(--run-awaiting-user);
+}
+.run-status--completed {
+  color: var(--run-completed);
+}
+.run-status--failed {
+  color: var(--run-failed);
+}
+.run-status--canceled {
+  color: var(--run-canceled);
+}
+.run-status--unknown {
+  color: var(--run-unknown);
+  border-style: dashed;
 }
 
 @media (prefers-reduced-motion: reduce) {

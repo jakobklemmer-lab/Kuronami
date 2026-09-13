@@ -228,7 +228,7 @@
     "id": "S22",
     "title": "Runs- und Detail-Ansicht",
     "phase": 6,
-    "status": "ready",
+    "status": "done",
     "done_when": "Ein laufender und ein abgeschlossener Run sind beide korrekt in der Liste (alle acht Zustände als Statusbadge) und in der Detail-Ansicht (Schritt-für-Schritt-Verlauf mit Artefakten) sichtbar",
     "depends_on": ["S21"]
   },
@@ -236,7 +236,7 @@
     "id": "S23",
     "title": "Freigabe- und Fehler-Ansicht",
     "phase": 6,
-    "status": "queued",
+    "status": "done",
     "done_when": "Eine echte Rückfrage (awaiting_user) lässt sich aus der UI heraus mit strukturierten Optionen beantworten; ein echter Fehlschlag bleibt nach dem Auftreten sichtbar, nicht nur als roter Punkt",
     "depends_on": ["S22"]
   },
@@ -244,7 +244,7 @@
     "id": "S24",
     "title": "Kennzahlen-Panels",
     "phase": 6,
-    "status": "queued",
+    "status": "done",
     "done_when": "Kennzahlen-Panel (Abschnitt 12, Beobachtbarkeit) zeigt echte Werte aus einem laufenden Prozess, keine Platzhalter",
     "depends_on": ["S23"]
   },
@@ -252,7 +252,7 @@
     "id": "S25",
     "title": "Centerpiece und 3D-Welt",
     "phase": 6,
-    "status": "queued",
+    "status": "ready",
     "note": "Setzt die fertige Claude-Design-Spec um: Ninja auf Stein im See, drei Animationszustände (Idle/Processing/Response Delivered), Beschwörungskreise für Subagenten ohne Pathfinding/Tween.",
     "done_when": "Alle drei Animationszustände laufen gemäß der abgestimmten Spec; ein Subagenten-Aufruf zeigt den Beschwörungskreis auf der Wasseroberfläche",
     "depends_on": ["S24"]
