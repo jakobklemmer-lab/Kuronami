@@ -3,8 +3,8 @@ import { createMockMailProvider } from "../mock/data.js";
 import { formatRelativeTime } from "./format.js";
 import type { View } from "./types.js";
 
-/** Vollwertige Mail-Detailansicht (S-Zwischenschub, Punkt 4) — nicht nur eine vergroesserte
- * Cockpit-Kachel: die ganze Liste, nicht nur die ersten drei Zeilen wie im Inbox-Panel. */
+/** Vollwertige Mail-Detailansicht (Punkt 4) — die ganze Liste mit Vorschautext, nicht nur die
+ * fünf Zeilen der Inbox-Karte auf der Startseite. */
 export const mailView: View = {
   mount(container) {
     container.innerHTML = `
@@ -13,10 +13,12 @@ export const mailView: View = {
           ${icon("mail", { className: "detail-view__icon" })}
           <div>
             <h1 class="detail-view__title">Mail</h1>
-            <p class="detail-view__subtitle" data-role="subtitle">Lädt…</p>
+            <p class="detail-view__subtitle" data-role="subtitle">Lädt …</p>
           </div>
         </header>
-        <ul class="mail-full-list" data-role="list"></ul>
+        <section class="detail-panel glass">
+          <ul class="detail-list detail-list--unread" data-role="list"></ul>
+        </section>
       </div>
     `;
 
@@ -32,14 +34,14 @@ export const mailView: View = {
         if (!listEl) return;
         listEl.innerHTML = data.messages
           .map(
-            (m) => `
-              <li class="mail-full-list__row${m.unread ? " mail-full-list__row--unread" : ""}">
-                <div class="mail-full-list__head">
-                  <span class="mail-full-list__from">${m.from}</span>
-                  <span class="mail-full-list__time">${formatRelativeTime(m.receivedAt)}</span>
+            (message) => `
+              <li${message.unread ? ' class="is-unread"' : ""}>
+                <div class="detail-list__head">
+                  <p class="detail-list__title">${message.from}</p>
+                  <span class="detail-list__meta">${formatRelativeTime(message.receivedAt)}</span>
                 </div>
-                <p class="mail-full-list__subject">${m.subject}</p>
-                <p class="mail-full-list__preview">${m.preview}</p>
+                <p class="detail-list__body">${message.subject}</p>
+                <p class="detail-list__body">${message.preview}</p>
               </li>
             `,
           )

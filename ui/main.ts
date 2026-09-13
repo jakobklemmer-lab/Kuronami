@@ -1,4 +1,5 @@
 import { createApiClient } from "./api/client.js";
+import { createComposer } from "./compose.js";
 import { createEventBus } from "./events/bus.js";
 import { mountMicButton } from "./mic/button.js";
 import { createMicStateStore } from "./mic/state.js";
@@ -25,12 +26,9 @@ import { tradingView } from "./views/trading.js";
 import type { View, ViewContext } from "./views/types.js";
 
 /**
- * Die Wurzel des UI-Zwischenschubs — die einzige Datei der Oberfläche, die `document`/`window`
- * anfasst (dieselbe Haltung wie vor dem Umbau, siehe die alte Fassung in der Git-Historie): sie
- * baut die Hülle (Seitenleiste, Mic-Dock, Szene), verdrahtet den Router (genau eine aktive
- * Ansicht, Punkt 4a) und reicht `api`/`bus`/`mic`/`navigate`/`detach` als `ViewContext` an die
- * gemountete Ansicht durch. Jede Ansicht bleibt dadurch unabhängig von der Hülle testbar (auch
- * wenn `ui/` insgesamt bei DOM-Code auf Tests verzichtet, siehe `ui/views/types.ts`).
+ * Die Wurzel der Oberfläche — die einzige Datei, die `document`/`window` direkt anfasst und
+ * alles zusammensteckt: Hülle (Seitenleiste mit Mic-Pille, Szene), Router (genau eine aktive
+ * Ansicht) und der `ViewContext`, den jede Ansicht bekommt.
  */
 
 const VIEWS: Record<RouteId, View> = {
@@ -54,13 +52,12 @@ function main(): void {
   const sceneEl = element<HTMLElement>("scene");
   const sidebarEl = element<HTMLElement>("sidebar");
   const outletEl = element<HTMLElement>("view-outlet");
-  const micDockEl = element<HTMLElement>("mic-dock");
   const toastEl = element<HTMLElement>("toast");
+  const composerEl = element<HTMLElement>("composer-host");
 
   const toast = createToast(toastEl);
 
-  // Der Port des Backends lässt sich über `?events=3005` überschreiben (S21 ff.) — historisch
-  // der Name für den Ereignisstrom, seit S22 auch die Basis für `/runs` und `/channels/*`.
+  // Der Port des Backends lässt sich über `?events=3005` überschreiben (S21 ff.).
   const params = new URLSearchParams(globalThis.location.search);
   const backendPort = params.get("events") ?? "3000";
   const hostname = globalThis.location.hostname || "localhost";
@@ -68,11 +65,8 @@ function main(): void {
   const bus = createEventBus({ url: `ws://${hostname}:${backendPort}/events` });
   const api = createApiClient({ baseUrl: backendOrigin, token: () => loadToken() });
   const mic = createMicStateStore();
+  const composer = createComposer(composerEl, api);
 
-  // ---------------------------------------------------------------------
-  // Erscheinungsbild (Punkt 5): einmal beim Start, danach bei jeder Änderung aus der
-  // Einstellungsseite (`settingsBus`) — die Hülle liegt ausserhalb jeder gerouteten Ansicht.
-  // ---------------------------------------------------------------------
   void applyAppearance(loadSettings(), sceneEl);
   settingsBus.subscribe((settings) => void applyAppearance(settings, sceneEl));
 
@@ -88,14 +82,21 @@ function main(): void {
     });
   }
 
+  /** Fokus-Modus: Seitenleiste und Karten treten zurück, die Uhr bleibt. Eine echte,
+   * abgeschlossene Oberflächen-Funktion — kein Knopf, der nur so aussieht. */
+  function toggleFocus(): void {
+    const on = document.body.dataset.focus === "on";
+    document.body.dataset.focus = on ? "off" : "on";
+  }
+
   const sidebar = mountSidebar(sidebarEl, { navigate, toast });
-  mountMicButton(micDockEl, mic);
+  mountMicButton(sidebar.micHost, mic, sidebarEl);
   bus.onStatus((status, attempts) => sidebar.setConnectionStatus(status, attempts));
 
-  // ---------------------------------------------------------------------
-  // Router (Punkt 4a): genau eine aktive Ansicht, adressiert über den Hash. Ein Wechsel räumt
-  // die vorherige Ansicht über ihre eigene Aufräumfunktion auf, bevor die nächste mountet.
-  // ---------------------------------------------------------------------
+  document.addEventListener("keydown", (event) => {
+    if (event.key === "Escape" && document.body.dataset.focus === "on") toggleFocus();
+  });
+
   let cleanupCurrentView: (() => void) | null = null;
 
   function renderRoute(): void {
@@ -103,7 +104,16 @@ function main(): void {
     cleanupCurrentView?.();
     outletEl.innerHTML = "";
     sidebar.setActive(parsed.view);
-    const ctx: ViewContext = { api, bus, mic, navigate, detach, section: parsed.section };
+    const ctx: ViewContext = {
+      api,
+      bus,
+      mic,
+      navigate,
+      detach,
+      compose: () => composer.open(),
+      toggleFocus,
+      section: parsed.section,
+    };
     cleanupCurrentView = VIEWS[parsed.view].mount(outletEl, ctx);
   }
 

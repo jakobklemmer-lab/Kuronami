@@ -6,16 +6,17 @@ import type { Toast } from "../toast.js";
 import { loadSidebarCollapsed, saveSidebarCollapsed } from "./collapse.js";
 
 /**
- * Die Seitenleiste (S-Zwischenschub, Punkte 1, 2, 4). Drei Dinge in einem Modul, weil sie
- * dieselbe Markup-Struktur teilen: das Emblem, das Ein-/Ausklappen und das native
- * HTML5-Drag-and-Drop fuers Abdocken.
+ * Die Seitenleiste nach der Bildvorlage: Emblem und Wortmarke oben, darunter die sieben Bereiche
+ * als vollbreite Zeilen mit Akzentbalken auf dem aktiven Eintrag, ganz unten die Mic-Pille
+ * („Listening …") und die Verbindungszeile („System Online").
  *
- * **Abdocken:** `dragend` auf einem Sidebar-Eintrag prueft `dataTransfer.dropEffect` — "none"
- * heisst, der Drop ist auf keiner registrierten Dropzone innerhalb der App gelandet (die
- * Seitenleiste selbst registriert sich per `dragover`/`drop` als gueltiges Ziel, damit ein Drop
- * zurueck auf sich selbst nicht als Abdocken zaehlt). Die eigentliche Entscheidung
- * (`shouldDetachOnDragEnd`) und das Oeffnen (`detachView`) stehen in `ui/router/detach.ts` —
- * dieses Modul kennt nur die DOM-Geste, nicht `window.open` selbst.
+ * **„System" steht bewusst nicht in der Navigation** — in der Vorlage gibt es den Eintrag nicht.
+ * Die echte Läufe-/Freigaben-Ansicht (S22–S24) bleibt trotzdem erreichbar: über den Pfeil der
+ * System-Karte auf der Startseite und über die Verbindungszeile hier unten. Beides führt auf
+ * `#/system`.
+ *
+ * Abdocken (Punkt 4b) und Einklappen (Punkt 2) bleiben unverändert erhalten; der Einklapp-
+ * Schalter ist nur zurückhaltender geworden, weil die Vorlage keinen zeigt.
  */
 
 const NAV_ITEMS: { route: RouteId; label: string }[] = [
@@ -25,11 +26,13 @@ const NAV_ITEMS: { route: RouteId; label: string }[] = [
   { route: "trading", label: "Trading" },
   { route: "research", label: "Research" },
   { route: "files", label: "Files" },
-  { route: "system", label: "System" },
+  { route: "settings", label: "Settings" },
 ];
 
 export interface SidebarHandle {
   el: HTMLElement;
+  /** Der Knoten, in den `ui/mic/button.ts` den Mic-Schalter rendert. */
+  micHost: HTMLElement;
   setActive(route: RouteId): void;
   setConnectionStatus(status: "connecting" | "open" | "closed", attempts: number): void;
 }
@@ -40,9 +43,9 @@ export interface SidebarContext {
 }
 
 const STATUS_LABEL: Record<string, string> = {
-  connecting: "verbindet",
-  open: "verbunden",
-  closed: "getrennt",
+  connecting: "System verbindet",
+  open: "System Online",
+  closed: "System Offline",
 };
 
 export function mountSidebar(root: HTMLElement, ctx: SidebarContext): SidebarHandle {
@@ -52,7 +55,8 @@ export function mountSidebar(root: HTMLElement, ctx: SidebarContext): SidebarHan
         ${emblemMarkup("sidebar__emblem")}
         <span class="sidebar__name">Kuronami</span>
       </button>
-      <button type="button" class="sidebar__collapse" data-role="collapse-toggle" title="Ein-/Ausklappen (Strg/Cmd+B)" aria-label="Seitenleiste ein-/ausklappen">
+      <button type="button" class="sidebar__collapse" data-role="collapse-toggle"
+        title="Ein-/Ausklappen (Strg/Cmd+B)" aria-label="Seitenleiste ein-/ausklappen">
         ${icon("collapse")}
       </button>
     </div>
@@ -69,24 +73,27 @@ export function mountSidebar(root: HTMLElement, ctx: SidebarContext): SidebarHan
     </nav>
 
     <div class="sidebar__foot">
-      <button type="button" class="sidebar__link" data-route="settings" draggable="true">
-        <span class="sidebar__icon">${icon("settings")}</span>
-        <span class="sidebar__label">Settings</span>
-      </button>
-      <div class="sidebar__status">
+      <div data-role="mic-host"></div>
+      <button type="button" class="sidebar__status" data-role="connection" aria-label="System öffnen">
         <span class="sidebar__dot" data-role="connection-dot" data-status="closed"></span>
-        <span class="sidebar__label" data-role="connection-label">getrennt</span>
-      </div>
+        <span class="sidebar__label" data-role="connection-label">System Offline</span>
+        ${icon("chevron", { className: "sidebar__status-chevron" })}
+      </button>
     </div>
   `;
 
   // ---------------------------------------------------------------------
-  // Einklappen (Punkt 2): persistiert, Tastenkuerzel, kein Sprung im Inhaltsbereich (der
-  // Uebergang ist reines CSS auf `--sidebar-width`, siehe `ui/styles/shell.css`).
+  // Einklappen (Punkt 2)
   // ---------------------------------------------------------------------
   function setCollapsed(collapsed: boolean): void {
     root.dataset.collapsed = collapsed ? "true" : "false";
     saveSidebarCollapsed(collapsed);
+    // Die Uhr auf der Startseite steht mittig im **Fenster**, nicht im Inhaltsbereich — sie
+    // braucht die aktuelle Breite, um beim Einklappen mitzuwandern statt zu springen.
+    document.documentElement.style.setProperty(
+      "--sidebar-current",
+      collapsed ? "var(--sidebar-width-collapsed)" : "var(--sidebar-width)",
+    );
   }
   setCollapsed(loadSidebarCollapsed());
 
@@ -95,28 +102,27 @@ export function mountSidebar(root: HTMLElement, ctx: SidebarContext): SidebarHan
   });
 
   document.addEventListener("keydown", (event) => {
-    const key = event.key.toLowerCase();
-    if ((event.ctrlKey || event.metaKey) && key === "b") {
+    if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "b") {
       event.preventDefault();
       setCollapsed(root.dataset.collapsed !== "true");
     }
   });
 
   // ---------------------------------------------------------------------
-  // Navigation per Klick (Punkt 4a) — ein echter Drag unterbricht den folgenden `click` von
-  // selbst (Browser-Verhalten), es braucht keine eigene Unterscheidung hier.
+  // Navigation (Punkt 4a)
   // ---------------------------------------------------------------------
   root.addEventListener("click", (event) => {
     const link = (event.target as HTMLElement).closest<HTMLElement>("[data-route]");
-    if (!link) return;
-    const route = link.dataset.route;
-    if (route && (ROUTE_IDS as readonly string[]).includes(route)) {
-      ctx.navigate(route as RouteId);
+    if (link) {
+      const route = link.dataset.route;
+      if (route && (ROUTE_IDS as readonly string[]).includes(route)) ctx.navigate(route as RouteId);
+      return;
     }
+    if ((event.target as HTMLElement).closest('[data-role="connection"]')) ctx.navigate("system");
   });
 
   // ---------------------------------------------------------------------
-  // Abdocken per natives Drag-and-Drop (Punkt 4b).
+  // Abdocken (Punkt 4b)
   // ---------------------------------------------------------------------
   let draggingRoute: RouteId | null = null;
 
@@ -128,9 +134,6 @@ export function mountSidebar(root: HTMLElement, ctx: SidebarContext): SidebarHan
     if (event.dataTransfer) event.dataTransfer.effectAllowed = "move";
   });
 
-  // Die Seitenleiste registriert sich selbst als gueltige Dropzone — ein Drop zurueck auf sich
-  // selbst (die Geste abgebrochen, der Eintrag faellt auf seinen Platz zurueck) ist kein
-  // Abdocken.
   root.addEventListener("dragover", (event) => {
     event.preventDefault();
     if (event.dataTransfer) event.dataTransfer.dropEffect = "move";
@@ -143,8 +146,7 @@ export function mountSidebar(root: HTMLElement, ctx: SidebarContext): SidebarHan
     const route = draggingRoute;
     draggingRoute = null;
     if (!route) return;
-    const dropEffect = event.dataTransfer?.dropEffect ?? "none";
-    if (!shouldDetachOnDragEnd(dropEffect)) return;
+    if (!shouldDetachOnDragEnd(event.dataTransfer?.dropEffect ?? "none")) return;
     detachView(route, {
       onBlocked: () =>
         ctx.toast.show(
@@ -153,15 +155,15 @@ export function mountSidebar(root: HTMLElement, ctx: SidebarContext): SidebarHan
     });
   });
 
+  const micHost = root.querySelector<HTMLElement>('[data-role="mic-host"]') as HTMLElement;
+
   return {
     el: root,
+    micHost,
     setActive(route: RouteId): void {
-      for (const link of root.querySelectorAll<HTMLElement>("[data-route]")) {
+      for (const link of root.querySelectorAll<HTMLElement>(".sidebar__link")) {
         const isActive = link.dataset.route === route;
-        link.classList.toggle(
-          "sidebar__link--active",
-          isActive && link.classList.contains("sidebar__link"),
-        );
+        link.classList.toggle("sidebar__link--active", isActive);
         if (isActive) link.setAttribute("aria-current", "page");
         else link.removeAttribute("aria-current");
       }

@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 import {
+  BAND_MIN_ALPHA,
+  CARD_BASE_ALPHA,
+  CARD_MAX_ALPHA,
   type RGB,
+  SCRIM_COLOR,
   blend,
   clampSaturation,
   contrastRatio,
@@ -8,6 +12,7 @@ import {
   derivePalette,
   ensureContrast,
   hslToRgb,
+  minimalOverlayAlpha,
   relativeLuminance,
   rgbToHsl,
   toHex,
@@ -17,6 +22,25 @@ import {
 const WHITE: RGB = { r: 255, g: 255, b: 255 };
 const BLACK: RGB = { r: 0, g: 0, b: 0 };
 const MID_GRAY: RGB = { r: 128, g: 128, b: 128 };
+
+function parseHexToken(token: string): RGB {
+  return {
+    r: Number.parseInt(token.slice(1, 3), 16),
+    g: Number.parseInt(token.slice(3, 5), 16),
+    b: Number.parseInt(token.slice(5, 7), 16),
+  };
+}
+
+function parseRgbaToken(token: string): { color: RGB; alpha: number } {
+  const parts = token
+    .slice(token.indexOf("(") + 1, token.lastIndexOf(")"))
+    .split(",")
+    .map((part) => Number.parseFloat(part.trim()));
+  return {
+    color: { r: parts[0] as number, g: parts[1] as number, b: parts[2] as number },
+    alpha: parts[3] as number,
+  };
+}
 
 describe("rgbToHsl/hslToRgb", () => {
   it("rundet Schwarz, Weiss und reine Farbtoene korrekt", () => {
@@ -149,28 +173,84 @@ describe("derivePalette", () => {
   it("garantiert einen Textkontrast von mindestens 4,5:1 selbst gegen ein sehr helles Bild", () => {
     const brightImage: RGB[] = Array.from({ length: 50 }, () => ({ r: 255, g: 255, b: 255 }));
     const tokens = derivePalette(brightImage);
-    const fgHex = tokens["--fg"] as string;
-    const fgRgb: RGB = {
-      r: Number.parseInt(fgHex.slice(1, 3), 16),
-      g: Number.parseInt(fgHex.slice(3, 5), 16),
-      b: Number.parseInt(fgHex.slice(5, 7), 16),
-    };
-    // Dieselbe Rechnung wie in derivePalette: der Massstab ist die Flaeche nach dem Scrim.
-    const scrim = { r: 3, g: 4, b: 9 };
-    const effectiveBg = blend(scrim, 0.72, { r: 255, g: 255, b: 255 });
+    const fgRgb = parseHexToken(tokens["--fg"] as string);
+    const { color: panel, alpha: panelAlpha } = parseRgbaToken(tokens["--bg-panel"] as string);
+    // Dieselbe Rechnung wie in derivePalette: der Massstab ist die Kartenflaeche, wie sie ueber
+    // dem hellsten Bildausschnitt tatsaechlich entsteht.
+    const effectiveBg = blend(panel, panelAlpha, { r: 255, g: 255, b: 255 });
     expect(contrastRatio(fgRgb, effectiveBg)).toBeGreaterThanOrEqual(4.5);
+  });
+
+  it("laesst ein dunkles Bild sichtbar — Karte und Baender bleiben nahe an der Grundvorgabe", () => {
+    // Ein Bild wie `lake.jpg`: durchgehend dunkel, nur ein schwacher Lichtschein.
+    const darkImage: RGB[] = [
+      ...Array.from({ length: 60 }, () => ({ r: 12, g: 16, b: 28 })),
+      { r: 96, g: 108, b: 132 },
+    ];
+    const tokens = derivePalette(darkImage);
+    const { alpha: panelAlpha } = parseRgbaToken(tokens["--bg-panel"] as string);
+    const { alpha: topAlpha } = parseRgbaToken(tokens["--scrim-top"] as string);
+    expect(panelAlpha).toBeCloseTo(CARD_BASE_ALPHA, 5);
+    expect(topAlpha).toBeCloseTo(BAND_MIN_ALPHA, 5);
+  });
+
+  it("hebt die Kartendeckkraft nur bei einem hellen Bild an", () => {
+    const dark = derivePalette(Array.from({ length: 20 }, () => ({ r: 10, g: 12, b: 20 })));
+    const bright = derivePalette(Array.from({ length: 20 }, () => ({ r: 255, g: 255, b: 255 })));
+    const darkAlpha = parseRgbaToken(dark["--bg-panel"] as string).alpha;
+    const brightAlpha = parseRgbaToken(bright["--bg-panel"] as string).alpha;
+    expect(brightAlpha).toBeGreaterThan(darkAlpha);
+    // ... aber nie bis zur Undurchsichtigkeit: das Glas-Motiv der Vorlage bleibt erhalten.
+    expect(brightAlpha).toBeLessThanOrEqual(CARD_MAX_ALPHA);
+  });
+
+  it("misst das obere Band getrennt, wenn es uebergeben wird", () => {
+    const wholeImage: RGB[] = Array.from({ length: 40 }, () => ({ r: 240, g: 240, b: 240 }));
+    const darkTop: RGB[] = Array.from({ length: 20 }, () => ({ r: 8, g: 10, b: 18 }));
+    const ohneBand = derivePalette(wholeImage);
+    const mitBand = derivePalette(wholeImage, { topBandPixels: darkTop });
+    expect(parseRgbaToken(mitBand["--scrim-top"] as string).alpha).toBeLessThan(
+      parseRgbaToken(ohneBand["--scrim-top"] as string).alpha,
+    );
   });
 
   it("bleibt dunkel (niedrige Helligkeit von --bg), auch bei einem hellen Quellbild", () => {
     const brightImage: RGB[] = Array.from({ length: 50 }, () => ({ r: 255, g: 255, b: 255 }));
     const tokens = derivePalette(brightImage);
-    const bgHex = tokens["--bg"] as string;
-    const bgRgb: RGB = {
-      r: Number.parseInt(bgHex.slice(1, 3), 16),
-      g: Number.parseInt(bgHex.slice(3, 5), 16),
-      b: Number.parseInt(bgHex.slice(5, 7), 16),
-    };
-    expect(rgbToHsl(bgRgb).l).toBeLessThan(20);
+    expect(rgbToHsl(parseHexToken(tokens["--bg"] as string)).l).toBeLessThan(20);
+  });
+});
+
+describe("minimalOverlayAlpha", () => {
+  const FG: RGB = { r: 237, g: 240, b: 245 };
+
+  it("verlangt ueber einem dunklen Hintergrund keine Abdunklung ueber die Untergrenze hinaus", () => {
+    const alpha = minimalOverlayAlpha(SCRIM_COLOR, { r: 10, g: 14, b: 24 }, FG, 4.5, 0.12, 0.62);
+    expect(alpha).toBeCloseTo(0.12, 5);
+  });
+
+  it("verlangt ueber einem hellen Hintergrund mehr Deckkraft", () => {
+    const alpha = minimalOverlayAlpha(SCRIM_COLOR, WHITE, FG, 4.5, 0.12, 0.95);
+    expect(alpha).toBeGreaterThan(0.12);
+    expect(contrastRatio(FG, blend(SCRIM_COLOR, alpha, WHITE))).toBeGreaterThanOrEqual(4.5);
+  });
+
+  it("liefert das Ergebnis, das die Schwelle tatsaechlich erreicht (nicht knapp darunter)", () => {
+    for (const backdrop of [WHITE, MID_GRAY, { r: 200, g: 120, b: 60 }] as RGB[]) {
+      const alpha = minimalOverlayAlpha(SCRIM_COLOR, backdrop, FG, 4.5, 0, 1);
+      expect(contrastRatio(FG, blend(SCRIM_COLOR, alpha, backdrop))).toBeGreaterThanOrEqual(4.5);
+    }
+  });
+
+  it("ist monoton: ein hellerer Hintergrund verlangt nie weniger Deckkraft", () => {
+    const dunkel = minimalOverlayAlpha(SCRIM_COLOR, { r: 40, g: 40, b: 40 }, FG, 4.5, 0, 1);
+    const hell = minimalOverlayAlpha(SCRIM_COLOR, { r: 220, g: 220, b: 220 }, FG, 4.5, 0, 1);
+    expect(hell).toBeGreaterThanOrEqual(dunkel);
+  });
+
+  it("bleibt bei einer unerreichbaren Schwelle an der Obergrenze stehen, statt zu haengen", () => {
+    const alpha = minimalOverlayAlpha(SCRIM_COLOR, WHITE, FG, 21, 0.1, 0.4);
+    expect(alpha).toBe(0.4);
   });
 });
 

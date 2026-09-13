@@ -11,10 +11,12 @@ export const researchView: View = {
           ${icon("research", { className: "detail-view__icon" })}
           <div>
             <h1 class="detail-view__title">Research</h1>
-            <p class="detail-view__subtitle" data-role="subtitle">Lädt…</p>
+            <p class="detail-view__subtitle" data-role="subtitle">Lädt …</p>
           </div>
         </header>
-        <ul class="research-list" data-role="list"></ul>
+        <section class="detail-panel glass">
+          <ul class="detail-list" data-role="list"></ul>
+        </section>
       </div>
     `;
 
@@ -28,11 +30,13 @@ export const researchView: View = {
         if (!listEl) return;
         listEl.innerHTML = data.findings
           .map(
-            (f) => `
-              <li class="research-list__row">
-                <p class="research-list__query">${f.query}</p>
-                <p class="research-list__summary">${f.summary}</p>
-                <span class="research-list__time">${formatRelativeTime(f.savedAt)}</span>
+            (finding) => `
+              <li>
+                <div class="detail-list__head">
+                  <p class="detail-list__title">${finding.query}</p>
+                  <span class="detail-list__meta">${formatRelativeTime(finding.savedAt)}</span>
+                </div>
+                <p class="detail-list__body">${finding.summary}</p>
               </li>
             `,
           )

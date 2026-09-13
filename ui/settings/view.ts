@@ -276,7 +276,7 @@ export const settingsView: View = {
             `,
           ).join("")}
         </nav>
-        <div class="settings-content" data-role="content">
+        <div class="settings-content glass" data-role="content">
           ${SECTION_RENDER[section](settings)}
         </div>
       </div>

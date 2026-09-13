@@ -26,6 +26,20 @@ export function backgroundUrl(choice: BackgroundChoice): string {
   return choice.kind === "builtin" ? BUILTIN_BACKGROUNDS[choice.id].url : choice.dataUrl;
 }
 
+/**
+ * Macht aus einer moeglicherweise relativen Adresse eine absolute.
+ *
+ * **Warum das noetig ist:** ein `url()` in einer CSS Custom Property wird gegen das Stylesheet
+ * aufgeloest, das die Variable *einsetzt* — hier `ui/styles/layout.css` — und nicht gegen das
+ * Dokument. Aus `./assets/lake.jpg` wurde dadurch `/styles/assets/lake.jpg`, und das
+ * Hintergrundfoto fehlte still und ohne Fehlermeldung. Eine aufgeloeste Adresse hat diese
+ * Mehrdeutigkeit nicht. `data:`-Adressen (eigenes Bild) bleiben unveraendert.
+ */
+export function absoluteUrl(url: string): string {
+  if (url.startsWith("data:")) return url;
+  return new URL(url, document.baseURI).href;
+}
+
 export function loadImage(url: string): Promise<HTMLImageElement> {
   return new Promise((resolve, reject) => {
     const img = new Image();
@@ -37,19 +51,32 @@ export function loadImage(url: string): Promise<HTMLImageElement> {
 
 const SAMPLE_SIZE = 32;
 
-function samplePixels(img: HTMLImageElement): RGB[] {
+/** Wie viel des Bildes oben bzw. unten als eigenes Band gemessen wird — dort steht Text direkt
+ * auf dem Foto (Kopfzeile mit Uhr/Wetter, Fusszeile). Der Rest des Bildes bleibt davon
+ * unberuehrt, damit ein heller Fleck in der Bildmitte nicht die ganze Kopfzeile abdunkelt. */
+const BAND_FRACTION = 0.3;
+
+function samplePixels(img: HTMLImageElement): { all: RGB[]; top: RGB[]; bottom: RGB[] } {
   const canvas = document.createElement("canvas");
   canvas.width = SAMPLE_SIZE;
   canvas.height = SAMPLE_SIZE;
   const context = canvas.getContext("2d");
-  if (!context) return [];
+  if (!context) return { all: [], top: [], bottom: [] };
   context.drawImage(img, 0, 0, SAMPLE_SIZE, SAMPLE_SIZE);
   const { data } = context.getImageData(0, 0, SAMPLE_SIZE, SAMPLE_SIZE);
-  const pixels: RGB[] = [];
+
+  const all: RGB[] = [];
+  const top: RGB[] = [];
+  const bottom: RGB[] = [];
+  const bandRows = Math.max(1, Math.round(SAMPLE_SIZE * BAND_FRACTION));
   for (let i = 0; i < data.length; i += 4) {
-    pixels.push({ r: data[i] as number, g: data[i + 1] as number, b: data[i + 2] as number });
+    const pixel = { r: data[i] as number, g: data[i + 1] as number, b: data[i + 2] as number };
+    all.push(pixel);
+    const row = Math.floor(i / 4 / SAMPLE_SIZE);
+    if (row < bandRows) top.push(pixel);
+    else if (row >= SAMPLE_SIZE - bandRows) bottom.push(pixel);
   }
-  return pixels;
+  return { all, top, bottom };
 }
 
 export function applyPaletteToRoot(
@@ -81,11 +108,15 @@ export async function applyBackground(
   sceneEl: HTMLElement,
   options: ApplyBackgroundOptions = {},
 ): Promise<void> {
-  const url = backgroundUrl(choice);
+  const url = absoluteUrl(backgroundUrl(choice));
   sceneEl.style.setProperty("--scene-image", `url("${url}")`);
   const img = await loadImage(url);
-  const pixels = samplePixels(img);
-  const tokens = derivePalette(pixels, options);
+  const { all, top, bottom } = samplePixels(img);
+  const tokens = derivePalette(all, {
+    ...options,
+    topBandPixels: top,
+    bottomBandPixels: bottom,
+  });
   applyPaletteToRoot(tokens);
   document.dispatchEvent(new CustomEvent(PALETTE_APPLIED_EVENT));
 }

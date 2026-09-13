@@ -19,6 +19,11 @@ export interface ViewContext {
   mic: MicStateStore;
   navigate(route: RouteId, section?: SettingsSectionId): void;
   detach(route: RouteId, section?: SettingsSectionId): void;
+  /** Öffnet die Eingabezeile für einen neuen Auftrag (`ui/compose.ts`) — schickt echt an
+   * `POST /channels/web/messages`. */
+  compose(): void;
+  /** Fokus-Modus an/aus: blendet Seitenleiste und Karten aus, die Uhr bleibt. */
+  toggleFocus(): void;
   /** Nur gesetzt, wenn `view === "settings"`. */
   section?: SettingsSectionId;
 }

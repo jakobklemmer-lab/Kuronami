@@ -11,10 +11,12 @@ export const calendarView: View = {
           ${icon("calendar", { className: "detail-view__icon" })}
           <div>
             <h1 class="detail-view__title">Calendar</h1>
-            <p class="detail-view__subtitle" data-role="subtitle">Lädt…</p>
+            <p class="detail-view__subtitle" data-role="subtitle">Lädt …</p>
           </div>
         </header>
-        <ol class="agenda-full-list" data-role="list"></ol>
+        <section class="detail-panel glass">
+          <ol class="detail-list" data-role="list"></ol>
+        </section>
       </div>
     `;
 
@@ -28,12 +30,15 @@ export const calendarView: View = {
         if (!listEl) return;
         listEl.innerHTML = data.events
           .map(
-            (e) => `
-              <li class="agenda-full-list__row">
-                <time class="agenda-full-list__time">${formatClockTime(e.startsAt)}</time>
-                <div>
-                  <p class="agenda-full-list__title">${e.title}</p>
-                  ${e.location ? `<p class="agenda-full-list__location">${e.location}</p>` : ""}
+            (event) => `
+              <li>
+                <div class="detail-list__row">
+                  ${icon(event.icon)}
+                  <div>
+                    <p class="detail-list__title">${event.title}</p>
+                    ${event.location ? `<p class="detail-list__body">${event.location}</p>` : ""}
+                  </div>
+                  <span class="detail-list__meta" style="margin-left:auto">${formatClockTime(event.startsAt)}</span>
                 </div>
               </li>
             `,

@@ -22,13 +22,16 @@ export const AGENT_STATES = [
 
 export type AgentState = (typeof AGENT_STATES)[number];
 
+/** Die Beschriftung der Mic-Pille. Englisch wie die uebrige Navigation der Bildvorlage
+ * („Listening …" steht dort woertlich), waehrend Hinweistexte und Fehlermeldungen deutsch
+ * bleiben — dieselbe Aufteilung wie bei Home/Mail/Settings. */
 export const AGENT_STATE_LABEL: Record<AgentState, string> = {
-  idle: "ruhig",
-  listening: "hört zu",
-  thinking: "denkt nach",
-  speaking: "spricht",
-  executing: "handelt",
-  complete: "fertig",
+  idle: "Idle",
+  listening: "Listening …",
+  thinking: "Thinking …",
+  speaking: "Speaking …",
+  executing: "Working …",
+  complete: "Done",
 };
 
 export interface MicStateStore {

@@ -250,14 +250,69 @@ export interface DerivePaletteOptions {
   /** Mindest-Kontrastverhaeltnis fuer Text gegen die tatsaechliche Flaeche — Schritt 2.
    * Vorgabe 4.5 (WCAG AA fuer Fliesstext). */
   minContrast?: number;
+  /** Pixel aus dem oberen Bildband, wo die Kopfzeile (Uhr, Datum, Wetter) direkt auf dem Foto
+   * steht. Fehlt es, gilt das ganze Bild — konservativer, aber unnoetig dunkel. */
+  topBandPixels?: readonly RGB[];
+  /** Dasselbe fuer das untere Band (Fusszeile). */
+  bottomBandPixels?: readonly RGB[];
 }
 
-/** Die Farbe der deckenden Ebene (Schritt 3) — sehr dunkel, unabhaengig vom Bild, dieselbe
- * Rolle wie der bisherige feste Verlauf in `.scene` (`ui/styles/layout.css`). */
-export const SCRIM_COLOR: RGB = { r: 3, g: 4, b: 9 };
-export const SCRIM_ALPHA = 0.72;
+/** Die Farbe jeder deckenden Ebene — sehr dunkel, unabhaengig vom Bild. */
+export const SCRIM_COLOR: RGB = { r: 3, g: 5, b: 11 };
 
-const BASE_FG: RGB = { r: 232, g: 232, b: 232 };
+/**
+ * Die Grunddeckkraft einer Glaskarte. Das ist der **Wunschwert** der Gestaltung (die Vorlage
+ * lebt davon, dass das Foto durch die Karten hindurch noch zu ahnen ist); `minimalOverlayAlpha`
+ * hebt ihn nur an, wenn das gewaehlte Bild sonst den Textkontrast reissen liesse.
+ */
+export const CARD_BASE_ALPHA = 0.56;
+export const CARD_MAX_ALPHA = 0.94;
+
+/** Dasselbe fuer die Seitenleiste. In der Vorlage schimmern Berg und Wasser deutlich durch sie
+ * hindurch — sie ist also eher durchsichtiger als eine Karte, nicht deckender. */
+export const SIDEBAR_BASE_ALPHA = 0.5;
+
+/** Die Baender oben/unten duerfen hoechstens so dunkel werden — darueber hinaus wuerde aus dem
+ * Foto eine schwarze Flaeche, und genau das war der Fehler der ersten Fassung. */
+export const BAND_MIN_ALPHA = 0.12;
+export const BAND_MAX_ALPHA = 0.62;
+
+const BASE_FG: RGB = { r: 237, g: 240, b: 245 };
+
+/**
+ * Die kleinste Deckkraft, mit der `overlay` ueber `backdrop` liegen muss, damit `fg` darauf
+ * mindestens `minRatio` Kontrast erreicht — auf `[minAlpha, maxAlpha]` begrenzt.
+ *
+ * Das ist der Kern der Kontrastgarantie **und** der Grund, warum das Foto sichtbar bleiben darf:
+ * ein dunkles Bild (wie `lake.jpg`) braucht fast keine Abdunklung und bekommt deshalb auch keine;
+ * ein helles Bild bekommt genau so viel, wie die 4,5:1 verlangen, und keinen Deut mehr. Eine
+ * feste Deckkraft fuer alle Bilder — die erste Fassung dieses Moduls — ist entweder fuer helle
+ * Bilder zu schwach oder fuer dunkle Bilder eine schwarze Wand.
+ */
+export function minimalOverlayAlpha(
+  overlay: RGB,
+  backdrop: RGB,
+  fg: RGB,
+  minRatio = 4.5,
+  minAlpha = 0,
+  maxAlpha = 1,
+): number {
+  const low = Math.max(0, Math.min(1, minAlpha));
+  const high = Math.max(low, Math.min(1, maxAlpha));
+  if (contrastRatio(fg, blend(overlay, low, backdrop)) >= minRatio) return low;
+
+  // Der Kontrast waechst monoton mit der Deckkraft (die Ebene ist dunkler als jeder denkbare
+  // Hintergrund, der hier hereinkommt), deshalb genuegt eine Intervallhalbierung.
+  let lo = low;
+  let hi = high;
+  if (contrastRatio(fg, blend(overlay, hi, backdrop)) < minRatio) return hi;
+  for (let i = 0; i < 24; i += 1) {
+    const mid = (lo + hi) / 2;
+    if (contrastRatio(fg, blend(overlay, mid, backdrop)) >= minRatio) hi = mid;
+    else lo = mid;
+  }
+  return Math.ceil(hi * 1000) / 1000;
+}
 
 /**
  * Leitet ein vollstaendiges Token-Set aus einer Pixelliste ab. Reine Funktion — `pixels` kommt
@@ -274,36 +329,84 @@ export function derivePalette(
 
   const dominantHsl = rgbToHsl(dominant);
   const accentHsl = clampSaturation(
-    { h: dominantHsl.h, s: Math.max(dominantHsl.s, 20), l: 58 },
+    { h: dominantHsl.h, s: Math.max(dominantHsl.s, 22), l: 62 },
     maxSaturation,
   );
   const accent = hslToRgb(accentHsl);
 
   const mutedHsl = rgbToHsl(muted);
-  const bgHsl = clampSaturation({ h: mutedHsl.h, s: mutedHsl.s, l: 6 }, 30);
-  const bg = hslToRgb(bgHsl);
-  const bgDeep = hslToRgb({ ...bgHsl, l: 3 });
-  const bgPanelSolid = hslToRgb({ ...bgHsl, l: 10 });
+  // Der Kartenton traegt den Bildfarbton, bleibt aber sehr dunkel — die Karte soll wie dunkles
+  // Glas ueber dem Foto wirken, nicht wie eine eingefaerbte Flaeche.
+  const surfaceHsl = clampSaturation({ h: mutedHsl.h, s: Math.max(mutedHsl.s, 12), l: 7 }, 32);
+  const surface = hslToRgb(surfaceHsl);
+  const bg = hslToRgb({ ...surfaceHsl, l: 5 });
+  const bgDeep = hslToRgb({ ...surfaceHsl, l: 3 });
+  const bgPanelSolid = hslToRgb({ ...surfaceHsl, l: 11 });
 
-  // Schritt 3: die Flaeche, gegen die Schritt 2 tatsaechlich prueft, ist der hellste
-  // Bildausschnitt *nach* der deckenden Ebene — der ungünstigste realistische Fall.
-  const effectiveWorstBg = blend(SCRIM_COLOR, SCRIM_ALPHA, brightest);
-  const fg = ensureContrast(BASE_FG, effectiveWorstBg, minContrast);
+  // Karten: Deckkraft nur so weit anheben, wie der Text es verlangt (siehe `minimalOverlayAlpha`).
+  const cardAlpha = minimalOverlayAlpha(
+    surface,
+    brightest,
+    BASE_FG,
+    minContrast,
+    CARD_BASE_ALPHA,
+    CARD_MAX_ALPHA,
+  );
+  const sidebarAlpha = Math.max(
+    SIDEBAR_BASE_ALPHA,
+    minimalOverlayAlpha(
+      bgDeep,
+      brightest,
+      BASE_FG,
+      minContrast,
+      SIDEBAR_BASE_ALPHA,
+      CARD_MAX_ALPHA,
+    ),
+  );
+
+  // Baender oben/unten: dort steht Text (Uhr, Datum, Wetter, Fusszeile) direkt auf dem Foto.
+  // Gemessen wird, wenn moeglich, genau das Band — nicht das ganze Bild, sonst dunkelt ein
+  // heller Fleck in der Bildmitte die Kopfzeile ohne Not ab.
+  const topBrightest = options.topBandPixels?.length
+    ? deriveDominantColors(options.topBandPixels).brightest
+    : brightest;
+  const bottomBrightest = options.bottomBandPixels?.length
+    ? deriveDominantColors(options.bottomBandPixels).brightest
+    : brightest;
+  const topAlpha = minimalOverlayAlpha(
+    SCRIM_COLOR,
+    topBrightest,
+    BASE_FG,
+    minContrast,
+    BAND_MIN_ALPHA,
+    BAND_MAX_ALPHA,
+  );
+  const bottomAlpha = minimalOverlayAlpha(
+    SCRIM_COLOR,
+    bottomBrightest,
+    BASE_FG,
+    minContrast,
+    BAND_MIN_ALPHA,
+    BAND_MAX_ALPHA,
+  );
+
+  // Die Schriftfarbe selbst wird zusaetzlich gegen die Kartenflaeche geprueft — die Baender
+  // decken den Text auf dem Foto ab, die Karten den Text darin.
+  const fg = ensureContrast(BASE_FG, blend(surface, cardAlpha, brightest), minContrast);
 
   return {
     "--bg": toHex(bg),
     "--bg-deep": toHex(bgDeep),
-    // Undurchsichtig, nicht "Glas" (Punkt 7: kein flaechendeckender Blur/Glas-Look) — ein Panel
-    // muss auf jedem Hintergrundbild lesbar bleiben, nicht nur auf dem ruhigen Vorgabefoto.
-    "--bg-panel": toHex(bgPanelSolid),
+    "--bg-panel": toRgba(surface, cardAlpha),
     "--bg-panel-solid": toHex(bgPanelSolid),
-    "--bg-sidebar": toHex(bgDeep),
+    "--bg-sidebar": toRgba(bgDeep, sidebarAlpha),
     "--fg": toHex(fg),
     "--fg-muted": toRgba(fg, 0.62),
-    "--fg-faint": toRgba(fg, 0.38),
+    "--fg-faint": toRgba(fg, 0.4),
     "--accent": toHex(accent),
     "--accent-strong": toRgba(accent, 0.35),
-    "--border": toRgba(fg, 0.1),
-    "--scrim": toRgba(SCRIM_COLOR, SCRIM_ALPHA),
+    "--border": toRgba(fg, 0.09),
+    "--scrim-top": toRgba(SCRIM_COLOR, topAlpha),
+    "--scrim-bottom": toRgba(SCRIM_COLOR, bottomAlpha),
   };
 }

@@ -102,7 +102,7 @@ function formatTime(iso: string): string {
 export const systemView: View = {
   mount(container: HTMLElement, ctx: ViewContext) {
     container.innerHTML = `
-      <div class="detail-view detail-view--system">
+      <div class="detail-view">
         <header class="detail-view__head">
           ${icon("system", { className: "detail-view__icon" })}
           <div>
@@ -111,8 +111,8 @@ export const systemView: View = {
           </div>
         </header>
 
-        <div class="grid">
-          <section class="card card--runs" aria-labelledby="panel-runs-title">
+        <div class="system-grid">
+          <section class="card glass card--runs" aria-labelledby="panel-runs-title">
             <header class="card__head">
               ${icon("system", { className: "card__icon" })}
               <h2 class="card__title" id="panel-runs-title">Läufe</h2>
@@ -129,7 +129,7 @@ export const systemView: View = {
             </div>
           </section>
 
-          <section class="card card--approvals" aria-labelledby="panel-approvals-title">
+          <section class="card glass card--approvals" aria-labelledby="panel-approvals-title">
             <header class="card__head">
               ${icon("bell", { className: "card__icon" })}
               <h2 class="card__title" id="panel-approvals-title">Freigaben &amp; Fehler</h2>
@@ -142,7 +142,7 @@ export const systemView: View = {
             <p class="card__empty" data-role="errors-empty">Keiner seit dem Öffnen.</p>
           </section>
 
-          <section class="card card--plan" aria-labelledby="panel-plan-title">
+          <section class="card glass card--plan" aria-labelledby="panel-plan-title">
             <header class="card__head">
               ${icon("check", { className: "card__icon" })}
               <h2 class="card__title" id="panel-plan-title">Plan</h2>
@@ -154,7 +154,7 @@ export const systemView: View = {
             </dl>
           </section>
 
-          <section class="card card--metrics" aria-labelledby="panel-metrics-title">
+          <section class="card glass card--metrics" aria-labelledby="panel-metrics-title">
             <header class="card__head">
               ${icon("research", { className: "card__icon" })}
               <h2 class="card__title" id="panel-metrics-title">Kennzahlen</h2>

@@ -1,37 +1,56 @@
 /*
- * Design-Tokens und Grundstimmung — UI-Zwischenschub (Punkt 7: "AI-Slop entfernen").
+ * Design-Tokens und Grundstimmung — Neufassung nach der Bildvorlage `dashboard_beispiel.png`.
  *
- * Gegenueber der S25-Fassung geaendert: keine Neonfarben, kein `text-shadow`/`box-shadow`-Glow,
- * kein flaechendeckender Blur mehr auf jeder Karte (siehe `ui/styles/views.css` — Panels
- * bekommen stattdessen je nach Funktion unterschiedliche, ueberwiegend deckende Flaechen). Die
- * Farbwerte selbst sind jetzt *Vorgaben*, keine Festwerte: `ui/theme/palette.ts` schreibt sie zur
- * Laufzeit neu, wenn ein Hintergrund gewaehlt wird (Punkt 5) — jede Regel im ganzen Baum liest
- * ausschliesslich diese Custom Properties, nie einen festen Farbwert.
+ * **Warum zurueck zum Glas.** Die vorherige Fassung hatte auf Zuruf ("AI-Slop entfernen") jedes
+ * Glas- und Blur-Motiv entfernt und einen sehr deckenden Verlauf ueber das Foto gelegt. Das Foto
+ * war damit praktisch unsichtbar und die Oberflaeche wirkte zusammengepfercht — der Nutzer hat
+ * daraufhin ausdruecklich die Bildvorlage als verbindlich erklaert. Die Vorlage lebt von genau
+ * drei Dingen: einem **sichtbaren** Foto, dunklen Glaskarten, die darueber schweben, und viel
+ * Luft dazwischen. Diese Datei stellt das her.
  *
- * Typografische Stufen (Punkt 7: "Hierarchie entsteht ueber Groesse, Abstand und Kontrast"):
- * sieben statt zwei Groessen, klar unterscheidbar statt beliebig gestuft.
+ * Die Kontrastgarantie bleibt davon unberuehrt, sie wird nur anders eingeloest: statt einer
+ * festen, alles zudeckenden Ebene rechnet `ui/theme/palette.ts` zur Laufzeit die **kleinste**
+ * Deckkraft aus, die Karten und Kopfzeilen-Baender brauchen, damit Text 4,5:1 erreicht
+ * (`minimalOverlayAlpha`). Ein dunkles Bild wie `lake.jpg` bekommt deshalb fast keine
+ * Abdunklung, ein grelles genau so viel wie noetig.
+ *
+ * Jeder Farbwert hier ist nur die Vorgabe fuer den ersten Frame — danach schreibt die Ableitung
+ * aus dem Hintergrundbild dieselben Custom Properties neu.
  */
 
 :root {
-  --bg: #0b0e17;
-  --bg-deep: #05070d;
-  --bg-panel: #12162a;
-  --bg-panel-solid: #161b32;
-  --bg-sidebar: #080a12;
-  --scrim: rgba(3, 4, 9, 0.72);
-  --scene-image: url("../assets/lake.jpg");
+  --bg: #070a12;
+  --bg-deep: #04060c;
+  --bg-panel: rgba(11, 16, 27, 0.56);
+  --bg-panel-solid: #141a2b;
+  --bg-sidebar: rgba(6, 9, 16, 0.5);
 
-  --fg: #e8e8e8;
-  --fg-muted: rgba(232, 232, 232, 0.62);
-  --fg-faint: rgba(232, 232, 232, 0.38);
+  /* Die beiden Baender, die Kopf- und Fusszeile lesbar halten, ohne das Foto zuzudecken. */
+  --scrim-top: rgba(3, 5, 11, 0.2);
+  --scrim-bottom: rgba(3, 5, 11, 0.2);
 
-  --accent: #6fa0c9;
-  --accent-strong: rgba(111, 160, 201, 0.4);
+  /*
+   * Absolut ab Dokumentwurzel, nicht relativ. Ein `url()` in einer Custom Property loest der
+   * Browser gegen das Stylesheet auf, das die Variable **einsetzt** (hier `styles/layout.css`),
+   * nicht gegen das, das sie deklariert — aus `./assets/…` wurde dadurch `/styles/assets/…` und
+   * das Foto fehlte komplett. `ui/theme/background.ts` setzt zur Laufzeit ebenfalls eine
+   * aufgeloeste, absolute Adresse.
+   */
+  --scene-image: url("/assets/lake.jpg");
 
-  --state-blocked: #d99a52;
+  --fg: #edf0f5;
+  --fg-muted: rgba(237, 240, 245, 0.62);
+  --fg-faint: rgba(237, 240, 245, 0.4);
+
+  --accent: #7ea6cc;
+  --accent-strong: rgba(126, 166, 204, 0.35);
+
+  --state-up: #5fc98c;
+  --state-down: #e0787f;
+  --state-blocked: #d9a25c;
   --state-awaiting: #d9c25a;
-  --state-complete: #7fbf8f;
-  --state-error: #d97a7a;
+  --state-complete: #5fc98c;
+  --state-error: #e0787f;
 
   --run-queued: var(--fg-faint);
   --run-ready: var(--accent);
@@ -43,41 +62,47 @@
   --run-canceled: var(--fg-muted);
   --run-unknown: var(--fg-faint);
 
-  --border: rgba(232, 232, 232, 0.1);
+  --border: rgba(237, 240, 245, 0.09);
   --border-strong: var(--accent-strong);
-  --shadow-panel: 0 12px 28px rgba(0, 0, 0, 0.4);
+  --shadow-card: 0 18px 40px rgba(0, 0, 0, 0.32);
+
+  --glass-blur: 22px;
 
   --sidebar-width: 232px;
-  --sidebar-width-collapsed: 64px;
-  --radius: 10px;
-  --radius-sm: 6px;
+  --sidebar-width-collapsed: 68px;
+  --radius: 14px;
+  --radius-sm: 10px;
 
-  --gap: 16px;
-  --pad: 18px;
+  /* Luft. Die vorherige Fassung war zu eng — die Vorlage setzt grosse Abstaende. */
+  --gap: 22px;
+  --pad: 20px;
+  --page-x: 28px;
 
-  /* Typstufen — sieben statt zwei. */
-  --text-2xl: 40px;
-  --text-xl: 22px;
+  /* Typstufen, an der Vorlage abgenommen. */
+  --text-clock: 76px;
+  --text-2xl: 30px;
+  --text-xl: 21px;
   --text-lg: 16px;
   --text-md: 14px;
-  --text-sm: 12.5px;
-  --text-xs: 11px;
-  --text-2xs: 10px;
+  --text-sm: 13px;
+  --text-xs: 12px;
+  --text-2xs: 11px;
 
   --font-ui: "Inter", "Segoe UI", system-ui, -apple-system, sans-serif;
   --font-mono: "JetBrains Mono", "Cascadia Mono", ui-monospace, "SF Mono", monospace;
 
   --motion-fast: 140ms;
   --motion-medium: 320ms;
-  --motion-slow: 2400ms;
+  --motion-slow: 2600ms;
   --ease-standard: cubic-bezier(0.2, 0.8, 0.2, 1);
 
   color-scheme: dark;
 }
 
 [data-density="compact"] {
-  --gap: 10px;
-  --pad: 12px;
+  --gap: 14px;
+  --pad: 14px;
+  --text-clock: 58px;
 }
 
 * {
@@ -137,7 +162,25 @@ select {
   outline-offset: 2px;
 }
 
-/* Status-Abzeichen eines Runs (S22) — unveraendert in der Bedeutung, nur ohne Glow. */
+/*
+ * Die Glaskarte — das tragende Motiv der Vorlage. Deckkraft kommt aus `--bg-panel` und wird zur
+ * Laufzeit nur so weit angehoben, wie der Textkontrast es verlangt.
+ */
+.glass {
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg-panel);
+  backdrop-filter: blur(var(--glass-blur));
+  -webkit-backdrop-filter: blur(var(--glass-blur));
+  box-shadow: var(--shadow-card);
+}
+
+/* Kopfzeilen-Text steht direkt auf dem Foto. Ein schmaler, dunkler Saum haelt ihn auch ueber
+ * einer helleren Bildstelle lesbar — das Gegenteil eines Glows, kein Farbschein. */
+.on-photo {
+  text-shadow: 0 1px 12px rgba(3, 5, 11, 0.75);
+}
+
 .run-status {
   display: inline-flex;
   align-items: center;
