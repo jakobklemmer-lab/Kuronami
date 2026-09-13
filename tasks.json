@@ -310,5 +310,14 @@
     "note": "Unterbrechen gemessen: 5 von 5 gültigen Läufen, Median 139 ms, Maximum 177 ms vom ersten lauten Block bis zur Stille beim Hörer — eine End-zu-End-Zahl, die an keinem Anbieter hängt. Die Sprachschicht selbst braucht 1,1 ms Median (Budget 800 ms); die Denkzeit des Agenten ist ausgewiesen, aber ausdrücklich nicht Teil des Budgets (Begründung in voice/pipeline/latency.py). Was unbelegt bleibt, weil keine Anbieter-Schlüssel vorliegen: die Laufzeit von Deepgram und ElevenLabs.",
     "done_when": "Unterbrechen funktioniert, unter 800 ms End-zu-End",
     "depends_on": ["S30"]
+  },
+  {
+    "id": "S32",
+    "title": "Provider- und MCP-Anbindung produktiv",
+    "phase": 9,
+    "status": "planned",
+    "note": "Prompt liegt in docs/sessions/S32-prompt.md. Schließt die seit S16 (ANTHROPIC_API_KEY), S30/S31 (Deepgram/ElevenLabs) und S27 (kein echter MCP-Server verkabelt) offenen Befunde. Welcher MCP-Server zuerst bleibt Nutzerentscheidung, siehe docs/ARCHITEKTUR.md §17.",
+    "done_when": "Agent antwortet über einen echten Anthropic-Modellaufruf; VOICE_MODE=live läuft Ende-zu-Ende gegen echte Deepgram- und ElevenLabs-Antworten; ein produktiver MCP-Server ist angebunden, seine Tools erscheinen im gebauten Katalog, S27-Härtungsprüfung bleibt grün",
+    "depends_on": ["S31"]
   }
 ]
