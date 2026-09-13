@@ -34,6 +34,7 @@ export const SETTINGS_SECTION_IDS = [
   "approvals",
   "memory",
   "integrations",
+  "apiKeys",
   "speech",
   "system",
 ] as const;

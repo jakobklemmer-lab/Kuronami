@@ -28,6 +28,11 @@ der Sessionplan aus `tasks.json` **abgearbeitet**: alle S01–S31 sind `done`, a
 (stillgelegt auf Nutzeranweisung). Die nächste Sitzung hat keine vorgegebene Aufgabe mehr; was
 offen ist, steht unter "Offene Befunde".
 
+**S33 · Provider-Schlüssel aus der Oberfläche setzbar, 2026-09-13.** Während S32 lief (parallele
+Sitzung, siehe `docs/sessions/S32-prompt.md`), bat der Nutzer um eine Möglichkeit, API-Schlüssel
+über die Einstellungsseite statt per Hand in `.env` einzutragen. Eigene Sitzung, unabhängig von
+S32, `status: "done"` — siehe den Abschnitt "S33" am Ende dieser Datei.
+
 **UI-Zwischenschub, 2026-09-13 (eigene Sitzung, nach S25–S27).** Reine Oberflächen-Überarbeitung
 auf ausdrücklichen Nutzerauftrag, ausdrücklich **kein** Sprint der S-Reihe — siehe den Abschnitt
 "UI-Zwischenschub" am Ende dieser Datei für alle Einzelheiten. Kurzfassung: Emblem, einklappbare
@@ -2577,3 +2582,73 @@ worden — es gibt keine Schlüssel**, dieselbe Lage wie bei `ANTHROPIC_API_KEY`
 
 Status: abgeschlossen. Damit ist der Sessionplan aus `tasks.json` abgearbeitet — S01 bis S31 sind
 `done`, außer S25 (stillgelegt auf Nutzeranweisung vom 2026-09-13).
+
+## S33 · Provider-Schlüssel aus der Oberfläche setzbar · 2026-09-13
+
+**Auftrag (Nutzerwunsch, keine vorbereitete Sessionvorlage):** "erstell einfach eine Funktion im
+Dashboard wo ich alle API keys einfügen kann, ohne ständig hier hin oder Code schreiben zu
+müssen." Ausgelöst dadurch, dass beim Verbinden der S32-Schlüssel (parallele Sitzung, siehe
+`docs/sessions/S32-prompt.md`) zwei von drei Werten von der jeweiligen Anbieter-API abgelehnt
+wurden (Anthropic: nicht workspace-gebunden; Deepgram: sieht nach `client_id:client_secret` statt
+einem echten Schlüssel aus) — kein Server-Absturz, wie zunächst vermutet.
+
+**Zwei Sitzungen, eine `.env`, eine Koordination.** S32 lief zeitgleich in einer anderen Sitzung
+(`root-d5`) und ist alleiniger Eigentümer von `.env`/`tasks.json`/`progress.md`/Commits für S32.
+Diese Sitzung hat deshalb `.env` selbst nie angefasst — nicht einmal zum Test — und dieses hier
+ist ein eigener, unabhängiger Task (S33), nicht Teil von S32.
+
+### Was gebaut wurde
+
+* **`runtime/secrets/env-file.ts`** — die einzige Stelle, die ein `.env`-Zeilenformat kennt.
+  `readSecretStatus` liest, ob ein bekannter Schlüssel gesetzt ist (nie den Wert selbst, nur die
+  letzten vier Zeichen als Vorschau). `upsertSecrets` baut daraus einen neuen `.env`-Inhalt:
+  bestehende Zeilen werden ersetzt, neue angehängt, Kommentare und Reihenfolge bleiben
+  Zeichen für Zeichen erhalten. Nur `KNOWN_SECRET_KEYS` (die sieben Werte aus dem S32-Auftrag)
+  lassen sich schreiben — sonst wäre aus einer Handvoll Provider-Schlüsseln ein allgemeiner Weg
+  geworden, beliebige Umgebungsvariablen der Prozesse zu setzen. 14 Tests, rein (kein Dateisystem
+  in der Kernlogik, nur in den dünnen `readEnvFile`/`writeEnvFile`-Hüllen).
+* **`GET`/`POST /settings/api-keys`** (`gateway/server.ts`) — hinter demselben Bearer-Token wie
+  `/runs`: wer den hat, darf ohnehin schon die Runtime steuern. `GET` liefert Status+Vorschau je
+  Schlüssel, `POST` nimmt `{ keys: { NAME: wert } }` und schreibt über `upsertSecrets`. 6 Tests
+  in `gateway/settings.test.ts`, mit einem Speicher im Arbeitsspeicher statt echter Platte oder
+  Datenbank — dieselbe Leichtgewicht-Machart wie `gateway/runs.test.ts`.
+* **`ui/settings/view.ts`, neuer Abschnitt "API-Keys"** — fünf Felder (Anthropic API Key,
+  Anthropic Modell, Deepgram API Key, ElevenLabs API Key, ElevenLabs Voice ID), Typ `password`,
+  Status/Vorschau lädt beim Öffnen, Speichern läuft automatisch bei `change` wie beim
+  Sitzungs-Token unter "Sprache". `VOICE_SESSION_TOKEN`/`VOICE_BRIDGE_TOKEN` bleiben aus dieser
+  Seite bewusst draußen: der Name kollidiert sonst mit dem browserseitigen Sitzungs-Token, das
+  einen anderen Zweck hat (was der Browser vorzeigt, nicht was der Sprachprozess erwartet) — über
+  dieselbe Route sind sie trotzdem schon schreibbar, nur noch nicht von dieser Seite aus.
+
+### Zwei Grenzen, offen benannt statt stillschweigend übergangen
+
+**Eine Änderung gilt erst nach einem Neustart** des betroffenen Dienstes. Kein Fernsteuerungs-
+Endpunkt dafür gebaut — genau das fehlt laut `ui/settings/view.ts` (Abschnitt System) schon
+länger, und ihn nebenbei für diese eine Sitzung nachzuziehen hätte bedeutet, dem Gateway
+Docker-Zugriff zu geben (ein Bind-Mount des Docker-Sockets), eine Entscheidung mit größerer
+Tragweite als dieser Auftrag. Dieselbe Haltung wie `MissingApiKeyError`
+(`runtime/model/anthropic.ts`) und `config_from_env` (`voice/pipeline/config.py`): Konfiguration
+wird beim Start geprüft, nie mitten im Betrieb nachgezogen.
+
+**Setzt Dateizugriff auf die echte `.env` voraus.** Funktioniert heute, weil `gateway`/`runtime`
+noch Docker-Platzhalter ohne eigenes Dockerfile sind (kein `Dockerfile` im Projektwurzel, nur
+`voice/Dockerfile`) — der Gateway-Prozess läuft also über `pnpm gateway` direkt auf dem Rechner
+mit Dateizugriff auf `.env`. Bekäme `gateway` ein eigenes Dockerfile und liefe über
+`docker-compose.yml`s `env_file:`, hätte der Container die Werte nur als Umgebungsvariablen, nicht
+die Datei selbst — ohne einen Bind-Mount von `.env` würde diese Route dort ins Leere schreiben.
+Das ist eine spätere Entscheidung (mit derselben Sorgfalt wie die MCP-Server-Wahl in S32), keine
+stillschweigende Annahme hier.
+
+### Umgebung dieser Sitzung
+
+Dieser Rechner hatte weder ein passendes Node (System-`nodejs` war 22, `package.json` verlangt
+`>=24 <25`) noch `pnpm` — beides über NodeSource/Corepack nachinstalliert, um `pnpm typecheck`/
+`lint`/`test` tatsächlich laufen zu lassen statt ungetesteten TypeScript-Code abzuliefern.
+`pnpm typecheck`, `pnpm lint`, `pnpm test` (183 Tests, Standardlauf) grün; die beiden neuen
+Testdateien liegen unter den seit S21 nicht automatisch laufenden Backend-Pfaden
+(`runtime/**`, `gateway/*.test.ts`) und wurden deshalb, wie schon in früheren Sessionen für
+angefasste alte Pfade, einmal von Hand mit angepasster `include` gefahren (20 Tests, grün).
+`docker compose run --rm voice-test` wurde nicht gefahren — dieser Auftrag berührt `voice/`
+nicht.
+
+Status: abgeschlossen.

@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import express from "express";
 import { originAllowed } from "../runtime/events/bus.js";
 import { readEvents } from "../runtime/events/log.js";
+import { readSecretStatus, upsertSecrets } from "../runtime/secrets/env-file.js";
 import { DEFAULT_SPEND_DAYS, listDailySpend } from "../runtime/session/costs.js";
 import { getRunDetail, listRuns } from "../runtime/session/runs.js";
 import { handleSlackEvent } from "./channels/slack/channel.js";
@@ -45,6 +46,17 @@ export interface ServerDeps {
   slack?: SlackChannelDeps;
   /** Fehlt sie, gibt es keine Sprach-Routen (S30). Der Python-Prozess läuft dann ins Leere. */
   voice?: VoiceChannel;
+  /** Fehlt sie, gibt es keine Schlüsselverwaltung (S32-Nachtrag) — `.env` bleibt dann nur von
+   * Hand editierbar. */
+  secrets?: SettingsSecretsDeps;
+}
+
+/** Liest/schreibt den `.env`-Inhalt, aus dem `readSecretStatus`/`upsertSecrets` ihre Sicht
+ * bauen. Eine Schnittstelle statt eines festen Dateizugriffs, damit ein Test ohne Platte prüfen
+ * kann — dasselbe Muster wie `fetchImpl` in `ui/api/client.ts`. */
+export interface SettingsSecretsDeps {
+  read(): Promise<string>;
+  write(contents: string): Promise<void>;
 }
 
 /** `express.json({verify})` legt hier die rohen Bytes ab — die Slack-Signatur läuft über genau
@@ -322,6 +334,71 @@ export function createServer(deps: ServerDeps): express.Express {
         return;
       }
       res.json(detail);
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  /**
+   * Verwaltung der Provider-Schlüssel aus der Oberfläche heraus (S32-Nachtrag, `ui/settings/
+   * view.ts`, Abschnitt "API-Keys"): dieselbe Handvoll Werte, die bisher nur von Hand in `.env`
+   * landete. Hinter demselben Bearer-Token wie `/runs` — wer diesen Token hat, darf ohnehin
+   * schon die Runtime steuern, ein Provider-Schlüssel ist keine höhere Vertraulichkeit.
+   *
+   * Der Klartext geht nie zurück zum Browser — `readSecretStatus` liefert nur, ob ein Schlüssel
+   * gesetzt ist und seine letzten vier Zeichen zur Wiedererkennung. Und: eine Änderung gilt erst
+   * nach einem Neustart des betroffenen Dienstes (`runtime/secrets/env-file.ts` erklärt, warum).
+   */
+  app.get("/settings/api-keys", async (req, res, next) => {
+    try {
+      const principal = webPrincipal(req, res);
+      if (!principal) return;
+      if (!deps.secrets) {
+        res
+          .status(404)
+          .json({ error: "Schlüsselverwaltung ist auf diesem Gateway nicht eingerichtet." });
+        return;
+      }
+      const contents = await deps.secrets.read();
+      res.json({ keys: readSecretStatus(contents) });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.post("/settings/api-keys", async (req, res, next) => {
+    try {
+      const principal = webPrincipal(req, res);
+      if (!principal) return;
+      if (!deps.secrets) {
+        res
+          .status(404)
+          .json({ error: "Schlüsselverwaltung ist auf diesem Gateway nicht eingerichtet." });
+        return;
+      }
+
+      const updates = req.body?.keys;
+      if (typeof updates !== "object" || updates === null || Array.isArray(updates)) {
+        res.status(400).json({ error: "keys (Objekt aus Schlüssel auf Wert) ist erforderlich." });
+        return;
+      }
+      for (const [key, value] of Object.entries(updates)) {
+        if (typeof value !== "string") {
+          res.status(400).json({ error: `keys.${key} muss ein String sein.` });
+          return;
+        }
+      }
+
+      let nextContents: string;
+      try {
+        const current = await deps.secrets.read();
+        nextContents = upsertSecrets(current, updates as Record<string, string>);
+      } catch (error) {
+        res.status(400).json({ error: error instanceof Error ? error.message : String(error) });
+        return;
+      }
+      await deps.secrets.write(nextContents);
+      res.json({ keys: readSecretStatus(nextContents) });
     } catch (error) {
       next(error);
     }

@@ -6,6 +6,7 @@ import { startEventNotifyListener } from "../runtime/events/notify.js";
 import { buildCatalog } from "../runtime/loop/api.js";
 import { createAnthropicClient } from "../runtime/model/anthropic.js";
 import { resolveModelRouteConfig } from "../runtime/model/router.js";
+import { envFilePathFromEnv, readEnvFile, writeEnvFile } from "../runtime/secrets/env-file.js";
 import { createSlackChannel } from "./channels/slack/channel.js";
 import type { SlackChannelDeps } from "./channels/slack/channel.js";
 import { createSlackClient } from "./channels/slack/client.js";
@@ -144,8 +145,19 @@ async function main(): Promise<void> {
     channels.set("voice", voice);
   }
 
+  // Schlüsselverwaltung aus der Oberfläche heraus (S32-Nachtrag): liest/schreibt dieselbe
+  // `.env`, aus der dieser Prozess selbst gestartet wurde. Setzt voraus, dass der Gateway-
+  // Prozess Dateizugriff auf sie hat — im Docker-Betrieb (`env_file:` in docker-compose.yml)
+  // ist das ohne einen Bind-Mount **nicht** der Fall; das ist eine spätere Entscheidung, keine
+  // stillschweigende Annahme hier.
+  const envFilePath = envFilePathFromEnv();
+  const secrets = {
+    read: () => readEnvFile(envFilePath),
+    write: (contents: string) => writeEnvFile(envFilePath, contents),
+  };
+
   const port = Number(process.env.GATEWAY_PORT ?? 8788);
-  const app = createServer({ gateway, identity, web, telegram, slack, voice });
+  const app = createServer({ gateway, identity, web, telegram, slack, voice, secrets });
   const server: Server = app.listen(port, () => {
     console.log(`[gateway] http://localhost:${port} — Kanäle: ${[...channels.keys()].join(", ")}`);
   });

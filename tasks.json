@@ -319,5 +319,14 @@
     "note": "Prompt liegt in docs/sessions/S32-prompt.md. Schließt die seit S16 (ANTHROPIC_API_KEY), S30/S31 (Deepgram/ElevenLabs) und S27 (kein echter MCP-Server verkabelt) offenen Befunde. Welcher MCP-Server zuerst bleibt Nutzerentscheidung, siehe docs/ARCHITEKTUR.md §17.",
     "done_when": "Agent antwortet über einen echten Anthropic-Modellaufruf; VOICE_MODE=live läuft Ende-zu-Ende gegen echte Deepgram- und ElevenLabs-Antworten; ein produktiver MCP-Server ist angebunden, seine Tools erscheinen im gebauten Katalog, S27-Härtungsprüfung bleibt grün",
     "depends_on": ["S31"]
+  },
+  {
+    "id": "S33",
+    "title": "Provider-Schlüssel aus der Oberfläche setzbar",
+    "phase": 9,
+    "status": "done",
+    "note": "Nutzerwunsch während S32: Anthropic-/Deepgram-/ElevenLabs-Schlüssel sollen über die Einstellungsseite eintragbar sein, statt `.env` von Hand zu editieren oder jedes Mal einen Chat aufzumachen. Neu: `runtime/secrets/env-file.ts` (liest/schreibt `.env`-Zeilen der bekannten Schlüssel, nie eine unbekannte Variable, nie einen mehrzeiligen Wert), `GET`/`POST /settings/api-keys` am Gateway (hinter demselben Bearer-Token wie `/runs`, liefert nie den Klartext zurück — nur ob gesetzt und die letzten vier Zeichen), neuer Abschnitt \"API-Keys\" in `ui/settings/view.ts` für Anthropic/Deepgram/ElevenLabs (ANTHROPIC_API_KEY, ANTHROPIC_MODEL, DEEPGRAM_API_KEY, ELEVENLABS_API_KEY, ELEVENLABS_VOICE_ID). VOICE_SESSION_TOKEN/VOICE_BRIDGE_TOKEN bleiben aus dieser Seite bewusst draußen (Namenskollision mit dem browserseitigen Sitzungs-Token unter \"Sprache\"), sind aber schon über dieselbe Route schreibbar. Bewusst nicht gebaut: ein Fernsteuerungs-Endpunkt für einen Neustart — eine Änderung gilt erst, wenn der betroffene Dienst von Hand neu gestartet wird (dieselbe Haltung wie `MissingApiKeyError`/`config_from_env`: Konfiguration wird beim Start geprüft, nie mitten im Betrieb nachgezogen). Setzt außerdem voraus, dass der Gateway-Prozess Dateizugriff auf die echte `.env` hat — im heutigen Docker-Platzhalter (`env_file:` in docker-compose.yml, kein Bind-Mount) ist das nicht der Fall, nur im Betrieb via `pnpm gateway`.",
+    "done_when": "GET/POST /settings/api-keys getestet (gateway/settings.test.ts, 6 Tests) und die .env-Logik pur getestet (runtime/secrets/env-file.test.ts, 14 Tests); pnpm typecheck/lint/test grün; die Einstellungsseite zeigt Status und Vorschau je Schlüssel und speichert über die neue Route.",
+    "depends_on": []
   }
 ]

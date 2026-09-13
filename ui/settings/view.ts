@@ -1,3 +1,4 @@
+import { ApiError } from "../api/client.js";
 import { icon } from "../icons.js";
 import { SETTINGS_SECTION_IDS, type SettingsSectionId } from "../router/router.js";
 import { loadToken, saveToken } from "../settings.js";
@@ -35,6 +36,7 @@ const SECTION_LABEL: Record<SettingsSectionId, string> = {
   approvals: "Freigaben",
   memory: "Gedächtnis",
   integrations: "Integrationen",
+  apiKeys: "API-Keys",
   speech: "Sprache",
   system: "System",
 };
@@ -193,6 +195,46 @@ function renderIntegrations(settings: KuronamiSettings): string {
   `;
 }
 
+/**
+ * Die fünf Werte, um die es in S32 eigentlich ging (Anthropic, Deepgram, ElevenLabs) — bisher
+ * nur von Hand in `.env` einzutragen. `VOICE_SESSION_TOKEN`/`VOICE_BRIDGE_TOKEN` bleiben hier
+ * bewusst außen vor: der Name kollidiert sonst mit dem Sitzungs-Token unter "Sprache" oben, das
+ * einen anderen Zweck hat (was der **Browser** beim Verbinden vorzeigt, nicht was der
+ * **Sprachprozess** erwartet) — sie lassen sich über `runtime/secrets/env-file.ts` trotzdem
+ * schon schreiben, nur noch nicht von dieser Seite aus.
+ */
+const API_KEY_FIELDS: ReadonlyArray<{ key: string; label: string }> = [
+  { key: "ANTHROPIC_API_KEY", label: "Anthropic API Key" },
+  { key: "ANTHROPIC_MODEL", label: "Anthropic Modell (optional)" },
+  { key: "DEEPGRAM_API_KEY", label: "Deepgram API Key" },
+  { key: "ELEVENLABS_API_KEY", label: "ElevenLabs API Key" },
+  { key: "ELEVENLABS_VOICE_ID", label: "ElevenLabs Voice ID" },
+];
+
+function renderApiKeys(): string {
+  return `
+    <section class="settings-section" aria-labelledby="section-api-keys-title">
+      <h2 class="settings-section__title" id="section-api-keys-title">API-Keys</h2>
+      <p class="field__hint">
+        Landet in der <code>.env</code>, aus der der Gateway-Prozess läuft — gilt erst nach einem
+        Neustart des jeweiligen Dienstes. Ein gespeicherter Wert geht nicht mehr im Klartext
+        zurück, nur die letzten vier Zeichen zur Wiedererkennung.
+      </p>
+      <p class="field__hint" data-role="api-keys-status">Lädt …</p>
+      ${API_KEY_FIELDS.map(
+        (field) => `
+          <div class="field">
+            <label class="field__label" for="setting-key-${field.key}">${field.label}</label>
+            <input class="field__control" id="setting-key-${field.key}" type="password" autocomplete="off"
+              placeholder="Noch nicht geladen" data-role="api-key-input" data-key="${field.key}" disabled />
+            <p class="field__hint" data-role="api-key-hint-${field.key}"></p>
+          </div>
+        `,
+      ).join("")}
+    </section>
+  `;
+}
+
 function renderSpeech(settings: KuronamiSettings): string {
   const endpoint = settings.speech.endpoint ?? "";
   const token = settings.speech.sessionToken ?? "";
@@ -271,6 +313,7 @@ const SECTION_RENDER: Record<SettingsSectionId, (settings: KuronamiSettings) => 
   approvals: renderApprovals,
   memory: renderMemory,
   integrations: renderIntegrations,
+  apiKeys: renderApiKeys,
   speech: renderSpeech,
   system: renderSystem,
 };
@@ -400,6 +443,79 @@ export const settingsView: View = {
       );
       confirmSaved();
     });
+
+    // API-Keys (S32-Nachtrag): läuft nur an, wenn die Sektion gerade gerendert ist — sonst
+    // findet die Abfrage unten schlicht nichts und die Funktionen tun nichts, dasselbe Muster
+    // wie bei den Sprache-Feldern oben.
+    const apiKeyStatusHint = container.querySelector<HTMLElement>('[data-role="api-keys-status"]');
+    const apiKeyInputs = container.querySelectorAll<HTMLInputElement>(
+      '[data-role="api-key-input"]',
+    );
+
+    function describeApiKeyError(error: unknown): string {
+      if (error instanceof ApiError) {
+        if (error.status === "no_token")
+          return "Kein Token hinterlegt — siehe Einstellungen › System.";
+        if (error.status === 401) return "Token abgelehnt — in den Einstellungen › System prüfen.";
+        if (error.status === 404)
+          return "Schlüsselverwaltung ist auf diesem Gateway nicht eingerichtet.";
+        return error.message;
+      }
+      return error instanceof Error ? error.message : String(error);
+    }
+
+    function apiKeyHintFor(key: string): HTMLElement | null {
+      return container.querySelector<HTMLElement>(`[data-role="api-key-hint-${key}"]`);
+    }
+
+    async function loadApiKeyStatus(): Promise<void> {
+      if (!apiKeyStatusHint || apiKeyInputs.length === 0) return;
+      try {
+        const data = await ctx.api.get<{
+          keys: Record<string, { set: boolean; preview: string | null }>;
+        }>("/settings/api-keys");
+        apiKeyStatusHint.textContent = "";
+        for (const input of apiKeyInputs) {
+          input.disabled = false;
+          const status = data.keys[input.dataset.key ?? ""];
+          const hint = apiKeyHintFor(input.dataset.key ?? "");
+          if (hint)
+            hint.textContent = status?.set
+              ? `Gesetzt (endet auf ${status.preview}).`
+              : "Noch nicht gesetzt.";
+        }
+      } catch (error) {
+        apiKeyStatusHint.textContent = describeApiKeyError(error);
+      }
+    }
+
+    async function saveApiKey(input: HTMLInputElement): Promise<void> {
+      const key = input.dataset.key ?? "";
+      const value = input.value.trim();
+      // Ein leeres Feld heißt "nichts eingetragen", nicht "löschen" — GET liefert nie den
+      // Klartext zurück, ein leeres Feld kann also nicht "der bisherige Wert" bedeuten.
+      if (value.length === 0) return;
+      const hint = apiKeyHintFor(key);
+      try {
+        const data = await ctx.api.post<{
+          keys: Record<string, { set: boolean; preview: string | null }>;
+        }>("/settings/api-keys", { keys: { [key]: value } });
+        input.value = "";
+        const status = data.keys[key];
+        if (hint) {
+          hint.textContent = status?.set
+            ? `Gespeichert (endet auf ${status.preview}) — gilt nach einem Neustart des Dienstes.`
+            : "Gespeichert.";
+        }
+      } catch (error) {
+        if (hint) hint.textContent = describeApiKeyError(error);
+      }
+    }
+
+    for (const input of apiKeyInputs) {
+      input.addEventListener("change", () => void saveApiKey(input));
+    }
+    void loadApiKeyStatus();
 
     for (const link of container.querySelectorAll<HTMLElement>(".settings-nav__link")) {
       link.addEventListener("click", () => {
