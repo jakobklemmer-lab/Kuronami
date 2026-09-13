@@ -2,6 +2,7 @@ import { formatRunMetrics } from "../context/metrics.js";
 import { artifactRootFromEnv } from "./artifacts/store.js";
 import { createPool } from "./db/pool.js";
 import { type EventServerHandle, startEventServer } from "./events/bus.js";
+import { type EventNotifyListenerHandle, startEventNotifyListener } from "./events/notify.js";
 import { buildCatalog, createRunner } from "./loop/api.js";
 import { MissingApiKeyError, createAnthropicClient } from "./model/anthropic.js";
 import { resolveModelRouteConfig } from "./model/router.js";
@@ -159,6 +160,10 @@ async function main(): Promise<void> {
       `Ereignisstrom nicht gestartet: Port ${process.env.EVENTS_PORT ?? 3000} ist belegt. Dieser Lauf sendet keine Live-Ereignisse.`,
     );
   }
+  // Die lauschende Seite von `pg_notify` (S21-Nachtrag, `events/notify.ts`): erst sie füttert
+  // `eventBus` und damit den Ereignisstrom oben — ohne sie stünde der Socket, würde aber nie
+  // etwas senden.
+  const eventNotify: EventNotifyListenerHandle = await startEventNotifyListener(pool);
 
   const alive = setInterval(() => {}, 60_000);
   let stopped = false;
@@ -167,6 +172,7 @@ async function main(): Promise<void> {
     stopped = true;
     clearInterval(alive);
     await eventServer?.close().catch(() => undefined);
+    await eventNotify.close().catch(() => undefined);
     await runner.stop(reason);
     // Wer den Store geöffnet hat, schließt ihn — dasselbe Eigentumsmuster wie beim Pool (S03).
     memory?.close();

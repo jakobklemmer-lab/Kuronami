@@ -12,11 +12,24 @@ import type { EventRecord } from "./log.js";
  * jemand wiederfinden müsste: was vor dem Verbinden geschah, liegt in der Datenbank, nicht hier.
  * Ein Neustart des Prozesses leert ihn, und das ist richtig so.
  *
- * **Er hängt am einzigen Schreibtor** (`appendEventInTx` in `log.ts`) — aus demselben Grund, aus
- * dem der Redaction-Filter dort steht: es gibt keinen zweiten Weg in `kuronami.events`, also
- * kann kein Ereignis an ihm vorbei entstehen. Der angesagte Datensatz ist der aus dem
- * `RETURNING` der Einfügung, also der **bereits gefilterte** — der Bus liegt per Bauart hinter
- * dem Filter und kann kein Geheimnis hinaustragen, das das Protokoll nicht ohnehin trägt.
+ * **Gefüttert wird er über `pg_notify`, nicht mehr über einen direkten Aufruf** (S21-Nachtrag,
+ * `notify.ts`). `log.ts` sagt bei jeder Einfügung per `pg_notify` an; `startEventNotifyListener`
+ * hält eine eigene lauschende Verbindung, liest den vollen Datensatz über `readEventById` zurück
+ * und ruft erst dann `publishRecord` auf dieser Klasse. `pg_notify` ist transaktional — die
+ * Zustellung wartet auf den COMMIT der schreibenden Transaktion und entfällt bei einem
+ * ROLLBACK —, und genau das war die Lücke der ersten Fassung: ein direkter Aufruf aus
+ * `appendEventInTx` sagte ein Ereignis an, bevor feststand, ob die Transaktion durchkommt. Der
+ * Kanal ist global (`EVENT_NOTIFY_CHANNEL` in `log.ts`), nicht je Prozess: jeder Prozess mit
+ * einem eigenen Bus (Runtime, Gateway) hört auf denselben Kanal und sieht damit **jedes**
+ * committete Ereignis im System, nicht mehr nur, was er selbst geschrieben hat — eine
+ * Verschiebung gegenüber der ersten Fassung dieses Kommentars, siehe `progress.md`. Sicher
+ * bleibt das, weil die Redaction (`log.ts`) an der Zeile selbst hängt, nicht am Absender.
+ *
+ * **Er hängt weiterhin am einzigen Schreibtor** (`appendEventInTx` in `log.ts`) — aus demselben
+ * Grund, aus dem der Redaction-Filter dort steht: es gibt keinen zweiten Weg in
+ * `kuronami.events`, also kann kein Ereignis an ihm vorbei entstehen. Der angesagte Datensatz
+ * ist der bereits gefilterte — der Bus liegt per Bauart hinter dem Filter und kann kein
+ * Geheimnis hinaustragen, das das Protokoll nicht ohnehin trägt.
  *
  * **Nur lesend.** Es gibt keinen Weg von einem verbundenen Client zurück in die Runtime: ein
  * Datenframe von außen beendet die Verbindung (1003), statt stillschweigend verworfen zu werden.

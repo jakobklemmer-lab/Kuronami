@@ -2,6 +2,7 @@ import type { Server } from "node:http";
 import { artifactRootFromEnv } from "../runtime/artifacts/store.js";
 import { createPool } from "../runtime/db/pool.js";
 import { attachEventSocket } from "../runtime/events/bus.js";
+import { startEventNotifyListener } from "../runtime/events/notify.js";
 import { buildCatalog } from "../runtime/loop/api.js";
 import { createAnthropicClient } from "../runtime/model/anthropic.js";
 import { resolveModelRouteConfig } from "../runtime/model/router.js";
@@ -123,6 +124,9 @@ async function main(): Promise<void> {
   // Express je zu sehen bekäme — deshalb am Server und nicht als Route (siehe `bus.ts`).
   const events = attachEventSocket(server);
   console.log(`[gateway] Ereignisstrom: ws://localhost:${port}/events (nur lesend).`);
+  // Die lauschende Seite von `pg_notify` (S21-Nachtrag): ohne sie hinge der Socket oben, ohne
+  // dass ihn je etwas füllte — `log.ts` sagt seit dem Nachtrag nur noch per NOTIFY an.
+  const eventNotify = await startEventNotifyListener(pool);
 
   console.log(
     `Nutzer ${identity.userId}, Tool-Katalog ${catalog.version} mit ${catalog.tools.length} Tools, Modell ${model.model}.`,
@@ -167,6 +171,7 @@ async function main(): Promise<void> {
     polling?.stop();
     await polling?.done.catch(() => undefined);
     await events.close().catch(() => undefined);
+    await eventNotify.close().catch(() => undefined);
     server.close();
     // `stopAll` schreibt je Läufer ein `runtime.stopped`. Ein übersehener Läufer hinterlässt
     // ein `runtime.started` ohne Gegenstück — seit S04 das Kennzeichen eines Absturzes.

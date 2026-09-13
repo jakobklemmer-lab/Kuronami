@@ -1,8 +1,15 @@
 import { randomUUID } from "node:crypto";
 import type { Pool, PoolClient } from "pg";
 import { redactValue } from "../redaction/redact.js";
-import { eventBus } from "./bus.js";
 import { type EventType, assertEventType } from "./types.js";
+
+/**
+ * Der Kanal, auf dem jede Einfügung in `kuronami.events` per `pg_notify` ansagt (S21-Nachtrag,
+ * `notify.ts`). `pg_notify` ist transaktional: die Zustellung wartet auf den COMMIT der
+ * sendenden Transaktion und entfällt bei einem ROLLBACK. Genau das konnte die direkte Ansage,
+ * die S21 zuerst gebaut hat, nicht leisten (siehe `notify.ts` für die lauschende Seite).
+ */
+export const EVENT_NOTIFY_CHANNEL = "kuronami_events";
 
 export type EventPayload = Record<string, unknown>;
 
@@ -101,17 +108,17 @@ export async function appendEventInTx(
 
   const record = toRecord(inserted.rows[0]);
 
-  // Die Ansage an den Ereignisbus (S21) steht aus demselben Grund hier wie der Filter eine
-  // Zeile darüber: dies ist das einzige Schreibtor, also kann kein Ereignis an ihr vorbei
-  // entstehen. Angesagt wird der Datensatz aus dem RETURNING — also die **gefilterte**
-  // Fassung. Der Bus liegt damit per Bauart hinter dem Redaction-Filter.
-  //
-  // Was er nicht kann: auf den COMMIT warten. Diese Funktion läuft in einer fremden
-  // Transaktion (der Aufrufer verantwortet COMMIT/ROLLBACK), und `pg` kennt keinen Haken auf
-  // deren Ende. Eine zurückgerollte Transaktion sagt also ein Ereignis an, das nie dauerhaft
-  // wurde. Das ist vertretbar, weil der Bus ausdrücklich eine Ansage ist und nicht das
-  // Protokoll: die Oberfläche liest jeden verbindlichen Stand aus `kuronami.events` zurück.
-  eventBus.publishRecord(record);
+  // Die Ansage an den Ereignisbus (S21) läuft seit dem Nachtrag über `pg_notify`, nicht mehr
+  // über einen direkten Aufruf von hier aus. Grund: diese Funktion läuft in einer fremden
+  // Transaktion (der Aufrufer verantwortet COMMIT/ROLLBACK), und ein direkter Aufruf sagte ein
+  // Ereignis an, bevor feststand, ob die Transaktion überhaupt durchkommt — eine
+  // zurückgerollte Transaktion hätte trotzdem etwas angesagt, das nie dauerhaft wurde.
+  // `pg_notify` ist transaktional: die Zustellung an lauschende Verbindungen (`notify.ts`)
+  // wartet auf genau diesen COMMIT und entfällt bei einem ROLLBACK von selbst. Der Kanal trägt
+  // nur die `event_id` (NOTIFY-Payloads sind auf ~8000 Byte begrenzt); die lauschende Seite
+  // liest den vollen — bereits gefilterten — Datensatz über `readEventById` zurück, also bleibt
+  // der Bus per Bauart hinter dem Redaction-Filter dieser Funktion.
+  await client.query("SELECT pg_notify($1, $2)", [EVENT_NOTIFY_CHANNEL, record.eventId]);
 
   return record;
 }
@@ -141,4 +148,22 @@ export async function appendEvent(
 export async function readEvents(pool: Pool, sessionId: string): Promise<EventRecord[]> {
   const result = await pool.query<EventRow>(SELECT_EVENTS_SQL, [sessionId]);
   return result.rows.map(toRecord);
+}
+
+const SELECT_EVENT_BY_ID_SQL = `
+  SELECT event_id, session_id, seq, type, payload, created_at
+  FROM kuronami.events
+  WHERE event_id = $1
+`;
+
+/**
+ * Liest ein einzelnes Ereignis über seine ID. Die einzige Aufruferin ist `notify.ts`: eine
+ * `pg_notify`-Benachrichtigung trägt nur die ID, nicht den Datensatz (Größenbegrenzung, siehe
+ * `EVENT_NOTIFY_CHANNEL`), und diese Funktion liefert dafür die volle — bereits gefilterte —
+ * Zeile zurück. `null` heißt: kein Eintrag mit dieser ID, was bei einer echten Ansage aus
+ * dieser Datenbank nicht vorkommen sollte, aber kein Grund ist, eine Ausnahme zu werfen.
+ */
+export async function readEventById(pool: Pool, eventId: string): Promise<EventRecord | null> {
+  const result = await pool.query<EventRow>(SELECT_EVENT_BY_ID_SQL, [eventId]);
+  return result.rowCount === 0 ? null : toRecord(result.rows[0]);
 }
