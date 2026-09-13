@@ -20,9 +20,9 @@ import type { AskOption } from "../runtime/session/state.js";
  */
 
 /** Die Kanäle, die das Gateway heute bedient. Mail und Sprache kommen später dazu. */
-export type ChannelId = "web" | "telegram";
+export type ChannelId = "web" | "telegram" | "slack";
 
-export const CHANNEL_IDS: readonly ChannelId[] = ["web", "telegram"];
+export const CHANNEL_IDS: readonly ChannelId[] = ["web", "telegram", "slack"];
 
 export function isChannelId(value: unknown): value is ChannelId {
   return typeof value === "string" && (CHANNEL_IDS as readonly string[]).includes(value);

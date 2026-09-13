@@ -1,92 +1,225 @@
 /*
- * Das Grundlayout (S21): Taskbar oben, schwebende Panels über den oberen 65 %, Wasser über den
- * unteren 35 %, Einstellungen unten rechts.
+ * Das Grundlayout — S25-Neufassung, 1:1 an der vom Nutzer gelieferten Vorlage gebaut: eine
+ * Seitenleiste links (Marke, Bereiche, Verbindungsstatus), ein echtes Hintergrundfoto
+ * (`assets/lake.jpg`) statt gezeichneter Szenerie, eine zentrierte Uhr/Datum-Kopfzeile und vier
+ * schwebende Glaskarten mit echtem Inhalt (Läufe, Freigaben & Fehler, Plan, Kennzahlen).
  *
- * **Schwebend statt Raster** ist eine Vorgabe aus `tasks.json` und kein Geschmack: die Panels
- * liegen absolut positioniert über der Bühne, damit sie später verschiebbar werden können,
- * ohne dass ein Raster dagegen arbeitet. Die Prozentwerte stehen als Variablen in `theme.css`.
+ * Ersetzt den vorherigen Entwurf dieser Session (Taskbar oben, Wasserkreise, Centerpiece)
+ * vollständig — siehe `progress.md` (S25) für die Begründung und den damit offen bleibenden
+ * Punkt (das ursprüngliche S25-Fertig-Kriterium, ein Ninja-Centerpiece, ist bewusst nicht Teil
+ * dieser Fassung).
  */
 
-.taskbar {
+/* Das Hintergrundfoto: fest, volle Fläche, hinter allem anderen. Ein Verlauf obendrüber sorgt
+ * dafür, dass Text auch dort lesbar bleibt, wo das Foto selbst hell ist (der Lichtschein rechts
+ * im Bild) — ohne den Verlauf würde ausgerechnet die hellste Bildstelle mit Inhalt kollidieren. */
+.scene {
   position: fixed;
-  inset: 0 0 auto 0;
-  z-index: 30;
-  height: var(--taskbar-height);
-  display: flex;
-  align-items: center;
-  gap: 16px;
-  padding: 0 16px;
-  background: var(--bg-taskbar);
-  backdrop-filter: blur(12px);
-  border-bottom: 1px solid var(--border);
+  inset: 0;
+  z-index: 0;
+  background: linear-gradient(
+      180deg,
+      rgba(3, 4, 9, 0.4) 0%,
+      rgba(3, 4, 9, 0.12) 30%,
+      rgba(3, 4, 9, 0.58) 100%
+    ), url("../assets/lake.jpg") center 30% / cover no-repeat;
+  pointer-events: none;
 }
 
-.taskbar__brand {
+/* --------------------------------------------------------------------- */
+/* Seitenleiste                                                          */
+/* --------------------------------------------------------------------- */
+
+.sidebar {
+  position: fixed;
+  inset: 0 auto 0 0;
+  width: var(--sidebar-width);
+  z-index: 20;
   display: flex;
-  align-items: center;
-  gap: 8px;
-  min-width: 140px;
+  flex-direction: column;
+  padding: 26px 18px;
+  background: var(--bg-sidebar);
+  backdrop-filter: blur(20px);
+  border-right: 1px solid var(--border);
 }
 
-.taskbar__mark {
+.sidebar__brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 0 6px;
+  margin-bottom: 44px;
+}
+
+.sidebar__mark {
   color: var(--ripple-cyan);
-  font-size: 18px;
+  font-size: 20px;
   text-shadow: var(--glow-cyan);
 }
 
-.taskbar__name {
+.sidebar__name {
   font-weight: 600;
-  letter-spacing: 0.08em;
+  letter-spacing: 0.16em;
   text-transform: uppercase;
-  font-size: 12px;
+  font-size: 13px;
   color: var(--fg);
 }
 
-.taskbar__center {
-  flex: 1;
+.sidebar__nav {
   display: flex;
-  justify-content: center;
+  flex-direction: column;
+  gap: 4px;
+  flex: 1;
 }
 
-.taskbar__state {
-  font-size: 11px;
-  letter-spacing: 0.14em;
-  text-transform: uppercase;
-  color: var(--state-colour, var(--fg-muted));
-  padding: 3px 12px;
-  border: 1px solid currentcolor;
-  border-radius: 999px;
-  opacity: 0.85;
-  transition: color 240ms ease, opacity 240ms ease;
-}
-
-.taskbar__right {
+.sidebar__link {
   display: flex;
   align-items: center;
-  gap: 14px;
-  min-width: 140px;
-  justify-content: flex-end;
-}
-
-.taskbar__clock {
-  font-family: var(--font-mono);
-  font-size: 12px;
+  gap: 12px;
+  width: 100%;
+  padding: 10px 12px;
+  border-radius: 10px;
+  font-size: 13px;
+  text-align: left;
   color: var(--fg-muted);
-  font-variant-numeric: tabular-nums;
+  transition: background 160ms ease, color 160ms ease;
 }
 
-.taskbar__bell {
+.sidebar__link:hover:not(.sidebar__link--inert) {
+  background: rgba(232, 232, 232, 0.06);
+  color: var(--fg);
+}
+
+.sidebar__link--active {
+  background: rgba(97, 218, 251, 0.12);
+  color: var(--fg);
+}
+
+/* Bereiche, für die es heute keine eigene Ansicht gibt (Mail/Calendar/Trading/Research/Files —
+ * siehe `index.html`-Kommentar). Sichtbar, aber erkennbar ohne Funktion: kein Zeiger-Cursor,
+ * kein Hover, kein Klickziel — ein totes `<a>` wäre eine vorgetäuschte Funktion. */
+.sidebar__link--inert {
+  opacity: 0.35;
+  cursor: default;
+}
+
+.sidebar__icon {
+  display: inline-flex;
+  justify-content: center;
+  width: 16px;
+  font-size: 14px;
+}
+
+.sidebar__status {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 6px 0;
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--fg-faint);
+  border-top: 1px solid var(--border);
+}
+
+.sidebar__dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--fg-faint);
+}
+
+.sidebar__dot[data-status="open"] {
+  background: var(--state-complete);
+  box-shadow: 0 0 8px var(--state-complete);
+}
+
+.sidebar__dot[data-status="connecting"] {
+  background: var(--state-speaking);
+}
+
+.sidebar__dot[data-status="closed"] {
+  background: var(--state-error);
+}
+
+/* --------------------------------------------------------------------- */
+/* Hauptbereich: Kopfzeile (Uhr/Datum) und die vier Karten                */
+/* --------------------------------------------------------------------- */
+
+.dashboard {
+  position: fixed;
+  inset: 0 0 0 var(--sidebar-width);
+  z-index: 10;
+}
+
+.hero {
+  position: absolute;
+  top: 6%;
+  left: 50%;
+  transform: translateX(-50%);
+  text-align: center;
+  z-index: 2;
+}
+
+.hero__date {
+  font-size: 13px;
+  letter-spacing: 0.08em;
+  color: var(--fg-muted);
+}
+
+.hero__time {
+  font-family: var(--font-ui);
+  font-size: 64px;
+  font-weight: 200;
+  line-height: 1.05;
+  font-variant-numeric: tabular-nums;
+  color: var(--fg);
+}
+
+.hero__tagline {
+  margin: 6px 0 0;
+  font-size: 10px;
+  letter-spacing: 0.3em;
+  text-transform: uppercase;
+  color: var(--fg-faint);
+}
+
+/* Wo die Vorlage ein Wetter-Widget zeigt, stehen hier echte Systemsignale (siehe
+ * `index.html`-Kommentar): Verbindungsstand und ungelesene Antworten. */
+.hero__utility {
+  position: absolute;
+  top: 7%;
+  right: 4%;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+.hero__state {
+  font-size: 11px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--state-colour, var(--fg-muted));
+  padding: 4px 12px;
+  border: 1px solid currentcolor;
+  border-radius: 999px;
+  opacity: 0.9;
+  transition: color 240ms ease;
+}
+
+.hero__bell {
   position: relative;
   color: var(--fg-muted);
-  font-size: 15px;
+  font-size: 16px;
   line-height: 1;
 }
 
-.taskbar__bell:hover {
+.hero__bell:hover {
   color: var(--fg);
 }
 
-.taskbar__badge {
+.hero__badge {
   position: absolute;
   top: -6px;
   right: -8px;
@@ -100,134 +233,100 @@
   text-align: center;
 }
 
-.taskbar__link {
-  font-size: 10px;
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
-  color: var(--fg-faint);
+/* Zwei Spalten, zwei Karten je Spalte — dieselbe gestapelte Anordnung wie in der Vorlage
+ * (dort: Markt/Termine links, Posteingang/System rechts), nur mit Kuronamis eigenem Inhalt. */
+.grid {
+  position: absolute;
+  inset: 24% 4% 5% 4%;
 }
 
-.taskbar__link[data-status="open"] {
-  color: var(--state-complete);
-}
-
-.taskbar__link[data-status="connecting"] {
-  color: var(--state-speaking);
-}
-
-.taskbar__link[data-status="closed"] {
-  color: var(--state-error);
-}
-
-/* Die Bühne: obere 65 %, abzüglich der Taskbar. Die Panels schweben darüber. */
-.stage {
-  position: fixed;
-  top: var(--taskbar-height);
-  left: 0;
-  right: 0;
-  height: calc(var(--stage-share) - var(--taskbar-height));
-  z-index: 10;
-}
-
-.panel {
+.card {
   position: absolute;
   display: flex;
   flex-direction: column;
   gap: 8px;
-  padding: 14px 16px;
+  padding: 16px 18px;
   border: 1px solid var(--border);
   border-radius: var(--radius);
   background: var(--bg-panel);
-  backdrop-filter: blur(14px);
+  backdrop-filter: blur(16px);
   box-shadow: var(--shadow-panel);
   transition: transform 320ms cubic-bezier(0.2, 0.8, 0.2, 1), box-shadow 320ms ease;
 }
 
-.panel:hover {
+.card:hover {
   transform: translateY(-2px);
   box-shadow: var(--shadow-float);
 }
 
-/* Vier schwebende Platzhalter. Die Werte sind bewusst krumm — ein schwebendes Layout soll
- * nicht aussehen wie ein Raster, das sich nicht traut. */
-.panel--runs {
-  top: 4%;
-  left: 3%;
-  width: 30%;
-  height: 72%;
+.card--runs {
+  left: 0;
+  top: 0;
+  width: 46%;
+  height: 46%;
 }
 
-.panel--plan {
-  top: 6%;
-  left: 37%;
-  width: 26%;
-  height: 34%;
+.card--plan {
+  left: 0;
+  bottom: 0;
+  width: 46%;
+  height: 32%;
 }
 
-.panel--metrics {
-  top: 46%;
-  left: 37%;
-  width: 26%;
-  height: 30%;
+.card--approvals {
+  right: 0;
+  top: 0;
+  width: 46%;
+  height: 58%;
 }
 
-.panel--approvals {
-  top: 10%;
-  right: 3%;
-  width: 26%;
-  height: 44%;
+.card--metrics {
+  right: 0;
+  bottom: 0;
+  width: 46%;
+  height: 32%;
 }
 
-.panel__title {
+.card__head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.card__icon {
+  color: var(--ripple-cyan);
+  font-size: 13px;
+  opacity: 0.85;
+}
+
+.card__chevron {
+  margin-left: auto;
+  color: var(--fg-faint);
+  font-size: 15px;
+}
+
+.card__title {
   font-size: 11px;
   letter-spacing: 0.16em;
   text-transform: uppercase;
   color: var(--fg-muted);
 }
 
-.panel__hint,
-.panel__empty {
+.card__hint,
+.card__empty {
   margin: 0;
   font-size: 12px;
   color: var(--fg-faint);
 }
 
-.panel__stream {
-  margin: 4px 0 0;
-  padding: 0;
-  list-style: none;
-  overflow-y: auto;
-  flex: 1;
-  font-family: var(--font-mono);
-  font-size: 11px;
-  scrollbar-width: thin;
-}
-
-.panel__stream li {
-  display: flex;
-  gap: 8px;
-  padding: 3px 0;
-  border-bottom: 1px solid rgba(232, 232, 232, 0.04);
-  color: var(--fg-muted);
-}
-
-.panel__stream li:first-child {
-  color: var(--fg);
-}
-
-.panel__stream time {
-  color: var(--fg-faint);
-  font-variant-numeric: tabular-nums;
-}
-
-.panel__figures {
+.card__figures {
   display: flex;
   flex-wrap: wrap;
   gap: 14px 22px;
   margin: auto 0 0;
 }
 
-.panel__subtitle {
+.card__subtitle {
   margin: 8px 0 0;
   font-size: 10px;
   letter-spacing: 0.14em;
@@ -235,11 +334,11 @@
   color: var(--fg-faint);
 }
 
-/* Läufe-Liste und -Detail (S22). Beide teilen sich den Platz von `.panel--runs`: entweder die
+/* Läufe-Liste und -Detail (S22). Beide teilen sich den Platz von `.card--runs`: entweder die
  * Liste oder das Detail ist sichtbar, nie beide (siehe `main.ts`). */
-.panel__runs-list,
-.panel__approvals-list,
-.panel__errors-list {
+.card__runs-list,
+.card__approvals-list,
+.card__errors-list {
   margin: 0;
   padding: 0;
   list-style: none;
@@ -372,13 +471,14 @@
   font-variant-numeric: tabular-nums;
 }
 
-/* Einstellungen (S22): der Bearer-Token, den /runs und /channels/web/* verlangen. */
+/* Einstellungen: der Bearer-Token, den /runs und /channels/web/* verlangen. Erreichbar über den
+ * Seitenleisten-Eintrag „Settings" (`main.ts`), nicht mehr über ein schwebendes Zahnrad. */
 .settings-panel {
   position: fixed;
-  right: 20px;
-  bottom: 70px;
+  left: calc(var(--sidebar-width) + 24px);
+  bottom: 24px;
   z-index: 40;
-  width: min(280px, calc(100vw - 40px));
+  width: min(280px, calc(100vw - var(--sidebar-width) - 48px));
   display: flex;
   flex-direction: column;
   gap: 8px;
@@ -443,81 +543,64 @@
   font-variant-numeric: tabular-nums;
 }
 
-/* Das Wasser: untere 35 %, ganze Breite, unter allem anderen. */
-.water {
-  position: fixed;
-  inset: auto 0 0 0;
-  height: var(--water-share);
-  z-index: 1;
-  overflow: hidden;
-  background: linear-gradient(180deg, rgba(6, 9, 25, 0) 0%, rgba(6, 9, 25, 0.55) 60%, #04060f 100%);
-}
-
-.water__canvas {
-  display: block;
-  width: 100%;
-  height: 100%;
-}
-
-/* Die Kante zwischen Bühne und Wasser. Ein Strich, keine Linie — er soll den Blick führen,
- * nicht das Bild teilen. */
-.water__horizon {
-  position: absolute;
-  inset: 0 0 auto 0;
-  height: 1px;
-  background: linear-gradient(
-    90deg,
-    transparent 0%,
-    var(--ripple-blue) 25%,
-    var(--state-colour, var(--ripple-cyan)) 50%,
-    var(--ripple-blue) 75%,
-    transparent 100%
-  );
-  opacity: 0.45;
-  box-shadow: var(--glow-blue);
-  transition: opacity 400ms ease;
-}
-
-.settings {
-  position: fixed;
-  right: 20px;
-  bottom: 20px;
-  z-index: 40;
-  width: 40px;
-  height: 40px;
-  display: grid;
-  place-items: center;
-  border-radius: 50%;
-  border: 1px solid var(--border);
-  background: var(--bg-panel-solid);
-  color: var(--fg-muted);
-  font-size: 17px;
-  box-shadow: var(--shadow-panel);
-  transition: color 220ms ease, border-color 220ms ease, transform 400ms ease;
-}
-
-.settings:hover {
-  color: var(--ripple-cyan);
-  border-color: var(--border-strong);
-  transform: rotate(60deg);
-}
-
-/* Schmale Fenster: aus dem Schwebenden wird eine Spalte, sonst liegen die Panels übereinander. */
+/* Schmale Fenster: Seitenleiste wird zur schmalen Symbolspalte, die Karten legen sich unter die
+ * Kopfzeile in eine einzige Spalte statt sich zu überlappen. */
 @media (max-width: 900px) {
-  .stage {
-    height: calc(var(--stage-share) - var(--taskbar-height));
-    overflow-y: auto;
-    padding: 12px;
+  .sidebar {
+    width: 64px;
+    padding: 18px 10px;
   }
 
-  .panel {
+  .sidebar__name,
+  .sidebar__link span:last-child,
+  .sidebar__status span:last-child {
+    display: none;
+  }
+
+  .sidebar__brand {
+    justify-content: center;
+    padding: 0;
+  }
+
+  .sidebar__link {
+    justify-content: center;
+  }
+
+  .dashboard {
+    inset: 0 0 0 64px;
+    overflow-y: auto;
+  }
+
+  .hero {
+    position: static;
+    transform: none;
+    text-align: center;
+    padding: 24px 12px 0;
+  }
+
+  .hero__utility {
+    position: static;
+    justify-content: center;
+    margin-top: 12px;
+  }
+
+  .grid {
+    position: static;
+    inset: auto;
+    padding: 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+  }
+
+  .card {
     position: relative;
     top: auto;
     left: auto;
     right: auto;
+    bottom: auto;
     width: 100%;
     height: auto;
-    min-height: 120px;
-    margin-bottom: 12px;
+    min-height: 140px;
   }
 }

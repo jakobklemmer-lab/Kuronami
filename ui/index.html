@@ -9,113 +9,176 @@
   </head>
   <body>
     <!--
-      Das Grundgerüst aus S21, seit S22-S24 mit echtem Inhalt: Läufe-Liste und -Detail (S22),
-      Freigaben und ein Fehler-Verlauf (S23), Kennzahlen aus Abschnitt 12 (S24) — alle über
-      `/runs` bzw. `/channels/web/*` am Gateway, hinter dem Bearer-Token aus den Einstellungen
-      (Zahnrad unten rechts). Das 3D-Centerpiece (S25) fehlt weiterhin bewusst.
+      S25-Neufassung: 1:1 an der vom Nutzer gelieferten Vorlage (Screenshot + `assets/lake.jpg`
+      als echtes Hintergrundfoto) gebaut, auf ausdrücklichen Auftrag anstelle des vorherigen
+      Wasserkreis-/Centerpiece-Entwurfs aus S21/dieser Session — siehe `progress.md` (S25) für
+      die Begründung und den offenen Punkt, dass das ursprüngliche S25-Fertig-Kriterium
+      (Ninja-Centerpiece, Beschwörungskreise) damit bewusst *nicht* erfüllt ist.
+
+      Inhalt bleibt echt: die vier Karten zeigen weiterhin Läufe (S22), Freigaben/Fehler (S23)
+      und Kennzahlen (S24) über `/runs` bzw. `/channels/web/*` — nur die Kartenrahmen und die
+      Anordnung folgen jetzt der Vorlage. Erfunden wird nichts: kein Markt-Ticker, kein Wetter,
+      keine Werkzeuge ohne echte Anbindung (dazu unten mehr).
     -->
 
-    <header class="taskbar" role="banner">
-      <div class="taskbar__brand">
-        <span class="taskbar__mark" aria-hidden="true">◍</span>
-        <span class="taskbar__name">Kuronami</span>
+    <div class="scene" aria-hidden="true"></div>
+
+    <aside class="sidebar">
+      <div class="sidebar__brand">
+        <span class="sidebar__mark" aria-hidden="true">◍</span>
+        <span class="sidebar__name">Kuronami</span>
       </div>
-      <div class="taskbar__center">
-        <span class="taskbar__state" data-ui-state="idle" id="state-badge">ruhig</span>
-      </div>
-      <div class="taskbar__right">
-        <span class="taskbar__clock" id="clock" aria-label="Uhrzeit">--:--:--</span>
-        <button class="taskbar__bell" type="button" id="notifications" aria-label="Meldungen">
-          <span aria-hidden="true">◔</span>
-          <span class="taskbar__badge" id="notification-count" hidden>0</span>
+
+      <nav class="sidebar__nav" aria-label="Bereiche">
+        <span class="sidebar__link sidebar__link--active" aria-current="page">
+          <span class="sidebar__icon" aria-hidden="true">⌂</span>Home
+        </span>
+        <!--
+          Mail/Calendar/Trading/Research/Files stehen in der Vorlage als eigene Bereiche.
+          Kuronami hat dafür heute Werkzeuge (`mail.*`, `cal.*`, Trading-Agent), aber keine
+          eigenen Oberflächen-Ansichten — ein Link, der nirgendwo hinführt, wäre eine
+          vorgetäuschte Funktion (AGENTS.md: keine Platzhalter). Deshalb hier sichtbar, aber
+          erkennbar inaktiv (`aria-disabled`, kein Klickziel), bis es eine eigene Ansicht gibt.
+        -->
+        <span class="sidebar__link sidebar__link--inert" aria-disabled="true" title="Noch keine eigene Ansicht">
+          <span class="sidebar__icon" aria-hidden="true">✉</span>Mail
+        </span>
+        <span class="sidebar__link sidebar__link--inert" aria-disabled="true" title="Noch keine eigene Ansicht">
+          <span class="sidebar__icon" aria-hidden="true">▦</span>Calendar
+        </span>
+        <span class="sidebar__link sidebar__link--inert" aria-disabled="true" title="Noch keine eigene Ansicht">
+          <span class="sidebar__icon" aria-hidden="true">↗</span>Trading
+        </span>
+        <span class="sidebar__link sidebar__link--inert" aria-disabled="true" title="Noch keine eigene Ansicht">
+          <span class="sidebar__icon" aria-hidden="true">◎</span>Research
+        </span>
+        <span class="sidebar__link sidebar__link--inert" aria-disabled="true" title="Noch keine eigene Ansicht">
+          <span class="sidebar__icon" aria-hidden="true">▤</span>Files
+        </span>
+        <button class="sidebar__link" type="button" id="settings">
+          <span class="sidebar__icon" aria-hidden="true">⚙</span>Settings
         </button>
-        <span class="taskbar__link" id="connection" data-status="closed">getrennt</span>
+      </nav>
+
+      <div class="sidebar__status">
+        <span class="sidebar__dot" id="connection-dot" data-status="closed"></span>
+        <span id="connection-label">getrennt</span>
       </div>
-    </header>
+    </aside>
 
-    <main class="stage" id="stage">
-      <section class="panel panel--runs" id="panel-runs" aria-labelledby="panel-runs-title">
-        <h2 class="panel__title" id="panel-runs-title">Läufe</h2>
-        <p class="panel__hint" id="runs-hint">Ohne Token keine Liste — siehe Einstellungen.</p>
-        <ul class="panel__runs-list" id="runs-list" hidden></ul>
-        <div class="run-detail" id="run-detail" hidden>
-          <button class="run-detail__back" type="button" id="run-detail-back">← Läufe</button>
-          <div class="run-detail__head">
-            <span class="run-status" id="run-detail-status"></span>
-            <code id="run-detail-id"></code>
-          </div>
-          <ol class="run-detail__steps" id="run-detail-steps"></ol>
+    <main class="dashboard">
+      <header class="hero">
+        <div class="hero__meta">
+          <span class="hero__date" id="hero-date">—</span>
         </div>
-      </section>
+        <div class="hero__time" id="hero-time">--:--</div>
+        <p class="hero__tagline">EIN DURCHGEHENDER ASSISTENT</p>
+      </header>
 
-      <section class="panel panel--plan" id="panel-plan" aria-labelledby="panel-plan-title">
-        <h2 class="panel__title" id="panel-plan-title">Plan</h2>
-        <p class="panel__hint">Aufgaben aus <code>task.*</code>.</p>
-        <dl class="panel__figures">
-          <div class="figure">
-            <dt>dazugekommen</dt>
-            <dd id="tasks-added">0</dd>
-          </div>
-          <div class="figure">
-            <dt>fertig</dt>
-            <dd id="tasks-done">0</dd>
-          </div>
-        </dl>
-      </section>
+      <!--
+        Wo die Vorlage ein Wetter-Widget zeigt, stehen hier echte Systemsignale, an derselben
+        Stelle (oben rechts): Verbindungsstand und ungelesene "speaking"-Ereignisse. Erfundene
+        Außentemperatur wäre eine Zahl, für die es keine Quelle gibt.
+      -->
+      <div class="hero__utility">
+        <span class="hero__state" id="state-badge" data-ui-state="idle">ruhig</span>
+        <button class="hero__bell" type="button" id="notifications" aria-label="Meldungen">
+          <span aria-hidden="true">◔</span>
+          <span class="hero__badge" id="notification-count" hidden>0</span>
+        </button>
+      </div>
 
-      <section class="panel panel--metrics" id="panel-metrics" aria-labelledby="panel-metrics-title">
-        <h2 class="panel__title" id="panel-metrics-title">Kennzahlen</h2>
-        <p class="panel__hint">Verbindung und Abschnitt 12, über alle Runs summiert.</p>
-        <dl class="panel__figures">
-          <div class="figure">
-            <dt>Ereignisse</dt>
-            <dd id="event-count">0</dd>
+      <div class="grid">
+        <section class="card card--runs" id="panel-runs" aria-labelledby="panel-runs-title">
+          <header class="card__head">
+            <span class="card__icon" aria-hidden="true">▤</span>
+            <h2 class="card__title" id="panel-runs-title">Läufe</h2>
+            <span class="card__chevron" aria-hidden="true">›</span>
+          </header>
+          <p class="card__hint" id="runs-hint">Ohne Token keine Liste — siehe Einstellungen.</p>
+          <ul class="card__runs-list" id="runs-list" hidden></ul>
+          <div class="run-detail" id="run-detail" hidden>
+            <button class="run-detail__back" type="button" id="run-detail-back">← Läufe</button>
+            <div class="run-detail__head">
+              <span class="run-status" id="run-detail-status"></span>
+              <code id="run-detail-id"></code>
+            </div>
+            <ol class="run-detail__steps" id="run-detail-steps"></ol>
           </div>
-          <div class="figure">
-            <dt>Versuche</dt>
-            <dd id="reconnect-count">0</dd>
-          </div>
-          <div class="figure">
-            <dt>Modellaufrufe</dt>
-            <dd id="metric-model-calls">–</dd>
-          </div>
-          <div class="figure">
-            <dt>Tool-Aufrufe</dt>
-            <dd id="metric-tool-calls">–</dd>
-          </div>
-          <div class="figure">
-            <dt>Cache-Trefferquote</dt>
-            <dd id="metric-cache-hit-rate">–</dd>
-          </div>
-          <div class="figure">
-            <dt>Rückfragen</dt>
-            <dd id="metric-approvals">–</dd>
-          </div>
-        </dl>
-      </section>
+        </section>
 
-      <section class="panel panel--approvals" id="panel-approvals" aria-labelledby="panel-approvals-title">
-        <h2 class="panel__title" id="panel-approvals-title">Freigaben &amp; Fehler</h2>
-        <p class="panel__hint" id="approvals-hint">Ohne Token keine Rückfragen — siehe Einstellungen.</p>
-        <ul class="panel__approvals-list" id="approvals-list"></ul>
-        <p class="panel__empty" id="approvals-empty">Nichts offen.</p>
-        <h3 class="panel__subtitle">Fehler</h3>
-        <ul class="panel__errors-list" id="errors-list"></ul>
-        <p class="panel__empty" id="errors-empty">Keiner seit dem Verbinden.</p>
-      </section>
+        <section class="card card--approvals" id="panel-approvals" aria-labelledby="panel-approvals-title">
+          <header class="card__head">
+            <span class="card__icon" aria-hidden="true">◈</span>
+            <h2 class="card__title" id="panel-approvals-title">Freigaben &amp; Fehler</h2>
+            <span class="card__chevron" aria-hidden="true">›</span>
+          </header>
+          <p class="card__hint" id="approvals-hint">Ohne Token keine Rückfragen — siehe Einstellungen.</p>
+          <ul class="card__approvals-list" id="approvals-list"></ul>
+          <p class="card__empty" id="approvals-empty">Nichts offen.</p>
+          <h3 class="card__subtitle">Fehler</h3>
+          <ul class="card__errors-list" id="errors-list"></ul>
+          <p class="card__empty" id="errors-empty">Keiner seit dem Verbinden.</p>
+        </section>
+
+        <section class="card card--plan" id="panel-plan" aria-labelledby="panel-plan-title">
+          <header class="card__head">
+            <span class="card__icon" aria-hidden="true">✓</span>
+            <h2 class="card__title" id="panel-plan-title">Plan</h2>
+            <span class="card__chevron" aria-hidden="true">›</span>
+          </header>
+          <p class="card__hint">Aufgaben aus <code>task.*</code>.</p>
+          <dl class="card__figures">
+            <div class="figure">
+              <dt>dazugekommen</dt>
+              <dd id="tasks-added">0</dd>
+            </div>
+            <div class="figure">
+              <dt>fertig</dt>
+              <dd id="tasks-done">0</dd>
+            </div>
+          </dl>
+        </section>
+
+        <section class="card card--metrics" id="panel-metrics" aria-labelledby="panel-metrics-title">
+          <header class="card__head">
+            <span class="card__icon" aria-hidden="true">◔</span>
+            <h2 class="card__title" id="panel-metrics-title">Kennzahlen</h2>
+            <span class="card__chevron" aria-hidden="true">›</span>
+          </header>
+          <p class="card__hint">Verbindung und Abschnitt 12, über alle Runs summiert.</p>
+          <dl class="card__figures">
+            <div class="figure">
+              <dt>Ereignisse</dt>
+              <dd id="event-count">0</dd>
+            </div>
+            <div class="figure">
+              <dt>Versuche</dt>
+              <dd id="reconnect-count">0</dd>
+            </div>
+            <div class="figure">
+              <dt>Modellaufrufe</dt>
+              <dd id="metric-model-calls">–</dd>
+            </div>
+            <div class="figure">
+              <dt>Tool-Aufrufe</dt>
+              <dd id="metric-tool-calls">–</dd>
+            </div>
+            <div class="figure">
+              <dt>Cache-Trefferquote</dt>
+              <dd id="metric-cache-hit-rate">–</dd>
+            </div>
+            <div class="figure">
+              <dt>Rückfragen</dt>
+              <dd id="metric-approvals">–</dd>
+            </div>
+          </dl>
+        </section>
+      </div>
     </main>
 
-    <div class="water" aria-hidden="true">
-      <canvas class="water__canvas" id="ripples"></canvas>
-      <div class="water__horizon"></div>
-    </div>
-
-    <button class="settings" type="button" id="settings" aria-label="Einstellungen">
-      <span aria-hidden="true">⚙</span>
-    </button>
-
     <div class="settings-panel" id="settings-panel" hidden>
-      <h2 class="panel__title">Einstellungen</h2>
+      <h2 class="card__title">Einstellungen</h2>
       <label class="settings-panel__field" for="settings-token">
         Bearer-Token (GATEWAY_WEB_TOKEN)
       </label>

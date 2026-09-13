@@ -28,6 +28,14 @@ import type { JsonValue } from "../runtime/steps/types.js";
  * SKILL.md`) braucht ein Tool, das über den **Skill-Katalog** spricht (`skill.load`) — ein
  * eigenes Gebiet neben `tool` (das über den *Tool*-Katalog spricht) und neben `memory` (das
  * eigene Ablage des Assistenten ist, keine bereitgestellten Fähigkeiten Dritter).
+ *
+ * `mcp` ist seit S27 dabei: ein MCP-Server bringt fremde, **dynamisch entdeckte** Fähigkeiten
+ * mit lokal festgelegter Risikostufe mit — weder ein Kern-Primitiv wie `fs`/`web` noch ein
+ * fest im Repo versioniertes Assistenz-Tool wie `mail`/`cal`/ein generischer n8n-Workflow
+ * (deren Eingabeschema hier im Quellbaum steht, nicht bei jedem Start neu von außen kommt).
+ * Jeder lokale Name ist `mcp.<serverId>__<sanitierter Fernname>` (`tools/mcp/tools.ts`) — ein
+ * eigener Namensraum ist hier keine Geschmacksfrage, sondern die Grenze, an der ein
+ * Fern-Tool niemals `fs.write` oder einen anderen bestehenden Namen vortäuschen kann.
  */
 export const TOOL_NAMESPACES = [
   "fs",
@@ -45,6 +53,7 @@ export const TOOL_NAMESPACES = [
   "dev",
   "tool",
   "skill",
+  "mcp",
 ] as const;
 
 export type ToolNamespace = (typeof TOOL_NAMESPACES)[number];

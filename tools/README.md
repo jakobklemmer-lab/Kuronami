@@ -7,3 +7,5 @@ Seit S07 steht hier das Tor zu allen Seiteneffekten. `registry.ts` sammelt Tool-
 `n8n/` (S13) ist die Brücke zu n8n-Workflows; darauf setzen die Assistenz-Tools auf: `mail/` (S14), `cal/` und `server/` (S15). `notes/` (S15) greift **ohne** n8n direkt auf den lokalen Obsidian-Vault zu und hat mit `notes/paths.ts` seine eigene Vault-Absicherung nach dem Muster von `fs/paths.ts`. Alle diese Tools kommen nur in den ausgelieferten Katalog, wenn ausdrücklich konfiguriert (`N8N_BASE_URL` bzw. `OBSIDIAN_VAULT_PATH`); sonst bleibt der Fingerabdruck der aus S12.
 
 Jeder Aufruf läuft durch die Ausführungshülle aus `runtime/steps/` und ist damit ein Schritt mit Checkpoint davor und danach. Die Policy-Engine kommt mit S11 hierher: der Router ruft sie, nicht umgekehrt (Abschnitt 4.7).
+
+`mcp/` (S27) macht aus dynamisch entdeckten MCP-Servern native Tools (`mcp.<serverId>__<Fernname>`), mit einer lokal je Server festgelegten Risikostufe statt einer aus der Fernbeschreibung geratenen — die Härtung gegen eine fremde/manipulierte Tool-Beschreibung. Auch hier: nur im Katalog, wenn ausdrücklich Server konfiguriert sind.

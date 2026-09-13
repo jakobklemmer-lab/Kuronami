@@ -9,6 +9,7 @@ import { createCalTools } from "../../tools/cal/tools.js";
 import { buildFsZones, policyResolver } from "../../tools/fs/paths.js";
 import { createFsTools } from "../../tools/fs/tools.js";
 import { createMailTools } from "../../tools/mail/tools.js";
+import { type McpServerConfig, createMcpTools } from "../../tools/mcp/tools.js";
 import { type MemoryStore, buildMemoryRoot, createMemoryStore } from "../../tools/memory/store.js";
 import { summarizeRun } from "../../tools/memory/summary.js";
 import { createMemoryTools } from "../../tools/memory/tools.js";
@@ -106,6 +107,16 @@ export interface CatalogConfig {
    * ausdrückliches Feld schaltet Tools frei, Umgebungsvariablen liefern nur den Pfad.
    */
   memory?: { root?: string; indexFile?: string; git?: boolean };
+  /**
+   * MCP-Server (S27) — dynamisch entdeckte, fremde Tools mit lokal festgelegter
+   * Risikostufe je Server (`tools/mcp/tools.ts`). Wie bei `n8n`/`notes`: nur wenn
+   * ausdrücklich Server angegeben werden, kommt etwas in den Katalog, und nur dann ändert
+   * sich der Fingerabdruck. Anders als bei den anderen optionalen Feldern gibt es hier
+   * **keine** produktive Verkabelung in `gateway/index.ts`/`runtime/index.ts` — welcher
+   * Server zuerst angebunden wird, ist eine offene Entscheidung (Abschnitt 17), diese Session
+   * liefert nur den Mechanismus samt seiner Härtung.
+   */
+  mcp?: { servers: readonly McpServerConfig[] };
   /**
    * Skills (S18c) — Fähigkeiten mit progressiver Offenlegung aus `skills/<name>/SKILL.md`.
    * Gesetzt, kommt `skill.load` in den Katalog **und** die Kurzliste (Titel, Beschreibung,
@@ -300,6 +311,13 @@ export async function buildCatalog(config: CatalogConfig): Promise<BuiltCatalog>
       config.skills.root ?? process.env.SKILLS_ROOT?.trim() ?? "skills",
     );
     registry.registerAll(createSkillTools({ catalog: skills, pool: config.pool }));
+  }
+
+  // mcp.* (S27). Wie `notes`/`skills`: nur wenn ausdrücklich Server angegeben werden.
+  // `createMcpTools` fragt jeden Server **einmal** über `tools/list` ab (async, deshalb hier
+  // und nicht später) — danach ist das Ergebnis Teil des Katalogs wie jedes andere Tool.
+  if (config.mcp && config.mcp.servers.length > 0) {
+    registry.registerAll(await createMcpTools({ servers: config.mcp.servers }));
   }
 
   // `tool.load` (S18b) braucht beim Registrieren schon den übrigen Katalog, um Namen darin

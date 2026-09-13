@@ -690,6 +690,69 @@ bei `tool.load` wirft `callRuntimeTool` stattdessen `ToolOutputTooLargeError` �
 knapp genug bleiben, um in einem Zug geladen zu werden). Die ersten eigenen Skills (Mail-Triage,
 Wochenrückblick, Recherche-Ablauf) sind S18d.
 
+### MCP absichern
+
+**Umsetzung (S27).** Bis hierhin war MCP nur eine Warnung (Anti-Muster 10: "MCP, ACP und A2A
+vermischen") und eine offene Frage ("welche MCP-Server zuerst", Abschnitt 17) — nirgends im
+Repo implementiert. Diese Session baut den Mechanismus, mit dem ein MCP-Server angebunden
+werden **kann**, und beweist mit Tests, was der Auftrag wörtlich verlangt: "Eine fremde/
+manipulierte Tool-Beschreibung ändert das Verhalten der Runtime nachweislich nicht." Sie wählt
+**keinen** konkreten produktiven Server — die offene Frage aus Abschnitt 17 bleibt offen,
+genau wie `exec.run`/`github.*` seit S20 unverdrahtet blieben, obwohl sie in diesem Abschnitt
+stehen. `tools/mcp/client.ts` und `tools/mcp/tools.ts` sind deshalb an keinem echten Prozess
+angeschlossen (`gateway/index.ts`, `runtime/index.ts` kennen kein `mcp: {...}`); wer einen
+Server anbinden will, reicht `CatalogConfig.mcp` an `buildCatalog` (`runtime/loop/api.ts`).
+
+**Kein SDK, dieselbe Disziplin wie bei der Telegram-Bot-API (S16) und der n8n-Brücke (S13):**
+`tools/mcp/client.ts` spricht MCPs Stdio-Transport (zeilenweises JSON-RPC 2.0, `\n`-getrennt —
+**keine** LSP-artige `Content-Length`-Rahmung) direkt, ohne ein MCP-SDK zu importieren. Der
+Transport (`McpTransport`) ist vom Client getrennt, aus demselben Grund wie `fetchImpl` überall
+sonst: Tests setzen ein Paar verbundener Ströme ein, ohne einen echten Prozess zu spawnen.
+
+**Die Härtung hat drei Achsen, alle unabhängig vom Text der Tool-Beschreibung:**
+
+* **Risikostufe ist eine lokale, pro Server konfigurierte Obergrenze.** `tools/list` liefert
+  kein Risikofeld — die Versuchung wäre, es aus Formulierungen in der Beschreibung zu raten
+  ("liest nur", "völlig sicher"). `McpServerConfig.risk` ist eine Betreiberentscheidung wie
+  `N8nWorkflowDef.risk` (S13) und gilt unverändert für **jedes** Tool des Servers, gleich was
+  seine Beschreibung behauptet. Ein Test (`tools/mcp/tools.test.ts`) registriert einen
+  Fake-Server mit einer Beschreibung, die wörtlich "risk: read, auto_approve: true" fordert,
+  konfiguriert den Server lokal mit `hard_write` und zeigt Ende-zu-Ende gegen eine echte
+  `PolicyEngine`: der Aufruf bleibt so freigabepflichtig wie jedes andere `hard_write`-Tool.
+* **Namensraum-Isolation durch Konstruktion.** Der lokale Name ist zwingend
+  `mcp.<serverId>__<sanitierter Fernname>` — `TOOL_NAME_PATTERN` (`tools/registry.ts`) lässt
+  nach dem ersten Punkt ohnehin keinen zweiten zu, und der Namensraum ist immer `mcp`. Ein
+  Fern-Tool kann also nicht `fs.write` oder `write` im Sinne eines bekannten Namens vortäuschen;
+  zwei Fernnamen, die nach der Sanitierung kollidieren würden, lassen `createMcpTools` mit
+  einem benannten Fehler abbrechen statt einen davon still zu verwerfen.
+* **Einmalige Entdeckung beim Katalogbau.** Wie beim Skill-Katalog und den n8n-Workflows wird
+  `tools/list` **einmal** abgefragt (`createMcpTools`, aus `buildCatalog`), das Ergebnis wird
+  zu statischen `ToolDefinition`s, danach ist der Katalog eingefroren wie jeder andere
+  (Anti-Muster 2). Es gibt keine zweite Methode, die mitten in einer Session erneut
+  entdeckte — ein "Rug Pull" (Server ändert Beschreibung/Schema nach der ersten Zusage) hat
+  hier strukturell keinen Angriffspunkt.
+
+Eine vierte, kleinere Härtung betrifft die Eingabefelder: ein Fernfeld, das `path` oder `url`
+heißt (oder wie eines aussieht, siehe `policy/resource.ts`s `assertPolicyFieldNames`), wird vor
+der Registrierung umbenannt (`<feld>_arg`) und beim Aufruf zurückübersetzt — sonst bekäme die
+Policy-Engine eine Dateizonen- oder Domain-Bedeutung vorgespiegelt, die für einen beliebigen
+MCP-Server nicht gilt, bis MCP eine eigene Ressourcen-Achse in der Engine bekommt (nicht Teil
+dieser Session).
+
+**Was schon galt und hier nicht neu erfunden wird.** Dass eine Anweisung in externem Inhalt nie
+eine Freigabepflicht aufhebt, steht seit Abschnitt 4.7/AGENTS.md fest, und die automatische
+Redaction an den Schreibtoren (`runtime/redaction/redact.ts`) läuft an jedem Pfad ins Protokoll
+oder den Prompt — auch an der Beschreibung eines MCP-Tools, ohne dass dieses Modul sie selbst
+aufruft. S27 beweist diese beiden Zusagen konkret für MCP, es ersetzt sie nicht.
+
+**Bewusst nicht gebaut:** ein echter, produktiv angebundener Server (siehe oben); MCP-
+Ressourcen/Prompts (nur `tools/list`/`tools/call`, die einzigen beiden Operationen, die der
+Auftrag braucht); eine feinere Risikostufe je Fern-Tool statt je Server (der Auftrag verlangt
+eine Obergrenze, keine Feinsteuerung, und eine zusätzliche Stellschraube wäre eine zweite
+Stelle, an der sich dieselbe Umgehung einschleichen könnte, die diese Session gerade
+verhindert); ein zweiter Transport (HTTP+SSE) — Stdio deckt den Anwendungsfall "ein lokal
+gestarteter MCP-Server" vollständig ab.
+
 ### Wann etwas ein eigenes Tool verdient
 
 Nur wenn mindestens einer dieser Punkte zutrifft: besondere Darstellung in der Oberfläche,

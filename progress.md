@@ -5,9 +5,13 @@ progress-archiv.md nachschlagen (z. B. mit grep nach der Session-ID).
 
 ## Aktueller Stand
 
-**Phase 6 läuft.** Zuletzt fertig: **S24** (Kennzahlen-Panels), 2026-09-13, zusammen mit einem
-Nachtrag zu S21 (Ereignisbus über `pg_notify` statt Ansage vor dem COMMIT — siehe unten).
-Nächste Session: **S25** Centerpiece und 3D-Welt, Status `ready`.
+**Phase 6 und 7, 2026-09-13.** In derselben Sitzung: die Oberfläche 1:1 nach einer vom Nutzer
+gelieferten Bildvorlage neu gebaut (S25, siehe unten — das ursprüngliche Fertig-Kriterium von
+S25 bleibt dabei **offen**, `status: "ready"`), dazu **S26** (Slack-Anbindung) und **S27** (MCP
+absichern), beide `status: "done"`. Nächste Session: **S25** in seiner ursprünglichen Bedeutung
+(Ninja-Centerpiece) ist damit weiterhin die nächste offene Aufgabe in Phase 6, falls der Nutzer
+dorthin zurückkehrt — S28 (Kosten-Tracking) bleibt entsprechend blockiert, da es an S25 **und**
+S27 hängt.
 
 **Der Plan wurde am 2026-09-12 umnummeriert** (S21 an aufwärts) — siehe den Abschnitt
 "Planänderung · 2026-09-12" gleich unten, bevor irgendwo mit einer alten S21–S24-Zählung
@@ -56,9 +60,9 @@ seither die einzige durchgehende Prüfung über die alten Schichten.
 | S22 | Runs- und Detail-Ansicht | done |
 | S23 | Freigabe- und Fehler-Ansicht | done |
 | S24 | Kennzahlen-Panels | done |
-| S25 | Centerpiece und 3D-Welt | ready |
-| S26 | Slack-Anbindung | queued (unabhängig von S21–S25) |
-| S27 | MCP absichern | queued |
+| S25 | Centerpiece und 3D-Welt | ready (Oberfläche neu gebaut, Centerpiece selbst offen) |
+| S26 | Slack-Anbindung | done |
+| S27 | MCP absichern | done |
 | S28 | Kosten-Tracking und Modell-Routing | queued |
 | S29 | Tauri-Desktop-Wrapper | queued |
 | S30 | Sprachschicht-Grundgerüst | queued |
@@ -281,6 +285,28 @@ Notion-Roadmap.
   außerhalb von `context/metrics.ts` — das sind Zeitmessungen über Ereignispaare hinweg und
   brauchen eine eigene, noch nicht eingeplante Beobachtbarkeits-Session (Entscheidung aus S18a,
   hier nur bestätigt, nicht neu getroffen).
+- **S25 wurde mitten in der Sitzung umgeleitet** (2026-09-13, auf ausdrücklichen Nutzerauftrag):
+  erst die Claude-Design-Spec (Ninja-Centerpiece, Beschwörungskreise) gebaut und getestet, dann
+  auf "das gefällt mir nicht, bau die Oberfläche exakt nach diesem Bild" umgeschwenkt — das
+  Centerpiece wurde daraufhin vollständig verworfen ("Drop it completely for now"), bevor
+  irgendetwas davon committet war. Das ursprüngliche Fertig-Kriterium von S25 ist damit weiter
+  offen; siehe den S25-Abschnitt unten für das, was stattdessen entstand.
+- **Die Wasserkreise (`ui/canvas/ripples.ts`, S21) sind seit S25 unverdrahtet**, aber bewusst
+  nicht aus dem Baum entfernt — sie sind eine bereits committete, getestete Session-Lieferung
+  (S21), und sie zu löschen wäre eine andere Entscheidung als "die neue Oberfläche folgt jetzt
+  einem Bild statt einer eigenen Szenerie". `ripples.ts`/`ripples.test.ts` bleiben mit eigener
+  Historie liegen; ob sie gebraucht werden (z. B. für eine spätere, andere Fassung des
+  Centerpiece) oder endgültig entfernt gehören, ist eine offene Entscheidung, keine vergessene.
+- **Slack-Anbindung (S26) hat keine Anhänge und kein Socket Mode** — nur Text und Freigaben
+  (Reaktion/Thread-Antwort), `InboundMessage.attachments` ist für Slack immer `[]`. Ohne
+  öffentliche Adresse (Events-API-Webhook) bleibt der Kanal unbedienbar, dieselbe Lage wie
+  Telegram im Webhook-Betrieb ohne Tunnel — anders als bei Telegram gibt es dafür (noch) keinen
+  tunnelfreien Ausweg wie Long-Polling.
+- **MCP (S27) hat keinen echten Server verkabelt.** Der Mechanismus (Entdeckung, Härtung) steht
+  und ist getestet; welcher MCP-Server als erster angebunden wird, ist weiterhin die offene
+  Frage aus Abschnitt 17. Nur `tools/list`/`tools/call` sind gebaut, keine MCP-Ressourcen oder
+  -Prompts, und jeder Server bekommt genau eine Risikostufe für alle seine Tools, keine
+  feinere Abstufung je Fernwerkzeug.
 
 ## Ideen für später (vom Nutzer, zurückgestellt bis der Kern steht)
 
@@ -301,6 +327,259 @@ fertig ist. Beim nächsten Blick auf diese Datei ansprechen, ob es jetzt an der 
   aber der Nutzer würde lieber TradingView anbinden (dort lassen sich Backtests fahren und Trades
   aufsetzen). Ob und wie sich eine TradingView-API dafür verbinden lässt, ist ungeklärt — reine
   Recherche, sobald es dran ist.
+
+## S25 · Oberfläche neu nach Bildvorlage · 2026-09-13
+
+Auftrag zunächst wie in `tasks.json` notiert: Claude-Design-Spec umsetzen (Ninja auf Stein im
+See, drei Animationszustände, Beschwörungskreise ohne Pathfinding/Tween). Das wurde gebaut —
+`ui/canvas/centerpiece.ts` (reine Posenzuordnung `idle`/`processing`/`speaking→"delivered"`,
+vier Tests), `ui/canvas/summons.ts` (`SummonField`, deterministische Position aus der
+Aufrufkennung, Puls über die Zeit statt Bewegung, neun Tests), dazu Mond/Bergsilhouette als
+CSS/SVG und ein handgezeichneter Ninja auf einem Felsen, alles grün getestet und im Browser
+geprüft (`pnpm dev:ui`, echter Screenshot-Vergleich der drei Posen über erzwungene
+CSS-Zustände, da die Automatisierungsumgebung `prefers-reduced-motion: reduce` meldet und
+Animationen sonst gar nicht liefen).
+
+**Mitten in der Sitzung dann die Kehrtwende, wörtlich vom Nutzer:** "Build the dashboard EXACTLY
+like the picture I gave you. Forget everything we said about the design before, because it
+really doesnt look good." Dazu ein zweites Bild (`lake.jpg`, jetzt `ui/assets/lake.jpg`) als
+das tatsächliche Hintergrundfoto der Vorlage. Rückfrage, ob das Centerpiece trotzdem bleiben
+soll (es kommt in der Vorlage nicht vor) — Antwort: "that was the wrong answer. Drop it
+completely for now." Da nichts von alledem committet war, war das Verwerfen unkompliziert:
+`ui/canvas/centerpiece.ts`/`.test.ts` und `summons.ts`/`.test.ts` wieder gelöscht, bevor sie je
+in einem Commit standen.
+
+**Was stattdessen steht: die Oberfläche 1:1 nach der Vorlage.**
+
+* **Echtes Hintergrundfoto statt gezeichneter Szenerie.** `ui/assets/lake.jpg` (vom Nutzer
+  geliefert) liegt als `.scene`-Hintergrund fest über dem ganzen Bildschirm, mit einem
+  Verlaufsraster darüber, das den Text auch dort lesbar hält, wo das Foto selbst hell ist (der
+  Lichtschein rechts im Bild). `ui/serve.ts`: `.jpg`/`.jpeg` als Content-Type ergänzt, die Datei
+  in `STATIC_FILES` aufgenommen (dieselbe Liste, die `ui/build.ts` unverändert kopiert).
+* **Seitenleiste statt Taskbar** — die Vorlage führt Bereiche links, nicht oben. Bereiche mit
+  echter Anbindung (`Home`) sind ein aktiver Eintrag; Bereiche ohne eigene Oberfläche (Mail,
+  Calendar, Trading, Research, Files — Kuronami hat dafür Werkzeuge, aber keine eigene Ansicht)
+  stehen sichtbar, aber `aria-disabled` und ohne Klickziel: ein totes `<a>` wäre eine
+  vorgetäuschte Funktion (AGENTS.md, "keine Platzhalter"). `Settings` ist ein echter Eintrag
+  (öffnet dasselbe Einstellungs-Panel wie zuvor das schwebende Zahnrad, das es jetzt nicht mehr
+  gibt). Ganz unten der Verbindungsstatus (Punkt + Text), an der Stelle, an der die Vorlage
+  "System Online" zeigt — hier mit dem echten Wert aus `bus.onStatus`, nicht fest verdrahtet.
+* **Zentrierte Uhr/Datum-Kopfzeile** wie in der Vorlage, mit echter laufender Zeit
+  (`startHeroClock`, ersetzt das alte `startClock` auf die Taskbar-Uhr).
+* **Kein Wetter-Widget.** Die Vorlage zeigt an dieser Stelle Außentemperatur und Vorhersage —
+  dafür gibt es keine Quelle in Kuronami, und eine erfundene Zahl wäre genau die Art Platzhalter,
+  die dieses Projekt durchgehend vermeidet (siehe die Kennzahlen-Panels seit S24: "keine
+  Platzhalter, echte Werte"). An derselben Bildstelle (oben rechts) stehen stattdessen zwei
+  echte Systemsignale: das Zustandsabzeichen (`idle`/`processing`/…) und die
+  Benachrichtigungsglocke — dieselbe Funktion wie vorher in der Taskbar, nur an der Position,
+  die die Vorlage für "Status" vorsieht.
+* **Vier Glaskarten statt sechs Vorlagen-Slots.** Die Vorlage zeigt Markt-Ticker, Posteingang,
+  Tagesplan, vier Aktionsknöpfe, System-Gauges und ein Zitat — sechs Flächen, von denen
+  Kuronami für höchstens vier eine ehrliche Entsprechung hat. Erfunden wurde keine: **Läufe**
+  (S22, an der Stelle von "Markets"), **Freigaben & Fehler** (S23, an der Stelle von "Inbox"),
+  **Plan** (an der Stelle von "Today") und **Kennzahlen** (S24, an der Stelle von "System") —
+  zwei Spalten, zwei Karten je Spalte, alle mit demselben Glaskarten-Rahmen (abgerundete Ecken,
+  Symbol + Titel + Chevron im Kopf, wie in der Vorlage). Aktionsknopfleiste und Zitat-Karte
+  fehlen bewusst: es gibt weder ein `Open Terminal` noch ein `Focus Mode` in diesem System, und
+  ein Knopf ohne Wirkung wäre wieder eine vorgetäuschte Funktion.
+* **IDs unverändert.** `main.ts`s Verdrahtung von Läufen/Freigaben/Kennzahlen (S22–S24) hängt an
+  Element-`id`n, nicht an Klassen — die sind identisch geblieben (`runs-list`, `approvals-list`,
+  `metric-cache-hit-rate`, …), nur `panel__*`-Klassen heißen jetzt `card__*` (Vorlagenbegriff).
+  Entfernt wurden ausschließlich Ripple-/Summon-/Centerpiece-spezifische Verdrahtung; die
+  eigentliche Anwendungslogik (Abrufe, Freigabe-Antworten, Fehlerprotokoll) ist unverändert.
+
+### Tests
+
+Vier neue reine Logik-Tests fielen mit dem Centerpiece wieder weg (waren nie committet). Von
+den verbleibenden UI-Tests unverändert: `ui/canvas/ripples.test.ts` (Modul bleibt liegen, siehe
+offene Befunde), `ui/events/bus.test.ts`, `ui/api/client.test.ts`, `ui/runs/status.test.ts`,
+`ui/settings.test.ts` — 31 Tests, 5 Dateien, alle grün. `main.ts` bleibt aus Prinzip ungetestet
+(die eine Datei, die das Dokument anfasst, siehe ihr eigener Kommentar).
+
+### Gegenprobe
+
+Keine gesonderte Gegenprobe über Testcode — die Gegenprobe war der Browser selbst:
+`pnpm dev:ui`, echter Vergleich gegen die Vorlage nach jeder Änderung (Mond zunächst vom
+Bildschirmrand abgeschnitten wegen `background-position: center center` bei einem Seitenverhält-
+nis, das nicht zum Foto passt — behoben mit `center 30%`), Einstellungen-Umschalter geprüft,
+Zustandspille/Verbindungspunkt visuell bestätigt.
+
+### Bewusst nicht gebaut
+
+* Das ursprüngliche S25-Fertig-Kriterium (Ninja-Centerpiece, Beschwörungskreise) — siehe oben,
+  auf Nutzerauftrag verworfen, nicht vergessen. `tasks.json` markiert S25 deshalb weiterhin als
+  `ready`, nicht `done`.
+* Ein voll responsives Nachziehen der neuen Seitenleiste unter 900px wurde nur an der
+  bestehenden `@media`-Regel weitergeschrieben (Seitenleiste wird zur Symbolspalte), aber nicht
+  im echten schmalen Browserfenster geprüft (Fenster-Resize der Automatisierung griff im Test
+  nicht zuverlässig) — ein Nachweis auf einem echten schmalen Gerät steht noch aus.
+* Kein Wetter, kein Markt-Ticker, keine Aktionsknopfleiste — siehe oben, jeweils weil es dafür
+  keine ehrliche Datenquelle bzw. keine echte Funktion gibt.
+
+### Offene Befunde (Details zu S25)
+
+Siehe die neuen Einträge oben unter "Offene Befunde (gesamte Historie)": die Umleitung mitten
+in der Sitzung, `ripples.ts` unverdrahtet liegen gelassen.
+
+* `pnpm typecheck` (beide `tsconfig.json` und `ui/tsconfig.json`) grün, `pnpm lint` (Biome) grün,
+  `ui/`-Tests grün (31 Tests, 5 Dateien).
+* `tasks.json`: S25 bleibt `ready` (Fertig-Kriterium offen), Notiz ergänzt.
+
+Status: Oberfläche neu gebaut, ursprüngliches Fertig-Kriterium offen. Nächste Session: entweder
+S25 im ursprünglichen Sinn (Centerpiece) nachholen, oder der Nutzer entscheidet, dass die neue
+Bildvorlage die Anforderung ersetzt — beides ist ausdrücklich seine Entscheidung, keine, die
+diese Sitzung vorwegnimmt.
+
+## S26 · Slack-Anbindung · 2026-09-13
+
+Auftrag: eine Freigabe per Slack-Reaktion oder Thread-Antwort erteilbar machen, unabhängig von
+Phase 6 (hängt nur an S20). Gebaut nach exakt demselben Muster wie der Telegram-Kanal (S16):
+`client.ts` (dünner HTTP-Wrapper, `fetchImpl` injiziert, kein SDK — dieselbe
+Abhängigkeitsdisziplin wie überall), `normalize.ts` (rohes Slack-Event → beschriebene Form),
+`channel.ts` (`ChannelPort` + `handleSlackEvent`), verdrahtet in `gateway/index.ts`/`server.ts`.
+
+**Transport: Events-API-Webhook, nicht Socket Mode.** Anders als bei Telegram (Long-Polling
+gebaut, weil im Dev-Betrieb keine öffentliche Adresse existiert) fiel die Wahl hier auf den
+einfacheren Weg — Socket Mode bräuchte `apps.connections.open` plus eine eigene
+Reconnect-Schleife, unverhältnismäßig viel Code für das, was der Auftrag verlangt. Ohne
+öffentliche Adresse bleibt der Kanal einfach unbedienbar, wie Telegram im Webhook-Betrieb ohne
+Tunnel — ein akzeptierter, in den offenen Befunden vermerkter Zustand, kein Ausweg wie
+Long-Polling ihn für Telegram bietet.
+
+**Signaturprüfung statt Secret-Header.** Slack signiert jede Zustellung per HMAC-SHA256 über
+den rohen Anfragekörper (`v0:<timestamp>:<body>`, Header `X-Slack-Signature`/
+`X-Slack-Request-Timestamp`) statt eines einfachen Geheimnis-Headers wie Telegram.
+`gateway/identity.ts`: `verifySlackSignature` (zeitkonstanter Vergleich wie `secretEquals`,
+Zeitfenster von fünf Minuten gegen Wiedereinspielung) plus `authenticateSlack` im selben
+Zwei-Prüfungen-Muster wie `authenticateTelegram` — Signatur beweist "von Slack", die
+Erlaubnisliste (`SLACK_ALLOWED_USER_IDS`) beweist "vom Betreiber". Der rohe Anfragekörper wird
+dafür in `gateway/server.ts` über die bestehende `express.json()`-Middleware mitgeschnitten
+(`verify`-Rückruf, kein zweiter Parser).
+
+**Auflösung von Reaktion/Thread-Antwort zu einer Entscheidung, ohne dass Slack dafür eine
+Nutzlast mitliefert** (anders als Telegrams `callback_data`, die die `ask_id` direkt trägt):
+ist genau eine Rückfrage offen (`deriveAskRoutes`, gefiltert auf `channel === "slack"`), wird
+sie direkt aufgelöst — der Normalfall laut bestehender Notiz aus S16 ("in der Praxis eine,
+selten zwei" gleichzeitig offene Rückfragen). Sind mehrere offen, entscheidet eine flüchtige
+Zuordnung Nachrichtenzeitstempel→`ask_id` (dieselbe Rechtfertigung wie beim Postfach des
+Web-Kanals: "flüchtig, und das ist in Ordnung", die Wahrheit bleibt im Protokoll). Eine
+Reaktion wird über ihren Ziffern-Emoji-Namen (`one`…`nine`) auf einen Options-Index abgebildet;
+eine Thread-Antwort gegen Options-`id`, dann Options-`label` (ohne Groß-/Kleinschreibung), dann
+eine führende Zahl als 1-basierter Index geprüft.
+
+**Slacks Drei-Sekunden-Frist** (anders als Telegram, das synchron durchläuft): die Route
+antwortet sofort mit `200`, `handleSlackEvent` läuft danach unabhängig davon weiter
+("fire-and-forget", Fehler gehen in die Prozessausgabe). Die bestehende
+`hasReceived`/`externalId`-Idempotenz fängt eine dadurch mögliche Slack-Wiederholung ab, ohne
+dass es dafür einen neuen Mechanismus braucht.
+
+### Tests
+
+63 Dateien, 659 Tests im Backend-Baum vor dem Zusammenführen mit S27 (siehe unten für den
+gemeinsamen Endstand). Neu: `gateway/channels/slack/{client,normalize,channel,server}.test.ts`
+sowie erweiterte Abschnitte in `gateway/gateway.test.ts` (voller Freigabe-Rundlauf sowohl über
+eine simulierte Reaktion als auch über eine simulierte Thread-Antwort, jeweils gegen eine echte
+Datenbank), `gateway/identity.test.ts`, `gateway/runs.test.ts`.
+
+### Bewusst nicht gebaut
+
+* **Anhänge** (`files.info`/Download mit Bot-Token) — nur Text und Freigaben, dieselbe Haltung
+  wie "kein `mail.send`" seit S14. `InboundMessage.attachments` ist für Slack immer `[]`.
+* **Socket Mode** als tunnelfreier Entwicklungsweg — dieselbe offene Lücke, die Telegrams
+  Long-Polling für den eigenen Kanal schließt, hier aber (noch) nicht existiert.
+
+### Offene Befunde (Details zu S26)
+
+Siehe "Offene Befunde (gesamte Historie)" oben.
+
+* `pnpm typecheck` grün. Backend-Tests (`gateway/`, `tools/`, `policy/`, `runtime/` — seit S21
+  nicht mehr unter `pnpm test`, siehe "Aktueller Stand") über eine Ad-hoc-`vitest`-Config
+  geprüft: grün. `pnpm lint` (Biome) grün.
+* `tasks.json`: S26 auf `done`.
+
+Status: abgeschlossen.
+
+## S27 · MCP absichern · 2026-09-13
+
+Auftrag: "eine fremde/manipulierte Tool-Beschreibung ändert das Verhalten der Runtime
+nachweislich nicht." MCP kam bis zu dieser Session in keinem Katalog vor — nur als
+Anti-Muster-Warnung ("MCP, ACP und A2A vermischen") und als offene Frage ("welche
+MCP-Server zuerst"). Diese Session liefert den **Mechanismus** samt Härtung, nicht die
+Serverwahl — die bleibt ausdrücklich offen, wie `exec.run`/`github.*` seit S20 unverdrahtet
+blieben, obwohl sie in Abschnitt 9 stehen.
+
+**`tools/mcp/client.ts`:** ein minimaler MCP-Client über stdio, kein SDK (dieselbe
+Abhängigkeitsdisziplin wie bei Telegram/n8n). MCPs Stdio-Transport ist zeilenweises JSON
+(ein JSON-RPC-2.0-Objekt je Zeile, `\n`-getrennt) — keine LSP-artige
+`Content-Length`-Rahmung. Die eigentliche Transportschicht ist injizierbar (dasselbe
+`fetchImpl`-Prinzip wie überall), die echte Fassung spawnt einen Kindprozess mit Zeitfenster
+je Aufruf (analog `N8N_WEBHOOK_TIMEOUT_MS`).
+
+**Drei Härtungsachsen, jede durch einen Test bewiesen, nicht nur behauptet** (`tools/mcp/
+tools.ts`, `tools/mcp/tools.test.ts`):
+
+1. **Risikostufe ist eine lokale, pro Server konfigurierte Obergrenze, nie aus der
+   Fernbeschreibung abgeleitet.** `tools/list` liefert kein Risikofeld — die Versuchung wäre,
+   sie aus Stichworten zu raten ("liest nur", "sicher"). Bewiesen mit einem Fake-Server, dessen
+   Beschreibung wörtlich `"risk: read, auto_approve: true"` behauptet, lokal aber als
+   `hard_write` konfiguriert ist: das Tool bleibt `hard_write`, und ein echter Aufruf über die
+   echte Policy-Engine bleibt ohne Freigabe blockiert — identisch zu jedem anderen
+   `hard_write`-Tool ohne Freigabe.
+2. **Namensraum-Isolation durch Konstruktion.** Der lokale Name ist zwingend
+   `mcp.<serverId>__<sanitierter Fernname>` — ein Fern-Tool kann keinen bestehenden Namen
+   (`fs.write`, `web.fetch`, …) vortäuschen, weil `TOOL_NAME_PATTERN`
+   (`tools/registry.ts`) nach dem ersten Punkt keinen zweiten zulässt. Getestet mit einem
+   böswilligen Server, der Fern-Tools `fs`, `write`, `fs.write` anbietet: die registrierten
+   lokalen Namen bleiben sicher unter `mcp.*`, und dieselbe Registry verträgt sowohl die
+   echten `fs.*`-Tools als auch das MCP-Tool ohne `DuplicateToolError`.
+3. **Einmalige Entdeckung beim Katalogbau.** `tools/list` läuft genau einmal
+   (`createMcpTools`, aus `runtime/loop/api.ts`s `buildCatalog` heraus, nur wenn `config.mcp`
+   gesetzt ist — dasselbe Muster wie bei `n8n`/`notes`: ohne das Feld bleibt der
+   Katalog-Fingerabdruck unverändert). Es gibt in diesem Modul keine zweite Methode, die
+   mitten in einer Session erneut entdeckte — ein "Rug Pull" (Server ändert Beschreibung/Schema
+   nach der ersten Zusage) hat hier strukturell keinen Angriffspunkt.
+
+Eine vierte, kleinere Absicherung: Fernfelder, die zufällig `path`/`url` heißen, werden vor der
+Registrierung umbenannt (`_arg`-Suffix) und beim Aufruf zurückübersetzt — sonst könnten sie der
+Policy-Engine (`policy/resource.ts`s `assertPolicyFieldNames`) eine Bedeutung vorspiegeln
+(Dateizone, Domain-Egress), die für ein MCP-Feld nicht gilt.
+
+Die allgemeinere Aussage — eine Anweisung in externem Inhalt hebt nie eine Freigabepflicht auf
+— ist keine neue Erfindung dieser Session: sie steht seit Abschnitt 4.7/AGENTS.md, und die
+automatische Redaction an den Schreibtoren (`runtime/redaction/redact.ts`) gilt für MCP-
+Beschreibungen/-Ergebnisse genauso wie für jeden anderen Text, der ins Protokoll oder in den
+Prompt geht — ohne dass diese Session sie manuell aufrufen müsste.
+
+### Tests
+
+`tools/mcp/client.test.ts` (11, reine Rahmungstests über eine In-Memory-Transportattrappe,
+kein echter Prozessspawn), `tools/mcp/tools.test.ts` (11, die drei Härtungsachsen oben plus der
+Normalfall: sauberer Aufruf, `isError: true` vom Server lässt den Handler werfen statt ein "ok"
+vorzutäuschen).
+
+### Bewusst nicht gebaut
+
+* **Kein echter Produktiv-Server verkabelt** — weder in `gateway/index.ts` noch in
+  `runtime/index.ts`. Die Serverwahl ("welche MCP-Server zuerst") bleibt die offene Frage aus
+  Abschnitt 17; diese Session liefert nur den Mechanismus.
+* **Nur `tools/list`/`tools/call`**, keine MCP-Ressourcen oder -Prompts.
+* **Eine Risikostufe je Server, keine je Fernwerkzeug** — die einfachste, sicherste Wahl; ein
+  Server mit gemischt-riskanten Tools bekäme heute die Stufe seines riskantesten Tools für alle.
+* **Kein echter Prozess-Integrationstest** für `createStdioMcpClient` (nur die Rahmungstests
+  über eine Attrappe) — ein Nachweis mit einem echten gespawnten Prozess (wie
+  `policy/policy-resume.process.ts` es an anderer Stelle im Repo schon tut) stünde noch aus.
+
+### Offene Befunde (Details zu S27)
+
+Siehe "Offene Befunde (gesamte Historie)" oben.
+
+* `pnpm typecheck` grün. Backend-Tests über dieselbe Ad-hoc-`vitest`-Config wie bei S26: nach
+  dem Zusammenführen beider Sessions **65 Dateien, 681 Tests, alle grün** (S26: 659 Tests in 63
+  Dateien, S27 fügt `tools/mcp/{client,tools}.test.ts` mit 22 weiteren Tests in 2 Dateien
+  hinzu). `pnpm lint` (Biome) grün.
+* `tasks.json`: S27 auf `done`.
+
+Status: abgeschlossen.
 
 ## S21-Nachtrag · Ereignisbus über pg_notify · 2026-09-13
 

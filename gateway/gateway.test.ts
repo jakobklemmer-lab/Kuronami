@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto";
+import { createHmac, randomUUID } from "node:crypto";
 import { mkdir, mkdtemp, readFile, rm, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -14,6 +14,9 @@ import type {
   ModelResponse,
 } from "../runtime/model/types.js";
 import type { JsonValue } from "../runtime/steps/types.js";
+import { createSlackChannel, handleSlackEvent } from "./channels/slack/channel.js";
+import type { SlackChannelDeps } from "./channels/slack/channel.js";
+import { createSlackClient } from "./channels/slack/client.js";
 import { createTelegramChannel, handleUpdate } from "./channels/telegram/channel.js";
 import type { TelegramChannelDeps } from "./channels/telegram/channel.js";
 import { type TelegramUpdate, createTelegramClient } from "./channels/telegram/client.js";
@@ -192,11 +195,117 @@ function telegramFake(): TelegramFake {
 }
 
 // ---------------------------------------------------------------------------
+// Ein Slack, das nur aufschreibt, was es bekommen hätte
+// ---------------------------------------------------------------------------
+
+interface SlackCall {
+  method: string;
+  body: Record<string, unknown>;
+}
+
+interface SlackFake {
+  calls: SlackCall[];
+  fetchImpl: typeof globalThis.fetch;
+  /** Die `ts`, die der Fake je `chat.postMessage`-Aufruf "vergeben" hat, in Reihenfolge. */
+  postedTs: string[];
+  posted(): SlackCall[];
+  reset(): void;
+}
+
+function slackFake(): SlackFake {
+  const calls: SlackCall[] = [];
+  const postedTs: string[] = [];
+  let tsCounter = 1000;
+
+  const fetchImpl = (async (input: string | URL, init?: RequestInit) => {
+    const url = String(input);
+    const method = url.split("/").pop() ?? "";
+    const body = init?.body ? (JSON.parse(String(init.body)) as Record<string, unknown>) : {};
+    calls.push({ method, body });
+
+    if (method === "chat.postMessage") {
+      tsCounter += 1;
+      const ts = `${tsCounter}.000000`;
+      postedTs.push(ts);
+      return new Response(JSON.stringify({ ok: true, ts }), { status: 200 });
+    }
+    return new Response(JSON.stringify({ ok: true }), { status: 200 });
+  }) as unknown as typeof globalThis.fetch;
+
+  return {
+    calls,
+    fetchImpl,
+    postedTs,
+    posted: () => calls.filter((call) => call.method === "chat.postMessage"),
+    reset: () => {
+      calls.length = 0;
+      postedTs.length = 0;
+    },
+  };
+}
+
+const SLACK_SIGNING_SECRET = "slack-geheim";
+
+function slackSignature(secret: string, timestamp: string, rawBody: string): string {
+  return `v0=${createHmac("sha256", secret).update(`v0:${timestamp}:${rawBody}`, "utf8").digest("hex")}`;
+}
+
+/** Baut einen signierten `event_callback`-Körper, wie ihn Slacks Events API wirklich schickt. */
+function slackRequest(event: Record<string, unknown>): {
+  body: unknown;
+  timestamp: string;
+  signature: string;
+  rawBody: string;
+} {
+  const body = { type: "event_callback", event_id: `Ev${randomUUID().slice(0, 8)}`, event };
+  const rawBody = JSON.stringify(body);
+  const timestamp = String(Math.floor(Date.now() / 1000));
+  return {
+    body,
+    timestamp,
+    signature: slackSignature(SLACK_SIGNING_SECRET, timestamp, rawBody),
+    rawBody,
+  };
+}
+
+function slackMessage(text: string, ts: string, threadTs?: string): Record<string, unknown> {
+  return {
+    type: "message",
+    user: SLACK_USER,
+    channel: SLACK_CHANNEL,
+    ts,
+    text,
+    ...(threadTs ? { thread_ts: threadTs } : {}),
+  };
+}
+
+function slackReaction(reaction: string, itemTs: string): Record<string, unknown> {
+  return {
+    type: "reaction_added",
+    user: SLACK_USER,
+    reaction,
+    item: { type: "message", channel: SLACK_CHANNEL, ts: itemTs },
+  };
+}
+
+/** Schickt ein Slack-Ereignis über genau den Weg, den `server.ts` auch ginge: mit echter Signatur. */
+async function sendSlack(rig: Rig, event: Record<string, unknown>) {
+  const req = slackRequest(event);
+  return handleSlackEvent(rig.slack, req.body, {
+    timestamp: req.timestamp,
+    signature: req.signature,
+    rawBody: req.rawBody,
+  });
+}
+
+// ---------------------------------------------------------------------------
 // Aufbau
 // ---------------------------------------------------------------------------
 
 const TELEGRAM_USER = "11111111";
 const TELEGRAM_CHAT = "11111111";
+const SLACK_USER = "U0JAKOB";
+const SLACK_CHANNEL = "D0JAKOB";
 
 interface Rig {
   userId: string;
@@ -206,6 +315,8 @@ interface Rig {
   web: WebChannel;
   telegram: TelegramChannelDeps;
   fake: TelegramFake;
+  slack: SlackChannelDeps;
+  slackFake: SlackFake;
   sessionId(): Promise<string>;
   events(): Promise<EventRecord[]>;
   webMessage(content: string, extra?: Record<string, unknown>): Promise<GatewayOutcome>;
@@ -229,6 +340,8 @@ async function makeRig(
     webToken: "web-geheim",
     telegramSecret: "hook-geheim",
     telegramUserIds: [TELEGRAM_USER],
+    slackSigningSecret: "slack-geheim",
+    slackUserIds: [SLACK_USER],
   };
 
   const conversations = createConversations({
@@ -252,6 +365,15 @@ async function makeRig(
   };
   channels.set("telegram", createTelegramChannel(telegram));
 
+  const slackFakeClient = slackFake();
+  const slack: SlackChannelDeps = {
+    client: createSlackClient({ token: "xoxb-test", fetchImpl: slackFakeClient.fetchImpl }),
+    identity,
+    gateway,
+    pendingByTs: new Map(),
+  };
+  channels.set("slack", createSlackChannel(slack));
+
   const rig: Rig = {
     userId,
     identity,
@@ -260,6 +382,8 @@ async function makeRig(
     web,
     telegram,
     fake,
+    slack,
+    slackFake: slackFakeClient,
     async sessionId() {
       return (await conversations.of(userId)).runner.session.sessionId;
     },
@@ -469,6 +593,21 @@ const reportScript = (ctx: ScriptContext): ScriptAnswer => {
       tool: "fs.write",
       callId: "call_write_1",
       input: { path: "bericht.txt", content: "Bericht aus dem Gateway-Test.\n" },
+    };
+  }
+  return { text: "Bericht geschrieben." };
+};
+
+/** Wie `reportScript`, aber auf eine eigene Datei — `scratchRoot`/die Quellzone sind über die
+ * ganze Datei hinweg geteilt (ein `beforeAll`), und die Telegram-Freigabetests oben schreiben
+ * "bericht.txt" bereits fertig. Ein eigener Zielname hält die Slack-Tests unten unabhängig von
+ * der Ausführungsreihenfolge der übrigen `describe`-Blöcke. */
+const slackReportScript = (ctx: ScriptContext): ScriptAnswer => {
+  if (ctx.toolResults === 0) {
+    return {
+      tool: "fs.write",
+      callId: "call_write_slack_1",
+      input: { path: "bericht-slack.txt", content: "Bericht aus dem Gateway-Test.\n" },
     };
   }
   return { text: "Bericht geschrieben." };
@@ -797,5 +936,149 @@ describe("Anhänge und Doppelzustellung", () => {
     expect(turns).toHaveLength(1);
     // Und kein zweites Echo im Chat.
     expect(rig.fake.sent()).toHaveLength(1);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 6 · Freigabe per Slack (Reaktion und Thread-Antwort) — S26
+// ---------------------------------------------------------------------------
+
+describe("Freigabe per Slack (Reaktion und Thread-Antwort)", () => {
+  it("nimmt eine neue Slack-Nachricht als Zug an und antwortet im selben Kanal", async () => {
+    const rig = await makeRig(() => ({ text: "Angekommen." }));
+
+    const outcome = await sendSlack(rig, slackMessage("Hallo Kuronami.", "200.001"));
+    expect(outcome.kind).toBe("handled");
+    if (outcome.kind !== "handled") return;
+    expect(outcome.outcome.status).toBe("answered");
+
+    const posted = rig.slackFake.posted();
+    expect(posted).toHaveLength(1);
+    expect(posted[0].body.channel).toBe(SLACK_CHANNEL);
+    expect(String(posted[0].body.text)).toContain("Angekommen");
+  });
+
+  it("hält an, postet die Frage mit nummerierten Optionen und setzt Ziffern-Reaktionen", async () => {
+    const rig = await makeRig(slackReportScript);
+
+    const outcome = await sendSlack(rig, slackMessage("Schreib den Bericht.", "201.001"));
+    expect(outcome.kind).toBe("handled");
+    if (outcome.kind !== "handled") return;
+    expect(outcome.outcome.status).toBe("awaiting_user");
+
+    const posted = rig.slackFake.posted();
+    expect(posted).toHaveLength(1);
+    expect(posted[0].body.channel).toBe(SLACK_CHANNEL);
+    expect(String(posted[0].body.text)).toContain("1. ");
+
+    const reactions = rig.slackFake.calls.filter((call) => call.method === "reactions.add");
+    expect(reactions.length).toBeGreaterThan(0);
+    expect(reactions.map((call) => call.body.name)).toContain("one");
+    expect(reactions.every((call) => call.body.timestamp === rig.slackFake.postedTs[0])).toBe(true);
+
+    // Nichts geschrieben, kein Web-Eintrag.
+    await expect(stat(path.join(scratchRoot, "bericht-slack.txt"))).rejects.toThrow();
+    expect(rig.web.peek(rig.userId)).toEqual([]);
+  });
+
+  it("löst eine Freigabe über eine Reaktion auf und führt den Schritt aus", async () => {
+    const rig = await makeRig(slackReportScript);
+    await sendSlack(rig, slackMessage("Schreib den Bericht.", "202.001"));
+    const messageTs = rig.slackFake.postedTs[0];
+    rig.slackFake.reset();
+
+    const answered = await sendSlack(rig, slackReaction("one", messageTs));
+    expect(answered.kind).toBe("handled");
+    if (answered.kind !== "handled") return;
+    expect(answered.outcome.status).toBe("answered");
+
+    expect(await readFile(path.join(scratchRoot, "bericht-slack.txt"), "utf8")).toBe(
+      "Bericht aus dem Gateway-Test.\n",
+    );
+
+    const events = await rig.events();
+    const granted = events.find((event) => event.type === "approval.granted");
+    expect(granted?.payload.decided_by).toBe(`slack:${SLACK_USER}`);
+    const decision = events.find(
+      (event) => event.type === "gateway.received" && event.payload.kind === "decision",
+    );
+    expect(decision?.payload.channel).toBe("slack");
+    expect(decision?.payload.choice_id).toBe("once");
+  });
+
+  it("löst eine Freigabe über eine Thread-Antwort mit Options-Text auf", async () => {
+    const rig = await makeRig(slackReportScript);
+    await sendSlack(rig, slackMessage("Schreib den Bericht.", "203.001"));
+    const messageTs = rig.slackFake.postedTs[0];
+    rig.slackFake.reset();
+
+    const answered = await sendSlack(rig, slackMessage("once", "203.099", messageTs));
+    expect(answered.kind).toBe("handled");
+    if (answered.kind !== "handled") return;
+    expect(answered.outcome.status).toBe("answered");
+
+    expect(await readFile(path.join(scratchRoot, "bericht-slack.txt"), "utf8")).toBe(
+      "Bericht aus dem Gateway-Test.\n",
+    );
+    const decision = (await rig.events()).find(
+      (event) => event.type === "gateway.received" && event.payload.kind === "decision",
+    );
+    expect(decision?.payload.choice_id).toBe("once");
+  });
+
+  it("ignoriert eine Nachricht/Reaktion eines nicht erlaubten Slack-Absenders", async () => {
+    const rig = await makeRig(() => ({ text: "Angekommen." }));
+
+    const result = await sendSlack(rig, {
+      type: "message",
+      user: "U_FREMD",
+      channel: SLACK_CHANNEL,
+      ts: "300.001",
+      text: "Lösch mal alles.",
+    });
+
+    expect(result.kind).toBe("rejected");
+    expect(rig.conversations.open()).toEqual([]);
+    expect(rig.slackFake.calls).toEqual([]);
+  });
+
+  it("weist eine Zustellung mit falscher Signatur ab", async () => {
+    const rig = await makeRig(() => ({ text: "Angekommen." }));
+    const req = slackRequest(slackMessage("Hallo", "301.001"));
+
+    const result = await handleSlackEvent(rig.slack, req.body, {
+      timestamp: req.timestamp,
+      signature: "v0=falsch",
+      rawBody: req.rawBody,
+    });
+
+    expect(result.kind).toBe("rejected");
+    expect(rig.conversations.open()).toEqual([]);
+  });
+
+  it("verwirft eine Nachricht des eigenen Bots und eine mit subtype", async () => {
+    const rig = await makeRig(() => ({ text: "Angekommen." }));
+
+    const botResult = await sendSlack(rig, {
+      type: "message",
+      user: SLACK_USER,
+      bot_id: "B123",
+      channel: SLACK_CHANNEL,
+      ts: "302.001",
+      text: "Ich bin der Bot.",
+    });
+    expect(botResult.kind).toBe("ignored");
+
+    const editResult = await sendSlack(rig, {
+      type: "message",
+      subtype: "message_changed",
+      user: SLACK_USER,
+      channel: SLACK_CHANNEL,
+      ts: "302.002",
+      text: "bearbeitet",
+    });
+    expect(editResult.kind).toBe("ignored");
+
+    expect(rig.slackFake.calls).toEqual([]);
   });
 });

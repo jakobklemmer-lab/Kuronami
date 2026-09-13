@@ -20,9 +20,14 @@ import ts from "typescript";
 export const UI_ROOT = path.dirname(fileURLToPath(import.meta.url));
 
 /** Die Einstiegspunkte, die im Bau landen. Alles Weitere zieht der Browser über Importe nach. */
-export const ENTRY_POINTS = ["main.ts", "events/bus.ts", "canvas/ripples.ts"] as const;
+export const ENTRY_POINTS = ["main.ts", "events/bus.ts"] as const;
 
-export const STATIC_FILES = ["index.html", "styles/theme.css", "styles/layout.css"] as const;
+export const STATIC_FILES = [
+  "index.html",
+  "styles/theme.css",
+  "styles/layout.css",
+  "assets/lake.jpg",
+] as const;
 
 const TRANSPILE: ts.TranspileOptions = {
   compilerOptions: {
@@ -66,6 +71,8 @@ const CONTENT_TYPES: Record<string, string> = {
   ".json": "application/json; charset=utf-8",
   ".svg": "image/svg+xml",
   ".png": "image/png",
+  ".jpg": "image/jpeg",
+  ".jpeg": "image/jpeg",
   ".woff2": "font/woff2",
 };
 

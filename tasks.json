@@ -253,7 +253,7 @@
     "title": "Centerpiece und 3D-Welt",
     "phase": 6,
     "status": "ready",
-    "note": "Setzt die fertige Claude-Design-Spec um: Ninja auf Stein im See, drei Animationszustände (Idle/Processing/Response Delivered), Beschwörungskreise für Subagenten ohne Pathfinding/Tween.",
+    "note": "Auf ausdrücklichen Nutzerauftrag umgeleitet (2026-09-13): statt der Claude-Design-Spec (Ninja/Beschwörungskreise) wurde die Oberfläche 1:1 nach einem vom Nutzer gelieferten Bildvorlage neu gebaut (Seitenleiste, echtes Hintergrundfoto `assets/lake.jpg`, Glaskarten mit echtem Inhalt) — Details in progress.md. Der Ninja-Centerpiece samt Beschwörungskreisen wurde dabei zunächst gebaut und auf Anweisung des Nutzers wieder verworfen ('Drop it completely for now'). Das ursprüngliche Fertig-Kriterium ist damit weiterhin offen, nicht erledigt.",
     "done_when": "Alle drei Animationszustände laufen gemäß der abgestimmten Spec; ein Subagenten-Aufruf zeigt den Beschwörungskreis auf der Wasseroberfläche",
     "depends_on": ["S24"]
   },
@@ -261,8 +261,8 @@
     "id": "S26",
     "title": "Slack-Anbindung",
     "phase": 7,
-    "status": "queued",
-    "note": "Unabhängig von Phase 6 — hängt nur an S20, nicht an der neuen Oberfläche. Kann vorgezogen werden, während die Design-Vorlage für Phase 6 noch offen ist.",
+    "status": "done",
+    "note": "Unabhängig von Phase 6 — hängt nur an S20, nicht an der neuen Oberfläche. Events-API-Webhook statt Socket Mode (siehe progress.md); Anhänge bewusst nicht gebaut.",
     "done_when": "Eine Freigabe lässt sich per Slack-Reaktion oder Thread-Antwort erteilen",
     "depends_on": ["S20"]
   },
@@ -270,7 +270,8 @@
     "id": "S27",
     "title": "MCP absichern",
     "phase": 7,
-    "status": "queued",
+    "status": "done",
+    "note": "Kein echter Produktiv-Server verkabelt (die Serverwahl bleibt offen, wie in Abschnitt 17) — diese Session liefert den Mechanismus samt Härtung, siehe progress.md und docs/ARCHITEKTUR.md Abschnitt 9.",
     "done_when": "Eine fremde/manipulierte Tool-Beschreibung ändert das Verhalten der Runtime nachweislich nicht",
     "depends_on": ["S26"]
   },

@@ -8,9 +8,13 @@ Codeschreiben.
 
 `namensraum.aktion`, kleingeschrieben, Punkt als Trenner, Aktion englisch.
 Erlaubte Namensräume: `fs`, `web`, `exec`, `task`, `user`, `agent`, `mail`, `cal`,
-`notes`, `memory`, `github`, `server`, `dev`, `tool`, `skill`. Ein neuer Namensraum braucht
-eine Begründung in `docs/`. `dev.*` sind Prüf-Tools des Harness und gehören in keinen
+`notes`, `memory`, `github`, `server`, `dev`, `tool`, `skill`, `mcp`. Ein neuer Namensraum
+braucht eine Begründung in `docs/`. `dev.*` sind Prüf-Tools des Harness und gehören in keinen
 produktiven Tool-Katalog.
+
+`mcp.*` (seit S27) sind dynamisch von externen MCP-Servern entdeckte Tools, lokal benannt als
+`mcp.<serverId>__<sanitierter Fernname>`. Ihre Risikostufe ist immer eine lokale, pro Server
+konfigurierte Obergrenze — nie aus der Fernbeschreibung oder dem Fernschema abgeleitet.
 
 `notes.*` und `memory.*` sind **nicht dasselbe** und werden es auch nicht: `notes.*` greift
 auf den Obsidian-Vault des Nutzers zu (fremdes Gebiet, `hard_write`, jede Änderung mit

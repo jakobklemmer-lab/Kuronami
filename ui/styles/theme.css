@@ -1,38 +1,38 @@
 /*
- * Farbschema und Grundstimmung (S21).
+ * Farbschema und Grundstimmung.
  *
- * Dunkel mit Off-White-Akzent, wie in `tasks.json` für S21 verlangt. Die beiden Blautöne sind
- * die des Wassers und stehen deshalb auch als Variablen hier und nicht nur in `ripples.ts` —
- * Panelränder, Fokusringe und Kreise sollen dieselbe Farbe tragen, nicht zwei ähnliche.
+ * S25-Neufassung: 1:1 an der vom Nutzer gelieferten Bildvorlage gebaut (Seitenleiste, echtes
+ * Hintergrundfoto `assets/lake.jpg`, Glaskarten) — ersetzt den vorherigen eigenen Entwurf
+ * (Taskbar oben, Wasserkreise, Centerpiece) aus dieser Session vollständig, auf ausdrücklichen
+ * Auftrag. Die Farbwerte selbst (dunkel, Off-White-Akzent, Cyan als Signalfarbe) bleiben aus
+ * S21, weil sie zur Vorlage ohnehin passen — nur ihre Verwendung ändert sich.
  */
 
 :root {
   /* Grundflächen */
-  --bg: #0a0e27;
-  --bg-deep: #060919;
-  --bg-panel: rgba(18, 24, 56, 0.72);
-  --bg-panel-solid: #121838;
-  --bg-taskbar: rgba(10, 14, 39, 0.82);
+  --bg: #05070f;
+  --bg-deep: #030409;
+  --bg-panel: rgba(8, 11, 24, 0.6);
+  --bg-panel-solid: #10142a;
+  --bg-sidebar: rgba(5, 7, 16, 0.6);
 
   /* Schrift */
   --fg: #e8e8e8;
   --fg-muted: rgba(232, 232, 232, 0.62);
   --fg-faint: rgba(232, 232, 232, 0.38);
 
-  /* Wasser */
+  /* Signalfarben (aus S21 übernommen — nur noch für Zustandsabzeichen und Kennzahlen in
+   * Gebrauch, nicht mehr für ein Wassereffekt-Canvas). */
   --ripple-blue: #4a7c9c;
   --ripple-cyan: #61dafb;
 
-  /* Zustände */
   --state-idle: var(--ripple-blue);
   --state-processing: var(--ripple-cyan);
   --state-speaking: #8de9ff;
   --state-complete: #7de0a8;
   --state-error: #ff7a7a;
 
-  /* Run-Status (S22), acht Zustände wie kuronami.task_status — jeder mit eigener Farbe, damit
-   * ein Blick auf die Liste genügt und niemand die Beschriftung lesen muss, um "läuft" von
-   * "fehlgeschlagen" zu unterscheiden. */
+  /* Run-Status (S22), acht Zustände wie kuronami.task_status. */
   --run-queued: var(--fg-faint);
   --run-ready: var(--ripple-blue);
   --run-running: var(--state-processing);
@@ -49,13 +49,10 @@
   --shadow-panel: 0 18px 48px rgba(0, 0, 0, 0.45), 0 2px 0 rgba(232, 232, 232, 0.04) inset;
   --shadow-float: 0 28px 64px rgba(0, 0, 0, 0.55);
   --glow-cyan: 0 0 24px rgba(97, 218, 251, 0.28);
-  --glow-blue: 0 0 32px rgba(74, 124, 156, 0.35);
 
   /* Maße */
-  --taskbar-height: 48px;
-  --stage-share: 65%;
-  --water-share: 35%;
-  --radius: 14px;
+  --sidebar-width: 224px;
+  --radius: 16px;
   --radius-sm: 8px;
 
   --font-ui: "Inter", "Segoe UI", system-ui, -apple-system, sans-serif;
@@ -85,7 +82,8 @@ body {
 }
 
 body {
-  background: radial-gradient(120% 80% at 50% 0%, #131a44 0%, var(--bg) 42%, var(--bg-deep) 100%);
+  /* Fallback, falls `assets/lake.jpg` einmal nicht lädt — `.scene` liegt normalerweise darüber. */
+  background: var(--bg-deep);
   color: var(--fg);
   font-family: var(--font-ui);
   font-size: 14px;
@@ -121,9 +119,8 @@ button {
   outline-offset: 2px;
 }
 
-/* Die vier Zustände als Farbe. `data-ui-state` setzt `main.ts` auf `<body>` und auf das
- * Abzeichen in der Taskbar — ein Zustandswechsel färbt damit beides, ohne dass irgendwo eine
- * zweite Liste der vier Namen gepflegt werden müsste. */
+/* Das Zustandsabzeichen im Header (`hero__state`, vormals `taskbar__state`) trägt seine Farbe
+ * über dieselbe Variable, die `main.ts` auf `<body data-ui-state>` setzt. */
 [data-ui-state="idle"] {
   --state-colour: var(--state-idle);
 }
@@ -137,8 +134,8 @@ button {
   --state-colour: var(--state-complete);
 }
 
-/* Das Status-Abzeichen eines Runs (S22): eine Pille wie `.taskbar__state`, nur ohne festen
- * Platz in der Taskbar — es taucht in der Läufe-Liste und im Detail auf. */
+/* Das Status-Abzeichen eines Runs (S22): eine Pille wie `.hero__state`, nur ohne festen
+ * Platz im Header — es taucht in der Läufe-Liste und im Detail auf. */
 .run-status {
   display: inline-flex;
   align-items: center;

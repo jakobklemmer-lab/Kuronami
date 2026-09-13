@@ -6,6 +6,9 @@ import { startEventNotifyListener } from "../runtime/events/notify.js";
 import { buildCatalog } from "../runtime/loop/api.js";
 import { createAnthropicClient } from "../runtime/model/anthropic.js";
 import { resolveModelRouteConfig } from "../runtime/model/router.js";
+import { createSlackChannel } from "./channels/slack/channel.js";
+import type { SlackChannelDeps } from "./channels/slack/channel.js";
+import { createSlackClient } from "./channels/slack/client.js";
 import { createTelegramChannel, startTelegramPolling } from "./channels/telegram/channel.js";
 import type { TelegramChannelDeps } from "./channels/telegram/channel.js";
 import { createTelegramClient } from "./channels/telegram/client.js";
@@ -112,8 +115,26 @@ async function main(): Promise<void> {
     channels.set("telegram", createTelegramChannel(telegram));
   }
 
+  const slackToken = process.env.SLACK_BOT_TOKEN?.trim();
+  let slack: SlackChannelDeps | undefined;
+  if (available.includes("slack")) {
+    if (!slackToken) {
+      throw new Error(
+        "SLACK_ALLOWED_USER_IDS ist gesetzt, aber SLACK_BOT_TOKEN fehlt — der Kanal könnte annehmen, aber nichts zustellen.",
+      );
+    }
+    if (!identity.slackSigningSecret) {
+      throw new Error(
+        "SLACK_ALLOWED_USER_IDS ist gesetzt, aber SLACK_SIGNING_SECRET fehlt — ohne Signaturprüfung nimmt der Kanal nichts an.",
+      );
+    }
+    const client = createSlackClient({ token: slackToken });
+    slack = { client, identity, gateway, pendingByTs: new Map() };
+    channels.set("slack", createSlackChannel(slack));
+  }
+
   const port = Number(process.env.GATEWAY_PORT ?? 8788);
-  const app = createServer({ gateway, identity, web, telegram });
+  const app = createServer({ gateway, identity, web, telegram, slack });
   const server: Server = app.listen(port, () => {
     console.log(`[gateway] http://localhost:${port} — Kanäle: ${[...channels.keys()].join(", ")}`);
   });
@@ -162,6 +183,7 @@ async function main(): Promise<void> {
       : undefined;
   if (polling) console.log("Telegram: Long-Polling läuft.");
   else if (telegram) console.log("Telegram: Webhook-Betrieb (POST /channels/telegram/webhook).");
+  if (slack) console.log("Slack: Events API (POST /channels/slack/events).");
 
   let stopped = false;
   async function shutdown(reason: string): Promise<void> {

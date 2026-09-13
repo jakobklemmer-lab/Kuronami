@@ -1,13 +1,19 @@
 import { ApiError, createApiClient } from "./api/client.js";
-import { createRippleRenderer } from "./canvas/ripples.js";
 import { type BusMessage, type UiState, createEventBus } from "./events/bus.js";
 import { type RunStatus, runStatusClass, runStatusLabel } from "./runs/status.js";
 import { loadToken, saveToken } from "./settings.js";
 
 /**
- * Die Verdrahtung (S21, seit S22-S24 mit echtem Inhalt): Ereignisstrom → Zustand → Wasser und
- * Anzeige, dazu die Runs-Liste/-Detail (S22), Freigaben und Fehler (S23) und Kennzahlen (S24)
- * über den authentifizierten HTTP-Client (`api/client.ts`).
+ * Die Verdrahtung: Ereignisstrom → Zustand und Anzeige, dazu die Runs-Liste/-Detail (S22),
+ * Freigaben und Fehler (S23) und Kennzahlen (S24) über den authentifizierten HTTP-Client
+ * (`api/client.ts`).
+ *
+ * **S25-Neufassung.** Das Grundgerüst folgt jetzt 1:1 der vom Nutzer gelieferten Bildvorlage
+ * (Seitenleiste, echtes Hintergrundfoto, Uhr/Datum-Kopfzeile, vier Glaskarten) statt der
+ * vorherigen eigenen Fassung dieser Session (Taskbar, Wasserkreise, Centerpiece) — siehe
+ * `progress.md` (S25). Die Wasserkreise (`canvas/ripples.ts`) und ein Ninja-Centerpiece
+ * hätten in dieser Vorlage keinen Platz mehr und sind hier bewusst nicht mehr verdrahtet;
+ * `ripples.ts` bleibt unberührt im Baum liegen (S21, eigene Historie), nur ohne Aufrufer.
  *
  * Bewusst die einzige Datei der Oberfläche, die das Dokument anfasst. Alle anderen Module
  * kennen weder `document` noch `window` und bleiben dadurch ohne Browser prüfbar; hier steht
@@ -107,9 +113,18 @@ function element<T extends Element>(id: string): T {
   return found as unknown as T;
 }
 
-function startClock(target: HTMLElement): void {
+/** Datum/Uhrzeit der Kopfzeile (`hero__date`/`hero__time`) — an derselben Stelle wie in der
+ * Vorlage, nur mit echter, laufender Zeit statt eines eingefrorenen Bildschirmfotos. */
+function startHeroClock(dateTarget: HTMLElement, timeTarget: HTMLElement): void {
   const tick = (): void => {
-    target.textContent = new Date().toLocaleTimeString("de-DE", { hour12: false });
+    const now = new Date();
+    dateTarget.textContent = now.toLocaleDateString("de-DE", {
+      weekday: "long",
+      day: "numeric",
+      month: "long",
+      year: "numeric",
+    });
+    timeTarget.textContent = now.toLocaleTimeString("de-DE", { hour12: false });
   };
   tick();
   globalThis.setInterval(tick, 1000);
@@ -135,9 +150,9 @@ function formatTime(iso: string): string {
 }
 
 function main(): void {
-  const canvas = element<HTMLCanvasElement>("ripples");
   const stateBadge = element<HTMLElement>("state-badge");
-  const connection = element<HTMLElement>("connection");
+  const connectionDot = element<HTMLElement>("connection-dot");
+  const connectionLabel = element<HTMLElement>("connection-label");
   const eventCount = element<HTMLElement>("event-count");
   const reconnectCount = element<HTMLElement>("reconnect-count");
   const tasksAdded = element<HTMLElement>("tasks-added");
@@ -168,11 +183,7 @@ function main(): void {
   const settingsSave = element<HTMLButtonElement>("settings-save");
   const settingsStatus = element<HTMLElement>("settings-status");
 
-  startClock(element<HTMLElement>("clock"));
-
-  const ripples = createRippleRenderer({ canvas });
-  ripples.start();
-  globalThis.addEventListener("resize", () => ripples.resize());
+  startHeroClock(element<HTMLElement>("hero-date"), element<HTMLElement>("hero-time"));
 
   // Der Port des Backends lässt sich über `?events=3005` überschreiben — historisch der Name
   // für den Ereignisstrom (S21), seit S22 aber auch die Basis für `/runs` und `/channels/*`:
@@ -399,12 +410,11 @@ function main(): void {
     document.body.dataset.uiState = state;
     stateBadge.dataset.uiState = state;
     stateBadge.textContent = STATE_LABEL[state];
-    ripples.setState(state);
   });
 
   bus.onStatus((status, attempts) => {
-    connection.dataset.status = status;
-    connection.textContent =
+    connectionDot.dataset.status = status;
+    connectionLabel.textContent =
       status === "connecting" && attempts > 0
         ? `${STATUS_LABEL.connecting} (${attempts})`
         : STATUS_LABEL[status];
