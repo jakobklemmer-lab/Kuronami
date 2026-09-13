@@ -674,7 +674,7 @@
   flex: 1;
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  grid-template-rows: minmax(340px, auto) minmax(150px, auto);
+  grid-template-rows: minmax(340px, auto) minmax(150px, auto) auto;
   gap: var(--gap);
   align-content: start;
 }
@@ -694,6 +694,53 @@
 .card--metrics {
   grid-column: 2;
   grid-row: 2;
+}
+/* Kosten je Agent und Tag (S28) — volle Breite, weil es eine Tabelle ist und keine Kachel. */
+.card--costs {
+  grid-column: 1 / -1;
+  grid-row: 3;
+}
+
+.card__meta {
+  margin-left: auto;
+  font-size: var(--text-xs);
+  color: var(--fg-faint);
+  font-variant-numeric: tabular-nums;
+}
+
+.spend-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--text-sm);
+}
+.spend-table th {
+  text-align: left;
+  font-size: var(--text-2xs);
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--fg-faint);
+  font-weight: 400;
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--border);
+}
+.spend-table td {
+  padding: 9px 10px;
+  border-bottom: 1px solid var(--border);
+}
+.spend-table tr:last-child td {
+  border-bottom: none;
+}
+.spend-table__num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+/* Ein Betrag, dem Aufrufe ohne Preis fehlen, wird als unvollstaendig kenntlich gemacht — sonst
+ * saehe er aus wie ein guenstiger. */
+.spend-table__warn {
+  margin-left: 8px;
+  font-size: var(--text-2xs);
+  color: var(--state-blocked);
+  white-space: nowrap;
 }
 
 .card__runs-list,

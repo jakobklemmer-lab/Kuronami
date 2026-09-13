@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import express from "express";
 import { originAllowed } from "../runtime/events/bus.js";
 import { readEvents } from "../runtime/events/log.js";
+import { DEFAULT_SPEND_DAYS, listDailySpend } from "../runtime/session/costs.js";
 import { getRunDetail, listRuns } from "../runtime/session/runs.js";
 import { handleSlackEvent } from "./channels/slack/channel.js";
 import type { SlackChannelDeps } from "./channels/slack/channel.js";
@@ -281,6 +282,25 @@ export function createServer(deps: ServerDeps): express.Express {
       if (!principal) return;
       const { runs, metrics } = await listRuns(deps.gateway.pool);
       res.json({ runs, metrics });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  /**
+   * Tagesausgaben je Agent (S28, `runtime/session/costs.ts`). Hinter demselben Bearer-Token wie
+   * `/runs`: die Zeilen nennen Agentennamen und Verbrauch, also dieselbe Vertraulichkeit.
+   *
+   * `?days=` begrenzt das Fenster; ein unlesbarer Wert fällt auf die Vorgabe zurück, statt eine
+   * 400 für eine Anzeige zu werfen, die auch mit der Vorgabe brauchbar ist.
+   */
+  app.get("/costs", async (req, res, next) => {
+    try {
+      const principal = webPrincipal(req, res);
+      if (!principal) return;
+      const requested = Number.parseInt(String(req.query.days ?? ""), 10);
+      const days = Number.isFinite(requested) && requested > 0 ? requested : DEFAULT_SPEND_DAYS;
+      res.json(await listDailySpend(deps.gateway.pool, days));
     } catch (error) {
       next(error);
     }

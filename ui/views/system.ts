@@ -74,6 +74,27 @@ interface PendingApproval {
   options: AskOption[];
 }
 
+/** Eine Zeile aus `/costs` (S28, `context/costs.ts`). */
+interface AgentDaySpend {
+  day: string;
+  agent: string;
+  modelCalls: number;
+  inputTokens: number;
+  outputTokens: number;
+  cacheReadTokens: number;
+  cacheCreationTokens: number;
+  costUsd: number;
+  unpricedCalls: number;
+  unpricedModels: string[];
+}
+
+interface SpendReport {
+  days: AgentDaySpend[];
+  totals: { costUsd: number; modelCalls: number; unpricedCalls: number };
+  windowDays: number;
+  pricingAsOf: string;
+}
+
 interface PendingResponse {
   pending: PendingApproval[];
 }
@@ -168,6 +189,21 @@ export const systemView: View = {
               <div class="figure"><dt>Cache-Trefferquote</dt><dd data-role="metric-cache-hit-rate">–</dd></div>
               <div class="figure"><dt>Rückfragen</dt><dd data-role="metric-approvals">–</dd></div>
             </dl>
+          </section>
+
+          <section class="card glass card--costs" aria-labelledby="panel-costs-title">
+            <header class="card__head">
+              ${icon("trading", { className: "card__icon" })}
+              <h2 class="card__title" id="panel-costs-title">Kosten je Agent und Tag</h2>
+              <span class="card__meta" data-role="costs-meta"></span>
+            </header>
+            <p class="card__hint" data-role="costs-hint">Lädt …</p>
+            <table class="spend-table" data-role="costs-table" hidden>
+              <thead>
+                <tr><th>Tag</th><th>Agent</th><th>Aufrufe</th><th>Eingabe</th><th>Ausgabe</th><th>Cache</th><th>Kosten</th></tr>
+              </thead>
+              <tbody data-role="costs-rows"></tbody>
+            </table>
           </section>
         </div>
       </div>
@@ -292,6 +328,59 @@ export const systemView: View = {
       metricApprovals.textContent = String(metrics.approvalsRequested);
     }
 
+    /**
+     * Tagesausgaben je Agent (S28). Ein unbepreister Aufruf wird als solcher ausgewiesen und
+     * nicht als 0 verbucht — sonst sähe ein unvollständiger Betrag aus wie ein günstiger.
+     */
+    async function refreshCosts(): Promise<void> {
+      const hint = q<HTMLElement>("costs-hint");
+      const table = q<HTMLTableElement>("costs-table");
+      const rows = q<HTMLElement>("costs-rows");
+      const meta = q<HTMLElement>("costs-meta");
+      try {
+        const report = await ctx.api.get<SpendReport>("/costs");
+        const money = (value: number) =>
+          `$${value.toLocaleString("de-DE", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+        const tokens = (value: number) => value.toLocaleString("de-DE");
+
+        meta.textContent = `${report.windowDays} Tage · ${money(report.totals.costUsd)} · Preise vom ${report.pricingAsOf}`;
+
+        if (report.days.length === 0) {
+          table.hidden = true;
+          hint.hidden = false;
+          hint.textContent = "Keine Modellaufrufe im Fenster.";
+          return;
+        }
+
+        rows.innerHTML = report.days
+          .map(
+            (entry) => `
+              <tr>
+                <td>${entry.day}</td>
+                <td>${entry.agent}</td>
+                <td class="spend-table__num">${entry.modelCalls}</td>
+                <td class="spend-table__num">${tokens(entry.inputTokens)}</td>
+                <td class="spend-table__num">${tokens(entry.outputTokens)}</td>
+                <td class="spend-table__num">${tokens(entry.cacheReadTokens + entry.cacheCreationTokens)}</td>
+                <td class="spend-table__num">${money(entry.costUsd)}${
+                  entry.unpricedCalls > 0
+                    ? `<span class="spend-table__warn" title="Ohne Preis in der Tabelle: ${entry.unpricedModels.join(", ")}"> +${entry.unpricedCalls} ohne Preis</span>`
+                    : ""
+                }</td>
+              </tr>
+            `,
+          )
+          .join("");
+        table.hidden = false;
+        hint.hidden = true;
+      } catch (error) {
+        table.hidden = true;
+        hint.hidden = false;
+        hint.textContent = describeApiError(error);
+        meta.textContent = "";
+      }
+    }
+
     function renderApprovals(pending: PendingApproval[]): void {
       approvalsEmpty.hidden = pending.length > 0;
       approvalsList.replaceChildren(
@@ -366,6 +455,7 @@ export const systemView: View = {
         refreshTimer = null;
         void refreshRuns();
         void refreshApprovals();
+        void refreshCosts();
       }, REFRESH_DEBOUNCE_MS);
     }
 
@@ -394,6 +484,7 @@ export const systemView: View = {
 
     void refreshRuns();
     void refreshApprovals();
+    void refreshCosts();
 
     return () => {
       if (refreshTimer !== null) globalThis.clearTimeout(refreshTimer);
