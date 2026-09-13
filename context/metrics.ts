@@ -129,6 +129,53 @@ export function deriveRunMetrics(events: EventRecord[]): RunMetrics {
   };
 }
 
+const EMPTY_METRICS: RunMetrics = {
+  modelCalls: 0,
+  inputTokens: 0,
+  outputTokens: 0,
+  cacheReadTokens: 0,
+  cacheCreationTokens: 0,
+  cacheHitRate: 0,
+  toolCalls: 0,
+  failedToolCalls: 0,
+  offloadedResults: 0,
+  offloadShare: 0,
+  approvalsRequested: 0,
+  contextCompactions: 0,
+  freshSections: 0,
+};
+
+/**
+ * Summiert Kennzahlen mehrerer Läufe zu einer Gesamtzahl (S22, Runs-Übersicht). Die beiden
+ * Quoten (`cacheHitRate`, `offloadShare`) werden am Ende aus den summierten Zählern neu
+ * gebildet statt gemittelt — ein Mittel über Quoten gewichtete jeden Lauf gleich, egal wie
+ * viele Token oder Aufrufe dahinterstehen, und verzerrte damit genau die Aussage, die die
+ * Quote treffen soll.
+ */
+export function combineRunMetrics(all: RunMetrics[]): RunMetrics {
+  // Kein `reduce` mit gespreiztem Akkumulator (O(n²) bei vielen Läufen) — eine einzelne,
+  // mutierte Zwischensumme statt eines frischen Objekts je Eintrag.
+  const totals = { ...EMPTY_METRICS };
+  for (const metrics of all) {
+    totals.modelCalls += metrics.modelCalls;
+    totals.inputTokens += metrics.inputTokens;
+    totals.outputTokens += metrics.outputTokens;
+    totals.cacheReadTokens += metrics.cacheReadTokens;
+    totals.cacheCreationTokens += metrics.cacheCreationTokens;
+    totals.toolCalls += metrics.toolCalls;
+    totals.failedToolCalls += metrics.failedToolCalls;
+    totals.offloadedResults += metrics.offloadedResults;
+    totals.approvalsRequested += metrics.approvalsRequested;
+    totals.contextCompactions += metrics.contextCompactions;
+    totals.freshSections += metrics.freshSections;
+  }
+
+  const totalInput = totals.inputTokens + totals.cacheReadTokens + totals.cacheCreationTokens;
+  totals.cacheHitRate = share(totals.cacheReadTokens, totalInput);
+  totals.offloadShare = share(totals.offloadedResults, totals.toolCalls - totals.failedToolCalls);
+  return totals;
+}
+
 /** Eine Zeile für das Protokoll des Betreibers. Kennzahlen, die niemand sieht, gibt es nicht. */
 export function formatRunMetrics(metrics: RunMetrics): string {
   const percent = (value: number): string => `${(value * 100).toFixed(1)} %`;

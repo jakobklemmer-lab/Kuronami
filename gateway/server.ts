@@ -1,6 +1,8 @@
 import { randomUUID } from "node:crypto";
 import express from "express";
+import { originAllowed } from "../runtime/events/bus.js";
 import { readEvents } from "../runtime/events/log.js";
+import { getRunDetail, listRuns } from "../runtime/session/runs.js";
 import { handleUpdate } from "./channels/telegram/channel.js";
 import type { TelegramChannelDeps } from "./channels/telegram/channel.js";
 import type { WebChannel } from "./channels/web.js";
@@ -62,6 +64,33 @@ function decodeAttachments(value: unknown): InboundAttachment[] {
 
 export function createServer(deps: ServerDeps): express.Express {
   const app = express();
+
+  /**
+   * CORS für die Oberfläche (S22). Die Oberfläche läuft im Dev-Betrieb auf einem eigenen
+   * Ursprung (`ui/dev.ts`, Port 3001) und ruft dieses Gateway auf einem anderen (8788) —
+   * anders als der Ereignisstrom (`bus.ts`, ein WebSocket, kennt keine Same-Origin-Regel des
+   * Browsers) blockiert der Browser ein `fetch()` über Ursprünge hinweg ohne diese Kopfzeilen,
+   * insbesondere weil der `Authorization`-Header einen Preflight (`OPTIONS`) auslöst. Dieselbe
+   * Herkunftsprüfung wie am Ereignisstrom (`originAllowed`, Vorgabe nur localhost) — eine
+   * zweite, abweichende Liste vertrauenswürdiger Ursprünge wäre eine zweite Wahrheit über
+   * dieselbe Frage. Ein Aufruf ganz ohne `Origin` (curl, der Telegram-Webhook) bleibt
+   * unberührt: für ihn gibt es kein Browser-CORS, das etwas verböte.
+   */
+  app.use((req, res, next) => {
+    const origin = req.header("origin");
+    if (origin && originAllowed(origin)) {
+      res.setHeader("Access-Control-Allow-Origin", origin);
+      res.setHeader("Vary", "Origin");
+      res.setHeader("Access-Control-Allow-Headers", "authorization, content-type");
+      res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
+    }
+    if (req.method === "OPTIONS") {
+      res.sendStatus(204);
+      return;
+    }
+    next();
+  });
+
   app.use(express.json({ limit: MAX_REQUEST_BODY }));
 
   app.get("/health", (_req, res) => {
@@ -202,6 +231,41 @@ export function createServer(deps: ServerDeps): express.Express {
           delivered: route.delivered,
         })),
       });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  /**
+   * Die Runs-Übersicht (S22): alle Sessions des Systems, gefaltet aus dem Protokoll
+   * (`runtime/session/runs.ts`) — anders als `/channels/web/pending` nicht nur die
+   * Unterhaltung des Aufrufers, sondern auch Hintergrundläufe (Heartbeat, delegierte
+   * Arbeiter). Hinter demselben Bearer-Token wie jeder andere Lesepfad dieses Randes: die
+   * Zeilen tragen Kanal, Werkzeugnamen und Artefakt-Zusammenfassungen, dieselbe
+   * Vertraulichkeit wie `/channels/web/pending`.
+   */
+  app.get("/runs", async (req, res, next) => {
+    try {
+      const principal = webPrincipal(req, res);
+      if (!principal) return;
+      const { runs, metrics } = await listRuns(deps.gateway.pool);
+      res.json({ runs, metrics });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  /** Der Schritt-für-Schritt-Verlauf eines einzelnen Runs, samt aufgelöster Artefakte. */
+  app.get("/runs/:id", async (req, res, next) => {
+    try {
+      const principal = webPrincipal(req, res);
+      if (!principal) return;
+      const detail = await getRunDetail(deps.gateway.pool, req.params.id);
+      if (!detail) {
+        res.status(404).json({ error: `Run ${req.params.id} ist unbekannt.` });
+        return;
+      }
+      res.json(detail);
     } catch (error) {
       next(error);
     }
