@@ -13,6 +13,16 @@ absichern), beide `status: "done"`. Nächste Session: **S25** in seiner ursprün
 dorthin zurückkehrt — S28 (Kosten-Tracking) bleibt entsprechend blockiert, da es an S25 **und**
 S27 hängt.
 
+**Phase 8 und 9 angebrochen, 2026-09-13.** Nach dem UI-Zwischenschub und seiner Korrektur nach
+Bildvorlage (beide unten) sind **S28** (Kosten-Tracking) und **S29** (Tauri-Desktop-Wrapper)
+`done`. S28 ist gegen die echte Datenbank nachgewiesen, S29 als gebaute und gestartete
+Desktop-App (MSI + NSIS). **S25 ist auf Nutzeranweisung vom 2026-09-13 stillgelegt** — "S25 wird
+komplett ignoriert, eventuell nochmal am Schluss des Projekts diskutabel, aber nicht jetzt";
+die S25-Abhängigkeit von S28 wurde deshalb entfernt. Nächste offene Aufgaben: **S30**
+(Sprachschicht-Grundgerüst) und danach S31. Offen geblieben ist der zweite Titelteil von S28,
+das **Modell-Routing**: `runtime/model/router.ts` ist weiterhin an keinen produktiven Aufrufer
+verdrahtet (Befund seit S18e).
+
 **UI-Zwischenschub, 2026-09-13 (eigene Sitzung, nach S25–S27).** Reine Oberflächen-Überarbeitung
 auf ausdrücklichen Nutzerauftrag, ausdrücklich **kein** Sprint der S-Reihe — siehe den Abschnitt
 "UI-Zwischenschub" am Ende dieser Datei für alle Einzelheiten. Kurzfassung: Emblem, einklappbare
@@ -69,11 +79,11 @@ seither die einzige durchgehende Prüfung über die alten Schichten.
 | S22 | Runs- und Detail-Ansicht | done |
 | S23 | Freigabe- und Fehler-Ansicht | done |
 | S24 | Kennzahlen-Panels | done |
-| S25 | Centerpiece und 3D-Welt | ready (Oberfläche neu gebaut, Centerpiece selbst offen) |
+| S25 | Centerpiece und 3D-Welt | stillgelegt (Nutzerentscheidung 2026-09-13, ggf. am Projektende) |
 | S26 | Slack-Anbindung | done |
 | S27 | MCP absichern | done |
-| S28 | Kosten-Tracking und Modell-Routing | queued |
-| S29 | Tauri-Desktop-Wrapper | queued |
+| S28 | Kosten-Tracking und Modell-Routing | done (Routing-Teil offen) |
+| S29 | Tauri-Desktop-Wrapper | done |
 | S30 | Sprachschicht-Grundgerüst | queued |
 | S31 | Barge-in und Backend-Brücke | queued |
 
@@ -2137,3 +2147,205 @@ Status: abgeschlossen. `tasks.json` unverändert (kein S-Sprint). Nächste Sessi
 regulären Plan, S25 im ursprünglichen Sinn (Centerpiece) oder eine Nutzerentscheidung, dass die
 Bildvorlagen-Oberfläche das ursprüngliche Fertig-Kriterium ersetzt — siehe die offenen Befunde zu
 S25 oben, unverändert durch diesen Zwischenschub.
+
+## UI-Korrektur nach Bildvorlage · 2026-09-13
+
+Direkt nach dem UI-Zwischenschub, auf klare Ansage des Nutzers: "Wo ist der See xd??? Wieso ist
+alles so zusammengepfercht?" — dazu die Anweisung, die Funktionalität zu behalten, aber genau das
+Design der mitgelieferten Vorlage zu bauen. Die Vorlage (`dashboard_beispiel.png`, aus dem
+Downloads-Ordner) ist damit der verbindliche Maßstab; das Hintergrundfoto liegt unverändert als
+`ui/assets/lake.jpg` im Repo (bitgleich mit der Datei, die der Nutzer noch einmal genannt hat).
+
+**Was schiefgelaufen war.** Der Zwischenschub hatte Punkt 7 ("AI-Slop entfernen", darunter
+"flächendeckendes Glas- und Blur-Motiv") wörtlich genommen und alles Glas entfernt — dazu einen
+Verlauf mit 72–86 % Deckkraft über das Foto gelegt, weil die Kontrastgarantie an einer **festen**
+Deckkraft hing. Auf einem ohnehin dunklen Foto wie `lake.jpg` heißt das: schwarze Fläche. Die
+Vorlage lebt aber von genau den drei Dingen, die dabei verschwunden waren — sichtbares Foto,
+dunkle Glaskarten darüber, viel Luft dazwischen.
+
+**Die Kontrastgarantie wurde nicht aufgegeben, sondern anders eingelöst.** Statt einer festen
+Abdunklung rechnet `minimalOverlayAlpha` (`ui/theme/palette.ts`) die **kleinste** Deckkraft aus,
+die Karten und Kopf-/Fußbänder brauchen, damit Text 4,5:1 erreicht. Ein dunkles Bild bekommt fast
+keine (lake.jpg: Karte bleibt bei der Gestaltungsvorgabe 0,56, oberes Band bei 0,12), ein grelles
+genau so viel wie nötig. Die beiden Bänder werden getrennt gemessen (oberes/unteres Bilddrittel),
+damit ein heller Fleck in der Bildmitte nicht die Kopfzeile abdunkelt.
+
+**Ein echter Fehler, der das Foto vollständig verschluckt hatte:** ein `url()` in einer CSS Custom
+Property löst der Browser gegen das Stylesheet auf, das die Variable **einsetzt**
+(`styles/layout.css`), nicht gegen das Dokument. Aus `./assets/lake.jpg` wurde
+`/styles/assets/lake.jpg` — 404, ohne Fehlermeldung und ohne Konsoleneintrag. Behoben über
+`absoluteUrl` (`ui/theme/background.ts`) und eine wurzelabsolute Vorgabe in `theme.css`.
+
+**Die Startseite folgt jetzt der Vorlage:** zentrierte Kopfzeile (Datum, große dünne Uhr,
+Leitsatz) mittig im *Fenster* statt im Inhaltsbereich, Wetter rechts außen, darunter drei Spalten,
+deren obere Mitte leer bleibt, damit das Foto durchschaut. Markets mit Mini-Kurslinien, Inbox,
+Today als Zeitleiste, vier Aktionsknöpfe, System-Messuhren, Quick Notes, Focus/Build/Grow unten
+rechts. Der Mic-Schalter sitzt als Pille unten in der Seitenleiste ("Listening …"), nicht mehr als
+schwebender Knopf in der Bildschirmecke. Die Seitenleiste ist wieder durchscheinend — in der
+Vorlage sieht man den Berg durch sie hindurch.
+
+**Zwei der vier Aktionsknöpfe wurden echt gebaut, statt nur beschriftet zu werden:** "Neue
+Aufgabe" öffnet eine Eingabezeile, die tatsächlich an `POST /channels/web/messages` schickt
+(`ui/compose.ts`, derselbe Kanal wie `pnpm say`) und die Antwort zeigt; "Fokus" blendet
+Seitenleiste und Karten aus und lässt die Uhr stehen. "Läufe" und "Suche" sind Navigation. Die
+Vorlage beschriftet die vier mit "New Task / Open Terminal / Search / Focus Mode" — ein Terminal
+gibt es in diesem System nicht, und ein Knopf ohne Wirkung wäre nach AGENTS.md eine vorgetäuschte
+Funktion. Dieselbe Entscheidung wie in S25, nur diesmal mit drei echten statt null Knöpfen.
+
+**"System" steht nicht mehr in der Navigation** — in der Vorlage gibt es den Eintrag nicht. Die
+echte Läufe-/Freigaben-Ansicht bleibt über den Pfeil der System-Karte und über die
+Verbindungszeile unten in der Seitenleiste erreichbar.
+
+Unverändert weiter in Betrieb: Router und Abdocken, Einklappen mit Strg/Cmd+B, die vollständige
+Einstellungsseite, die sechs Mic-Zustände aus einer Zustandsquelle, Hintergrundwahl samt
+Farbableitung.
+
+### Tests
+
+138 Tests in 17 Dateien, alle grün. Neu: `ui/views/chart.test.ts` (10 Tests für die Geometrie der
+Mini-Kurslinien und Messuhr-Ringe); `ui/theme/palette.test.ts` auf 30 Tests erweitert, davon fünf
+für `minimalOverlayAlpha` und die getrennte Bandmessung. `pnpm typecheck` und `pnpm lint` grün, im
+Browser gegengeprüft.
+
+Status: abgeschlossen.
+
+## S28 · Kosten-Tracking · 2026-09-13
+
+Auftrag laut `tasks.json`: "Tagesausgaben pro Agent sichtbar". Die Abhängigkeit auf S25 hat der
+Nutzer in derselben Nachricht aufgehoben ("S25 wird komplett ignoriert, eventuell nochmal am
+Schluss des Projekts diskutabel, aber nicht jetzt"); die Oberfläche, die der Phase-8-Punkt
+"Kosten-Panel im Dashboard" braucht, steht seit dem UI-Zwischenschub ohnehin.
+
+**Gebaut als Faltung, nicht als Zähler.** Dieselbe Haltung wie `context/metrics.ts` seit S24: die
+Zahlen kommen aus denselben Ereignissen wie der Zustand. Ein mitlaufender Zähler im Prozess wäre
+nach einem Neustart bei null und behauptete Tagesausgaben, die nur die des letzten Prozesses sind.
+
+**`runtime/model/pricing.ts`** — Listenpreise je Modell, mit Preisstand (`PRICING_AS_OF`), der in
+jeder Antwort mitläuft: eine Kostenzahl ohne Preisstand ist eine Behauptung ohne Datum. Die beiden
+Cache-Preise werden aus dem Eingabepreis abgeleitet (Lesen 0,1×, Schreiben 1,25×) statt einzeln
+gepflegt. **Ein unbekanntes Modell bekommt `null`, keine Näherung** — dieselbe Begründung wie bei
+den Risikostufen in AGENTS.md: eine geratene Zahl sieht in einer Kostenübersicht aus wie eine
+gemessene. Anbieter-Präfixe (`anthropic.…`) und datierte Fassungen werden auf den Grundnamen
+zurückgeführt, sonst stünde ein Lauf ohne Preis da, obwohl die Tabelle sein Modell kennt.
+
+**`context/costs.ts`** — `deriveAgentDaySpend` faltet `model.responded` zu Tag/Agent-Eimern. Die
+Brücke von der Arbeiter-Session zum Agentennamen ist `agent.returned.worker_session`, das genau
+dafür seit S19 dort steht (der Kommentar an der Stelle sagte schon damals: "Eine Kennzahl, keine
+Abrechnung — die ist S21", und S21 alt ist dieses S28). Sessions ohne solchen Eintrag laufen unter
+`orchestrator` statt wegzufallen — sonst fehlte in einer Ausgabenübersicht ausgerechnet der
+teuerste Läufer. Unbepreiste Aufrufe zählen bei den Token mit, **nicht** beim Betrag, und werden
+namentlich ausgewiesen: ein unvollständiger Betrag soll nicht wie ein günstiger aussehen.
+
+**`runtime/session/costs.ts`** — die Auswahl der Sessions läuft über die **Ereignis**-Zeitstempel,
+nicht über `sessions.created_at` (wie `listRuns` es für seine Liste tut): ein langer Gateway-Faden
+kann vor Wochen begonnen haben und heute Geld kosten; eine Auswahl nach Anlegedatum übersähe genau
+diesen Lauf, und zwar unbemerkt. Das Fenster beginnt an der lokalen Tagesgrenze, nicht `tage × 24`
+Stunden vor jetzt.
+
+**Sichtbar:** `GET /costs` am Gateway (hinter demselben Bearer-Token wie `/runs`) und eine
+Kosten-Karte in der System-Ansicht mit Tag, Agent, Aufrufen, Token und Betrag.
+
+### Tests und Nachweis
+
+29 Tests: 25 reine (`runtime/model/pricing.test.ts`, `context/costs.test.ts`) und vier gegen die
+**echte Datenbank** (`runtime/session/costs.test.ts`, Fensterzuschnitt und Session-Auswahl — das,
+was die reinen Tests nicht abdecken können). Wie seit S21 laufen Backend-Tests nicht unter
+`pnpm test`; geprüft über eine Ad-hoc-`vitest`-Config.
+
+Echter End-zu-End-Nachweis: Gateway gestartet, Demo-Ereignisse für einen Orchestrator-Lauf und
+zwei delegierte Arbeiter (`coder`, `lore-writer`) geschrieben, `/costs` abgerufen und die Karte in
+der Oberfläche geprüft — vier getrennte Tageszeilen mit je eigenem Betrag ($3,04 / $1,18 / $0,70 /
+$0,66). Die Demo-Ereignisse wurden danach wieder aus der geteilten Dev-Datenbank gelöscht. Die
+**echten** Drehbuch-Läufe, die dort schon lagen, erscheinen korrekt als "$0,00 +21 ohne Preis":
+`modell-nach-drehbuch (devui)` steht in keiner Preistabelle, und genau das zeigt die Ansicht an,
+statt eine Null zu behaupten.
+
+### Bewusst nicht gebaut
+
+* **Der zweite Titelteil, "Modell-Routing", bleibt offen.** `runtime/model/router.ts` (S18e) ist
+  weiterhin an keinen produktiven Aufrufer verdrahtet — offener Befund seit S18e, und die
+  Verkabelung ist eine Entscheidung über Kosten und Verhalten, die dieses Fertig-Kriterium nicht
+  verlangt. Sie bleibt als Befund stehen, nicht als stillschweigend erledigt.
+* **Kein Budget, keine Warnung, keine Obergrenze in Geld.** Gezeigt wird, was ausgegeben wurde;
+  eine Grenze zu ziehen ist eine Betriebsentscheidung. Das Token-Budget je Agent (S20) bleibt der
+  einzige harte Deckel.
+* **Keine Preise für Partnerplattformen** (Bedrock, Vertex) — sie rechnen eigenständig ab, und
+  eine zweite Tabelle mit fremden Zahlen wäre eine Behauptung über eine Rechnung, die dieses
+  System nicht sieht.
+
+### Offene Befunde (S28)
+
+* **Die Preistabelle altert.** Sie steht mit Datum im Quelltext (`PRICING_AS_OF`), und der Stand
+  läuft in jeder Antwort mit — aber niemand erinnert daran, sie zu pflegen. Ein Modell, dessen
+  Preis sich ändert, rechnet bis zum nächsten Commit mit dem alten.
+* **Der Tag ist die lokale Zeit des Prozesses**, wie schon bei `cal.list` (S15), der
+  Heartbeat-Tagesgrenze (S17) und dem Notizdatum (S18). Eine Nutzer-Zeitzone ist weiterhin
+  nirgends bekannt.
+* **Die Faltung liest ganze Sessions.** Eine Session im Fenster wird vollständig gelesen, auch
+  wenn nur ein Ereignis hineinfällt — dieselbe Art wiederholter Arbeit wie bei `listRuns`. Bei
+  heutigen Größen unmessbar, aber ohne Aggregat-Abfrage.
+
+Status: abgeschlossen.
+
+## S29 · Tauri-Desktop-Wrapper · 2026-09-13
+
+Auftrag: "Installierbare Desktop-App aus demselben Code". Erfüllt — `pnpm tauri build` erzeugt
+zwei Installer (`Kuronami_0.1.0_x64_en-US.msi`, `Kuronami_0.1.0_x64-setup.exe`) und eine
+`kuronami.exe` (9,3 MB); die App wurde gestartet, das Fenster zeigt dieselbe Oberfläche wie der
+Browser — See-Foto, Glaskarten, Seitenleiste mit Emblem und Mic-Pille.
+
+**Was ersetzt wurde.** `src-tauri/` gab es seit S12b, aber als Wrapper um die **Wegwerf-DevUI**:
+Produktname `kuronami-devui`, Fenster auf `http://localhost:8787`, und ein Node-Kindprozess, den
+die App selbst startete (`runtime/devui/server.ts`). Das ist alles weg. Die Oberfläche aus `ui/`
+ist seit Phase 6 ein Satz statischer Dateien (`ui/build.ts` → `ui/dist`, kein Bundler, kein
+Server), und Tauri liefert sie direkt aus (`frontendDist: "../ui/dist"`,
+`beforeBuildCommand: "pnpm build:ui"`). Ein Kindprozess, der nur Dateien ausliefert, wäre eine
+zweite bewegliche Stelle ohne Gegenwert. `lib.rs` ist von ~80 auf ~35 Zeilen geschrumpft.
+
+**Der angekündigte Tausch ist eingelöst.** `ui/router/detach.ts` war im UI-Zwischenschub
+ausdrücklich als "die einzige Stelle, die `window.open` kennt" gebaut, mit dem Kommentar, dass
+beim Tauri-Client **nur hier** getauscht wird. Genau so kam es: `detectDetachTarget` erkennt die
+globale Tauri-API, und `detachView` baut dann ein echtes `WebviewWindow` statt eines
+Browser-Popups. Keine andere Datei musste angefasst werden.
+
+**Warum die globale API und kein `@tauri-apps/api`-Import:** `ui/` wird ohne Bundler ausgeliefert;
+ein npm-Import ließe sich im Browser nicht auflösen. `withGlobalTauri: true` stellt dieselbe API
+als `window.__TAURI__` bereit — dieselbe Abhängigkeitsdisziplin wie überall sonst (kein zweites
+Werkzeug für eine Aufgabe, die der vorhandene Weg trägt).
+
+**CSP statt `csp: null`.** Der alte Wrapper schaltete die Content-Security-Policy ganz ab. Jetzt
+steht eine: `default-src 'self'`, dazu ausdrücklich `connect-src` für `localhost`-HTTP/WebSocket,
+weil die Oberfläche mit Gateway und Ereignisstrom spricht, und `img-src … data:` für einen selbst
+hochgeladenen Hintergrund.
+
+### Was die App ausdrücklich nicht mitbringt
+
+Das Backend (Gateway, Runtime, Postgres) läuft weiterhin eigenständig — `pnpm gateway`. Diese App
+ist das Fenster, nicht der Motor: ein Installer, der Postgres mitbrächte, wäre eine Entscheidung
+über Betrieb und Datenhaltung, die dieses Fertig-Kriterium nicht verlangt. Läuft kein Backend,
+sagt die App das genauso ehrlich wie der Browser ("System Offline", Fehlertexte an den Karten).
+
+### Tests
+
+144 UI-Tests in 17 Dateien, alle grün — neu sind sechs für den Tauri-Pfad in
+`ui/router/detach.test.ts` (Erkennung mit/ohne globale API, `WebviewWindow` statt `window.open`,
+Abschnitt in der Adresse, und: ein bereits vergebenes Fensterlabel gilt als Erfolg, nicht als
+Fehlschlag — abgedockt ist abgedockt). `pnpm typecheck` und `pnpm lint` grün.
+
+### Offene Befunde (S29)
+
+* **Der Backend-Port lässt sich in der Desktop-App nicht umstellen.** Im Browser geht
+  `?events=8788`; in der App ist die Adresse `tauri://localhost`, und es gibt keinen Weg, den Port
+  zu setzen — sie spricht immer 3000 an. Wer das Gateway auf einem anderen Port betreibt, kann die
+  App heute nicht darauf zeigen lassen. Der saubere Ort dafür wäre ein Feld in den Einstellungen
+  (Abschnitt System, neben dem Verbindungs-Token); bewusst nicht in dieser Session gebaut, weil es
+  über das Fertig-Kriterium hinausgeht — aber es ist eine echte Lücke, keine vergessene.
+* **Nicht signiert.** Die Installer tragen keine Code-Signatur; Windows SmartScreen wird beim
+  ersten Start warnen. Signieren braucht ein Zertifikat und eine Entscheidung darüber, wer
+  ausliefert.
+* **Nur auf Windows gebaut und geprüft.** `targets: "all"` erzeugt auf jeder Plattform deren
+  eigene Bundles; macOS/Linux sind unbelegt.
+* **Kein Auto-Update.** Der Tauri-Updater ist nicht eingerichtet — eine neue Fassung heißt heute:
+  neu installieren.
+
+Status: abgeschlossen.

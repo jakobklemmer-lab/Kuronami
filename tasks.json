@@ -252,8 +252,8 @@
     "id": "S25",
     "title": "Centerpiece und 3D-Welt",
     "phase": 6,
-    "status": "ready",
-    "note": "Auf ausdrücklichen Nutzerauftrag umgeleitet (2026-09-13): statt der Claude-Design-Spec (Ninja/Beschwörungskreise) wurde die Oberfläche 1:1 nach einem vom Nutzer gelieferten Bildvorlage neu gebaut (Seitenleiste, echtes Hintergrundfoto `assets/lake.jpg`, Glaskarten mit echtem Inhalt) — Details in progress.md. Der Ninja-Centerpiece samt Beschwörungskreisen wurde dabei zunächst gebaut und auf Anweisung des Nutzers wieder verworfen ('Drop it completely for now'). Das ursprüngliche Fertig-Kriterium ist damit weiterhin offen, nicht erledigt.",
+    "status": "on_hold",
+    "note": "Auf Nutzeranweisung vom 2026-09-13 stillgelegt: \"S25 wird komplett ignoriert, eventuell nochmal am Schluss des Projekts diskutabel, aber nicht jetzt.\" Die Oberflaeche selbst steht (Bildvorlage, siehe progress.md); offen ist nur das urspruengliche Centerpiece-Kriterium. S28 haengt seither nicht mehr daran.",
     "done_when": "Alle drei Animationszustände laufen gemäß der abgestimmten Spec; ein Subagenten-Aufruf zeigt den Beschwörungskreis auf der Wasseroberfläche",
     "depends_on": ["S24"]
   },
@@ -279,15 +279,17 @@
     "id": "S28",
     "title": "Kosten-Tracking und Modell-Routing",
     "phase": 8,
-    "status": "queued",
+    "status": "done",
+    "note": "Kosten-Tracking gebaut und gegen die echte Datenbank nachgewiesen (Tagesausgaben je Agent, /costs, Kosten-Karte in der System-Ansicht). Die Abhängigkeit auf S25 hat der Nutzer am 2026-09-13 aufgehoben ('S25 wird komplett ignoriert'); die Oberfläche, die der Checklisten-Punkt 'Kosten-Panel im Dashboard' braucht, steht seit dem UI-Zwischenschub ohnehin. Der zweite Titelteil, Modell-Routing, bleibt offen: runtime/model/router.ts ist weiterhin an keinen produktiven Aufrufer verdrahtet (offener Befund seit S18e).",
     "done_when": "Tagesausgaben pro Agent sichtbar",
-    "depends_on": ["S25", "S27"]
+    "depends_on": ["S27"]
   },
   {
     "id": "S29",
     "title": "Tauri-Desktop-Wrapper",
     "phase": 9,
-    "status": "queued",
+    "status": "done",
+    "note": "MSI und NSIS-Installer gebaut, App gestartet und geprüft: dieselbe Oberfläche wie im Browser aus ui/dist. Der alte DevUI-Wrapper (S12b, Port 8787, Node-Kindprozess) ist ersetzt. detachView öffnet unter Tauri ein echtes WebviewWindow — der in Phase 6 angekündigte Tausch ist eingelöst. Das Backend (Gateway, Postgres) läuft weiterhin eigenständig; die App ist das Fenster, nicht der Motor.",
     "done_when": "Installierbare Desktop-App aus demselben Code",
     "depends_on": ["S28"]
   },

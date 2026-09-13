@@ -1,24 +1,29 @@
 {
   "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
-  "productName": "kuronami-devui",
+  "productName": "Kuronami",
   "version": "0.1.0",
-  "identifier": "com.kuronami.devui",
+  "identifier": "com.kuronami.app",
   "build": {
-    "frontendDist": "http://localhost:8787"
+    "beforeBuildCommand": "pnpm build:ui",
+    "frontendDist": "../ui/dist",
+    "devUrl": "http://localhost:3001"
   },
   "app": {
+    "withGlobalTauri": true,
     "windows": [
       {
-        "title": "Kuronami DevUI",
-        "url": "http://localhost:8787",
-        "width": 1120,
-        "height": 760,
+        "label": "main",
+        "title": "Kuronami",
+        "width": 1440,
+        "height": 900,
+        "minWidth": 900,
+        "minHeight": 600,
         "resizable": true,
         "fullscreen": false
       }
     ],
     "security": {
-      "csp": null
+      "csp": "default-src 'self'; img-src 'self' data: asset: http://asset.localhost; style-src 'self' 'unsafe-inline'; connect-src 'self' http://localhost:* ws://localhost:* http://127.0.0.1:* ws://127.0.0.1:*"
     }
   },
   "bundle": {
