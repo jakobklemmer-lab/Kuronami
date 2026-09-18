@@ -1,6 +1,8 @@
 import { createSdkMcpServer, query, tool } from "@anthropic-ai/claude-agent-sdk";
 import { z } from "zod";
 import { BEDIENSTETE, type BedienstetenName, WERKSTATT } from "../context/bedienstete.js";
+import { createLesePostfach } from "./postfach-werkzeuge.js";
+import { konten } from "./postfach.js";
 
 /**
  * Das Gesindehaus: **ein** Werkzeug für Kuro, dahinter das ganze Personal.
@@ -26,10 +28,27 @@ export interface HausDeps {
   /** Damit die Oberfläche anzeigen kann, wer gerade arbeitet. */
   onArbeitet?(wer: string, auftrag: string): void;
   onFertig?(wer: string, kostenUsd: number, dauerMs: number): void;
+  /**
+   * Ein Bericht, der zu spät kam, um noch in die laufende Antwort zu passen.
+   *
+   * Der Butler soll einen Auftrag abgeben können, ohne dass Jakob vor einem offenen Fenster
+   * sitzt: ein Marktbericht brauchte 201 Sekunden, und solange stand das Gespräch. Wer hier
+   * zuhört, trägt den Bericht nach — Kuro fängt dazu einen neuen Zug an und sagt ihn an.
+   */
+  onNachgereicht?(wer: string, bericht: string): void;
 }
 
 /** Obergrenze je Auftrag. Ein missverstandener Satz soll keine Kaskade auslösen. */
 const BUDGET_JE_AUFTRAG = Number(process.env.KURO_BUDGET_AUFTRAG_USD ?? 2);
+
+/**
+ * So lange wartet der Butler am Tisch, bevor er weitergeht.
+ *
+ * Kurze Aufträge — ein Kurs, eine Mail, eine Nachfrage — sind darunter fertig und kommen
+ * sofort zurück; da wäre ein „ich melde mich später" albern. Alles Längere läuft weiter,
+ * und Kuro sagt Bescheid, statt Jakob warten zu lassen.
+ */
+const GEDULD_MS = Number(process.env.KURO_GEDULD_MS ?? 25_000);
 
 export function createHaus(deps: HausDeps = {}) {
   const namen = Object.keys(BEDIENSTETE) as [BedienstetenName, ...BedienstetenName[]];
@@ -58,53 +77,31 @@ export function createHaus(deps: HausDeps = {}) {
       deps.onArbeitet?.(wer, auftrag);
       const start = Date.now();
 
-      let bericht = "";
-      let kosten = 0;
+      // Der eigentliche Lauf. Er wird **nicht** abgebrochen, wenn die Geduld abläuft — er
+      // läuft zu Ende und meldet sich dann über `onNachgereicht`.
+      const lauf = fuehreAus(wer, person, auftrag, deps, start);
 
-      try {
-        for await (const nachricht of query({
-          prompt: auftrag,
-          options: {
-            cwd: WERKSTATT,
-            // Der Bedienstete bekommt **seinen** Prompt, nicht Kuros. Er ist kein Butler.
-            systemPrompt: { type: "custom", prompt: person.prompt },
-            model: person.model,
-            ...(person.tools ? { allowedTools: person.tools } : {}),
-            // Hier — und nur hier — darf die Werkzeugbeschränkung greifen: sie betrifft
-            // diesen einen Lauf und nicht Kuros Katalog.
-            ...(person.disallowedTools ? { disallowedTools: person.disallowedTools } : {}),
-            maxBudgetUsd: BUDGET_JE_AUFTRAG,
-            ...(person.maxTurns ? { maxTurns: person.maxTurns } : {}),
-          },
-        })) {
-          if (nachricht.type === "assistant" && nachricht.parent_tool_use_id === null) {
-            for (const block of nachricht.message.content) {
-              if (block.type === "text") bericht += block.text;
-            }
-          }
-          if (nachricht.type === "result" && nachricht.subtype === "success") {
-            kosten = nachricht.total_cost_usd;
-          }
-        }
-      } catch (error) {
-        const grund = error instanceof Error ? error.message : String(error);
-        return {
-          content: [
-            {
-              type: "text" as const,
-              text: `${wer} konnte den Auftrag nicht ausführen: ${grund}`,
-            },
-          ],
-        };
+      const abgewartet = await Promise.race([
+        lauf.then((ergebnis) => ({ fertig: true as const, ergebnis })),
+        new Promise<{ fertig: false }>((resolve) =>
+          setTimeout(() => resolve({ fertig: false }), GEDULD_MS).unref?.(),
+        ),
+      ]);
+
+      if (abgewartet.fertig) {
+        return { content: [{ type: "text" as const, text: abgewartet.ergebnis }] };
       }
 
-      deps.onFertig?.(wer, kosten, Date.now() - start);
-
+      // Zu lang. Der Auftrag läuft weiter; sein Ergebnis wird nachgereicht.
+      void lauf.then((ergebnis) => deps.onNachgereicht?.(wer, ergebnis));
       return {
         content: [
           {
             type: "text" as const,
-            text: bericht.trim() || `${wer} hat nichts berichtet.`,
+            text:
+              `${wer} arbeitet noch daran. Das dauert länger als einen Augenblick — sage Jakob ` +
+              `zu, dass du dich mit dem Ergebnis meldest, sobald es da ist, und rede normal ` +
+              `weiter. Der Bericht kommt von selbst zu dir; frage nicht nach und warte nicht.`,
           },
         ],
       };
@@ -117,9 +114,65 @@ export function createHaus(deps: HausDeps = {}) {
     version: "1",
     instructions:
       "Das Personal des Hauses. Über `beauftrage` gibst du eine Aufgabe ab und bekommst einen " +
-      "Bericht zurück; was dazwischen passiert, betrifft dich nicht.",
+      "Bericht zurück; was dazwischen passiert, betrifft dich nicht. Dauert ein Auftrag länger, " +
+      "sagst du das zu und bekommst den Bericht später nachgereicht.",
     tools: [beauftrage],
   });
+}
+
+/** Ein Bedienstetenlauf, von Anfang bis Bericht. */
+async function fuehreAus(
+  wer: string,
+  person: (typeof BEDIENSTETE)[BedienstetenName],
+  auftrag: string,
+  deps: HausDeps,
+  start: number,
+): Promise<string> {
+  let bericht = "";
+  let kosten = 0;
+
+  try {
+    for await (const nachricht of query({
+      prompt: auftrag,
+      options: {
+        cwd: WERKSTATT,
+        // Der Bedienstete bekommt **seinen** Prompt, nicht Kuros. Er ist kein Butler.
+        systemPrompt: { type: "custom", prompt: person.prompt },
+        model: person.model,
+        ...(person.tools
+          ? {
+              allowedTools:
+                wer === "korrespondenz"
+                  ? [...person.tools, "mcp__postfach__liste", "mcp__postfach__lies", "mcp__postfach__entwurf"]
+                  : person.tools,
+            }
+          : {}),
+        // Hier — und nur hier — darf die Werkzeugbeschränkung greifen: sie betrifft
+        // diesen einen Lauf und nicht Kuros Katalog.
+        ...(person.disallowedTools ? { disallowedTools: person.disallowedTools } : {}),
+        maxBudgetUsd: BUDGET_JE_AUFTRAG,
+        ...(person.maxTurns ? { maxTurns: person.maxTurns } : {}),
+        // Die Postfächer gehören dem Sekretär. Kein anderer Bediensteter bekommt sie —
+        // die Börse hat in Jakobs Post nichts zu suchen.
+        ...(wer === "korrespondenz" ? { mcpServers: { postfach: createLesePostfach() } } : {}),
+      },
+    })) {
+      if (nachricht.type === "assistant" && nachricht.parent_tool_use_id === null) {
+        for (const block of nachricht.message.content) {
+          if (block.type === "text") bericht += block.text;
+        }
+      }
+      if (nachricht.type === "result" && nachricht.subtype === "success") {
+        kosten = nachricht.total_cost_usd;
+      }
+    }
+  } catch (error) {
+    const grund = error instanceof Error ? error.message : String(error);
+    return `${wer} konnte den Auftrag nicht ausführen: ${grund}`;
+  }
+
+  deps.onFertig?.(wer, kosten, Date.now() - start);
+  return bericht.trim() || `${wer} hat nichts berichtet.`;
 }
 
 /** Der Werkzeugname, wie er in `allowedTools` stehen muss. */

@@ -9,6 +9,8 @@ import {
 } from "@anthropic-ai/claude-agent-sdk";
 import { KURO_PERSONA } from "../context/persona.js";
 import { BEAUFTRAGE_TOOL, createHaus } from "./haus.js";
+import { createSendePostfach } from "./postfach-werkzeuge.js";
+import { konten } from "./postfach.js";
 import type { ChannelRegistry, InboundMessage, Outbound, Sender } from "./types.js";
 
 /**
@@ -161,6 +163,8 @@ export class KuroAgent {
   #laufend: Promise<unknown> = Promise.resolve();
   /** Das Personal, hinter einem Werkzeug. */
   readonly #haus: ReturnType<typeof createHaus>;
+  /** Wohin ein nachgereichter Bericht geht: dorthin, wo zuletzt jemand geschrieben hat. */
+  #letzterSender: Sender | null = null;
 
   constructor(deps: AgentDeps) {
     this.#deps = deps;
@@ -170,6 +174,7 @@ export class KuroAgent {
         console.log(`[haus] ${wer} übernimmt: ${auftrag.slice(0, 90)}`),
       onFertig: (wer, kosten, dauer) =>
         console.log(`[haus] ${wer} fertig nach ${(dauer / 1000).toFixed(1)}s, $${kosten.toFixed(4)}`),
+      onNachgereicht: (wer, bericht) => void this.#trageNach(wer, bericht),
     });
   }
 
@@ -218,8 +223,38 @@ export class KuroAgent {
     return lauf;
   }
 
+  /**
+   * Einen nachgereichten Bericht vortragen.
+   *
+   * Das ist kein Sonderweg neben dem Gespräch, sondern ein gewöhnlicher Zug: der Bericht geht
+   * als Eingabe an Kuro, und was er daraus macht, geht an den Kanal. Deshalb klingt eine
+   * nachgereichte Meldung wie er und nicht wie ein Systemhinweis — und deshalb kann Jakob
+   * darauf antworten, als hätte Kuro von sich aus etwas gesagt.
+   */
+  async #trageNach(wer: string, bericht: string): Promise<void> {
+    const to = this.#letzterSender;
+    if (!to) return;
+
+    const lauf = this.#laufend.then(() =>
+      this.#run({
+        channel: to.channel,
+        sender: to,
+        content:
+          `[Der Bericht von ${wer} ist eingetroffen. Trage ihn Jakob jetzt von dir aus vor — ` +
+          `er hat zwischenzeitlich etwas anderes getan, also knüpfe kurz an den Auftrag an.]\n\n` +
+          bericht,
+        attachments: [],
+        receivedAt: new Date(),
+        externalId: `nachtrag_${randomUUID()}`,
+      }),
+    );
+    this.#laufend = lauf.catch(() => undefined);
+    await lauf.catch((error) => console.error("[haus] Nachtrag misslungen:", error));
+  }
+
   async #run(message: InboundMessage): Promise<AgentOutcome> {
     const origin = message.sender;
+    this.#letzterSender = origin;
     const geliefert: Outbound[] = [];
     let text = "";
 
@@ -240,7 +275,12 @@ export class KuroAgent {
           // Das Gesindehaus als ein einzelnes Werkzeug. Die Bediensteten selbst laufen
           // dahinter in eigenen Läufen (`haus.ts`) — ihre Werkzeuge stehen nicht in Kuros
           // Katalog, und was sie lesen und denken, landet nicht in seinem Kontext.
-          mcpServers: { haus: this.#haus },
+          mcpServers: {
+            haus: this.#haus,
+            // Der Versand liegt bei Kuro, nicht beim Sekretär — und steht bewusst **nicht**
+            // in `ALLOWED_WITHOUT_ASKING`. Er fragt also vor jeder Mail, die hinausgeht.
+            ...(konten().length > 0 ? { versand: createSendePostfach() } : {}),
+          },
           // Obergrenze für Kuros eigenen Lauf. Die Aufträge an Bedienstete haben je eine
           // eigene (`haus.ts`), damit ein Bauauftrag nicht sein Gesprächsbudget aufzehrt.
           maxBudgetUsd: Number(process.env.KURO_BUDGET_USD ?? 3),
