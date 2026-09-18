@@ -23,11 +23,62 @@ export interface Konto {
   /** Name, unter dem Jakob es kennt: „Privat", „Firma". */
   name: string;
   user: string;
-  pass: string;
+  /** Passwort — nur bei Anbietern, die einfaches IMAP noch zulassen. */
+  pass?: string;
+  /**
+   * Oder ein erteilter Google-Zugang.
+   *
+   * Der ist bei Gmail der einzige Weg: App-Passwörter sind für Jakobs Konten nicht einmal
+   * anwählbar („die gesuchte Einstellung ist für Ihr Konto nicht verfügbar"), und Microsoft
+   * hat einfaches IMAP ohnehin abgeschaltet. Der Zugang wird einmal im Browser erteilt
+   * (`/postfach/verbinden`), danach erneuert sich die Freigabe von selbst.
+   */
+  erneuerung?: string;
   imapHost: string;
   imapPort: number;
   smtpHost: string;
   smtpPort: number;
+}
+
+/** Die Anwendung, unter der Kuronami bei Google fragt. Einmal in der Cloud Console angelegt. */
+export interface GoogleAnwendung {
+  id: string;
+  geheimnis: string;
+}
+
+export function googleAnwendung(env: NodeJS.ProcessEnv = process.env): GoogleAnwendung | null {
+  const id = env.GOOGLE_CLIENT_ID?.trim();
+  const geheimnis = env.GOOGLE_CLIENT_SECRET?.trim();
+  return id && geheimnis ? { id, geheimnis } : null;
+}
+
+/**
+ * Eine frische Zugangsfreigabe aus der gespeicherten Erneuerung.
+ *
+ * Google gibt Freigaben mit einer Stunde Gültigkeit aus; ein Butler, der stündlich den Dienst
+ * einstellt, wäre keiner. Deshalb wird bei jedem Zugriff eine frische geholt — das dauert
+ * Millisekunden und spart die gesamte Buchhaltung über Ablaufzeiten.
+ */
+export async function freigabe(app: GoogleAnwendung, erneuerung: string): Promise<string> {
+  const antwort = await fetch("https://oauth2.googleapis.com/token", {
+    method: "POST",
+    headers: { "content-type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams({
+      client_id: app.id,
+      client_secret: app.geheimnis,
+      refresh_token: erneuerung,
+      grant_type: "refresh_token",
+    }),
+  });
+  if (!antwort.ok) {
+    throw new Error(
+      `Google verweigert den Zugang (HTTP ${antwort.status}). Vermutlich wurde die Freigabe ` +
+        `entzogen — dann hilft nur, das Konto unter /postfach/verbinden neu zu verbinden.`,
+    );
+  }
+  const daten = (await antwort.json()) as { access_token?: string };
+  if (!daten.access_token) throw new Error("Google antwortete ohne Zugang.");
+  return daten.access_token;
 }
 
 /**
@@ -41,7 +92,9 @@ export function konten(env: NodeJS.ProcessEnv = process.env): Konto[] {
   for (let i = 1; i <= 20; i++) {
     const user = env[`MAIL_${i}_USER`]?.trim();
     const pass = env[`MAIL_${i}_PASS`]?.trim();
-    if (!user || !pass) continue;
+    const erneuerung = env[`MAIL_${i}_GOOGLE`]?.trim();
+    // Eines von beidem genügt: ein Passwort oder ein erteilter Google-Zugang.
+    if (!user || (!pass && !erneuerung)) continue;
 
     // Vorgabe Gmail: das ist der Fall, den Jakob fünfmal hat. Alles andere trägt er ein.
     const imap = (env[`MAIL_${i}_IMAP`]?.trim() || "imap.gmail.com:993").split(":");
@@ -50,7 +103,8 @@ export function konten(env: NodeJS.ProcessEnv = process.env): Konto[] {
     gefunden.push({
       name: env[`MAIL_${i}_NAME`]?.trim() || user,
       user,
-      pass,
+      ...(pass ? { pass } : {}),
+      ...(erneuerung ? { erneuerung } : {}),
       imapHost: imap[0],
       imapPort: Number(imap[1] ?? 993),
       smtpHost: smtp[0],
@@ -80,12 +134,29 @@ function kontoFinden(alle: Konto[], name?: string): Konto[] {
   return treffer.length > 0 ? treffer : alle;
 }
 
+/** Die Anmeldung für ein Konto: Passwort oder frisch geholte Google-Freigabe. */
+async function anmeldung(
+  konto: Konto,
+): Promise<{ user: string; pass?: string; accessToken?: string }> {
+  if (konto.erneuerung) {
+    const app = googleAnwendung();
+    if (!app) {
+      throw new Error(
+        `Für ${konto.name} liegt ein Google-Zugang vor, aber GOOGLE_CLIENT_ID und ` +
+          `GOOGLE_CLIENT_SECRET fehlen in der Umgebung.`,
+      );
+    }
+    return { user: konto.user, accessToken: await freigabe(app, konto.erneuerung) };
+  }
+  return { user: konto.user, pass: konto.pass };
+}
+
 async function mitVerbindung<T>(konto: Konto, was: (client: ImapFlow) => Promise<T>): Promise<T> {
   const client = new ImapFlow({
     host: konto.imapHost,
     port: konto.imapPort,
     secure: konto.imapPort === 993,
-    auth: { user: konto.user, pass: konto.pass },
+    auth: await anmeldung(konto),
     // Die Bibliothek redet sonst in jeden Aufruf hinein; das Protokoll gehört dem Gateway.
     logger: false,
   });
@@ -234,12 +305,15 @@ export async function sende(
   const [konto] = kontoFinden(alle, kontoName);
   if (!konto) throw new Error(`Kein Postfach namens „${kontoName}".`);
 
+  const zugang = await anmeldung(konto);
   await nodemailer
     .createTransport({
       host: konto.smtpHost,
       port: konto.smtpPort,
       secure: konto.smtpPort === 465,
-      auth: { user: konto.user, pass: konto.pass },
+      auth: zugang.accessToken
+        ? { type: "OAuth2", user: konto.user, accessToken: zugang.accessToken }
+        : { user: konto.user, pass: zugang.pass },
     })
     .sendMail({ from: konto.user, to: an, subject: betreff, text });
 

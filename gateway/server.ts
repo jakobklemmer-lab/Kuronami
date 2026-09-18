@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import express from "express";
+import { postfachVerbindenRouten } from "./postfach-verbinden.js";
 import { RiskLevelError } from "../policy/risk.js";
 import { originAllowed } from "../runtime/events/bus.js";
 import { readEvents } from "../runtime/events/log.js";
@@ -660,6 +661,12 @@ export function createServer(deps: ServerDeps): express.Express {
       next(error);
     }
   });
+
+  // Ein Postfach im Browser verbinden (Nachtrag 2026-09-18). Steht bewusst ohne Web-Token:
+  // Jakob ruft die Seite in einem gewöhnlichen Tab auf, in dem keiner liegt, und Google leitet
+  // ihn ebenso dorthin zurück. Die Seite selbst gibt nichts preis, was nicht ohnehin bei
+  // Google steht — den Schlüssel bekommt nur, wer sich dort erfolgreich angemeldet hat.
+  postfachVerbindenRouten(app);
 
   /**
    * Nachtrag 2026-09-16: die Oberfläche liest hier direkt, ohne den Agenten-Loop zu bemühen —
