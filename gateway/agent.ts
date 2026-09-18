@@ -8,6 +8,7 @@ import {
   query,
 } from "@anthropic-ai/claude-agent-sdk";
 import { KURO_PERSONA } from "../context/persona.js";
+import { BEAUFTRAGE_TOOL, createHaus } from "./haus.js";
 import type { ChannelRegistry, InboundMessage, Outbound, Sender } from "./types.js";
 
 /**
@@ -50,26 +51,32 @@ const DEFAULT_WORKDIR = "/opt/kuronami/workspace";
  * Reibung, die das ganze System unbenutzbar macht. Schreiben innerhalb des Arbeitsbereichs
  * zählt dazu — es ist sein Schreibtisch.
  */
-const ALLOWED_WITHOUT_ASKING = ["WebSearch", "WebFetch", "Read", "Write"];
+const ALLOWED_WITHOUT_ASKING = ["WebSearch", "WebFetch", "Read", "Write", BEAUFTRAGE_TOOL];
 
 /**
- * Werkzeuge, die es für Kuro gar nicht erst gibt.
+ * Werkzeuge, die **Kuro** nicht bekommt.
  *
- * Nicht aus Vorsicht, sondern wegen des Preises: jedes Werkzeug im Katalog kostet sein
- * Schema in **jedem** Modellaufruf. `Task` (Subagenten) ist dabei der teuerste Posten und
- * für „wie ist das Wetter" sinnlos; `TodoWrite` ist Selbstverwaltung, die Jakob nie zu
- * sehen bekommt; `NotebookEdit` gehört in eine Datenanalyse, nicht in einen Haushalt.
+ * Ein Butler hämmert nicht selbst. Jedes Werkzeug kostet sein Schema in jedem Modellaufruf,
+ * und `Bash`, `Edit`, `Glob`, `Grep` sind das Handwerkszeug der Bediensteten, nicht seines.
+ * `Task`/`Agent` steht hier, weil die Delegation über `mcp__haus__beauftrage` läuft: ein
+ * zweiter, allgemeiner Weg dorthin brächte nur Schemakosten und die Versuchung, ihn zu nehmen.
+ *
+ * Wichtig: diese Liste gilt **nur für diesen Lauf**. Die Bediensteten starten in `haus.ts`
+ * ihren eigenen und haben dort ihren vollen Werkzeugkasten. Genau daran war der erste Versuch
+ * über die `agents`-Option gescheitert — dort wirkt die Liste global, und Kuros Grundlast
+ * stieg von 13.500 auf 24.700 Token, weil die Werkstatt `Bash` brauchte.
  */
 const NICHT_FUER_EINEN_BUTLER = [
-  "Task",
-  "TodoWrite",
-  "NotebookEdit",
-  "KillShell",
-  "BashOutput",
   "Bash",
   "Edit",
   "Glob",
   "Grep",
+  "Task",
+  "Agent",
+  "TodoWrite",
+  "NotebookEdit",
+  "KillShell",
+  "BashOutput",
 ];
 
 /** Die Zustimmungswörter aus `choices.ts` — dieselbe Liste, damit Stimme und Tastatur
@@ -152,10 +159,18 @@ export class KuroAgent {
   #offen: OffeneFrage | null = null;
   /** Ein Zug nach dem anderen. Zwei gleichzeitig würden dieselbe Sitzung überschreiben. */
   #laufend: Promise<unknown> = Promise.resolve();
+  /** Das Personal, hinter einem Werkzeug. */
+  readonly #haus: ReturnType<typeof createHaus>;
 
   constructor(deps: AgentDeps) {
     this.#deps = deps;
     this.#workdir = deps.workdir ?? process.env.KURO_WORKDIR?.trim() ?? DEFAULT_WORKDIR;
+    this.#haus = createHaus({
+      onArbeitet: (wer, auftrag) =>
+        console.log(`[haus] ${wer} übernimmt: ${auftrag.slice(0, 90)}`),
+      onFertig: (wer, kosten, dauer) =>
+        console.log(`[haus] ${wer} fertig nach ${(dauer / 1000).toFixed(1)}s, $${kosten.toFixed(4)}`),
+    });
   }
 
   get workdir(): string {
@@ -222,13 +237,23 @@ export class KuroAgent {
           settingSources: ["project"],
           allowedTools: ALLOWED_WITHOUT_ASKING,
           disallowedTools: NICHT_FUER_EINEN_BUTLER,
+          // Das Gesindehaus als ein einzelnes Werkzeug. Die Bediensteten selbst laufen
+          // dahinter in eigenen Läufen (`haus.ts`) — ihre Werkzeuge stehen nicht in Kuros
+          // Katalog, und was sie lesen und denken, landet nicht in seinem Kontext.
+          mcpServers: { haus: this.#haus },
+          // Obergrenze für Kuros eigenen Lauf. Die Aufträge an Bedienstete haben je eine
+          // eigene (`haus.ts`), damit ein Bauauftrag nicht sein Gesprächsbudget aufzehrt.
+          maxBudgetUsd: Number(process.env.KURO_BUDGET_USD ?? 3),
           canUseTool: this.#fragen(origin),
           includePartialMessages: true,
           ...(this.#sessionId ? { resume: this.#sessionId } : {}),
         },
       })) {
         const stueck = this.#verarbeite(nachricht);
-        if (stueck) text += stueck;
+        // Mit Absatz trennen: Kuro spricht oft zweimal — einmal beim Abschicken eines
+        // Auftrags („ich lasse das ansehen"), einmal beim Vortragen des Ergebnisses. Ohne
+        // Trenner klebte beides aneinander.
+        if (stueck) text += (text ? "\n\n" : "") + stueck;
       }
     } catch (error) {
       const grund = error instanceof Error ? error.message : String(error);
@@ -271,6 +296,8 @@ export class KuroAgent {
     }
 
     if (nachricht.type === "stream_event") {
+      // Auch hier: was ein Bediensteter denkt, geht nicht auf Jakobs Bildschirm.
+      if ((nachricht as { parent_tool_use_id?: string | null }).parent_tool_use_id) return null;
       // Textstücke live an die Oberfläche. Nur Text — Werkzeugaufrufe gehören nicht in den
       // Antwortstrom, die Oberfläche zeigt sie über die Statuszeile.
       const ereignis = (nachricht as { event?: { type?: string; delta?: { type?: string; text?: string } } })
@@ -283,6 +310,13 @@ export class KuroAgent {
     }
 
     if (nachricht.type === "assistant") {
+      // **Nur der Butler spricht.** Nachrichten aus einer Bedienstetenunterhaltung tragen
+      // `parent_tool_use_id`; ihr Text ist ein interner Bericht an Kuro und nicht für Jakob
+      // bestimmt. Ohne diese Zeile stand der komplette Rohbericht des Analysten mitsamt
+      // Markdown-Überschriften und Quellenliste in der Antwort, eingeklemmt zwischen Kuros
+      // Ankündigung und seinem eigentlichen Vortrag.
+      if (nachricht.parent_tool_use_id !== null) return null;
+
       let text = "";
       for (const block of nachricht.message.content) {
         if (block.type === "text") text += block.text;
