@@ -293,11 +293,40 @@ body[data-modus="neu"] #view-outlet {
   outline: 1px solid var(--p-glas-rand-aktiv);
   outline-offset: 16px;
 }
-.p-sphaere {
+/* Der Orb: ein Video-Loop auf Schwarz, per Blend über den Raum gelegt. Schwarz wird zum
+   Raum, das Glas bleibt Glas. Die Variablen setzt `sphaere.ts` je Zustand. */
+.p-orb {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  border-radius: 50%;
+  --orb-hell: 1;
+  --orb-scale: 1;
+  --orb-glow: 14;
+  --orb-kipp: 0deg;
+}
+.p-orb__video {
   display: block;
   width: 100%;
   height: 100%;
+  object-fit: cover;
+  border-radius: 50%;
+  mix-blend-mode: screen;
+  transform: scale(var(--orb-scale)) rotate(var(--orb-kipp));
+  filter:
+    brightness(var(--orb-hell))
+    saturate(1.15)
+    drop-shadow(0 0 calc(var(--orb-glow) * 1px) rgba(127, 184, 255, 0.35));
+  will-change: transform, filter;
 }
+.p-orb__overlay {
+  position: absolute;
+  inset: -30%;
+  width: 160%;
+  height: 160%;
+  pointer-events: none;
+}
+
 .p-name {
   margin: 8px 0 0;
   font-size: 13px;
@@ -308,31 +337,83 @@ body[data-modus="neu"] #view-outlet {
 }
 .p-worte {
   margin: 6px 0 0;
-  max-width: 54ch;
   font-size: 13px;
-  line-height: 1.55;
   color: var(--p-leise);
-  display: -webkit-box;
-  -webkit-line-clamp: 3;
-  -webkit-box-orient: vertical;
+}
+
+/* ---- Die Antwort: über der Bubble, linksbündig, bleibt stehen -------------- */
+
+.p-antwort {
+  width: min(700px, 100%);
+  text-align: left;
+  background: var(--p-glas);
+  border: 1px solid var(--p-glas-rand);
+  border-radius: 18px;
+  backdrop-filter: blur(18px);
+  padding: 12px 18px 14px;
+}
+.p-antwort__kopf {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 12px;
+  color: var(--p-leise);
+  font-size: 12.5px;
+  min-height: 18px;
+}
+.p-antwort__frage {
   overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.p-antwort__frage:empty::before {
+  content: "Kuronami";
+}
+.p-antwort__zu {
+  appearance: none;
+  border: 0;
+  background: transparent;
+  color: var(--p-leise);
+  font-size: 18px;
+  line-height: 1;
   cursor: pointer;
-  transition: color 600ms var(--p-kurve);
+  padding: 0 2px;
 }
-.p-worte.ist-motto {
-  cursor: default;
-}
-.p-worte:not(.ist-motto) {
+.p-antwort__zu:hover,
+.p-antwort__zu:focus-visible {
   color: var(--p-text);
-  font-size: 15px;
+  outline: none;
 }
-.p-worte.ist-offen {
-  -webkit-line-clamp: unset;
+.p-antwort__text {
+  margin-top: 6px;
+  font-size: 15px;
+  line-height: 1.6;
+  color: var(--p-text);
   max-height: 34vh;
   overflow-y: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
 }
-.p-worte.ist-frage {
+.p-antwort__text:empty::before {
+  content: "…";
+  color: var(--p-still);
+}
+.p-antwort.ist-frage .p-antwort__text {
   color: var(--p-bernstein);
+}
+.p-antwort__stand {
+  font-size: 12px;
+  color: var(--p-leise);
+  margin-top: 4px;
+  min-height: 0;
+}
+.p-antwort__stand:empty {
+  display: none;
+}
+/* Solange ein Stand da ist, braucht der leere Text kein „…" — sonst stünde beides. */
+.p-antwort__stand:not(:empty) ~ .p-antwort__text:empty::before,
+.p-antwort:has(.p-antwort__stand:not(:empty)) .p-antwort__text:empty::before {
+  content: none;
 }
 
 /* ---- Karten rechts ---------------------------------------------------------- */
@@ -658,9 +739,6 @@ body[data-focus="on"] .p-name {
   transition: opacity var(--p-dauer) var(--p-kurve);
 }
 body[data-focus="on"] .p-worte {
-  -webkit-line-clamp: 1;
-}
-body[data-focus="on"] .p-worte.ist-motto {
   opacity: 0;
 }
 

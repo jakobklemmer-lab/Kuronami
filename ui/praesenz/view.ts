@@ -71,10 +71,10 @@ export const praesenzView: View = {
           <time class="p-uhr" data-role="uhr"></time>
           <p class="p-gruss" data-role="gruss"></p>
           <button type="button" class="p-sphaere-knopf" data-role="sphaere-knopf" aria-label="Kuro zuhören lassen">
-            <canvas class="p-sphaere" data-role="sphaere" role="img" aria-label="Kuronami"></canvas>
+            <div class="p-orb" data-role="sphaere" role="img" aria-label="Kuronami"></div>
           </button>
           <p class="p-name">Kuronami</p>
-          <p class="p-worte" data-role="worte">${MOTTO}</p>
+          <p class="p-worte">${MOTTO}</p>
         </main>
 
         <aside class="p-karten">
@@ -93,6 +93,14 @@ export const praesenzView: View = {
         </aside>
 
         <footer class="p-fuss">
+          <section class="p-antwort" data-role="antwort" hidden aria-live="polite">
+            <header class="p-antwort__kopf">
+              <span class="p-antwort__frage" data-role="antwort-frage"></span>
+              <button type="button" class="p-antwort__zu" data-role="antwort-zu" aria-label="Close">×</button>
+            </header>
+            <div class="p-antwort__text" data-role="antwort-text"></div>
+            <div class="p-antwort__stand" data-role="antwort-stand"></div>
+          </section>
           <form class="p-bubble" data-role="bubble">
             <button type="button" class="p-bubble__mic" data-role="mic" aria-label="Talk to Kuro">${icon("mic")}</button>
             <textarea class="p-bubble__eingabe" data-role="eingabe" rows="1"
@@ -113,19 +121,22 @@ export const praesenzView: View = {
 
     const q = <T extends Element>(role: string): T | null =>
       container.querySelector<T>(`[data-role="${role}"]`);
-    const canvas = q<HTMLCanvasElement>("sphaere");
+    const orbHost = q<HTMLElement>("sphaere");
     const eingabe = q<HTMLTextAreaElement>("eingabe");
     const bubble = q<HTMLFormElement>("bubble");
-    const worteEl = q<HTMLElement>("worte");
+    const antwortEl = q<HTMLElement>("antwort");
+    const antwortText = q<HTMLElement>("antwort-text");
+    const antwortFrage = q<HTMLElement>("antwort-frage");
+    const antwortStand = q<HTMLElement>("antwort-stand");
     const uhrEl = q<HTMLElement>("uhr");
     const datumEl = q<HTMLElement>("datum");
     const grussEl = q<HTMLElement>("gruss");
     const micKnopf = q<HTMLButtonElement>("mic");
     const sphaereKnopf = q<HTMLButtonElement>("sphaere-knopf");
-    if (!canvas || !eingabe || !bubble || !worteEl) return () => {};
+    if (!orbHost || !eingabe || !bubble || !antwortEl || !antwortText || !antwortFrage) return () => {};
 
     const ruhig = globalThis.matchMedia?.("(prefers-reduced-motion: reduce)").matches ?? false;
-    const sphaere: Sphaere = mountSphaere(canvas, { reducedMotion: ruhig });
+    const sphaere: Sphaere = mountSphaere(orbHost, { reducedMotion: ruhig });
 
     // ------------------------------------------------------------------ Uhr
     const zeigeZeit = (): void => {
@@ -192,7 +203,6 @@ export const praesenzView: View = {
     // ------------------------------------------------------------- Zustand
     let inFlight = false;
     const arbeitende = new Set<string>();
-    let worteTimer: ReturnType<typeof setTimeout> | null = null;
 
     const zustandNeu = (hinweis?: Zustand): void => {
       if (hinweis) {
@@ -214,23 +224,45 @@ export const praesenzView: View = {
       );
     };
 
-    /** Was unter dem Namen steht. Leer heißt: das Motto kommt zurück. */
-    const setWorte = (text: string, frage = false): void => {
-      worteEl.classList.toggle("ist-frage", frage);
-      worteEl.classList.remove("ist-motto", "ist-offen");
-      worteEl.textContent = text;
-      if (worteTimer) globalThis.clearTimeout(worteTimer);
-      if (!text) {
-        worteEl.textContent = MOTTO;
-        worteEl.classList.add("ist-motto");
-        return;
-      }
-      worteTimer = globalThis.setTimeout(() => setWorte(""), 40_000);
+    /**
+     * Die Antwort steht im Panel über der Bubble — linksbündig, lesbar, bleibt stehen.
+     *
+     * Zuerst stand sie zentriert unter der Sphäre, auf drei Zeilen gekappt. Das war als Bild
+     * hübsch und als Text unbenutzbar: Fließtext gehört nah an die Eingabe, an eine Kante,
+     * in ein begrenztes Feld. Das Motto unter der Sphäre bleibt; gesprochen wird hier.
+     */
+    const zeigeAntwort = (text: string, opts: { frage?: string; rueckfrage?: boolean } = {}): void => {
+      antwortEl.hidden = false;
+      antwortEl.classList.toggle("ist-frage", opts.rueckfrage === true);
+      if (opts.frage !== undefined) antwortFrage.textContent = opts.frage;
+      antwortText.textContent = text;
+      antwortText.scrollTop = antwortText.scrollHeight;
     };
-    worteEl.classList.add("ist-motto");
-    worteEl.addEventListener("click", () => {
-      if (!worteEl.classList.contains("ist-motto")) worteEl.classList.toggle("ist-offen");
-    });
+    const haengeAn = (stueck: string): void => {
+      antwortEl.hidden = false;
+      antwortEl.classList.remove("ist-frage");
+      antwortText.textContent = `${antwortText.textContent ?? ""}${stueck}`;
+      antwortText.scrollTop = antwortText.scrollHeight;
+    };
+    /** Was gerade passiert — die stummen Sekunden vor dem ersten Wort bekommen eine Stimme. */
+    const setStand = (text: string): void => {
+      if (antwortStand) antwortStand.textContent = text;
+    };
+    const WERKZEUG_STAND: Record<string, string> = {
+      WebFetch: "Schlägt nach …",
+      WebSearch: "Sucht …",
+      Read: "Liest nach …",
+      Write: "Notiert …",
+      mcp__haus__beauftrage: "Gibt weiter …",
+      mcp__buehne__zeige: "Legt eine Tafel hin …",
+      mcp__versand__sende: "Verschickt …",
+    };
+    const schliesseAntwort = (): void => {
+      antwortEl.hidden = true;
+      antwortText.textContent = "";
+      antwortFrage.textContent = "";
+    };
+    q<HTMLButtonElement>("antwort-zu")?.addEventListener("click", schliesseAntwort);
 
     // -------------------------------------------------------------- Senden
     const wachsen = (): void => {
@@ -244,9 +276,8 @@ export const praesenzView: View = {
       if (!text || inFlight) return;
       eingabe.value = "";
       wachsen();
-      setWorte("");
-      worteEl.classList.remove("ist-motto");
-      worteEl.textContent = "";
+      zeigeAntwort("", { frage: text });
+      setStand("Denkt …");
       inFlight = true;
       zustandNeu("denken");
 
@@ -254,8 +285,8 @@ export const praesenzView: View = {
         try {
           const p = await ctx.api.get<PendingResponse>("/channels/web/pending");
           const offen = p.pending?.[0];
-          if (offen && !worteEl.classList.contains("ist-frage")) {
-            setWorte(offen.question, true);
+          if (offen && !antwortEl.classList.contains("ist-frage")) {
+            zeigeAntwort(offen.question, { rueckfrage: true });
             zustandNeu("zuhoeren");
           }
         } catch {
@@ -266,12 +297,12 @@ export const praesenzView: View = {
       try {
         const antwort = await ctx.api.post<MessageResponse>("/channels/web/messages", { content: text });
         const reply = antwort.delivered?.find((d) => d.kind === "reply")?.text;
-        if (reply) setWorte(reply);
-        else if (!worteEl.textContent) setWorte("");
+        if (reply) zeigeAntwort(reply);
       } catch (error) {
-        setWorte(error instanceof Error ? error.message : String(error));
+        zeigeAntwort(error instanceof Error ? error.message : String(error));
       } finally {
         globalThis.clearInterval(pendingTimer);
+        setStand("");
         inFlight = false;
         sphaere.fertig();
         globalThis.setTimeout(() => zustandNeu(), 900);
@@ -334,16 +365,22 @@ export const praesenzView: View = {
         const payload = (data.payload ?? data) as Record<string, unknown>;
         const stueck = typeof payload.text === "string" ? payload.text : "";
         if (!stueck) return;
-        if (worteEl.classList.contains("ist-frage") || worteEl.classList.contains("ist-motto")) {
-          worteEl.classList.remove("ist-frage", "ist-motto");
-          worteEl.textContent = "";
+        if (antwortEl.classList.contains("ist-frage")) {
+          antwortEl.classList.remove("ist-frage");
+          antwortText.textContent = "";
         }
-        worteEl.textContent = `${worteEl.textContent ?? ""}${stueck}`;
+        haengeAn(stueck);
+        setStand("");
         sphaere.setZustand("sprechen");
         sphaere.impuls(Math.min(1, stueck.length / 14));
         return;
       }
+      if (message.type === "kuro.werkzeug" && typeof data.name === "string") {
+        if (!antwortText.textContent) setStand(WERKZEUG_STAND[data.name] ?? "Arbeitet …");
+        return;
+      }
       if (message.type === "haus.arbeitet" && typeof data.wer === "string") {
+        if (!antwortText.textContent) setStand(`${data.wer} arbeitet …`);
         arbeitende.add(data.wer);
         sphaere.setArbeitende([...arbeitende]);
         zustandNeu();
@@ -369,8 +406,7 @@ export const praesenzView: View = {
       // Nachtrag): seine Worte fangen leer an. Ohne das hängt sich die neue Antwort an die
       // alte — so stand hier einmal „…rot heute.Sehr wohl. In Wien…" in einer Zeile.
       if (message.type === "turn.started") {
-        worteEl.classList.remove("ist-motto", "ist-frage", "ist-offen");
-        worteEl.textContent = "";
+        zeigeAntwort("", { frage: "" });
       }
       const signal = signalFor(message);
       if (signal === "processing") sphaere.setZustand("denken");
@@ -385,7 +421,7 @@ export const praesenzView: View = {
         const o = await ctx.api.get<OutboxResponse>("/channels/web/outbox");
         const letzte = o.deliveries?.filter((d) => d.message.kind === "reply").pop();
         if (letzte?.message.text) {
-          setWorte(letzte.message.text);
+          zeigeAntwort(letzte.message.text, { frage: "" });
           sphaere.fertig();
         }
       } catch {
@@ -402,7 +438,6 @@ export const praesenzView: View = {
       globalThis.clearInterval(uhrTimer);
       globalThis.clearInterval(kartenTimer);
       globalThis.clearInterval(outboxTimer);
-      if (worteTimer) globalThis.clearTimeout(worteTimer);
       alleZurueck();
       micAbo();
       busAbo();

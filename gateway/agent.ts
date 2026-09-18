@@ -377,6 +377,16 @@ export class KuroAgent {
     }
 
     if (nachricht.type === "assistant") {
+      // Was Kuro gerade anfasst, geht als Ereignis an die Oberfläche. Ohne das sind die
+      // Sekunden zwischen Frage und erstem Wort stumm — er holt Daten, stellt eine Tafel hin,
+      // und niemand sieht es. Nur die eigenen Aufrufe, nicht die der Bediensteten.
+      if (nachricht.parent_tool_use_id === null) {
+        for (const block of nachricht.message.content) {
+          if (block.type === "tool_use") {
+            this.#deps.publish?.("kuro.werkzeug", { name: block.name });
+          }
+        }
+      }
       // **Nur der Butler spricht.** Nachrichten aus einer Bedienstetenunterhaltung tragen
       // `parent_tool_use_id`; ihr Text ist ein interner Bericht an Kuro und nicht für Jakob
       // bestimmt. Ohne diese Zeile stand der komplette Rohbericht des Analysten mitsamt

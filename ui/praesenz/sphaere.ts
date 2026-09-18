@@ -1,29 +1,30 @@
 /**
- * Die Sphäre — Kuronami als Objekt aus Glas.
+ * Der Orb — Kuronami als Objekt aus Glas, nach Jakobs Bild.
  *
- * Nach Jakobs Bild: eine transparente Kugel, in der ein einzelnes helles Lichtband schwebt.
- * Kein Wasser mehr, kein Chrom. Das Glas ist still; **das Band lebt.** Es ist eine geschlossene
- * Kurve auf der Kugeloberfläche (eine Acht, wie ein Möbiusband ohne Kante), die langsam um die
- * Kugel wandert. Was Kuro tut, liest man am Band:
+ * Der Orb selbst ist kein gezeichnetes Ding mehr, sondern ein **gerendertes**: ein
+ * Video-Loop (`/assets/orb.mp4`) einer Glaskugel mit einem Lichtband darin, auf Schwarz
+ * erzeugt und per `mix-blend-mode: screen` über den Raum gelegt — das Schwarz wird zum Raum,
+ * das Glas bleibt Glas, das Band leuchtet. Bis das Video geladen ist, steht das Standbild.
  *
- *   * **Ruhe**     — ein Band, langsame Drehung, gedämpft hell.
- *   * **Zuhören**  — das Band atmet: es weitet und verengt sich im Sekundentakt.
- *   * **Denken**   — zwei Bänder, gegenläufig, mit leichtem Taumeln; das Innere wird neblig.
- *   * **Sprechen** — jedes Wortstück ist ein Lichtstoß; das Band wird kurz breiter und heller.
- *   * **Arbeiten** — außen kreisen kleine Punkte, einer je Bedienstetem, wie Boten um das Haus.
- *   * **Fertig**   — ein Ring löst sich von der Kugel und verklingt.
+ * Was Kuro tut, liest man daran, **wie** das Video läuft — nicht an einer zweiten Grafik:
  *
- * Alles Bewegte ist eine Zielgröße, der die Darstellung träge folgt. Ein Zustandswechsel ist
- * dadurch sichtbar, aber nie ein Sprung — ein Objekt aus Glas ruckt nicht.
+ *   * **Ruhe**     — ruhiges Tempo, gedämpft.
+ *   * **Zuhören**  — der Orb atmet: er wird im Sekundentakt eine Spur größer und kleiner.
+ *   * **Denken**   — das Band läuft schneller, der Schein wird tiefer, ein leichtes Taumeln.
+ *   * **Sprechen** — jedes Wortstück ist ein Lichtstoß: kurz heller, kurz breiterer Schein.
+ *   * **Arbeiten** — außen kreisen kleine Boten, einer je Bedienstetem.
+ *   * **Fertig**   — ein Ring löst sich vom Glas und verklingt.
+ *
+ * Boten und Ring liegen auf einem durchsichtigen Canvas über dem Video; alles andere sind
+ * CSS-Variablen am Host (`--orb-hell`, `--orb-scale`, `--orb-glow`, `--orb-kipp`) und die
+ * Abspielgeschwindigkeit. Jede Größe folgt ihrem Ziel träge — Glas ruckt nicht.
  */
 
 export type Zustand = "ruhe" | "zuhoeren" | "denken" | "sprechen" | "arbeiten";
 
 export interface Sphaere {
   setZustand(z: Zustand): void;
-  /** Ein Lichtstoß — beim Sprechen je Wortstück. `staerke` 0…1. */
   impuls(staerke?: number): void;
-  /** Ein Ring löst sich, dann Ruhe. */
   fertig(): void;
   setArbeitende(namen: readonly string[]): void;
   readonly zustand: Zustand;
@@ -31,28 +32,24 @@ export interface Sphaere {
 }
 
 interface Ziel {
-  drehung: number; // rad/s um die senkrechte Achse
-  taumel: number; // Amplitude der Kippung um die waagerechte Achse
-  atmen: number; // 0…1, wie stark der Bandradius pulst
-  zweitesBand: number; // 0…1 Deckkraft des zweiten Bands
-  nebel: number; // 0…1 Leuchten im Inneren
-  helligkeit: number; // Grundhelligkeit des Bands
+  tempo: number; // Abspielgeschwindigkeit
+  atmen: number; // 0…1
+  glow: number; // px des Scheins
+  hell: number; // Grundhelligkeit
+  taumel: number; // Grad Kippung
 }
 
 const ZIELE: Readonly<Record<Zustand, Ziel>> = {
-  ruhe: { drehung: 0.14, taumel: 0.05, atmen: 0, zweitesBand: 0, nebel: 0.35, helligkeit: 0.72 },
-  zuhoeren: { drehung: 0.2, taumel: 0.05, atmen: 1, zweitesBand: 0, nebel: 0.5, helligkeit: 0.9 },
-  denken: { drehung: 0.42, taumel: 0.35, atmen: 0, zweitesBand: 1, nebel: 0.9, helligkeit: 0.68 },
-  sprechen: { drehung: 0.22, taumel: 0.08, atmen: 0, zweitesBand: 0, nebel: 0.55, helligkeit: 0.85 },
-  arbeiten: { drehung: 0.16, taumel: 0.05, atmen: 0, zweitesBand: 0.35, nebel: 0.5, helligkeit: 0.78 },
+  ruhe: { tempo: 0.85, atmen: 0, glow: 14, hell: 0.96, taumel: 0 },
+  zuhoeren: { tempo: 1.05, atmen: 1, glow: 20, hell: 1.05, taumel: 0 },
+  denken: { tempo: 1.75, atmen: 0, glow: 30, hell: 0.92, taumel: 3 },
+  sprechen: { tempo: 1.2, atmen: 0, glow: 22, hell: 1.02, taumel: 0 },
+  arbeiten: { tempo: 1.0, atmen: 0, glow: 18, hell: 0.98, taumel: 0 },
 };
 
-/** Das Licht: kühles Weiß im Kern, Blau im Schein — wie im Bild. */
 const KERN = [223, 242, 255] as const;
-const SCHEIN = [111, 182, 255] as const;
-
+const SCHEIN = [127, 184, 255] as const;
 const GOLDENER_WINKEL = Math.PI * (3 - Math.sqrt(5));
-const SEGMENTE = 180;
 
 function lerp(a: number, b: number, t: number): number {
   return a + (b - a) * t;
@@ -60,24 +57,40 @@ function lerp(a: number, b: number, t: number): number {
 
 export interface SphaereOptionen {
   reducedMotion?: boolean;
+  video?: string;
+  poster?: string;
 }
 
-export function mountSphaere(canvas: HTMLCanvasElement, opts: SphaereOptionen = {}): Sphaere {
-  const ctxN = canvas.getContext("2d");
-  if (!ctxN) throw new Error("Kein 2D-Kontext für die Sphäre.");
-  const ctx: CanvasRenderingContext2D = ctxN;
+export function mountSphaere(host: HTMLElement, opts: SphaereOptionen = {}): Sphaere {
   const ruhig = opts.reducedMotion ?? false;
+  host.innerHTML = `
+    <video class="p-orb__video" autoplay loop muted playsinline preload="auto"
+           poster="${opts.poster ?? "/assets/orb.jpg"}" aria-hidden="true">
+      <source src="${opts.video ?? "/assets/orb.mp4"}" type="video/mp4" />
+    </video>
+    <canvas class="p-orb__overlay" aria-hidden="true"></canvas>
+  `;
+  const videoN = host.querySelector<HTMLVideoElement>("video");
+  const canvasN = host.querySelector<HTMLCanvasElement>("canvas");
+  const ctxN = canvasN?.getContext("2d") ?? null;
+  if (!videoN || !canvasN || !ctxN) throw new Error("Der Orb konnte nicht aufgebaut werden.");
+  // Einmal geprüft, dann fest — TypeScript trägt das Narrowing nicht in die Closures.
+  const video: HTMLVideoElement = videoN;
+  const canvas: HTMLCanvasElement = canvasN;
+  const ctx: CanvasRenderingContext2D = ctxN;
+  // Autoplay kann vom Browser verweigert werden — dann steht das Standbild, und ein Tipp
+  // auf den Orb (der ohnehin das Mikrofon schaltet) startet es.
+  video.play().catch(() => undefined);
+  host.addEventListener("click", () => void video.play().catch(() => undefined), { once: true });
 
   let zustand: Zustand = "ruhe";
   let ist: Ziel = { ...ZIELE.ruhe };
+  let energie = 0;
   let arbeitende: string[] = [];
-  let energie = 0; // vom Sprechen, zerfällt
-  let ringe: { start: number }[] = [];
+  let ringe: number[] = [];
   let laeuft = true;
-  let phi = 0; // Drehwinkel
-  let letzteZeit = performance.now();
 
-  function groesse(): { w: number; h: number; dpr: number } {
+  function zeichneOverlay(jetzt: number): void {
     const dpr = Math.min(2, globalThis.devicePixelRatio || 1);
     const rect = canvas.getBoundingClientRect();
     const w = Math.max(1, Math.round(rect.width * dpr));
@@ -86,158 +99,17 @@ export function mountSphaere(canvas: HTMLCanvasElement, opts: SphaereOptionen = 
       canvas.width = w;
       canvas.height = h;
     }
-    return { w, h, dpr };
-  }
-
-  /**
-   * Eine Acht auf der Kugel, gedreht um die senkrechte Achse (`phi`) und leicht gekippt.
-   * Liefert Bildkoordinaten (relativ zur Mitte, Einheit = Kugelradius) und die Tiefe z
-   * (−1 hinten … +1 vorn).
-   */
-  function band(
-    phase: number,
-    kipp: number,
-    radius: number,
-  ): Array<{ x: number; y: number; z: number }> {
-    const punkte: Array<{ x: number; y: number; z: number }> = [];
-    const cy = Math.cos(kipp);
-    const sy = Math.sin(kipp);
-    const cp = Math.cos(phi + phase);
-    const sp = Math.sin(phi + phase);
-    for (let i = 0; i <= SEGMENTE; i++) {
-      const t = (i / SEGMENTE) * Math.PI * 2;
-      // Acht auf der Einheitskugel.
-      let x = Math.sin(t);
-      let y = Math.sin(2 * t) * 0.55;
-      let z = Math.cos(t);
-      const l = Math.hypot(x, y, z) || 1;
-      x /= l;
-      y /= l;
-      z /= l;
-      // um Y drehen
-      const x1 = x * cp + z * sp;
-      const z1 = -x * sp + z * cp;
-      // um X kippen
-      const y2 = y * cy - z1 * sy;
-      const z2 = y * sy + z1 * cy;
-      punkte.push({ x: x1 * radius, y: y2 * radius, z: z2 });
-    }
-    return punkte;
-  }
-
-  function zeichneBand(
-    cx: number,
-    cy: number,
-    R: number,
-    pts: Array<{ x: number; y: number; z: number }>,
-    deckkraft: number,
-    breite: number,
-  ): void {
-    if (deckkraft <= 0.01) return;
-    // Hinten zuerst, damit das Vordere darüberliegt: Segmente nach Tiefe sortieren.
-    const seg: Array<{ a: (typeof pts)[number]; b: (typeof pts)[number]; z: number }> = [];
-    for (let i = 0; i < pts.length - 1; i++) {
-      seg.push({ a: pts[i], b: pts[i + 1], z: (pts[i].z + pts[i + 1].z) / 2 });
-    }
-    seg.sort((p, q) => p.z - q.z);
-    ctx.lineCap = "round";
-    for (const s of seg) {
-      const tiefe = (s.z + 1) / 2; // 0 hinten, 1 vorn
-      const a = deckkraft * (0.18 + tiefe * 0.82);
-      const w = breite * (0.35 + tiefe * 0.65);
-      // Schein
-      ctx.strokeStyle = `rgba(${SCHEIN[0]},${SCHEIN[1]},${SCHEIN[2]},${a * 0.45})`;
-      ctx.lineWidth = w * 3.4;
-      ctx.beginPath();
-      ctx.moveTo(cx + s.a.x * R, cy + s.a.y * R);
-      ctx.lineTo(cx + s.b.x * R, cy + s.b.y * R);
-      ctx.stroke();
-      // Kern
-      ctx.strokeStyle = `rgba(${KERN[0]},${KERN[1]},${KERN[2]},${a})`;
-      ctx.lineWidth = w;
-      ctx.beginPath();
-      ctx.moveTo(cx + s.a.x * R, cy + s.a.y * R);
-      ctx.lineTo(cx + s.b.x * R, cy + s.b.y * R);
-      ctx.stroke();
-    }
-  }
-
-  function zeichne(jetzt: number): void {
-    const { w, h, dpr } = groesse();
-    const cx = w / 2;
-    const cy = h * 0.46;
-    const R = Math.min(w, h) * 0.34;
     ctx.clearRect(0, 0, w, h);
+    // Das Overlay ist größer als der Orb (160 %); der Orb sitzt in der Mitte mit Radius R.
+    const cx = w / 2;
+    const cy = h / 2;
+    const R = (w / 1.6) * 0.5 * 0.9;
 
-    // ---- Spiegelung auf dem Tresen: eine flache, weiche Ellipse in Bandfarbe.
-    const sp = ctx.createRadialGradient(cx, cy + R * 1.55, 0, cx, cy + R * 1.55, R * 1.1);
-    sp.addColorStop(0, `rgba(${SCHEIN[0]},${SCHEIN[1]},${SCHEIN[2]},${0.09 * ist.helligkeit})`);
-    sp.addColorStop(1, "rgba(0,0,0,0)");
-    ctx.save();
-    ctx.scale(1, 0.28);
-    ctx.fillStyle = sp;
-    ctx.fillRect(0, (cy + R * 1.55) / 0.28 - R * 1.2, w, R * 2.4);
-    ctx.restore();
-
-    // ---- Das Glas: fast unsichtbar, am Rand ein Hauch heller (Fresnel).
-    const glas = ctx.createRadialGradient(cx, cy, R * 0.2, cx, cy, R);
-    glas.addColorStop(0, "rgba(200,222,238,0.020)");
-    glas.addColorStop(0.75, "rgba(200,222,238,0.035)");
-    glas.addColorStop(1, "rgba(200,222,238,0.11)");
-    ctx.fillStyle = glas;
-    ctx.beginPath();
-    ctx.arc(cx, cy, R, 0, Math.PI * 2);
-    ctx.fill();
-
-    // ---- Nebel im Inneren: das Licht des Bands, das im Glas hängen bleibt.
-    const nebel = ctx.createRadialGradient(cx, cy, 0, cx, cy, R * 0.95);
-    nebel.addColorStop(0, `rgba(${SCHEIN[0]},${SCHEIN[1]},${SCHEIN[2]},${0.11 * ist.nebel})`);
-    nebel.addColorStop(1, "rgba(0,0,0,0)");
-    ctx.fillStyle = nebel;
-    ctx.beginPath();
-    ctx.arc(cx, cy, R, 0, Math.PI * 2);
-    ctx.fill();
-
-    // ---- Die Bänder.
-    const atem = ist.atmen * Math.sin(jetzt / 1000 * Math.PI * 1.15) * 0.035;
-    const radius = 0.9 + atem;
-    const kipp = 0.32 + Math.sin(jetzt / 1000 * 0.37) * ist.taumel;
-    const hell = Math.min(1.15, ist.helligkeit + energie * 0.55);
-    const breite = (3.1 + energie * 2.6) * dpr;
-
-    ctx.save();
-    ctx.beginPath();
-    ctx.arc(cx, cy, R * 0.985, 0, Math.PI * 2);
-    ctx.clip();
-    zeichneBand(cx, cy, R, band(Math.PI / 2, -kipp * 0.8, radius * 0.97), ist.zweitesBand * hell * 0.6, breite * 0.8);
-    zeichneBand(cx, cy, R, band(0, kipp, radius), hell, breite);
-    ctx.restore();
-
-    // ---- Glasrand und Glanz: was die Kugel überhaupt als Glas zeigt.
-    const rand = ctx.createLinearGradient(cx - R, cy - R, cx + R, cy + R);
-    rand.addColorStop(0, "rgba(230,240,250,0.42)");
-    rand.addColorStop(0.5, "rgba(230,240,250,0.08)");
-    rand.addColorStop(1, "rgba(230,240,250,0.22)");
-    ctx.strokeStyle = rand;
-    ctx.lineWidth = 1.2 * dpr;
-    ctx.beginPath();
-    ctx.arc(cx, cy, R, 0, Math.PI * 2);
-    ctx.stroke();
-
-    const glanz = ctx.createRadialGradient(cx - R * 0.42, cy - R * 0.48, 0, cx - R * 0.42, cy - R * 0.48, R * 0.38);
-    glanz.addColorStop(0, "rgba(255,255,255,0.20)");
-    glanz.addColorStop(1, "rgba(255,255,255,0)");
-    ctx.fillStyle = glanz;
-    ctx.beginPath();
-    ctx.arc(cx, cy, R, 0, Math.PI * 2);
-    ctx.fill();
-
-    // ---- Boten: je Bedienstetem ein Punkt, der außen kreist.
     if (arbeitende.length > 0) {
       for (let i = 0; i < arbeitende.length; i++) {
-        const a = jetzt / 1000 * 0.45 + i * GOLDENER_WINKEL;
-        const bx = cx + Math.cos(a) * R * 1.28;
-        const by = cy + Math.sin(a) * R * 0.42 + R * 0.05; // flache Bahn, wie auf dem Tresen
+        const a = (jetzt / 1000) * 0.45 + i * GOLDENER_WINKEL;
+        const bx = cx + Math.cos(a) * R * 1.3;
+        const by = cy + Math.sin(a) * R * 0.42 + R * 0.1;
         const vorn = Math.sin(a) > 0;
         const al = vorn ? 0.85 : 0.35;
         ctx.fillStyle = `rgba(${SCHEIN[0]},${SCHEIN[1]},${SCHEIN[2]},${al * 0.45})`;
@@ -251,10 +123,9 @@ export function mountSphaere(canvas: HTMLCanvasElement, opts: SphaereOptionen = 
       }
     }
 
-    // ---- Ringe vom Fertigwerden.
-    ringe = ringe.filter((r) => jetzt - r.start < 900);
-    for (const r of ringe) {
-      const t = (jetzt - r.start) / 900;
+    ringe = ringe.filter((start) => jetzt - start < 900);
+    for (const start of ringe) {
+      const t = (jetzt - start) / 900;
       ctx.strokeStyle = `rgba(${KERN[0]},${KERN[1]},${KERN[2]},${(1 - t) * 0.5})`;
       ctx.lineWidth = (1.5 - t) * dpr;
       ctx.beginPath();
@@ -265,23 +136,26 @@ export function mountSphaere(canvas: HTMLCanvasElement, opts: SphaereOptionen = 
 
   function tick(jetzt: number): void {
     if (!laeuft) return;
-    const dt = Math.min(0.05, (jetzt - letzteZeit) / 1000);
-    letzteZeit = jetzt;
-
     const ziel = ZIELE[zustand];
-    const k = ruhig ? 0.02 : 0.06;
+    const k = ruhig ? 0.03 : 0.06;
     ist = {
-      drehung: lerp(ist.drehung, ruhig ? 0.02 : ziel.drehung, k),
-      taumel: lerp(ist.taumel, ruhig ? 0 : ziel.taumel, k),
+      tempo: lerp(ist.tempo, ruhig ? 0.5 : ziel.tempo, k),
       atmen: lerp(ist.atmen, ruhig ? 0 : ziel.atmen, k),
-      zweitesBand: lerp(ist.zweitesBand, ziel.zweitesBand, k),
-      nebel: lerp(ist.nebel, ziel.nebel, k),
-      helligkeit: lerp(ist.helligkeit, ziel.helligkeit, k),
+      glow: lerp(ist.glow, ziel.glow, k),
+      hell: lerp(ist.hell, ziel.hell, k),
+      taumel: lerp(ist.taumel, ruhig ? 0 : ziel.taumel, k),
     };
-    phi += ist.drehung * dt;
     energie *= ruhig ? 0.8 : 0.9;
 
-    zeichne(jetzt);
+    if (Math.abs(video.playbackRate - ist.tempo) > 0.01) video.playbackRate = ist.tempo;
+    const atem = ist.atmen * Math.sin((jetzt / 1000) * Math.PI * 1.15) * 0.022;
+    const kipp = ist.taumel * Math.sin((jetzt / 1000) * 0.7);
+    host.style.setProperty("--orb-scale", (1 + atem + energie * 0.02).toFixed(4));
+    host.style.setProperty("--orb-hell", (ist.hell + energie * 0.35).toFixed(3));
+    host.style.setProperty("--orb-glow", (ist.glow + energie * 18).toFixed(1));
+    host.style.setProperty("--orb-kipp", `${kipp.toFixed(2)}deg`);
+
+    zeichneOverlay(jetzt);
     requestAnimationFrame(tick);
   }
   requestAnimationFrame(tick);
@@ -297,7 +171,7 @@ export function mountSphaere(canvas: HTMLCanvasElement, opts: SphaereOptionen = 
       energie = Math.min(1.4, energie + 0.25 + Math.max(0, Math.min(1, staerke)) * 0.6);
     },
     fertig() {
-      ringe.push({ start: performance.now() });
+      ringe.push(performance.now());
       zustand = "ruhe";
     },
     setArbeitende(namen) {
@@ -305,6 +179,7 @@ export function mountSphaere(canvas: HTMLCanvasElement, opts: SphaereOptionen = 
     },
     destroy() {
       laeuft = false;
+      video.pause();
     },
   };
 }

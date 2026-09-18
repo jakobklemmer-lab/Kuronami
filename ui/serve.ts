@@ -29,6 +29,8 @@ export const STATIC_FILES = [
   "styles/views.css",
   "assets/lake.jpg",
   "assets/praesenz.jpg",
+  "assets/orb.jpg",
+  "assets/orb.mp4",
   // Gepinnt wie alles hier (siehe docker-compose.yml): TradingView Lightweight Charts, Apache
   // 2.0, als vorgebautes ESM-Standalone-Modul. Kein npm-Import — der Browser lädt `ui/**`
   // ohne Bundler (siehe oben), und ein bloßer Paketname wäre kein gültiger Browser-Import.
@@ -81,6 +83,7 @@ const CONTENT_TYPES: Record<string, string> = {
   ".jpg": "image/jpeg",
   ".jpeg": "image/jpeg",
   ".woff2": "font/woff2",
+  ".mp4": "video/mp4",
 };
 
 export function contentTypeFor(filePath: string): string {
