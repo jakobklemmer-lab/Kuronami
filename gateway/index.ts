@@ -3,13 +3,8 @@ import { artifactRootFromEnv } from "../runtime/artifacts/store.js";
 import { createPool } from "../runtime/db/pool.js";
 import { attachEventSocket, eventBus } from "../runtime/events/bus.js";
 import { startEventNotifyListener } from "../runtime/events/notify.js";
-import { buildCatalog } from "../runtime/loop/api.js";
-import { listEnabledMcpServers } from "../runtime/mcp/config-store.js";
-import { createAnthropicClient } from "../runtime/model/anthropic.js";
-import { resolveModelRouteConfig } from "../runtime/model/router.js";
 import { envFilePathFromEnv, readEnvFile, writeEnvFile } from "../runtime/secrets/env-file.js";
-import { createStdioMcpClient } from "../tools/mcp/client.js";
-import type { McpServerConfig } from "../tools/mcp/tools.js";
+import { buildMemoryRoot, createMemoryStore } from "../tools/memory/store.js";
 import { createN8nBridge } from "../tools/n8n/bridge.js";
 import { createSlackChannel } from "./channels/slack/channel.js";
 import type { SlackChannelDeps } from "./channels/slack/channel.js";
@@ -19,7 +14,7 @@ import type { TelegramChannelDeps } from "./channels/telegram/channel.js";
 import { createTelegramClient } from "./channels/telegram/client.js";
 import { type VoiceChannel, createVoiceChannel } from "./channels/voice/channel.js";
 import { createWebChannel } from "./channels/web.js";
-import { createConversations } from "./conversation.js";
+import { KuroAgent } from "./agent.js";
 import { type GatewayDeps, redeliverPending } from "./core.js";
 import { configuredChannels, identityFromEnv } from "./identity.js";
 import { createYahooMarkets } from "./integrations/markets.js";
@@ -71,87 +66,40 @@ async function main(): Promise<void> {
   // hier sinnlos — er endete bei der ersten Nachricht in einem Fehler statt beim Start.
   // Der Client steht seit S19 **vor** `buildCatalog`: `agent.create` entwirft sein Profil mit
   // einem Modellaufruf, und der Katalogbau bekommt den Client übergeben, statt einen zu bauen.
-  const model = createAnthropicClient();
-  const route = resolveModelRouteConfig();
-
-  // MCP-Server (Nachtrag 2026-09-16, `runtime/mcp/config-store.ts`, Migration 0011): aus der
-  // Tabelle statt aus `.env`, weil ein Server mehr als einen Skalarwert mitbringt. Wie bei
-  // `n8n`/`obsidian` gilt: keine Zeile → kein `mcp`-Schlüssel im Katalogbau, damit
-  // `createMcpTools` gar nicht erst versucht, einen leeren Kindprozess zu spawnen. Eine
-  // Änderung an der Tabelle wirkt erst nach einem Neustart (S27: Entdeckung läuft genau einmal
-  // beim Katalogbau) — dieselbe Grenze wie bei den Provider-Schlüsseln (S33).
-  const mcpServerRows = await listEnabledMcpServers(pool);
-  const mcpServers: McpServerConfig[] = mcpServerRows.map((row) => ({
-    id: row.serverId,
-    client: createStdioMcpClient({
-      command: row.command,
-      args: row.args,
-      env: row.env,
-      clientInfo: { name: "kuronami", version: "1" },
-    }),
-    risk: row.risk,
-    repeatable: row.repeatable,
-  }));
-
-  const { catalog, policy, memory, skills } = await buildCatalog({
-    pool,
-    artifactRoot,
-    n8n: n8nBaseUrl ? { mail: true, cal: true, server: true } : undefined,
-    obsidian: obsidianVault ? {} : undefined,
-    mcp: mcpServers.length > 0 ? { servers: mcpServers } : undefined,
-    // Anders als `n8n`/`obsidian`: ein leeres Objekt reicht, um das Langzeitgedächtnis
-    // einzuschalten (`buildCatalog` fällt auf `MEMORY_ROOT`/`./memory` zurück). Das Gateway ist
-    // **die** durchgängige Unterhaltung (S16) — ohne Gedächtnis liefe sie über beliebig viele
-    // frische Abschnitte (S18b) hinweg, ohne dass je etwas davon zurückkäme.
-    memory: {},
-    // Skills (S18c) sind derselbe Fall: kein Anschluss nach draußen, sondern Teil des Systems.
-    skills: {},
-    // Die Agenten-Registry (S19). Hier gehört sie hin, und zwar mehr als in `runtime/index.ts`:
-    // "Neue Rollen entstehen über `agent.create` per Sprach- oder Textbefehl" (Abschnitt 14),
-    // und der Sprach- bzw. Textbefehl kommt seit S16 durch das Gateway. Das Entwerfen eines
-    // Profils ist Extraktion und läuft deshalb auf dem günstigen Modell (Abschnitt 11).
-    agents: {
-      model: createAnthropicClient({ model: route.routineModel }),
-      modelFor: (name: string) => createAnthropicClient({ model: name }),
-      models: { routine: route.routineModel, thinking: route.thinkingModel },
-    },
-  });
-
-  // Kontext schlank (2026-09-16): beide Schwellen aus der .env, damit sie eine Betriebs- und
-  // keine Code-Entscheidung sind. Leer oder unbrauchbar = die Vorgaben aus `compaction.ts` und
-  // `offload.ts`.
-  const compactionWindow = Number(process.env.COMPACTION_WINDOW_TOKENS);
-  const offloadThreshold = Number(process.env.OFFLOAD_THRESHOLD_TOKENS);
-
-  const conversations = createConversations({
-    pool,
-    artifactRoot,
-    catalog,
-    policy,
-    model,
-    memory,
-    skills,
-    // Streaming (2026-09-16): jedes Textstück geht als flüchtiges Ereignis auf den Bus — an
-    // dieselben Zuhörer wie die Protokollereignisse (Oberfläche über /events, die Sprach-Route
-    // über SSE), aber ohne Zeile in der Datenbank. `eventBus` ist der Singleton, den
-    // `attachEventSocket` unten ohnehin bedient; hier wird er nur früher benutzt.
-    onTextDelta: ({ sessionId, turnId, text }) =>
-      eventBus.publish({
-        type: "model.delta",
-        timestamp: new Date().toISOString(),
-        data: { session_id: sessionId, turn_id: turnId, text },
-      }),
-    compactionConfig:
-      Number.isFinite(compactionWindow) && compactionWindow > 0
-        ? { contextWindowTokens: compactionWindow }
-        : undefined,
-    offloadThresholdTokens:
-      Number.isFinite(offloadThreshold) && offloadThreshold > 0 ? offloadThreshold : undefined,
-  });
   const web = createWebChannel();
   const channels = new Map<ChannelId, ChannelPort>([["web", web]]);
 
-  const gateway: GatewayDeps = { pool, artifactRoot, conversations, channels };
+  // Der Motor (Motorwechsel 2026-09-18): Claude Code als Bibliothek statt der selbstgebauten
+  // Agentenschleife. Was hier vorher stand — Modell-Client, MCP-Entdeckung, `buildCatalog` mit
+  // Werkzeugkatalog und Policy, `createConversations` mit Kompaktierungs- und Offload-Schwellen
+  // — bringt das Agent-SDK mit, und zwar samt Kontextkompaktierung und funktionierendem
+  // Prompt-Caching. Die alte Fassung steht in `archiv/eigener-motor`.
+  const agent = new KuroAgent({
+    channels,
+    // Streaming an die Oberfläche: dieselben flüchtigen `model.delta`-Ereignisse wie zuvor,
+    // damit die Ansicht ohne Änderung live mitschreibt.
+    onDelta: (text) =>
+      eventBus.publish({
+        type: "model.delta",
+        timestamp: new Date().toISOString(),
+        data: { session_id: agent.sessionId ?? "", turn_id: "", text },
+      }),
+    // Kosten pro Zug, sichtbar statt geschätzt. Das war der Anlass für den Wechsel.
+    onUsage: (u) =>
+      console.log(
+        `[gateway] Zug: ${(u.dauerMs / 1000).toFixed(1)}s, ${u.zuege} Schritte, ` +
+          `${u.eingabe} neu + ${u.cacheGelesen} aus Cache, $${u.kostenUsd.toFixed(4)}`,
+      ),
+  });
+  await agent.start();
+
+  // Das Langzeitgedächtnis hängt **nicht** am Motor: die Oberfläche liest es für die Notiz-
+  // und Dateikarten (`/integrations/notes`, `/integrations/files`). Vorher kam es aus
+  // `buildCatalog`, jetzt direkt — derselbe Bestand, ein Verbraucher weniger.
+  const memory = await createMemoryStore({ root: await buildMemoryRoot(undefined) });
+
+
+  const gateway: GatewayDeps = { pool, artifactRoot, agent, channels };
 
   const telegramToken = process.env.TELEGRAM_BOT_TOKEN?.trim();
   let telegram: TelegramChannelDeps | undefined;
@@ -244,20 +192,18 @@ async function main(): Promise<void> {
   const eventNotify = await startEventNotifyListener(pool);
 
   console.log(
-    `Nutzer ${identity.userId}, Tool-Katalog ${catalog.version} mit ${catalog.tools.length} Tools, Modell ${model.model}.`,
-  );
-  console.log(
-    `Policy: ${policy.rules.length} Regeln, ${policy.hooks.length} Hooks, Sandbox ${
-      policy.sandbox.active ? "nachgewiesen" : `nicht nachgewiesen (${policy.sandbox.reason})`
-    }.`,
+    `Nutzer ${identity.userId}, Motor: Claude Code (Agent-SDK), Arbeitsbereich ${agent.workdir}.`,
   );
 
   // Was beim letzten Lauf offen blieb und nie hinausging, geht jetzt hinaus. Ohne diesen
   // Schritt wartete ein Lauf, dessen Freigabeanfrage beim Herunterfahren zwischen Protokoll
   // und Zustellung stand, für immer auf eine Antwort, die niemand geben kann.
-  const conversation = await conversations.of(identity.userId);
-  console.log(`Unterhaltung: Session ${conversation.runner.session.sessionId}.`);
-  const pending = await redeliverPending(gateway, conversation);
+  console.log(
+    agent.sessionId
+      ? `Unterhaltung: Sitzung ${agent.sessionId} wird fortgesetzt.`
+      : "Unterhaltung: neue Sitzung bei der ersten Nachricht.",
+  );
+  const pending = await redeliverPending(gateway);
   if (pending.length > 0) {
     console.log(`${pending.length} offene Rückfrage(n) nachgestellt.`);
   }
@@ -294,9 +240,10 @@ async function main(): Promise<void> {
     await events.close().catch(() => undefined);
     await eventNotify.close().catch(() => undefined);
     server.close();
-    // `stopAll` schreibt je Läufer ein `runtime.stopped`. Ein übersehener Läufer hinterlässt
-    // ein `runtime.started` ohne Gegenstück — seit S04 das Kennzeichen eines Absturzes.
-    await conversations.stopAll(reason);
+    // Der Motor hält keinen Prozesszustand, den man herunterfahren müsste: ein laufender Zug
+    // bricht mit dem Prozess ab, die Sitzung liegt auf der Platte und wird beim nächsten Start
+    // fortgesetzt. Genau das war beim selbstgebauten Läufer die Fehlerquelle (`runtime.started`
+    // ohne Gegenstück).
     // Wer den Store geöffnet hat, schließt ihn — dasselbe Eigentumsmuster wie beim Pool (S03),
     // wie in `runtime/index.ts`.
     memory?.close();

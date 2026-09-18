@@ -23,7 +23,7 @@ import type { TelegramChannelDeps } from "./channels/telegram/channel.js";
 import type { RuntimeEventBus } from "../runtime/events/bus.js";
 import type { VoiceChannel } from "./channels/voice/channel.js";
 import type { WebChannel } from "./channels/web.js";
-import { type GatewayDeps, receiveDecision, receiveMessage } from "./core.js";
+import { type GatewayDeps, openAskRoutes, receiveDecision, receiveMessage } from "./core.js";
 import {
   type GatewayIdentity,
   authenticateVoice,
@@ -375,9 +375,8 @@ export function createServer(deps: ServerDeps): express.Express {
       const principal = webPrincipal(req, res);
       if (!principal) return;
 
-      const conversation = await deps.gateway.conversations.of(principal.userId);
-      const sessionId = conversation.runner.session.sessionId;
-      const routes = deriveAskRoutes(await readEvents(deps.gateway.pool, sessionId));
+      const sessionId = deps.gateway.agent.sessionId ?? "";
+      const routes = openAskRoutes(deps.gateway);
       res.json({
         sessionId,
         pending: routes.map((route) => ({
@@ -954,8 +953,7 @@ export function createServer(deps: ServerDeps): express.Express {
       return;
     }
 
-    const conversation = await deps.gateway.conversations.of(principal.userId);
-    const sessionId = conversation.runner.session.sessionId;
+    const sessionId = deps.gateway.agent.sessionId ?? "";
     res.status(200);
     res.setHeader("content-type", "text/event-stream");
     res.setHeader("cache-control", "no-cache");

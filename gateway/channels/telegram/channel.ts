@@ -2,6 +2,7 @@ import { readEvents } from "../../../runtime/events/log.js";
 import {
   type GatewayDeps,
   type GatewayOutcome,
+  openAskRoutes,
   receiveDecision,
   receiveMessage,
 } from "../../core.js";
@@ -139,10 +140,7 @@ export async function handleUpdate(
 
   // Eine Entscheidung. Die kurze Referenz vom Knopf wird gegen die **offenen** Rückfragen der
   // Unterhaltung aufgelöst — zustandslos, aus dem Protokoll (siehe `askRef`).
-  const conversation = await deps.gateway.conversations.of(principal.userId);
-  const routes = deriveAskRoutes(
-    await readEvents(deps.gateway.pool, conversation.runner.session.sessionId),
-  );
+  const routes = openAskRoutes(deps.gateway);
   const found = resolveAskRef(routes, described.askRef);
 
   // Den Knopfdruck sofort quittieren, bevor der Zug weiterläuft: Telegram zeigt sonst bis zu

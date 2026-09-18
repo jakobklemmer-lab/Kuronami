@@ -2,6 +2,7 @@ import { readEvents } from "../../../runtime/events/log.js";
 import {
   type GatewayDeps,
   type GatewayOutcome,
+  openAskRoutes,
   receiveDecision,
   receiveMessage,
 } from "../../core.js";
@@ -137,11 +138,7 @@ export async function handleSlackEvent(
   if (!auth.ok) return { kind: "rejected", reason: auth.message };
   const principal = auth.principal;
 
-  const conversation = await deps.gateway.conversations.of(principal.userId);
-  const sessionId = conversation.runner.session.sessionId;
-  const openSlack = deriveAskRoutes(await readEvents(deps.gateway.pool, sessionId)).filter(
-    (route) => route.to.channel === "slack",
-  );
+  const openSlack = openAskRoutes(deps.gateway).filter((route) => route.to.channel === "slack");
 
   if (described.kind === "reaction") {
     const route = resolveAmbiguity(openSlack, deps.pendingByTs, described.itemTs);
