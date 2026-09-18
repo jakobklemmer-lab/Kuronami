@@ -88,7 +88,8 @@ async function main(): Promise<void> {
     onUsage: (u) =>
       console.log(
         `[gateway] Zug: ${(u.dauerMs / 1000).toFixed(1)}s, ${u.zuege} Schritte, ` +
-          `${u.eingabe} neu + ${u.cacheGelesen} aus Cache, $${u.kostenUsd.toFixed(4)}`,
+          `${u.eingabe} neu + ${u.cacheGelesen} gelesen + ${u.cacheGeschrieben} geschrieben, ` +
+          `${u.ausgabe} raus, $${u.kostenUsd.toFixed(4)}`,
       ),
   });
   await agent.start();

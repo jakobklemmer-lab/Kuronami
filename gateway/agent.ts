@@ -50,17 +50,26 @@ const DEFAULT_WORKDIR = "/opt/kuronami/workspace";
  * Reibung, die das ganze System unbenutzbar macht. Schreiben innerhalb des Arbeitsbereichs
  * zählt dazu — es ist sein Schreibtisch.
  */
-const ALLOWED_WITHOUT_ASKING = [
-  "Read",
+const ALLOWED_WITHOUT_ASKING = ["WebSearch", "WebFetch", "Read", "Write"];
+
+/**
+ * Werkzeuge, die es für Kuro gar nicht erst gibt.
+ *
+ * Nicht aus Vorsicht, sondern wegen des Preises: jedes Werkzeug im Katalog kostet sein
+ * Schema in **jedem** Modellaufruf. `Task` (Subagenten) ist dabei der teuerste Posten und
+ * für „wie ist das Wetter" sinnlos; `TodoWrite` ist Selbstverwaltung, die Jakob nie zu
+ * sehen bekommt; `NotebookEdit` gehört in eine Datenanalyse, nicht in einen Haushalt.
+ */
+const NICHT_FUER_EINEN_BUTLER = [
+  "Task",
+  "TodoWrite",
+  "NotebookEdit",
+  "KillShell",
+  "BashOutput",
+  "Bash",
+  "Edit",
   "Glob",
   "Grep",
-  "WebSearch",
-  "WebFetch",
-  "Write",
-  "Edit",
-  "NotebookEdit",
-  "TodoWrite",
-  "Task",
 ];
 
 /** Die Zustimmungswörter aus `choices.ts` — dieselbe Liste, damit Stimme und Tastatur
@@ -205,18 +214,14 @@ export class KuroAgent {
         options: {
           cwd: this.#workdir,
           model: this.#deps.model ?? process.env.KURO_MODEL?.trim(),
-          systemPrompt: {
-            type: "preset",
-            preset: "claude_code",
-            append: KURO_PERSONA,
-            // Ohne das stünden Arbeitsverzeichnis, Plattform, Shell und OS-Version im
-            // System-Prompt und damit **vor** dem Cache-Haltepunkt. Jede Änderung daran
-            // verwirft den Cache. Mit `true` wandern sie in die erste Nutzernachricht.
-            excludeDynamicSections: true,
-          },
-          // Lädt CLAUDE.md und die Skills aus dem Arbeitsbereich — Kuros Hausregeln.
+          // Ein **eigener** Prompt statt des `claude_code`-Presets. Der Preset brachte rund
+          // 44.000 Token Programmieranleitung mit, die bei jeder Nachricht mitliefen — auch
+          // bei „wie ist das Wetter" — und die den Butler-Ton übertönten. Siehe persona.ts.
+          systemPrompt: { type: "custom", prompt: KURO_PERSONA },
+          // Lädt CLAUDE.md aus dem Arbeitsbereich — Kuros Hausregeln.
           settingSources: ["project"],
           allowedTools: ALLOWED_WITHOUT_ASKING,
+          disallowedTools: NICHT_FUER_EINEN_BUTLER,
           canUseTool: this.#fragen(origin),
           includePartialMessages: true,
           ...(this.#sessionId ? { resume: this.#sessionId } : {}),
