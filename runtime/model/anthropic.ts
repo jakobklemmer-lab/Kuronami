@@ -57,6 +57,12 @@ export interface AnthropicClientOptions {
 /** Kein Schlüssel gesetzt. Wird beim Bauen gemeldet und nicht erst beim ersten Zug. */
 export class MissingApiKeyError extends Error {}
 
+/** `undefined`/`""`/nur Leerraum werden gleich behandelt — eine leere `.env`-Zeile ist "nicht gesetzt". */
+function trimmedOrUndefined(value: string | undefined): string | undefined {
+  const trimmed = value?.trim();
+  return trimmed === undefined || trimmed === "" ? undefined : trimmed;
+}
+
 function toApiBlocks(blocks: ModelContentBlock[]): unknown[] {
   // Unverändert durchgereicht. Was aus einer Antwort kam, geht so wieder hinein — inklusive
   // `thinking` samt Signatur, die bei der Fortsetzung eines Werkzeuglaufs stimmen muss.
@@ -78,8 +84,28 @@ function readUsage(usage: Anthropic.Usage | undefined) {
  * Aufrufer.
  */
 export function createAnthropicClient(options: AnthropicClientOptions = {}): ModelClient {
-  const model = options.model ?? process.env.ANTHROPIC_MODEL ?? DEFAULT_MODEL;
+  // `??` fiele bei einer leeren `.env`-Zeile (`ANTHROPIC_MODEL=`) nicht durch — process.env
+  // liefert dann `""`, nicht `undefined`. Dieselbe Falle wie bei `apiKey` unten, hier über
+  // leere Strings statt nur `undefined`/`null` geprüft, damit "Leer = claude-opus-5"
+  // (.env.example) tatsächlich stimmt.
+  const model =
+    trimmedOrUndefined(options.model) ??
+    trimmedOrUndefined(process.env.ANTHROPIC_MODEL) ??
+    DEFAULT_MODEL;
   const apiKey = options.apiKey ?? process.env.ANTHROPIC_API_KEY;
+  // `ANTHROPIC_EFFORT` (2026-09-16): der Hebel aus der Doku oben, als Betriebsentscheidung in
+  // der .env statt im Code. Ungültige Werte fallen auf die API-Vorgabe zurück, nicht auf einen
+  // Absturz beim Start.
+  const envEffort = trimmedOrUndefined(process.env.ANTHROPIC_EFFORT);
+  const effort =
+    options.effort ??
+    (envEffort === "low" ||
+    envEffort === "medium" ||
+    envEffort === "high" ||
+    envEffort === "xhigh" ||
+    envEffort === "max"
+      ? envEffort
+      : undefined);
 
   if (!options.sdk && (!apiKey || apiKey.trim() === "")) {
     throw new MissingApiKeyError(
@@ -95,8 +121,7 @@ export function createAnthropicClient(options: AnthropicClientOptions = {}): Mod
     async complete(request: ModelRequest): Promise<ModelResponse> {
       let message: Anthropic.Message;
       try {
-        message = await sdk.messages.create(
-          {
+        const params: Anthropic.MessageCreateParamsNonStreaming = {
             model,
             max_tokens: request.maxTokens,
             // Denken bleibt an. Auf dieser Modellklasse ist es die Vorgabe, und es
@@ -105,7 +130,7 @@ export function createAnthropicClient(options: AnthropicClientOptions = {}): Mod
             // ohne dass irgendwo ein Fehler entsteht), und durchsickernde interne Marken.
             // Beides wäre in einer Schleife über 30 Schritte besonders teuer.
             thinking: { type: "adaptive" },
-            ...(options.effort ? { output_config: { effort: options.effort } } : {}),
+            ...(effort ? { output_config: { effort } } : {}),
             system: request.system.map((block) => ({
               type: "text" as const,
               text: block.text,
@@ -115,20 +140,35 @@ export function createAnthropicClient(options: AnthropicClientOptions = {}): Mod
               name: tool.name,
               description: tool.description,
               input_schema: tool.inputSchema as unknown as Anthropic.Tool.InputSchema,
-              // Die Eingabe ist damit schemagültig, bevor sie ankommt. Der Router prüft sie
-              // trotzdem (S07) — er ist das Tor, nicht der Anbieter —, aber ein Zug, der nur
-              // deshalb verloren geht, weil ein Feld fehlt, kostet einen Schritt aus dem
-              // Budget für nichts.
-              strict: true,
+              // Kein `strict: true` mehr (Fund vom 2026-09-16, erster echter Modellaufruf
+              // gegen den vollen Katalog: 23 Tools als strict lehnte die API ab — "The
+              // compiled grammar is too large... reduce the number of strict tools". Bis
+              // S16 war ANTHROPIC_API_KEY durchgehend leer, dieser Pfad also nie gegen die
+              // echte API geprüft. Der Router prüft das Schema ohnehin (S07) — er ist das
+              // Tor, nicht der Anbieter; `strict` war nur eine zusätzliche Zusage beim
+              // Anbieter selbst, keine, auf die der Router angewiesen ist.
               ...(tool.cache ? { cache_control: { type: "ephemeral" as const } } : {}),
             })),
             messages: request.messages.map((entry) => ({
               role: entry.role,
               content: toApiBlocks(entry.content) as Anthropic.ContentBlockParam[],
             })),
-          },
-          request.signal ? { signal: request.signal } : undefined,
-        );
+        };
+        const requestOptions = request.signal ? { signal: request.signal } : undefined;
+
+        if (request.onTextDelta) {
+          // Streaming (2026-09-16): dieselben Parameter, aber die Textstücke gehen sofort an
+          // den Aufrufer, statt erst mit dem Ganzen. `finalMessage()` liefert am Ende exakt
+          // die Nachricht, die `create` geliefert hätte — der Rest dieser Funktion sieht
+          // keinen Unterschied. Ohne Hook bleibt es beim einen Aufruf: die Test-Fakes kennen
+          // nur `create`, und ein Streaming, das niemand abnimmt, wäre nur Aufwand.
+          const onTextDelta = request.onTextDelta;
+          const stream = sdk.messages.stream(params, requestOptions);
+          stream.on("text", (delta) => onTextDelta(delta));
+          message = await stream.finalMessage();
+        } else {
+          message = await sdk.messages.create(params, requestOptions);
+        }
       } catch (error) {
         // Kein Glätten (AGENTS.md). Der Wortlaut des Anbieters ist die einzige Auskunft
         // darüber, was er beanstandet hat, und genau die braucht der Betreiber.

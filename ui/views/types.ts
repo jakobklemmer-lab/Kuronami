@@ -11,7 +11,7 @@ import type { RouteId, SettingsSectionId } from "../router/router.js";
  *
  * DOM-beruehrender Code bleibt hier — wie in `ui/main.ts` seit S21 — bewusst ungetestet; die
  * eigentliche Logik jeder Ansicht (Formatierung, Datenformen) steht in eigenen, geprueften
- * Modulen (`ui/views/format.ts`, `ui/mock/data.ts`).
+ * Modulen (`ui/views/format.ts`, `ui/integrations/*.ts`, `ui/markets/*.ts`).
  */
 export interface ViewContext {
   api: ApiClient;

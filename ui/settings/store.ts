@@ -70,6 +70,20 @@ export interface SpeechSettings {
   sessionToken: string | null;
 }
 
+/** Die Beobachtungsliste der Trading-Ansicht und der Markets-Karte (Nachtrag 2026-09-16):
+ * Yahoo-Finance-Symbole, vom Nutzer über die Suche zusammengestellt. */
+export interface MarketsSettings {
+  watchlist: string[];
+}
+
+/** Der Ort der Wetterkarte (Nachtrag 2026-09-16) — Open-Meteo braucht Koordinaten, der Name
+ * steht nur zur Anzeige daneben. */
+export interface WeatherSettings {
+  place: string;
+  latitude: number;
+  longitude: number;
+}
+
 export interface KuronamiSettings {
   appearance: AppearanceSettings;
   models: ModelSettings;
@@ -77,6 +91,8 @@ export interface KuronamiSettings {
   memory: MemorySettings;
   integrations: IntegrationSettings;
   speech: SpeechSettings;
+  markets: MarketsSettings;
+  weather: WeatherSettings;
 }
 
 export const DEFAULT_SETTINGS: KuronamiSettings = {
@@ -110,6 +126,15 @@ export const DEFAULT_SETTINGS: KuronamiSettings = {
     endpoint: null,
     sessionToken: null,
   },
+  markets: {
+    // Ein Startpunkt, bis der Nutzer die Liste selbst füllt: DAX, S&P 500, Bitcoin, Euro/Dollar.
+    watchlist: ["^GDAXI", "^GSPC", "BTC-USD", "EURUSD=X"],
+  },
+  weather: {
+    place: "Wien",
+    latitude: 48.2085,
+    longitude: 16.3721,
+  },
 };
 
 export const SETTINGS_STORAGE_KEY = "kuronami.settings.v1";
@@ -139,6 +164,20 @@ export function normalizeSettings(raw: unknown): KuronamiSettings {
     memory: mergeSection(DEFAULT_SETTINGS.memory, candidate.memory),
     integrations: mergeSection(DEFAULT_SETTINGS.integrations, candidate.integrations),
     speech: mergeSection(DEFAULT_SETTINGS.speech, candidate.speech),
+    markets: normalizeMarkets(candidate.markets),
+    weather: mergeSection(DEFAULT_SETTINGS.weather, candidate.weather),
+  };
+}
+
+/** Die Liste selbst wird geprüft, nicht nur verschmolzen: nur Zeichenketten bleiben, und ein
+ * gespeichertes `[]` ist eine Entscheidung des Nutzers (alles entfernt), keine Lücke. */
+function normalizeMarkets(stored: unknown): MarketsSettings {
+  const record =
+    typeof stored === "object" && stored !== null ? (stored as Record<string, unknown>) : {};
+  if (!Array.isArray(record.watchlist))
+    return { watchlist: [...DEFAULT_SETTINGS.markets.watchlist] };
+  return {
+    watchlist: record.watchlist.filter((entry): entry is string => typeof entry === "string"),
   };
 }
 

@@ -1,10 +1,24 @@
+import { ApiError } from "../api/client.js";
 import { icon } from "../icons.js";
-import { createMockAgendaProvider } from "../mock/data.js";
+import type { CalendarData } from "../integrations/types.js";
 import { formatClockTime } from "./format.js";
-import type { View } from "./types.js";
+import { escapeHtml } from "./html.js";
+import type { View, ViewContext } from "./types.js";
 
+function describeCalendarError(error: unknown): string {
+  if (error instanceof ApiError) {
+    if (error.status === "no_token") return "Kein Token hinterlegt — siehe Einstellungen › System.";
+    if (error.status === 401) return "Token abgelehnt — in den Einstellungen › System prüfen.";
+    return error.message;
+  }
+  return error instanceof Error ? error.message : String(error);
+}
+
+/** Die Termine des Tages aus allen verbundenen Kalendern (Nachtrag 2026-09-16: echt über
+ * `GET /integrations/calendar`). Solange kein Kalender-Konto verbunden ist, sagt die Seite das —
+ * `connected: false` mit Grund — statt Termine zu erfinden. */
 export const calendarView: View = {
-  mount(container) {
+  mount(container, ctx: ViewContext) {
     container.innerHTML = `
       <div class="detail-view">
         <header class="detail-view__head">
@@ -23,27 +37,47 @@ export const calendarView: View = {
     const listEl = container.querySelector<HTMLElement>('[data-role="list"]');
     const subtitleEl = container.querySelector<HTMLElement>('[data-role="subtitle"]');
 
-    void createMockAgendaProvider()
-      .load()
+    void ctx.api
+      .get<CalendarData>("/integrations/calendar")
       .then((data) => {
-        if (subtitleEl) subtitleEl.textContent = `${data.events.length} Termine heute`;
         if (!listEl) return;
+        if (!data.connected) {
+          if (subtitleEl) subtitleEl.textContent = "Kein Kalender verbunden";
+          listEl.innerHTML = `<li class="field__hint">Die Kalender-Workflows in n8n sind noch nicht aktiv — Google-Kalender-Zugangsdaten hinterlegen, dann erscheinen die Termine hier.${
+            data.reason ? `<br><small>${escapeHtml(data.reason)}</small>` : ""
+          }</li>`;
+          return;
+        }
+        if (subtitleEl) {
+          subtitleEl.textContent =
+            data.events.length === 1 ? "1 Termin heute" : `${data.events.length} Termine heute`;
+        }
+        if (data.events.length === 0) {
+          listEl.innerHTML = '<li class="field__hint">Heute steht nichts im Kalender.</li>';
+          return;
+        }
         listEl.innerHTML = data.events
           .map(
             (event) => `
               <li>
                 <div class="detail-list__row">
-                  ${icon(event.icon)}
+                  ${icon("calendar")}
                   <div>
-                    <p class="detail-list__title">${event.title}</p>
-                    ${event.location ? `<p class="detail-list__body">${event.location}</p>` : ""}
+                    <p class="detail-list__title">${escapeHtml(event.title)}</p>
+                    ${event.location ? `<p class="detail-list__body">${escapeHtml(event.location)}</p>` : ""}
                   </div>
-                  <span class="detail-list__meta" style="margin-left:auto">${formatClockTime(event.startsAt)}</span>
+                  <span class="detail-list__meta" style="margin-left:auto">${
+                    event.allDay ? "ganztägig" : escapeHtml(formatClockTime(event.startsAt))
+                  }</span>
                 </div>
               </li>
             `,
           )
           .join("");
+      })
+      .catch((error) => {
+        if (subtitleEl) subtitleEl.textContent = describeCalendarError(error);
+        if (listEl) listEl.innerHTML = "";
       });
 
     return () => {};

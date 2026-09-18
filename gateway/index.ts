@@ -1,12 +1,16 @@
 import type { Server } from "node:http";
 import { artifactRootFromEnv } from "../runtime/artifacts/store.js";
 import { createPool } from "../runtime/db/pool.js";
-import { attachEventSocket } from "../runtime/events/bus.js";
+import { attachEventSocket, eventBus } from "../runtime/events/bus.js";
 import { startEventNotifyListener } from "../runtime/events/notify.js";
 import { buildCatalog } from "../runtime/loop/api.js";
+import { listEnabledMcpServers } from "../runtime/mcp/config-store.js";
 import { createAnthropicClient } from "../runtime/model/anthropic.js";
 import { resolveModelRouteConfig } from "../runtime/model/router.js";
 import { envFilePathFromEnv, readEnvFile, writeEnvFile } from "../runtime/secrets/env-file.js";
+import { createStdioMcpClient } from "../tools/mcp/client.js";
+import type { McpServerConfig } from "../tools/mcp/tools.js";
+import { createN8nBridge } from "../tools/n8n/bridge.js";
 import { createSlackChannel } from "./channels/slack/channel.js";
 import type { SlackChannelDeps } from "./channels/slack/channel.js";
 import { createSlackClient } from "./channels/slack/client.js";
@@ -18,6 +22,9 @@ import { createWebChannel } from "./channels/web.js";
 import { createConversations } from "./conversation.js";
 import { type GatewayDeps, redeliverPending } from "./core.js";
 import { configuredChannels, identityFromEnv } from "./identity.js";
+import { createYahooMarkets } from "./integrations/markets.js";
+import { createSystemSampler } from "./integrations/system.js";
+import { createSystemdRestart } from "./restart.js";
 import { createServer } from "./server.js";
 import type { ChannelId, ChannelPort } from "./types.js";
 
@@ -67,11 +74,31 @@ async function main(): Promise<void> {
   const model = createAnthropicClient();
   const route = resolveModelRouteConfig();
 
+  // MCP-Server (Nachtrag 2026-09-16, `runtime/mcp/config-store.ts`, Migration 0011): aus der
+  // Tabelle statt aus `.env`, weil ein Server mehr als einen Skalarwert mitbringt. Wie bei
+  // `n8n`/`obsidian` gilt: keine Zeile → kein `mcp`-Schlüssel im Katalogbau, damit
+  // `createMcpTools` gar nicht erst versucht, einen leeren Kindprozess zu spawnen. Eine
+  // Änderung an der Tabelle wirkt erst nach einem Neustart (S27: Entdeckung läuft genau einmal
+  // beim Katalogbau) — dieselbe Grenze wie bei den Provider-Schlüsseln (S33).
+  const mcpServerRows = await listEnabledMcpServers(pool);
+  const mcpServers: McpServerConfig[] = mcpServerRows.map((row) => ({
+    id: row.serverId,
+    client: createStdioMcpClient({
+      command: row.command,
+      args: row.args,
+      env: row.env,
+      clientInfo: { name: "kuronami", version: "1" },
+    }),
+    risk: row.risk,
+    repeatable: row.repeatable,
+  }));
+
   const { catalog, policy, memory, skills } = await buildCatalog({
     pool,
     artifactRoot,
     n8n: n8nBaseUrl ? { mail: true, cal: true, server: true } : undefined,
     obsidian: obsidianVault ? {} : undefined,
+    mcp: mcpServers.length > 0 ? { servers: mcpServers } : undefined,
     // Anders als `n8n`/`obsidian`: ein leeres Objekt reicht, um das Langzeitgedächtnis
     // einzuschalten (`buildCatalog` fällt auf `MEMORY_ROOT`/`./memory` zurück). Das Gateway ist
     // **die** durchgängige Unterhaltung (S16) — ohne Gedächtnis liefe sie über beliebig viele
@@ -90,6 +117,12 @@ async function main(): Promise<void> {
     },
   });
 
+  // Kontext schlank (2026-09-16): beide Schwellen aus der .env, damit sie eine Betriebs- und
+  // keine Code-Entscheidung sind. Leer oder unbrauchbar = die Vorgaben aus `compaction.ts` und
+  // `offload.ts`.
+  const compactionWindow = Number(process.env.COMPACTION_WINDOW_TOKENS);
+  const offloadThreshold = Number(process.env.OFFLOAD_THRESHOLD_TOKENS);
+
   const conversations = createConversations({
     pool,
     artifactRoot,
@@ -98,6 +131,22 @@ async function main(): Promise<void> {
     model,
     memory,
     skills,
+    // Streaming (2026-09-16): jedes Textstück geht als flüchtiges Ereignis auf den Bus — an
+    // dieselben Zuhörer wie die Protokollereignisse (Oberfläche über /events, die Sprach-Route
+    // über SSE), aber ohne Zeile in der Datenbank. `eventBus` ist der Singleton, den
+    // `attachEventSocket` unten ohnehin bedient; hier wird er nur früher benutzt.
+    onTextDelta: ({ sessionId, turnId, text }) =>
+      eventBus.publish({
+        type: "model.delta",
+        timestamp: new Date().toISOString(),
+        data: { session_id: sessionId, turn_id: turnId, text },
+      }),
+    compactionConfig:
+      Number.isFinite(compactionWindow) && compactionWindow > 0
+        ? { contextWindowTokens: compactionWindow }
+        : undefined,
+    offloadThresholdTokens:
+      Number.isFinite(offloadThreshold) && offloadThreshold > 0 ? offloadThreshold : undefined,
   });
   const web = createWebChannel();
   const channels = new Map<ChannelId, ChannelPort>([["web", web]]);
@@ -156,8 +205,30 @@ async function main(): Promise<void> {
     write: (contents: string) => writeEnvFile(envFilePath, contents),
   };
 
+  // Dieselbe Brücke wie die mail.*/cal.*-Tools (S14/S15), hier ohne Tool-/Policy-/
+  // Artefaktschicht — Nachtrag 2026-09-16 für `/integrations/mail`, das Dashboard-Widget der
+  // Oberfläche. `undefined`, wenn keine n8n-Instanz hinterlegt ist (`configured` bleibt dann
+  // `false`, die Route antwortet mit 404 statt einem Fehler ohne Ursache).
+  const n8nBridge = n8nBaseUrl
+    ? createN8nBridge({ baseUrl: n8nBaseUrl, token: process.env.N8N_WEBHOOK_TOKEN?.trim() })
+    : undefined;
+
   const port = Number(process.env.GATEWAY_PORT ?? 8788);
-  const app = createServer({ gateway, identity, web, telegram, slack, voice, secrets });
+  const app = createServer({
+    gateway,
+    identity,
+    web,
+    telegram,
+    slack,
+    voice,
+    secrets,
+    n8nBridge,
+    memory,
+    markets: createYahooMarkets(),
+    system: createSystemSampler(),
+    restart: createSystemdRestart(),
+    bus: eventBus,
+  });
   const server: Server = app.listen(port, () => {
     console.log(`[gateway] http://localhost:${port} — Kanäle: ${[...channels.keys()].join(", ")}`);
   });

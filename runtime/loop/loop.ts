@@ -120,6 +120,14 @@ export interface LoopDeps {
    * die volle Anleitung eines Skills bei Bedarf nach.
    */
   skills?: SkillCatalog;
+  /**
+   * Textstücke des Modells, sobald sie entstehen (Streaming, 2026-09-16). Der Loop setzt sie
+   * als `onTextDelta` an jede Modellanfrage und reicht Session und Zug dazu — wer zuhört
+   * (der Gateway: als flüchtiges Bus-Ereignis `model.delta`), kann den ersten Satz zeigen oder
+   * sprechen, während der Zug noch läuft. Nichts davon geht ins Protokoll: das Protokoll trägt
+   * die ganze Antwort (`model.responded`), der Hook nur ihr Entstehen.
+   */
+  onTextDelta?: (delta: { sessionId: string; turnId: string; text: string }) => void;
   systemPrompt?: string;
   maxSteps?: number;
   maxConsecutiveErrors?: number;
@@ -463,6 +471,10 @@ export async function runTurn(
         cache_breakpoints: countCacheBreakpoints(modelRequest),
       });
 
+      const onTextDelta = deps.onTextDelta;
+      if (onTextDelta) {
+        modelRequest.onTextDelta = (text) => onTextDelta({ sessionId, turnId, text });
+      }
       const response = await deps.model.complete(modelRequest);
       text = response.text;
 

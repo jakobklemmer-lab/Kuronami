@@ -26,6 +26,7 @@ const identity: GatewayIdentity = {
   slackSigningSecret: SIGNING_SECRET,
   slackUserIds: ["U1"],
   voiceToken: "",
+  voiceSessionToken: "",
 };
 
 let server: Server;

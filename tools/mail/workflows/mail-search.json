@@ -2,7 +2,7 @@
   "id": "kuronamiMailSearch01",
   "name": "mail.search",
   "meta": {
-    "description": "Kuronami S14: Postfach durchsuchen. Gibt je Treffer NUR Kopfzeilen zurueck (id, subject, from, date, summary) — nie den Volltext. Der Runtime-Handler tools/mail/tools.ts schneidet zusaetzlich mit, dieser Workflow ist die erste Grenze. Provider-Knoten unten ist Gmail; fuer IMAP/Outlook den Knoten austauschen, die Ein-/Ausgabeform der Code-Knoten bleibt."
+    "description": "Kuronami S14 + Nachtrag 2026-09-16 (Mehrkonten): Postfach durchsuchen. Gibt je Treffer NUR Kopfzeilen zurueck (id, subject, from, date, summary) - nie den Volltext. Fragt alle fuenf konfigurierten Konten (drei Gmail, zwei Outlook) parallel ab und fuehrt die Treffer zusammen; die id jedes Treffers traegt ein Konto-Praefix (z.B. 'gmail_2:...'), das mail-read.json beim Nachladen auswertet."
   },
   "nodes": [
     {
@@ -12,19 +12,19 @@
         "responseMode": "responseNode",
         "options": {}
       },
-      "id": "c2a10001-0001-4a00-8000-000000000001",
+      "id": "s0001-0000-4a00-8000-000000000001",
       "name": "Webhook",
       "type": "n8n-nodes-base.webhook",
       "typeVersion": 2,
       "position": [240, 300],
-      "webhookId": "c2a10001-0001-4a00-8000-000000000001"
+      "webhookId": "s0001-0000-4a00-8000-000000000001"
     },
     {
       "parameters": {
         "mode": "runOnceForAllItems",
-        "jsCode": "// Eingabe der Runtime: { query?: string, unread_only?: boolean, limit?: number }\nconst incoming = $input.first().json;\nconst inp = incoming.body && typeof incoming.body === 'object' ? incoming.body : incoming;\nconst terms = [];\nif (typeof inp.query === 'string' && inp.query.trim() !== '') terms.push(inp.query.trim());\nif (inp.unread_only === true) terms.push('is:unread');\nconst limit = Number.isInteger(inp.limit) ? Math.max(1, Math.min(50, inp.limit)) : 20;\nreturn [{ json: { q: terms.join(' '), limit } }];"
+        "jsCode": "// Eingabe der Runtime: { query?: string, unread_only?: boolean, limit?: number }\nconst incoming = $input.first().json;\nconst inp = incoming.body && typeof incoming.body === 'object' ? incoming.body : incoming;\nconst query = typeof inp.query === 'string' ? inp.query.trim() : '';\nconst unreadOnly = inp.unread_only === true;\nconst terms = [];\nif (query !== '') terms.push(query);\nif (unreadOnly) terms.push('is:unread');\nconst limit = Number.isInteger(inp.limit) ? Math.max(1, Math.min(50, inp.limit)) : 20;\nreturn [{ json: { q: terms.join(' '), limit, query, unreadOnly } }];"
       },
-      "id": "c2a10001-0002-4a00-8000-000000000002",
+      "id": "s0002-0000-4a00-8000-000000000002",
       "name": "Build query",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
@@ -36,43 +36,400 @@
         "operation": "getAll",
         "returnAll": false,
         "limit": "={{ $json.limit }}",
-        "filters": { "q": "={{ $json.q }}" },
+        "filters": {
+          "q": "={{ $json.q }}"
+        },
         "options": {}
       },
-      "id": "c2a10001-0003-4a00-8000-000000000003",
-      "name": "Gmail: list messages",
+      "id": "s0100-0000-4a00-8000-000000000100",
+      "name": "Gmail 1: list messages",
       "type": "n8n-nodes-base.gmail",
       "typeVersion": 2,
-      "position": [680, 300],
-      "notes": "Nur LESEN (message:getAll). Kein send, kein draft. Fuer IMAP/Outlook austauschen."
+      "position": [680, 60],
+      "notes": "Konto Gmail 1 — eigene Gmail-Zugangsdaten in diesem Knoten hinterlegen. Nur LESEN.",
+      "onError": "continueRegularOutput",
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "J5bzu4YX7JHXCZf8",
+          "name": "Gmail account"
+        }
+      }
     },
     {
       "parameters": {
         "mode": "runOnceForAllItems",
-        "jsCode": "// Auf genau die vier erlaubten Angaben je Treffer zusammenschneiden. NIE den Volltext.\nconst headers = $input.all().map((item, i) => {\n  const m = item.json || {};\n  const payloadHeaders = (m.payload && m.payload.headers) || [];\n  const h = (name) => {\n    const hit = payloadHeaders.find((x) => (x.name || '').toLowerCase() === name);\n    return hit ? hit.value : '';\n  };\n  return {\n    id: String(m.id || m.messageId || ('msg_' + (i + 1))),\n    subject: m.subject || h('subject') || '(kein Betreff)',\n    from: m.from || h('from') || '(unbekannt)',\n    date: m.date || h('date') || m.internalDate || '',\n    summary: (m.snippet || '').toString().slice(0, 240),\n    unread: Array.isArray(m.labelIds) ? m.labelIds.includes('UNREAD') : (m.unread === true)\n  };\n});\nreturn [{ json: { messages: headers, count: headers.length } }];"
+        "jsCode": "// Stempelt jeden Treffer mit der Konto-Kennung — noetig, weil z.B. drei Gmail-Konten\n// strukturell identische Antworten liefern; ohne diesen Stempel liesse sich nach dem\n// Merge nicht mehr sagen, aus welchem Konto ein Treffer kam.\n//\n// Filtert Nicht-Treffer heraus: ein deaktivierter Provider-Knoten (Konto noch nicht\n// verbunden) reicht in n8n sein EINGANGSITEM unveraendert durch, statt nichts zu liefern\n// — ohne diesen Filter wuerde das zu einem erfundenen \"Treffer\" ohne echte id (gefunden\n// 2026-09-16 beim ersten echten Mehrkonten-Testlauf).\nreturn $input.all()\n  .filter((item) => item.json && typeof item.json.id === 'string')\n  .map((item) => ({ json: { ...item.json, _account: 'gmail_1' } }));"
       },
-      "id": "c2a10001-0004-4a00-8000-000000000004",
+      "id": "s0200-0000-4a00-8000-000000000200",
+      "name": "Tag gmail_1",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [900, 60]
+    },
+    {
+      "parameters": {
+        "resource": "message",
+        "operation": "getAll",
+        "returnAll": false,
+        "limit": "={{ $json.limit }}",
+        "filters": {
+          "q": "={{ $json.q }}"
+        },
+        "options": {}
+      },
+      "id": "s0101-0000-4a00-8000-000000000101",
+      "name": "Gmail 2: list messages",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2,
+      "position": [680, 200],
+      "notes": "Konto Gmail 2 — eigene Gmail-Zugangsdaten in diesem Knoten hinterlegen. Nur LESEN.",
+      "onError": "continueRegularOutput",
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "BciIsY138IRxYiqo",
+          "name": "Gmail account 2"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "// Siehe \"Tag gmail_1\" fuer die Begruendung des Filters.\nreturn $input.all()\n  .filter((item) => item.json && typeof item.json.id === 'string')\n  .map((item) => ({ json: { ...item.json, _account: 'gmail_2' } }));"
+      },
+      "id": "s0201-0000-4a00-8000-000000000201",
+      "name": "Tag gmail_2",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [900, 200]
+    },
+    {
+      "parameters": {
+        "resource": "message",
+        "operation": "getAll",
+        "returnAll": false,
+        "limit": "={{ $json.limit }}",
+        "filters": {
+          "q": "={{ $json.q }}"
+        },
+        "options": {}
+      },
+      "id": "s0102-0000-4a00-8000-000000000102",
+      "name": "Gmail 3: list messages",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2,
+      "position": [680, 340],
+      "notes": "Konto Gmail 3 — eigene Gmail-Zugangsdaten in diesem Knoten hinterlegen. Nur LESEN.",
+      "onError": "continueRegularOutput",
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "iD4G8EzR4dq90It2",
+          "name": "Gmail account 3"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "// Siehe \"Tag gmail_1\" fuer die Begruendung des Filters.\nreturn $input.all()\n  .filter((item) => item.json && typeof item.json.id === 'string')\n  .map((item) => ({ json: { ...item.json, _account: 'gmail_3' } }));"
+      },
+      "id": "s0202-0000-4a00-8000-000000000202",
+      "name": "Tag gmail_3",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [900, 340]
+    },
+    {
+      "parameters": {
+        "resource": "message",
+        "operation": "getAll",
+        "returnAll": false,
+        "limit": "={{ $json.limit }}",
+        "output": "fields",
+        "fields": ["id", "subject", "from", "receivedDateTime", "bodyPreview", "isRead"],
+        "filtersUI": {
+          "values": {
+            "filterBy": "={{ $json.query ? 'search' : 'filters' }}",
+            "search": "={{ $json.query }}",
+            "filters": {
+              "readStatus": "={{ $json.unreadOnly ? 'unread' : 'both' }}"
+            }
+          }
+        },
+        "options": {}
+      },
+      "id": "s0103-0000-4a00-8000-000000000103",
+      "name": "Outlook 1: list messages",
+      "type": "n8n-nodes-base.microsoftOutlook",
+      "typeVersion": 2,
+      "position": [680, 480],
+      "notes": "Konto Outlook 1 — eigene Outlook-Zugangsdaten in diesem Knoten hinterlegen. Nur LESEN.",
+      "onError": "continueRegularOutput",
+      "disabled": true
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "// Siehe \"Tag gmail_1\" fuer die Begruendung des Filters.\nreturn $input.all()\n  .filter((item) => item.json && typeof item.json.id === 'string')\n  .map((item) => ({ json: { ...item.json, _account: 'outlook_1' } }));"
+      },
+      "id": "s0203-0000-4a00-8000-000000000203",
+      "name": "Tag outlook_1",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [900, 480]
+    },
+    {
+      "parameters": {
+        "resource": "message",
+        "operation": "getAll",
+        "returnAll": false,
+        "limit": "={{ $json.limit }}",
+        "output": "fields",
+        "fields": ["id", "subject", "from", "receivedDateTime", "bodyPreview", "isRead"],
+        "filtersUI": {
+          "values": {
+            "filterBy": "={{ $json.query ? 'search' : 'filters' }}",
+            "search": "={{ $json.query }}",
+            "filters": {
+              "readStatus": "={{ $json.unreadOnly ? 'unread' : 'both' }}"
+            }
+          }
+        },
+        "options": {}
+      },
+      "id": "s0104-0000-4a00-8000-000000000104",
+      "name": "Outlook 2: list messages",
+      "type": "n8n-nodes-base.microsoftOutlook",
+      "typeVersion": 2,
+      "position": [680, 620],
+      "notes": "Konto Outlook 2 — eigene Outlook-Zugangsdaten in diesem Knoten hinterlegen. Nur LESEN.",
+      "onError": "continueRegularOutput",
+      "disabled": true
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "// Siehe \"Tag gmail_1\" fuer die Begruendung des Filters.\nreturn $input.all()\n  .filter((item) => item.json && typeof item.json.id === 'string')\n  .map((item) => ({ json: { ...item.json, _account: 'outlook_2' } }));"
+      },
+      "id": "s0204-0000-4a00-8000-000000000204",
+      "name": "Tag outlook_2",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [900, 620]
+    },
+    {
+      "parameters": {
+        "mode": "append",
+        "numberInputs": 5
+      },
+      "id": "s0300-0000-4a00-8000-000000000300",
+      "name": "Merge",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3.2,
+      "position": [1120, 340],
+      "notes": "Haengt die Trefferlisten aller Konten aneinander."
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "// Auf genau die vier erlaubten Angaben je Treffer zusammenschneiden. NIE den Volltext.\n// Die id traegt die Konto-Kennung als Praefix (mail-read.json wertet sie aus).\nconst headers = $input.all().map((item, i) => {\n  const m = item.json || {};\n  const account = m._account || 'gmail_1';\n  const isOutlook = account.startsWith('outlook');\n  if (isOutlook) {\n    const addr = (m.from && m.from.emailAddress) || {};\n    return {\n      id: account + ':' + String(m.id || ('msg_' + (i + 1))),\n      subject: m.subject || '(kein Betreff)',\n      from: addr.name ? (addr.name + ' <' + addr.address + '>') : (addr.address || '(unbekannt)'),\n      date: m.receivedDateTime || '',\n      summary: (m.bodyPreview || '').toString().slice(0, 240),\n      unread: m.isRead === false,\n      account\n    };\n  }\n  // Gmails message:getAll liefert Subject/From/To GROSS geschrieben (eigenes Antwortformat,\n  // anders als message:get) und kein payload.headers-Array — gefunden 2026-09-16 beim ersten\n  // echten Testlauf, vorher zeigte jede Mail \"(kein Betreff)\"/\"(unbekannt)\". Kleingeschrieben\n  // und payload.headers bleiben als Fallback fuer andere Gmail-Node-Antwortformen stehen.\n  const payloadHeaders = (m.payload && m.payload.headers) || [];\n  const h = (name) => {\n    const hit = payloadHeaders.find((x) => (x.name || '').toLowerCase() === name);\n    return hit ? hit.value : '';\n  };\n  return {\n    id: account + ':' + String(m.id || m.messageId || ('msg_' + (i + 1))),\n    subject: m.Subject || m.subject || h('subject') || '(kein Betreff)',\n    from: m.From || m.from || h('from') || '(unbekannt)',\n    date: m.date || h('date') || m.internalDate || '',\n    summary: (m.snippet || '').toString().slice(0, 240),\n    unread: Array.isArray(m.labels)\n      ? m.labels.some((label) => label && label.name === 'UNREAD')\n      : Array.isArray(m.labelIds)\n        ? m.labelIds.includes('UNREAD')\n        : m.unread === true,\n    account\n  };\n});\nreturn [{ json: { messages: headers, count: headers.length } }];"
+      },
+      "id": "s0301-0000-4a00-8000-000000000301",
       "name": "Headers only",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [900, 300]
+      "position": [1340, 340]
     },
     {
-      "parameters": { "respondWith": "firstIncomingItem", "options": {} },
-      "id": "c2a10001-0005-4a00-8000-000000000005",
+      "parameters": {
+        "respondWith": "firstIncomingItem",
+        "options": {}
+      },
+      "id": "s0302-0000-4a00-8000-000000000302",
       "name": "Respond to Webhook",
       "type": "n8n-nodes-base.respondToWebhook",
       "typeVersion": 1,
-      "position": [1120, 300]
+      "position": [1560, 340]
     }
   ],
   "connections": {
-    "Webhook": { "main": [[{ "node": "Build query", "type": "main", "index": 0 }]] },
-    "Build query": { "main": [[{ "node": "Gmail: list messages", "type": "main", "index": 0 }]] },
-    "Gmail: list messages": { "main": [[{ "node": "Headers only", "type": "main", "index": 0 }]] },
-    "Headers only": { "main": [[{ "node": "Respond to Webhook", "type": "main", "index": 0 }]] }
+    "Webhook": {
+      "main": [
+        [
+          {
+            "node": "Build query",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build query": {
+      "main": [
+        [
+          {
+            "node": "Gmail 1: list messages",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Gmail 2: list messages",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Gmail 3: list messages",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Outlook 1: list messages",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Outlook 2: list messages",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Merge": {
+      "main": [
+        [
+          {
+            "node": "Headers only",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Gmail 1: list messages": {
+      "main": [
+        [
+          {
+            "node": "Tag gmail_1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Tag gmail_1": {
+      "main": [
+        [
+          {
+            "node": "Merge",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Gmail 2: list messages": {
+      "main": [
+        [
+          {
+            "node": "Tag gmail_2",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Tag gmail_2": {
+      "main": [
+        [
+          {
+            "node": "Merge",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Gmail 3: list messages": {
+      "main": [
+        [
+          {
+            "node": "Tag gmail_3",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Tag gmail_3": {
+      "main": [
+        [
+          {
+            "node": "Merge",
+            "type": "main",
+            "index": 2
+          }
+        ]
+      ]
+    },
+    "Outlook 1: list messages": {
+      "main": [
+        [
+          {
+            "node": "Tag outlook_1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Tag outlook_1": {
+      "main": [
+        [
+          {
+            "node": "Merge",
+            "type": "main",
+            "index": 3
+          }
+        ]
+      ]
+    },
+    "Outlook 2: list messages": {
+      "main": [
+        [
+          {
+            "node": "Tag outlook_2",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Tag outlook_2": {
+      "main": [
+        [
+          {
+            "node": "Merge",
+            "type": "main",
+            "index": 4
+          }
+        ]
+      ]
+    },
+    "Headers only": {
+      "main": [
+        [
+          {
+            "node": "Respond to Webhook",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
   },
-  "active": false,
-  "settings": { "executionOrder": "v1" },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1"
+  },
   "tags": []
 }

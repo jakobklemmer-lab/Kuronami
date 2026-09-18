@@ -36,6 +36,7 @@ export interface ApiClientOptions {
 export interface ApiClient {
   get<T>(path: string): Promise<T>;
   post<T>(path: string, body: unknown): Promise<T>;
+  delete<T>(path: string): Promise<T>;
 }
 
 async function toApiError(response: Response): Promise<ApiError> {
@@ -87,5 +88,6 @@ export function createApiClient(options: ApiClientOptions): ApiClient {
         headers: { "content-type": "application/json" },
         body: JSON.stringify(body),
       }),
+    delete: (path) => request(path, { method: "DELETE" }),
   };
 }

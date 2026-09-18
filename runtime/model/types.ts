@@ -71,6 +71,12 @@ export interface ModelRequest {
   messages: ModelMessage[];
   maxTokens: number;
   signal?: AbortSignal;
+  /**
+   * Textstücke, sobald sie entstehen (Streaming, 2026-09-16). Gesetzt = der Client streamt und
+   * ruft dies je Delta; ungesetzt = ein Aufruf, eine Antwort, wie bisher. Die `ModelResponse`
+   * ist in beiden Fällen dieselbe — wer nur das Ergebnis braucht, merkt keinen Unterschied.
+   */
+  onTextDelta?: (text: string) => void;
 }
 
 /**

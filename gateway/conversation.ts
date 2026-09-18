@@ -1,6 +1,7 @@
 import type { Pool } from "pg";
 import type { PolicyEngine } from "../policy/engine.js";
 import { type Runner, createRunner } from "../runtime/loop/api.js";
+import type { LoopDeps } from "../runtime/loop/loop.js";
 import type { ModelClient } from "../runtime/model/types.js";
 import type { SessionChannel } from "../runtime/session/types.js";
 import type { MemoryStore } from "../tools/memory/store.js";
@@ -74,6 +75,12 @@ export interface ConversationDeps {
   memory?: MemoryStore;
   /** Der Skill-Katalog (S18c). Ohne dieses Feld läuft die Unterhaltung ohne Skills. */
   skills?: SkillCatalog;
+  /** Textstücke des Modells, sobald sie entstehen (Streaming, 2026-09-16) — siehe `LoopDeps`. */
+  onTextDelta?: LoopDeps["onTextDelta"];
+  /** Kompaktierung enger als die Vorgabe — siehe `LoopDeps.compactionConfig`. */
+  compactionConfig?: LoopDeps["compactionConfig"];
+  /** Ab wie vielen Token ein Werkzeugergebnis ausgelagert wird — siehe `LoopDeps`. */
+  offloadThresholdTokens?: number;
 }
 
 export interface Conversation {
@@ -116,6 +123,9 @@ export function createConversations(deps: ConversationDeps): Conversations {
       maxSteps: deps.maxSteps,
       memory: deps.memory,
       skills: deps.skills,
+      onTextDelta: deps.onTextDelta,
+      compactionConfig: deps.compactionConfig,
+      offloadThresholdTokens: deps.offloadThresholdTokens,
       // Ein fertiger Zug ist hier **kein** fertiger Auftrag: die Unterhaltung geht mit der
       // nächsten Nachricht weiter. `session.completed` nach jeder Antwort wäre eine
       // Falschaussage über den Verlauf — `loop/api.ts` nennt genau diesen Fall, wenn es die

@@ -24,8 +24,12 @@ import { type VoiceApproval, type VoiceSession, createVoiceSession } from "./ses
 
 export interface VoiceControllerOptions {
   mic: MicStateStore;
-  /** Adresse der Sprachschicht. Leer = die Vorgabe aus `session.ts`. */
-  url?: string;
+  /**
+   * Adresse der Sprachschicht, bei jedem Druck neu gefragt — wie `token`. Ein Wert, der beim
+   * Start eingefroren wird, wäre falsch, sobald er aus einer Quelle kommt, die später eintrifft
+   * (die Selbstkonfiguration vom Gateway) oder sich ändert (die Einstellungen).
+   */
+  url: () => string | null;
   /** `VOICE_SESSION_TOKEN`. Ohne ihn wird gar nicht erst verbunden. */
   token: () => string | null;
   /** Alles, was der Nutzer sehen soll: Fehler, Transkript, Antwort. */
@@ -93,15 +97,18 @@ export function createVoiceController(options: VoiceControllerOptions): VoiceCon
 
       const token = options.token();
       if (token === null || token.length === 0) {
+        // Normalerweise kommt der Token vom Gateway, ohne dass jemand etwas eintippt. Fehlt er
+        // trotzdem, ist die Sprachschicht serverseitig nicht eingerichtet — dann hilft ein
+        // eigener Wert in den Einstellungen, nicht der Hinweis, dass einer fehlt.
         options.notify(
-          "Kein Sitzungs-Token für die Sprachschicht hinterlegt — unter Einstellungen › Sprache eintragen.",
+          "Die Sprachschicht ist nicht eingerichtet (kein VOICE_SESSION_TOKEN am Gateway). Ein eigener Wert steht unter Einstellungen › Sprache.",
         );
         return;
       }
 
       starting = true;
       const created = createVoiceSession({
-        url: options.url,
+        url: options.url() ?? undefined,
         token,
         mic: options.mic,
         onTranscript: options.onTranscript,

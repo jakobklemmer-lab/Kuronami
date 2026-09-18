@@ -36,6 +36,7 @@ const identity: GatewayIdentity = {
   slackSigningSecret: "",
   slackUserIds: [],
   voiceToken: TOKEN,
+  voiceSessionToken: "",
 };
 
 function sender(replyTo = "voice") {

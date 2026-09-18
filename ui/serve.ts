@@ -28,6 +28,10 @@ export const STATIC_FILES = [
   "styles/layout.css",
   "styles/views.css",
   "assets/lake.jpg",
+  // Gepinnt wie alles hier (siehe docker-compose.yml): TradingView Lightweight Charts, Apache
+  // 2.0, als vorgebautes ESM-Standalone-Modul. Kein npm-Import — der Browser lädt `ui/**`
+  // ohne Bundler (siehe oben), und ein bloßer Paketname wäre kein gültiger Browser-Import.
+  "vendor/lightweight-charts.standalone.production.mjs",
 ] as const;
 
 const TRANSPILE: ts.TranspileOptions = {
@@ -69,6 +73,7 @@ const CONTENT_TYPES: Record<string, string> = {
   ".html": "text/html; charset=utf-8",
   ".css": "text/css; charset=utf-8",
   ".js": "application/javascript; charset=utf-8",
+  ".mjs": "application/javascript; charset=utf-8",
   ".json": "application/json; charset=utf-8",
   ".svg": "image/svg+xml",
   ".png": "image/png",

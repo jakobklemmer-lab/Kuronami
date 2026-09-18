@@ -35,7 +35,9 @@ from __future__ import annotations
 
 import asyncio
 import hmac
+import re
 import uuid
+from collections.abc import Awaitable, Callable
 from typing import Any
 
 from loguru import logger
@@ -58,6 +60,48 @@ from voice.pipeline.choices import Choice, match_choice, spoken_question
 from voice.pipeline.config import VoiceConfig
 from voice.pipeline.gateway import Approval, GatewayClient, GatewayError, GatewayTurn
 from voice.pipeline.latency import LatencyLedger
+
+#: Satzende, gefolgt von Leerraum — dort darf die Stimme anfangen, bevor der Rest da ist.
+_SENTENCE_END = re.compile(r"(?<=[.!?…:])\s+")
+#: Was vorgelesen keinen Sinn ergibt: Markdown-Auszeichnung, Listenpunkte, Überschriften.
+_MARKDOWN_NOISE = re.compile(r"(\*\*|__|`+|^#{1,6}\s+|^\s*[-*]\s+|^\s*\d+\.\s+)", re.MULTILINE)
+
+
+def speakable(text: str) -> str:
+    """Text, wie er gesprochen wird: ohne Markdown-Zeichen, die als Wörter vorgelesen würden."""
+    return _MARKDOWN_NOISE.sub("", text).strip()
+
+
+class LiveSentences:
+    """Sammelt Textstücke und spricht jeden Satz, sobald er vollständig ist (Streaming, 2026-09-16).
+
+    Das ist der Unterschied zwischen einem Assistenten, der eine Minute schweigt und dann
+    vorliest, und einem, der beim ersten Satz zu reden anfängt, während er noch arbeitet. Der
+    Rest, der beim Ende noch ohne Satzzeichen dasteht, geht per `flush`.
+    """
+
+    def __init__(self, speak: Callable[[str], Awaitable[None]]) -> None:
+        self._speak = speak
+        self._buffer = ""
+        self.spoken = False
+
+    async def feed(self, text: str) -> None:
+        self._buffer += text
+        parts = _SENTENCE_END.split(self._buffer)
+        for sentence in parts[:-1]:
+            await self._say(sentence)
+        self._buffer = parts[-1]
+
+    async def flush(self) -> None:
+        rest, self._buffer = self._buffer, ""
+        await self._say(rest)
+
+    async def _say(self, text: str) -> None:
+        cleaned = speakable(text)
+        if not cleaned:
+            return
+        self.spoken = True
+        await self._speak(cleaned)
 from voice.pipeline.protocol import server_message
 
 
@@ -111,11 +155,27 @@ class KuronamiBridge(FrameProcessor):
         await self._emit("state", state=state)
 
     async def _speak(self, text: str) -> None:
-        if not text.strip():
+        cleaned = speakable(text)
+        if not cleaned:
             return
         self._ledger.mark("speech_queued")
         await self._emit_state("speaking")
-        await self.push_frame(TTSSpeakFrame(text=text), FrameDirection.DOWNSTREAM)
+        await self.push_frame(TTSSpeakFrame(text=cleaned), FrameDirection.DOWNSTREAM)
+
+    def _live(self, mine: int) -> tuple[LiveSentences, dict[str, Any]]:
+        """Die satzweise Stimme für einen Zug — und die Argumente, mit denen der Client sie
+        bekommt. Nur bei einem Client, der streamen kann; die Fakes der Tests kennen den
+        Parameter nicht und sollen ihn nicht kennen müssen."""
+        live = LiveSentences(self._speak)
+        if not getattr(self._client, "supports_streaming", False):
+            return live, {}
+
+        async def on_delta(text: str) -> None:
+            if mine != self._turn_seq:
+                return
+            await live.feed(text)
+
+        return live, {"on_delta": on_delta}
 
     # -- Frames ---------------------------------------------------------------------------
 
@@ -255,8 +315,9 @@ class KuronamiBridge(FrameProcessor):
         await self._emit_state("thinking")
 
         self._ledger.mark("gateway_sent")
+        live, kwargs = self._live(mine)
         try:
-            result = await self._client.turn(text, str(uuid.uuid4()))
+            result = await self._client.turn(text, str(uuid.uuid4()), **kwargs)
         except asyncio.CancelledError:
             raise
         except GatewayError as error:
@@ -270,13 +331,14 @@ class KuronamiBridge(FrameProcessor):
         if mine != self._turn_seq:
             logger.debug("Antwort verworfen: der Zug wurde unterbrochen.")
             return
-        await self._deliver(result)
+        await self._deliver(result, live)
 
     async def _answer(self, ask_id: str, choice_id: str) -> None:
         mine = self._turn_seq
         await self._emit_state("thinking")
+        live, kwargs = self._live(mine)
         try:
-            result = await self._client.answer(ask_id, choice_id, str(uuid.uuid4()))
+            result = await self._client.answer(ask_id, choice_id, str(uuid.uuid4()), **kwargs)
         except asyncio.CancelledError:
             raise
         except Exception as error:  # noqa: BLE001 — der Text geht unverändert an den Nutzer
@@ -284,11 +346,20 @@ class KuronamiBridge(FrameProcessor):
             return
         if mine != self._turn_seq:
             return
-        await self._deliver(result)
+        await self._deliver(result, live)
 
-    async def _deliver(self, result: GatewayTurn) -> None:
-        """Was vom Zug übrig ist, wird gesprochen — Antwort oder Frage, nie beides verschluckt."""
+    async def _deliver(self, result: GatewayTurn, live: LiveSentences | None = None) -> None:
+        """Was vom Zug übrig ist, wird gesprochen — Antwort oder Frage, nie beides verschluckt.
+
+        Lief die Stimme schon während des Zugs (`live.spoken`), ist die Antwort bereits
+        gesprochen bis auf den Rest ohne Satzzeichen — der geht jetzt, und `result.text` wird
+        nicht ein zweites Mal vorgelesen. Kam nichts unterwegs (eine Absage des Gateways, eine
+        Antwort ohne Modellaufruf), wird gesprochen wie bisher.
+        """
         await self._emit("reply", text=result.text, status=result.status, reason=result.reason)
+
+        if live is not None:
+            await live.flush()
 
         if result.approvals:
             approval = result.approvals[0]
@@ -301,7 +372,7 @@ class KuronamiBridge(FrameProcessor):
                 options=[{"id": option.id, "label": option.label} for option in approval.options],
             )
             await self._speak(spoken_question(approval.question, options))
-        else:
+        elif live is None or not live.spoken:
             await self._speak(result.text)
 
     async def cleanup(self) -> None:

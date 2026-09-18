@@ -37,6 +37,7 @@ const SECTION_LABEL: Record<SettingsSectionId, string> = {
   memory: "Gedächtnis",
   integrations: "Integrationen",
   apiKeys: "API-Keys",
+  mcpServers: "MCP-Server",
   speech: "Sprache",
   system: "System",
 };
@@ -235,6 +236,65 @@ function renderApiKeys(): string {
   `;
 }
 
+/**
+ * MCP-Server (Nachtrag 2026-09-16, `runtime/mcp/config-store.ts`). Nur stdio-Server (S27) —
+ * `command`/`args`/`env` entsprechen `StdioMcpClientConfig`. Wie bei den API-Keys gilt eine
+ * Änderung erst nach einem Neustart des Gateways: die Entdeckung der Fern-Tools läuft genau
+ * einmal beim Katalogbau, nicht mitten im Betrieb.
+ */
+function renderMcp(): string {
+  return `
+    <section class="settings-section" aria-labelledby="section-mcp-title">
+      <h2 class="settings-section__title" id="section-mcp-title">MCP-Server</h2>
+      <p class="field__hint">
+        Nur Server über stdio (ein Kindprozess, JSON-RPC über sein stdin/stdout) — kein
+        HTTP/SSE-Transport. Jeder Server bekommt eine feste Risikostufe für <em>alle</em> seine
+        Werkzeuge, unabhängig davon, was er selbst behauptet. Eine Änderung gilt erst nach einem
+        Neustart des Gateways.
+      </p>
+
+      <ul class="mcp-server-list" data-role="mcp-server-list">
+        <li class="field__hint">Lädt …</li>
+      </ul>
+
+      <form class="settings-section__form" data-role="mcp-server-form">
+        <h3 class="settings-section__subtitle">Server hinzufügen</h3>
+        <div class="field">
+          <label class="field__label" for="mcp-new-id">Kennung</label>
+          <input class="field__control" id="mcp-new-id" type="text" placeholder="z. B. filesystem" data-role="mcp-id" />
+          <p class="field__hint">Nur Kleinbuchstaben, Ziffern, <code>_</code>, muss mit einem Buchstaben beginnen — wird Teil des Werkzeugnamens (<code>mcp.&lt;kennung&gt;__…</code>).</p>
+        </div>
+        <div class="field">
+          <label class="field__label" for="mcp-new-command">Kommando</label>
+          <input class="field__control" id="mcp-new-command" type="text" placeholder="z. B. npx" data-role="mcp-command" />
+        </div>
+        <div class="field">
+          <label class="field__label" for="mcp-new-args">Argumente</label>
+          <input class="field__control" id="mcp-new-args" type="text" placeholder="z. B. -y @modelcontextprotocol/server-filesystem /pfad" data-role="mcp-args" />
+          <p class="field__hint">Leerzeichengetrennt.</p>
+        </div>
+        <div class="field">
+          <label class="field__label" for="mcp-new-env">Umgebungsvariablen</label>
+          <textarea class="field__control" id="mcp-new-env" rows="3" placeholder="EIN_SCHLUESSEL=wert&#10;EIN_ANDERER=wert" data-role="mcp-env"></textarea>
+          <p class="field__hint">Eine <code>NAME=WERT</code>-Zeile je Variable. Geht nie zurück zum Browser — beim Bearbeiten eines bestehenden Servers leer lassen, um sie unverändert zu lassen.</p>
+        </div>
+        <div class="field">
+          <label class="field__label" for="mcp-new-risk">Risikostufe (für jedes Werkzeug dieses Servers)</label>
+          <select class="field__control" id="mcp-new-risk" data-role="mcp-risk">
+            ${RISK_LEVELS.map((level) => `<option value="${level}">${RISK_LABEL[level]}</option>`).join("")}
+          </select>
+        </div>
+        <div class="field field--row">
+          <label class="field__label" for="mcp-new-repeatable">Wiederholbar</label>
+          <input class="field__control" id="mcp-new-repeatable" type="checkbox" checked data-role="mcp-repeatable" />
+        </div>
+        <button class="field__button" type="submit" data-role="mcp-save">Speichern</button>
+        <p class="field__hint" data-role="mcp-form-status"></p>
+      </form>
+    </section>
+  `;
+}
+
 function renderSpeech(settings: KuronamiSettings): string {
   const endpoint = settings.speech.endpoint ?? "";
   const token = settings.speech.sessionToken ?? "";
@@ -243,13 +303,13 @@ function renderSpeech(settings: KuronamiSettings): string {
       <h2 class="settings-section__title" id="section-speech-title">Sprache</h2>
       <div class="field">
         <label class="field__label" for="setting-voice-endpoint">Sprachprozess</label>
-        <input class="field__control" id="setting-voice-endpoint" type="text" value="${endpoint}" placeholder="ws://localhost:8790" data-role="voice-endpoint" />
-        <p class="field__hint">Der Pipecat-Prozess aus <code>voice/</code> (S30). Leer = <code>ws://&lt;dieser Host&gt;:8790</code>.</p>
+        <input class="field__control" id="setting-voice-endpoint" type="text" value="${endpoint}" placeholder="Automatisch" data-role="voice-endpoint" />
+        <p class="field__hint">Der Pipecat-Prozess aus <code>voice/</code> (S30). Leer = automatisch: hinter dem Reverse-Proxy <code>wss://voice.&lt;diese Domain&gt;</code>, sonst <code>ws://&lt;dieser Host&gt;:8790</code>.</p>
       </div>
       <div class="field">
         <label class="field__label" for="setting-voice-token">Sitzungs-Token (VOICE_SESSION_TOKEN)</label>
-        <input class="field__control" id="setting-voice-token" type="password" autocomplete="off" value="${token}" placeholder="Token einfügen" data-role="voice-token" />
-        <p class="field__hint">Nicht derselbe wie der Verbindungs-Token unter System: der gehört dem Gateway, dieser dem Sprachprozess.</p>
+        <input class="field__control" id="setting-voice-token" type="password" autocomplete="off" value="${token}" placeholder="Automatisch" data-role="voice-token" />
+        <p class="field__hint">Leer = der Gateway liefert ihn aus seiner <code>.env</code>; nichts einzutragen ist der Normalfall. Ein Wert hier überstimmt ihn — nicht derselbe wie der Verbindungs-Token unter System: der gehört dem Gateway, dieser dem Sprachprozess.</p>
         <span class="field__status" data-role="voice-status"></span>
       </div>
       <div class="field field--row">
@@ -295,8 +355,12 @@ function renderSystem(): string {
         ${disabledHint("Kein Log-Betrachter in der Oberfläche — Logs stehen in der Konsole des jeweiligen Prozesses (pnpm dev / pnpm gateway / …).")}
       </div>
       <div class="field">
-        <button class="field__button" type="button" disabled>Neustart</button>
-        ${disabledHint("Kein Fernsteuerungs-Endpunkt für einen Neustart.")}
+        <span class="field__label">Neustart</span>
+        <button class="field__button" type="button" data-role="restart" data-service="gateway">Gateway</button>
+        <button class="field__button" type="button" data-role="restart" data-service="ui">Oberfläche</button>
+        <button class="field__button" type="button" data-role="restart" data-service="voice">Sprachschicht</button>
+        <p class="field__hint">Ein geänderter API-Schlüssel gilt erst danach. Welcher Dienst: <code>ANTHROPIC_API_KEY</code> und die n8n-Werte liest der Gateway, <code>DEEPGRAM_API_KEY</code>/<code>ELEVENLABS_API_KEY</code> die Sprachschicht. Die Sprachschicht wird dabei neu <em>angelegt</em>, nicht nur neu gestartet — sonst behielte der Container seine alte Umgebung.</p>
+        <span class="field__status" data-role="restart-status"></span>
       </div>
       <div class="field">
         <span class="field__label">Mic-Zustand (Demo)</span>
@@ -314,6 +378,7 @@ const SECTION_RENDER: Record<SettingsSectionId, (settings: KuronamiSettings) => 
   memory: renderMemory,
   integrations: renderIntegrations,
   apiKeys: renderApiKeys,
+  mcpServers: renderMcp,
   speech: renderSpeech,
   system: renderSystem,
 };
@@ -413,6 +478,35 @@ export const settingsView: View = {
         }, 2000);
       }
     });
+
+    // Neustart der Dienste (Nachtrag 2026-09-16). Der Gateway startet sich selbst mit: seine
+    // Antwort kommt noch, danach bricht die Verbindung ab — ein Fehler beim Nachfassen wäre
+    // deshalb eine Falschmeldung, und die Statuszeile sagt stattdessen, was zu erwarten ist.
+    const restartStatus = container.querySelector<HTMLElement>('[data-role="restart-status"]');
+    const restartLabel: Record<string, string> = {
+      gateway: "Gateway",
+      ui: "Oberfläche",
+      voice: "Sprachschicht",
+    };
+    for (const button of container.querySelectorAll<HTMLButtonElement>('[data-role="restart"]')) {
+      button.addEventListener("click", () => {
+        const service = button.dataset.service ?? "";
+        const label = restartLabel[service] ?? service;
+        if (restartStatus) restartStatus.textContent = `${label} wird neu gestartet …`;
+        void ctx.api
+          .post<{ service: string; started: boolean }>("/settings/restart", { service })
+          .then(() => {
+            if (!restartStatus) return;
+            restartStatus.textContent =
+              service === "gateway"
+                ? "Gateway startet neu — die Karten sind für ein paar Sekunden ohne Verbindung."
+                : `${label} neu gestartet.`;
+          })
+          .catch((error) => {
+            if (restartStatus) restartStatus.textContent = describeApiKeyError(error);
+          });
+      });
+    }
 
     // Sprachschicht (S30): Adresse und Sitzungsgeheimnis des Pipecat-Prozesses. Beide gelten
     // beim nächsten Druck auf den Mic-Knopf — der Controller liest sie bei jedem Start neu,
@@ -516,6 +610,162 @@ export const settingsView: View = {
       input.addEventListener("change", () => void saveApiKey(input));
     }
     void loadApiKeyStatus();
+
+    // MCP-Server (Nachtrag 2026-09-16): läuft nur an, wenn die Liste gerade im DOM steht —
+    // dasselbe "sonst tut die Abfrage unten schlicht nichts"-Muster wie bei den API-Keys oben.
+    interface McpServerView {
+      serverId: string;
+      command: string;
+      args: string[];
+      envKeys: string[];
+      risk: RiskLevel;
+      repeatable: boolean;
+      enabled: boolean;
+    }
+    const mcpListEl = container.querySelector<HTMLElement>('[data-role="mcp-server-list"]');
+    const mcpForm = container.querySelector<HTMLFormElement>('[data-role="mcp-server-form"]');
+    const mcpFormStatus = container.querySelector<HTMLElement>('[data-role="mcp-form-status"]');
+    let mcpServersCache: McpServerView[] = [];
+
+    function describeMcpError(error: unknown): string {
+      if (error instanceof ApiError) {
+        if (error.status === "no_token")
+          return "Kein Token hinterlegt — siehe Einstellungen › System.";
+        if (error.status === 401) return "Token abgelehnt — in den Einstellungen › System prüfen.";
+        return error.message;
+      }
+      return error instanceof Error ? error.message : String(error);
+    }
+
+    function renderMcpList(): void {
+      if (!mcpListEl) return;
+      if (mcpServersCache.length === 0) {
+        mcpListEl.innerHTML = '<li class="field__hint">Noch kein Server eingetragen.</li>';
+        return;
+      }
+      mcpListEl.innerHTML = mcpServersCache
+        .map(
+          (s) => `
+            <li class="mcp-server-list__row" data-server-id="${s.serverId}">
+              <div class="mcp-server-list__main">
+                <span class="mcp-server-list__id">${s.serverId}</span>
+                <span class="mcp-server-list__cmd">${[s.command, ...s.args].join(" ")}</span>
+                <span class="mcp-server-list__meta">${RISK_LABEL[s.risk]}${s.envKeys.length > 0 ? ` · Umgebung: ${s.envKeys.join(", ")}` : ""}</span>
+              </div>
+              <label class="mcp-server-list__toggle">
+                <input type="checkbox" data-role="mcp-toggle-enabled" ${s.enabled ? "checked" : ""} />
+                aktiv
+              </label>
+              <button type="button" class="field__button field__button--danger" data-role="mcp-delete">Entfernen</button>
+            </li>
+          `,
+        )
+        .join("");
+
+      for (const row of mcpListEl.querySelectorAll<HTMLElement>("[data-server-id]")) {
+        const serverId = row.dataset.serverId ?? "";
+        row
+          .querySelector('[data-role="mcp-toggle-enabled"]')
+          ?.addEventListener("change", (event) => {
+            const enabled = (event.target as HTMLInputElement).checked;
+            const server = mcpServersCache.find((s) => s.serverId === serverId);
+            if (!server) return;
+            void ctx.api
+              .post("/settings/mcp-servers", {
+                serverId,
+                command: server.command,
+                risk: server.risk,
+                enabled,
+              })
+              .then(() => loadMcpServers())
+              .catch((error) => {
+                if (mcpFormStatus) mcpFormStatus.textContent = describeMcpError(error);
+              });
+          });
+        row.querySelector('[data-role="mcp-delete"]')?.addEventListener("click", () => {
+          void ctx.api
+            .delete(`/settings/mcp-servers/${encodeURIComponent(serverId)}`)
+            .then(() => loadMcpServers())
+            .catch((error) => {
+              if (mcpFormStatus) mcpFormStatus.textContent = describeMcpError(error);
+            });
+        });
+      }
+    }
+
+    async function loadMcpServers(): Promise<void> {
+      if (!mcpListEl) return;
+      try {
+        const data = await ctx.api.get<{ servers: McpServerView[] }>("/settings/mcp-servers");
+        mcpServersCache = data.servers;
+        renderMcpList();
+      } catch (error) {
+        mcpListEl.innerHTML = `<li class="field__hint">${describeMcpError(error)}</li>`;
+      }
+    }
+
+    /** `NAME=WERT` je Zeile, wie eine `.env` — leere Zeilen und Zeilen ohne `=` werden
+     * übersprungen statt den Aufruf mit einer rätselhaften Fehlermeldung abzuweisen. */
+    function parseEnvTextarea(value: string): Record<string, string> {
+      const result: Record<string, string> = {};
+      for (const line of value.split("\n")) {
+        const trimmed = line.trim();
+        if (trimmed === "" || !trimmed.includes("=")) continue;
+        const index = trimmed.indexOf("=");
+        const key = trimmed.slice(0, index).trim();
+        const val = trimmed.slice(index + 1).trim();
+        if (key.length > 0) result[key] = val;
+      }
+      return result;
+    }
+
+    mcpForm?.addEventListener("submit", (event) => {
+      event.preventDefault();
+      const idInput = mcpForm.querySelector<HTMLInputElement>('[data-role="mcp-id"]');
+      const commandInput = mcpForm.querySelector<HTMLInputElement>('[data-role="mcp-command"]');
+      const argsInput = mcpForm.querySelector<HTMLInputElement>('[data-role="mcp-args"]');
+      const envInput = mcpForm.querySelector<HTMLTextAreaElement>('[data-role="mcp-env"]');
+      const riskSelect = mcpForm.querySelector<HTMLSelectElement>('[data-role="mcp-risk"]');
+      const repeatableInput = mcpForm.querySelector<HTMLInputElement>(
+        '[data-role="mcp-repeatable"]',
+      );
+
+      const serverId = idInput?.value.trim() ?? "";
+      const command = commandInput?.value.trim() ?? "";
+      if (serverId === "" || command === "") {
+        if (mcpFormStatus) mcpFormStatus.textContent = "Kennung und Kommando sind erforderlich.";
+        return;
+      }
+      const args = (argsInput?.value ?? "").split(/\s+/).filter((a) => a.length > 0);
+      const envText = envInput?.value ?? "";
+      const env = envText.trim().length > 0 ? parseEnvTextarea(envText) : undefined;
+
+      if (mcpFormStatus) mcpFormStatus.textContent = "Speichert …";
+      void ctx.api
+        .post("/settings/mcp-servers", {
+          serverId,
+          command,
+          args,
+          env,
+          risk: riskSelect?.value ?? "read",
+          repeatable: repeatableInput?.checked ?? true,
+        })
+        .then(() => {
+          if (mcpFormStatus) {
+            mcpFormStatus.textContent = "Gespeichert — gilt nach einem Neustart des Gateways.";
+          }
+          if (idInput) idInput.value = "";
+          if (commandInput) commandInput.value = "";
+          if (argsInput) argsInput.value = "";
+          if (envInput) envInput.value = "";
+          return loadMcpServers();
+        })
+        .catch((error) => {
+          if (mcpFormStatus) mcpFormStatus.textContent = describeMcpError(error);
+        });
+    });
+
+    void loadMcpServers();
 
     for (const link of container.querySelectorAll<HTMLElement>(".settings-nav__link")) {
       link.addEventListener("click", () => {

@@ -21,6 +21,7 @@ const identity: GatewayIdentity = {
   slackSigningSecret: "",
   slackUserIds: [],
   voiceToken: "",
+  voiceSessionToken: "",
 };
 
 function fakeSecrets(initial: string): { deps: SettingsSecretsDeps; contents(): string } {

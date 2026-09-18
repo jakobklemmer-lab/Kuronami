@@ -13,10 +13,16 @@ und `POST /channels/voice/answers`.
 
 from __future__ import annotations
 
+import json
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from typing import Any, Protocol
 
 import aiohttp
+
+#: Ein Textstück des Modells, sobald es da ist (Streaming, 2026-09-16). Asynchron, weil der
+#: Empfänger es sprechen will, und Sprechen ist ein Frame in der Pipeline.
+OnDelta = Callable[[str], Awaitable[None]]
 
 
 @dataclass(frozen=True)
@@ -137,9 +143,23 @@ class HttpGatewayClient:
             self._owns_session = True
         return self._session
 
-    async def _post(self, path: str, body: dict[str, Any]) -> GatewayTurn:
+    #: Die Brücke fragt danach, bevor sie `on_delta` mitgibt — die Test-Fakes kennen den
+    #: Parameter nicht und sollen ihn auch nicht kennen müssen.
+    supports_streaming = True
+
+    async def _post(
+        self,
+        path: str,
+        body: dict[str, Any],
+        on_delta: OnDelta | None = None,
+    ) -> GatewayTurn:
         session = await self._ensure_session()
         url = f"{self._base_url}{path}"
+        headers = {"authorization": f"Bearer {self._token}"}
+        if on_delta is not None:
+            # Streaming (2026-09-16): der Gateway antwortet dann als Ereignisstrom — Textstücke,
+            # sobald das Modell sie hat, und am Ende dieselbe JSON-Antwort wie ohne Strom.
+            headers["accept"] = "text/event-stream"
         try:
             async with session.post(
                 url,
@@ -148,8 +168,10 @@ class HttpGatewayClient:
                     "displayName": self._display_name,
                     "replyTo": self._reply_to,
                 },
-                headers={"authorization": f"Bearer {self._token}"},
+                headers=headers,
             ) as response:
+                if on_delta is not None and response.content_type == "text/event-stream":
+                    return await self._read_stream(url, response, on_delta)
                 payload = await response.json(content_type=None)
                 if response.status >= 400:
                     detail = ""
@@ -162,15 +184,55 @@ class HttpGatewayClient:
         except aiohttp.ClientError as error:
             raise GatewayError(f"{url} ist nicht erreichbar: {error}") from error
 
-    async def turn(self, text: str, external_id: str) -> GatewayTurn:
+    async def _read_stream(
+        self, url: str, response: aiohttp.ClientResponse, on_delta: OnDelta
+    ) -> GatewayTurn:
+        """Liest `event:`/`data:`-Blöcke. `delta` trägt Text, `done` die fertige Antwort,
+        `error` einen Fehlschlag. Endet der Strom ohne `done`, ist das ein Fehler — eine
+        halbe Antwort ist keine."""
+        event = ""
+        data: list[str] = []
+        async for raw in response.content:
+            line = raw.decode("utf-8", errors="replace").rstrip("\r\n")
+            if line == "":
+                if event and data:
+                    payload = json.loads("\n".join(data))
+                    if event == "delta":
+                        text = payload.get("text")
+                        if isinstance(text, str) and text:
+                            await on_delta(text)
+                    elif event == "done":
+                        if not isinstance(payload, dict):
+                            raise GatewayError(f"{url} antwortet kein JSON-Objekt.")
+                        return parse_turn(payload)
+                    elif event == "error":
+                        detail = str(payload.get("error") or payload.get("reason") or "ohne Text")
+                        raise GatewayError(f"{url} meldet: {detail}")
+                event = ""
+                data = []
+                continue
+            if line.startswith("event:"):
+                event = line[len("event:") :].strip()
+            elif line.startswith("data:"):
+                data.append(line[len("data:") :].lstrip())
+        raise GatewayError(f"{url}: der Ereignisstrom endete ohne Antwort.")
+
+    async def turn(
+        self, text: str, external_id: str, on_delta: OnDelta | None = None
+    ) -> GatewayTurn:
         return await self._post(
-            "/channels/voice/messages", {"content": text, "externalId": external_id}
+            "/channels/voice/messages",
+            {"content": text, "externalId": external_id},
+            on_delta,
         )
 
-    async def answer(self, ask_id: str, choice_id: str, external_id: str) -> GatewayTurn:
+    async def answer(
+        self, ask_id: str, choice_id: str, external_id: str, on_delta: OnDelta | None = None
+    ) -> GatewayTurn:
         return await self._post(
             "/channels/voice/answers",
             {"askId": ask_id, "choiceId": choice_id, "externalId": external_id},
+            on_delta,
         )
 
     async def close(self) -> None:

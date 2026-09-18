@@ -2,7 +2,7 @@
   "id": "kuronamiMailDraft01",
   "name": "mail.draft",
   "meta": {
-    "description": "Kuronami S14: einen Entwurf im Postfach ablegen. Legt NICHTS in den Postausgang und versendet NICHTS. Der Provider-Knoten ist Gmail mit operation=draft:create (bzw. IMAP-append in den Drafts-Ordner). Es gibt hier bewusst KEINEN message:send / SMTP-Knoten — das Fertig-Kriterium von S14 ist 'Senden ist technisch unmoeglich'."
+    "description": "Kuronami S14 + Nachtrag 2026-09-16 (Mehrkonten): einen Entwurf im Postfach ablegen. Legt NICHTS in den Postausgang und versendet NICHTS. Routet nach `account` (einem von gmail_1/gmail_2/gmail_3/outlook_1/outlook_2, von tools/mail/tools.ts immer gesetzt) zum passenden Konto-Knoten — alle nur operation=draft:create. Es gibt hier bewusst KEINEN message:send / SMTP-Knoten - das Fertig-Kriterium von S14 ist 'Senden ist technisch unmoeglich', unveraendert fuer alle Konten."
   },
   "nodes": [
     {
@@ -12,23 +12,54 @@
         "responseMode": "responseNode",
         "options": {}
       },
-      "id": "c2a30001-0001-4a00-8000-000000000001",
+      "id": "d0001-0000-4a00-8000-000000000001",
       "name": "Webhook",
       "type": "n8n-nodes-base.webhook",
       "typeVersion": 2,
       "position": [240, 300],
-      "webhookId": "c2a30001-0001-4a00-8000-000000000001"
+      "webhookId": "d0001-0000-4a00-8000-000000000001"
     },
     {
       "parameters": {
         "mode": "runOnceForAllItems",
-        "jsCode": "// Eingabe der Runtime: { to, subject, body, cc?, in_reply_to? }\nconst incoming = $input.first().json;\nconst inp = incoming.body && typeof incoming.body === 'object' ? incoming.body : incoming;\nif (typeof inp.to !== 'string' || inp.to.trim() === '') throw new Error('mail-draft: Feld \"to\" fehlt');\nif (typeof inp.body !== 'string' || inp.body.trim() === '') throw new Error('mail-draft: Feld \"body\" fehlt');\nreturn [{ json: {\n  to: inp.to.trim(),\n  cc: typeof inp.cc === 'string' ? inp.cc.trim() : '',\n  subject: typeof inp.subject === 'string' ? inp.subject : '',\n  message: inp.body,\n  in_reply_to: typeof inp.in_reply_to === 'string' ? inp.in_reply_to.trim() : ''\n} }];"
+        "jsCode": "// Eingabe der Runtime: { to, subject, body, cc?, in_reply_to?, account? }\nconst incoming = $input.first().json;\nconst inp = incoming.body && typeof incoming.body === 'object' ? incoming.body : incoming;\nif (typeof inp.to !== 'string' || inp.to.trim() === '') throw new Error('mail-draft: Feld \"to\" fehlt');\nif (typeof inp.body !== 'string' || inp.body.trim() === '') throw new Error('mail-draft: Feld \"body\" fehlt');\nconst knownAccounts = ['gmail_1', 'gmail_2', 'gmail_3', 'outlook_1', 'outlook_2'];\nconst account = knownAccounts.includes(inp.account) ? inp.account : 'gmail_1';\nreturn [{ json: {\n  to: inp.to.trim(),\n  cc: typeof inp.cc === 'string' ? inp.cc.trim() : '',\n  subject: typeof inp.subject === 'string' ? inp.subject : '',\n  message: inp.body,\n  in_reply_to: typeof inp.in_reply_to === 'string' ? inp.in_reply_to.trim() : '',\n  account\n} }];"
       },
-      "id": "c2a30001-0002-4a00-8000-000000000002",
+      "id": "d0002-0000-4a00-8000-000000000002",
       "name": "Build draft",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [460, 300]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "d0400-0000-4a00-8000-000000000400-cond",
+              "leftValue": "={{ $json.account }}",
+              "rightValue": "gmail_1",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "d0400-0000-4a00-8000-000000000400",
+      "name": "Is gmail_1?",
+      "type": "n8n-nodes-base.filter",
+      "typeVersion": 2.3,
+      "position": [680, 60],
+      "notes": "Laesst nur durch, wenn account == \"gmail_1\" ist — genau ein Zweig feuert je Aufruf."
     },
     {
       "parameters": {
@@ -42,40 +73,450 @@
           "threadId": "={{ $json.in_reply_to }}"
         }
       },
-      "id": "c2a30001-0003-4a00-8000-000000000003",
-      "name": "Gmail: create draft",
+      "id": "d0100-0000-4a00-8000-000000000100",
+      "name": "Gmail 1: create draft",
       "type": "n8n-nodes-base.gmail",
       "typeVersion": 2,
-      "position": [680, 300],
-      "notes": "operation=draft:create. Legt nur einen Entwurf an. KEIN message:send hier und nirgends."
+      "position": [900, 60],
+      "notes": "Konto Gmail 1 — eigene Gmail-Zugangsdaten in diesem Knoten hinterlegen. operation=draft:create. KEIN send hier und nirgends.",
+      "onError": "continueRegularOutput",
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "J5bzu4YX7JHXCZf8",
+          "name": "Gmail account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "d0401-0000-4a00-8000-000000000401-cond",
+              "leftValue": "={{ $json.account }}",
+              "rightValue": "gmail_2",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "d0401-0000-4a00-8000-000000000401",
+      "name": "Is gmail_2?",
+      "type": "n8n-nodes-base.filter",
+      "typeVersion": 2.3,
+      "position": [680, 200],
+      "notes": "Laesst nur durch, wenn account == \"gmail_2\" ist — genau ein Zweig feuert je Aufruf."
+    },
+    {
+      "parameters": {
+        "resource": "draft",
+        "operation": "create",
+        "subject": "={{ $json.subject }}",
+        "message": "={{ $json.message }}",
+        "options": {
+          "sendTo": "={{ $json.to }}",
+          "ccList": "={{ $json.cc }}",
+          "threadId": "={{ $json.in_reply_to }}"
+        }
+      },
+      "id": "d0101-0000-4a00-8000-000000000101",
+      "name": "Gmail 2: create draft",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2,
+      "position": [900, 200],
+      "notes": "Konto Gmail 2 — eigene Gmail-Zugangsdaten in diesem Knoten hinterlegen. operation=draft:create. KEIN send hier und nirgends.",
+      "onError": "continueRegularOutput",
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "BciIsY138IRxYiqo",
+          "name": "Gmail account 2"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "d0402-0000-4a00-8000-000000000402-cond",
+              "leftValue": "={{ $json.account }}",
+              "rightValue": "gmail_3",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "d0402-0000-4a00-8000-000000000402",
+      "name": "Is gmail_3?",
+      "type": "n8n-nodes-base.filter",
+      "typeVersion": 2.3,
+      "position": [680, 340],
+      "notes": "Laesst nur durch, wenn account == \"gmail_3\" ist — genau ein Zweig feuert je Aufruf."
+    },
+    {
+      "parameters": {
+        "resource": "draft",
+        "operation": "create",
+        "subject": "={{ $json.subject }}",
+        "message": "={{ $json.message }}",
+        "options": {
+          "sendTo": "={{ $json.to }}",
+          "ccList": "={{ $json.cc }}",
+          "threadId": "={{ $json.in_reply_to }}"
+        }
+      },
+      "id": "d0102-0000-4a00-8000-000000000102",
+      "name": "Gmail 3: create draft",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2,
+      "position": [900, 340],
+      "notes": "Konto Gmail 3 — eigene Gmail-Zugangsdaten in diesem Knoten hinterlegen. operation=draft:create. KEIN send hier und nirgends.",
+      "onError": "continueRegularOutput",
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "iD4G8EzR4dq90It2",
+          "name": "Gmail account 3"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "d0403-0000-4a00-8000-000000000403-cond",
+              "leftValue": "={{ $json.account }}",
+              "rightValue": "outlook_1",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "d0403-0000-4a00-8000-000000000403",
+      "name": "Is outlook_1?",
+      "type": "n8n-nodes-base.filter",
+      "typeVersion": 2.3,
+      "position": [680, 480],
+      "notes": "Laesst nur durch, wenn account == \"outlook_1\" ist — genau ein Zweig feuert je Aufruf."
+    },
+    {
+      "parameters": {
+        "resource": "draft",
+        "operation": "create",
+        "subject": "={{ $json.subject }}",
+        "bodyContent": "={{ $json.message }}",
+        "additionalFields": {
+          "toRecipients": "={{ $json.to }}",
+          "ccRecipients": "={{ $json.cc }}"
+        }
+      },
+      "id": "d0103-0000-4a00-8000-000000000103",
+      "name": "Outlook 1: create draft",
+      "type": "n8n-nodes-base.microsoftOutlook",
+      "typeVersion": 2,
+      "position": [900, 480],
+      "notes": "Konto Outlook 1 — eigene Outlook-Zugangsdaten in diesem Knoten hinterlegen. operation=draft:create. KEIN send hier und nirgends.",
+      "onError": "continueRegularOutput",
+      "disabled": true
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "d0404-0000-4a00-8000-000000000404-cond",
+              "leftValue": "={{ $json.account }}",
+              "rightValue": "outlook_2",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "d0404-0000-4a00-8000-000000000404",
+      "name": "Is outlook_2?",
+      "type": "n8n-nodes-base.filter",
+      "typeVersion": 2.3,
+      "position": [680, 620],
+      "notes": "Laesst nur durch, wenn account == \"outlook_2\" ist — genau ein Zweig feuert je Aufruf."
+    },
+    {
+      "parameters": {
+        "resource": "draft",
+        "operation": "create",
+        "subject": "={{ $json.subject }}",
+        "bodyContent": "={{ $json.message }}",
+        "additionalFields": {
+          "toRecipients": "={{ $json.to }}",
+          "ccRecipients": "={{ $json.cc }}"
+        }
+      },
+      "id": "d0104-0000-4a00-8000-000000000104",
+      "name": "Outlook 2: create draft",
+      "type": "n8n-nodes-base.microsoftOutlook",
+      "typeVersion": 2,
+      "position": [900, 620],
+      "notes": "Konto Outlook 2 — eigene Outlook-Zugangsdaten in diesem Knoten hinterlegen. operation=draft:create. KEIN send hier und nirgends.",
+      "onError": "continueRegularOutput",
+      "disabled": true
+    },
+    {
+      "parameters": {
+        "mode": "append",
+        "numberInputs": 5
+      },
+      "id": "d0300-0000-4a00-8000-000000000300",
+      "name": "Merge",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3.2,
+      "position": [1120, 340],
+      "notes": "Genau ein Zweig liefert je Aufruf ein Ergebnis (Filter oben) — append haengt es an."
     },
     {
       "parameters": {
         "mode": "runOnceForAllItems",
-        "jsCode": "const m = $input.first().json || {};\nreturn [{ json: {\n  draft_id: String(m.id || m.draftId || m.message?.id || ''),\n  mailbox: 'Drafts',\n  created: true,\n  sent: false\n} }];"
+        "jsCode": "// `m.id` traegt bei allen Anbietern die neue Entwurfs-ID direkt.\nconst m = $input.first().json || {};\nreturn [{ json: {\n  draft_id: String(m.id || m.draftId || m.message?.id || ''),\n  mailbox: 'Drafts',\n  created: true,\n  sent: false\n} }];"
       },
-      "id": "c2a30001-0004-4a00-8000-000000000004",
+      "id": "d0301-0000-4a00-8000-000000000301",
       "name": "Shape result",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [900, 300]
+      "position": [1340, 340]
     },
     {
-      "parameters": { "respondWith": "firstIncomingItem", "options": {} },
-      "id": "c2a30001-0005-4a00-8000-000000000005",
+      "parameters": {
+        "respondWith": "firstIncomingItem",
+        "options": {}
+      },
+      "id": "d0302-0000-4a00-8000-000000000302",
       "name": "Respond to Webhook",
       "type": "n8n-nodes-base.respondToWebhook",
       "typeVersion": 1,
-      "position": [1120, 300]
+      "position": [1560, 340]
     }
   ],
   "connections": {
-    "Webhook": { "main": [[{ "node": "Build draft", "type": "main", "index": 0 }]] },
-    "Build draft": { "main": [[{ "node": "Gmail: create draft", "type": "main", "index": 0 }]] },
-    "Gmail: create draft": { "main": [[{ "node": "Shape result", "type": "main", "index": 0 }]] },
-    "Shape result": { "main": [[{ "node": "Respond to Webhook", "type": "main", "index": 0 }]] }
+    "Webhook": {
+      "main": [
+        [
+          {
+            "node": "Build draft",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build draft": {
+      "main": [
+        [
+          {
+            "node": "Is gmail_1?",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Is gmail_2?",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Is gmail_3?",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Is outlook_1?",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Is outlook_2?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Merge": {
+      "main": [
+        [
+          {
+            "node": "Shape result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Is gmail_1?": {
+      "main": [
+        [
+          {
+            "node": "Gmail 1: create draft",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Gmail 1: create draft": {
+      "main": [
+        [
+          {
+            "node": "Merge",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Is gmail_2?": {
+      "main": [
+        [
+          {
+            "node": "Gmail 2: create draft",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Gmail 2: create draft": {
+      "main": [
+        [
+          {
+            "node": "Merge",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Is gmail_3?": {
+      "main": [
+        [
+          {
+            "node": "Gmail 3: create draft",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Gmail 3: create draft": {
+      "main": [
+        [
+          {
+            "node": "Merge",
+            "type": "main",
+            "index": 2
+          }
+        ]
+      ]
+    },
+    "Is outlook_1?": {
+      "main": [
+        [
+          {
+            "node": "Outlook 1: create draft",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Outlook 1: create draft": {
+      "main": [
+        [
+          {
+            "node": "Merge",
+            "type": "main",
+            "index": 3
+          }
+        ]
+      ]
+    },
+    "Is outlook_2?": {
+      "main": [
+        [
+          {
+            "node": "Outlook 2: create draft",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Outlook 2: create draft": {
+      "main": [
+        [
+          {
+            "node": "Merge",
+            "type": "main",
+            "index": 4
+          }
+        ]
+      ]
+    },
+    "Shape result": {
+      "main": [
+        [
+          {
+            "node": "Respond to Webhook",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
   },
-  "active": false,
-  "settings": { "executionOrder": "v1" },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1"
+  },
   "tags": []
 }

@@ -11,21 +11,125 @@ services:
     volumes:
       - postgres-data:/var/lib/postgresql/data
 
+  # --- n8n-Assistant-Sandbox (Nachtrag 2026-09-16) ----------------------------------------
+  # Der "n8n Assistant" (n8n-eigenes KI-Feature: Code ausführen, mit Dateien arbeiten) läuft
+  # nie auf dem n8n-Host selbst, sondern in diesem separaten Stack. Übernommen aus dem
+  # offiziellen docker/get-n8n-compose.yml (n8n-io/n8n) — Versionen und Struktur unverändert,
+  # nur die Geheimnisse kommen aus unserer eigenen .env statt aus einer von get-n8n.sh
+  # generierten.
+  sandbox-certs:
+    # Läuft einmalig, erzeugt mTLS-Zertifikate für api/runner und beendet sich dann.
+    image: ghcr.io/n8n-io/n8n-sandbox-service-api:1.2.0
+    user: "0:0"
+    entrypoint: ["sh", "-c"]
+    command:
+      - >
+        bootstrap-mtls.sh --out-dir /tls --api-san sandbox-api
+        --control-san-prefix sandbox-runner --world-readable &&
+        chown -R sandbox-api:sandbox-api /tls/api && chmod -R a+rX /tls
+    environment:
+      NUM_RUNNERS: "1"
+    volumes:
+      - sandbox-tls:/tls
+
+  sandbox-api:
+    # Die Steuerungsebene: n8n ruft diesen Dienst, wenn der Assistant Code ausführen will.
+    image: ghcr.io/n8n-io/n8n-sandbox-service-api:1.2.0
+    restart: unless-stopped
+    depends_on:
+      sandbox-certs:
+        condition: service_completed_successfully
+    environment:
+      SANDBOX_API_GRPC_TLS_CERT_FILE: /tls/api/grpc-server.crt
+      SANDBOX_API_GRPC_TLS_KEY_FILE: /tls/api/grpc-server.key
+      SANDBOX_API_GRPC_TLS_CLIENT_CA_FILE: /tls/api/ca.crt
+      SANDBOX_API_RUNNER_CONTROL_GRPC_TLS_CA_FILE: /tls/api/ca.crt
+      SANDBOX_API_RUNNER_CONTROL_GRPC_TLS_CERT_FILE: /tls/api/control-grpc-api-client.crt
+      SANDBOX_API_RUNNER_CONTROL_GRPC_TLS_KEY_FILE: /tls/api/control-grpc-api-client.key
+      SANDBOX_API_RUNNER_CONTROL_GRPC_TLS_SERVER_NAME: sandbox-runner-1
+      # Aus unserer .env: der Schlüssel, mit dem n8n sich hier authentisiert, und das
+      # Registrierungsgeheimnis/-Schlüssel für sandbox-runner-1.
+      SANDBOX_API_KEYS: "${SANDBOX_API_KEYS}"
+      SANDBOX_API_RUNNER_REGISTRATION_TOKEN: "${SANDBOX_API_RUNNER_REGISTRATION_TOKEN}"
+      SANDBOX_API_RUNNER_API_KEY: "${SANDBOX_API_RUNNER_API_KEY}"
+    volumes:
+      - sandbox-tls:/tls:ro
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:8080/healthz"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+      start_period: 10s
+    # Niemals 8080/9090 nach außen veröffentlichen — n8n erreicht diesen Container über den
+    # Dienstnamen im Compose-Netz, das reicht.
+
+  sandbox-runner-1:
+    # Führt die eigentliche Arbeit aus: ein privilegierter Docker-in-Docker-Container, der pro
+    # Auftrag eine eigene Sandbox startet. Auf Nutzerwunsch (2026-09-16) eingerichtet, wie im
+    # offiziellen Stack — ohne diesen Container kann sandbox-api nichts ausführen.
+    image: ghcr.io/n8n-io/n8n-sandbox-service-runner-dind:1.2.0
+    restart: unless-stopped
+    privileged: true
+    depends_on:
+      sandbox-api:
+        condition: service_healthy
+    environment:
+      SANDBOX_RUNNER_API_GRPC_ADDR: sandbox-api:9090
+      SANDBOX_RUNNER_HTTP_BASE_URL: http://sandbox-runner-1:8080
+      SANDBOX_RUNNER_CONTROL_GRPC_LISTEN_ADDR: ":9091"
+      SANDBOX_RUNNER_CONTROL_GRPC_ADVERTISE_ADDR: sandbox-runner-1:9091
+      SANDBOX_RUNNER_ID: runner-1
+      SANDBOX_RUNNER_DOCKER_SANDBOX_IMAGE: ghcr.io/n8n-io/n8n-sandbox-service-sandbox:latest
+      SANDBOX_RUNNER_REGISTRATION_GRPC_CA_FILE: /tls/runner/ca.crt
+      SANDBOX_RUNNER_REGISTRATION_GRPC_CERT_FILE: /tls/runner/grpc-client.crt
+      SANDBOX_RUNNER_REGISTRATION_GRPC_KEY_FILE: /tls/runner/grpc-client.key
+      SANDBOX_RUNNER_REGISTRATION_GRPC_SERVER_NAME: sandbox-api
+      SANDBOX_RUNNER_CONTROL_GRPC_TLS_CERT_FILE: /tls/runner/control-grpc-server.crt
+      SANDBOX_RUNNER_CONTROL_GRPC_TLS_KEY_FILE: /tls/runner/control-grpc-server.key
+      SANDBOX_RUNNER_CONTROL_GRPC_TLS_CLIENT_CA_FILE: /tls/runner/ca.crt
+      SANDBOX_RUNNER_REGISTRATION_TOKEN: "${SANDBOX_RUNNER_REGISTRATION_TOKEN}"
+      SANDBOX_RUNNER_API_KEYS: "${SANDBOX_RUNNER_API_KEYS}"
+    volumes:
+      - sandbox-tls:/tls:ro
+    # Niemals Ports dieses Containers veröffentlichen — er läuft privilegiert (Docker-in-Docker).
+
   n8n:
     # Gepinnt wie alles hier (postgres:16-alpine, exakte npm-Versionen). "latest" wäre die
     # Hoffnung darauf, dass ein Update nichts bricht.
     image: n8nio/n8n:2.38.4
     restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_started
+      sandbox-api:
+        condition: service_healthy
     environment:
-      # Eigenes Login: n8n 2.x kennt keine Basic Auth mehr. Das Login ist der Owner-Account,
-      # der beim ersten Aufruf im Browser (http://127.0.0.1:5678) einmalig angelegt wird.
-      # Er wird nur auf Loopback angeboten (siehe ports), nicht im Netz.
-      N8N_HOST: "127.0.0.1"
+      # n8n-Assistant-Sandbox (siehe oben): dieselbe Adresse/derselbe Schlüssel, den die
+      # n8n-UI im Einrichtungsdialog als "Service URL"/"API key" abfragt.
+      N8N_INSTANCE_AI_SANDBOX_ENABLED: "${N8N_INSTANCE_AI_SANDBOX_ENABLED:-true}"
+      N8N_INSTANCE_AI_SANDBOX_PROVIDER: "${N8N_INSTANCE_AI_SANDBOX_PROVIDER:-n8n-sandbox}"
+      N8N_INSTANCE_AI_SANDBOX_IMAGE: "${N8N_INSTANCE_AI_SANDBOX_IMAGE:-ghcr.io/n8n-io/n8n-sandbox-service-sandbox:latest}"
+      N8N_INSTANCE_AI_SANDBOX_API_URL: "${N8N_INSTANCE_AI_SANDBOX_API_URL:-http://sandbox-api:8080}"
+      N8N_SANDBOX_SERVICE_URL: "${N8N_SANDBOX_SERVICE_URL:-http://sandbox-api:8080}"
+      N8N_SANDBOX_SERVICE_API_KEY: "${N8N_SANDBOX_SERVICE_API_KEY}"
+      # Eigenes Login: n8n 2.x kennt keine Basic Auth mehr. Das Login ist der Owner-Account.
+      # Auf Nutzerwunsch (2026-09-16) über einen Reverse-Proxy (Caddy, siehe /etc/caddy/
+      # Caddyfile) statt nur Loopback erreichbar — der Editor braucht einen echten OAuth-Login
+      # im Browser für Gmail/Outlook, und dafür muss der Nutzer selbst hinkommen. n8n setzt
+      # sein Auth-Cookie als `Secure`; ohne echtes HTTPS davor verwirft der Browser es beim
+      # Login ("secure cookie"-Fehler, gefunden beim ersten Versuch über bloßes HTTP). Deshalb
+      # hier N8N_PROTOCOL https, obwohl n8n selbst intern weiter nur HTTP spricht — Caddy
+      # übernimmt die TLS-Terminierung und leitet an diesen Container auf 127.0.0.1 weiter.
+      N8N_HOST: "${N8N_HOST:-n8n.203-0-113-7.sslip.io}"
       N8N_PORT: "5678"
-      N8N_PROTOCOL: http
-      # Damit n8n im internen Netz gültige Webhook-URLs erzeugt: die Runtime erreicht n8n
-      # als http://n8n:5678 über das Compose-Netz.
-      N8N_WEBHOOK_URL: "http://n8n:5678/"
+      N8N_PROTOCOL: https
+      # Muss die öffentlich erreichbare Adresse sein: n8n baut daraus nicht nur die
+      # (fürs Kuronami-Bridge ungenutzte) Webhook-Anzeige, sondern auch die OAuth2-Redirect-URI
+      # für Google/Microsoft-Logins — ein Google-Login schlägt sonst mit redirect_uri_mismatch
+      # fehl, weil der Browser des Nutzers diese Adresse nie erreichen kann (gefunden
+      # 2026-09-16 beim ersten echten Gmail-OAuth-Versuch). Kuronamis eigene Bridge (runtime/
+      # gateway) spricht n8n ohnehin über ihr eigenes N8N_BASE_URL an, nicht über diesen Wert.
+      N8N_WEBHOOK_URL: "https://n8n.203-0-113-7.sslip.io/"
       N8N_ENCRYPTION_KEY: "${N8N_ENCRYPTION_KEY:-kuronami-dev-encryption-key-change-me}"
       GENERIC_TIMEZONE: "${TZ:-Europe/Berlin}"
       N8N_DIAGNOSTICS_ENABLED: "false"
@@ -42,14 +146,13 @@ services:
       DB_POSTGRESDB_USER: kuronami
       DB_POSTGRESDB_PASSWORD: kuronami
     ports:
-      # Nur Loopback: der n8n-Editor ist auf diesem Rechner unter http://127.0.0.1:5678
-      # erreichbar, aber nicht aus dem Netz. Die Runtime spricht n8n über das Compose-Netz
-      # als http://n8n:5678 an und braucht dafür keinen veröffentlichten Port.
+      # Nur Loopback: seit dem HTTPS-Nachtrag (2026-09-16) übernimmt Caddy die öffentliche
+      # Seite (siehe /etc/caddy/Caddyfile, n8n.203-0-113-7.sslip.io → 127.0.0.1:5678) —
+      # ein zusätzlich auf allen Interfaces veröffentlichter Port wäre derselbe Dienst ein
+      # zweites Mal erreichbar, nur ohne TLS und ohne den Umweg über den Proxy zu erzwingen.
       - "127.0.0.1:5678:5678"
     volumes:
       - n8n-data:/home/node/.n8n
-    depends_on:
-      - postgres
     healthcheck:
       test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1:5678/healthz || exit 1"]
       interval: 10s
@@ -139,18 +242,18 @@ services:
     restart: unless-stopped
     env_file:
       - .env
+    # Host-Netz statt Compose-Netz (Nachtrag 2026-09-16): der Gateway läuft auf diesem Rechner
+    # als systemd-Dienst (kuronami-gateway.service, Port 3000), nicht als Container — der
+    # `gateway`-Dienst oben ist ein Platzhalter ohne Dockerfile und startet nie. Über Loopback
+    # erreicht die Brücke ihn, ohne dass Port 3000 für die übrigen Container (n8n und die
+    # Sandbox, die fremden Code ausführt) geöffnet werden muss.
+    network_mode: host
     environment:
-      # Im Compose-Netz erreicht die Brücke das Gateway unter seinem Dienstnamen.
-      VOICE_GATEWAY_URL: "http://gateway:8788"
-      # Im Container muss der WebSocket-Rand auf allen Adressen lauschen, sonst erreicht ihn der
-      # veröffentlichte Port nicht. Die Grenze nach außen zieht `ports` unten, nicht `VOICE_HOST`.
-      VOICE_HOST: "0.0.0.0"
-    ports:
-      # Nur Loopback. Der Rand trägt das Sitzungsgeheimnis (VOICE_SESSION_TOKEN) und damit den
-      # Zugang zum Agenten — er gehört so wenig ins Netz wie der Gateway-Port.
-      - "127.0.0.1:8790:8790"
-    depends_on:
-      - gateway
+      VOICE_GATEWAY_URL: "http://127.0.0.1:3000"
+      # Im Host-Netz bindet der Rand direkt auf dem Rechner, `ports` gibt es dann nicht. Nur
+      # Loopback: er trägt das Sitzungsgeheimnis (VOICE_SESSION_TOKEN) und damit den Zugang zum
+      # Agenten. Nach außen führt allein Caddy (voice.<host> → 127.0.0.1:8790).
+      VOICE_HOST: "127.0.0.1"
 
   # Der Testlauf der Sprachschicht. Eigener Dienst statt eines Handgriffs im Dockerfile, damit
   # `docker compose run --rm voice-test` genügt und niemand die Aufrufzeile suchen muss.
@@ -174,3 +277,6 @@ services:
 volumes:
   postgres-data:
   n8n-data:
+  # mTLS-Zertifikate der n8n-Assistant-Sandbox, von sandbox-certs einmalig erzeugt und von
+  # sandbox-api/sandbox-runner-1 nur lesend eingehängt.
+  sandbox-tls:

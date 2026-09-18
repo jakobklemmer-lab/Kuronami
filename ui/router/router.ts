@@ -35,6 +35,7 @@ export const SETTINGS_SECTION_IDS = [
   "memory",
   "integrations",
   "apiKeys",
+  "mcpServers",
   "speech",
   "system",
 ] as const;

@@ -1,15 +1,26 @@
 import { randomUUID } from "node:crypto";
 import express from "express";
+import { RiskLevelError } from "../policy/risk.js";
 import { originAllowed } from "../runtime/events/bus.js";
 import { readEvents } from "../runtime/events/log.js";
+import {
+  McpServerConfigInputError,
+  type McpServerRecord,
+  deleteMcpServer,
+  listMcpServers,
+  upsertMcpServer,
+} from "../runtime/mcp/config-store.js";
 import { readSecretStatus, upsertSecrets } from "../runtime/secrets/env-file.js";
 import { DEFAULT_SPEND_DAYS, listDailySpend } from "../runtime/session/costs.js";
 import { getRunDetail, listRuns } from "../runtime/session/runs.js";
+import type { MemoryStore } from "../tools/memory/store.js";
+import type { N8nBridge } from "../tools/n8n/bridge.js";
 import { handleSlackEvent } from "./channels/slack/channel.js";
 import type { SlackChannelDeps } from "./channels/slack/channel.js";
 import { isUrlVerification } from "./channels/slack/normalize.js";
 import { handleUpdate } from "./channels/telegram/channel.js";
 import type { TelegramChannelDeps } from "./channels/telegram/channel.js";
+import type { RuntimeEventBus } from "../runtime/events/bus.js";
 import type { VoiceChannel } from "./channels/voice/channel.js";
 import type { WebChannel } from "./channels/web.js";
 import { type GatewayDeps, receiveDecision, receiveMessage } from "./core.js";
@@ -20,6 +31,23 @@ import {
   bearerToken,
   verifySlackSignature,
 } from "./identity.js";
+import {
+  displayNameOf,
+  listArtifactFiles,
+  listResearch,
+  loadCalendar,
+  notesAsFiles,
+  summarizeNotes,
+} from "./integrations/dashboard.js";
+import {
+  MarketDataError,
+  type MarketsClient,
+  defaultIntervalFor,
+  isChartInterval,
+  isChartRange,
+  isValidSymbol,
+} from "./integrations/markets.js";
+import { type SystemSampler, formatBytesPerSecond } from "./integrations/system.js";
 import { deriveAskRoutes } from "./routing.js";
 import type { InboundAttachment } from "./types.js";
 
@@ -49,6 +77,46 @@ export interface ServerDeps {
   /** Fehlt sie, gibt es keine Schlüsselverwaltung (S32-Nachtrag) — `.env` bleibt dann nur von
    * Hand editierbar. */
   secrets?: SettingsSecretsDeps;
+  /** Fehlt sie, liest `/integrations/mail` nichts (S16-Nachtrag, 2026-09-16) — dieselbe
+   * n8n-Brücke wie `tools/mail/tools.ts`, hier ohne die Tool-/Policy-/Artefakt-Schicht, für
+   * das Dashboard-Widget der Oberfläche. */
+  n8nBridge?: N8nBridge;
+  /** Das Langzeitgedächtnis — Quelle für `/integrations/notes` (Nachtrag 2026-09-16: die
+   * Startseite zeigt echte Notizen statt eines Mock-Zitats). Fehlt es, antwortet die Route leer. */
+  memory?: Pick<MemoryStore, "all">;
+  /** Marktdaten (Yahoo Finance) für `/integrations/markets/*`; fehlt der Client, gibt es 404. */
+  markets?: MarketsClient;
+  /** Host-Messwerte für `/integrations/system`; ohne Sampler 404. */
+  system?: SystemSampler;
+  /** Fehlt sie, bleibt der Neustart-Knopf der Oberfläche tot (Nachtrag 2026-09-16) — dann gilt
+   * eine Schlüsseländerung erst, wenn jemand die Dienste von Hand neu startet. */
+  restart?: RestartDeps;
+  /** Der Ereignisbus des Prozesses (Streaming, 2026-09-16): die Sprach-Routen hören darauf nach
+   * `model.delta` und reichen die Textstücke als SSE weiter. Fehlt er, antworten sie wie bisher
+   * mit einem Block. */
+  bus?: Pick<RuntimeEventBus, "subscribe">;
+}
+
+/**
+ * Die Dienste, die sich aus der Oberfläche heraus neu starten lassen (Nachtrag 2026-09-16).
+ *
+ * Eine **geschlossene** Aufzählung und kein Kommando aus dem Browser: der Aufrufer wählt aus
+ * dreien, er formuliert nichts. Das ist der Unterschied zwischen einem Knopf und einer
+ * Fernsteuerung für beliebige Shell-Befehle — und der Grund, warum diese Route trotz des
+ * mächtigen Web-Tokens keine neue Angriffsfläche aufmacht.
+ */
+export const RESTART_SERVICES = ["gateway", "ui", "voice"] as const;
+export type RestartService = (typeof RESTART_SERVICES)[number];
+
+export function isRestartService(value: unknown): value is RestartService {
+  return typeof value === "string" && (RESTART_SERVICES as readonly string[]).includes(value);
+}
+
+/** Startet einen der drei Dienste neu. Schnittstelle statt festem `execFile`, damit ein Test
+ * prüfen kann, was angefordert wurde, ohne etwas neu zu starten — dasselbe Muster wie
+ * `SettingsSecretsDeps`. */
+export interface RestartDeps {
+  restart(service: RestartService): Promise<void>;
 }
 
 /** Liest/schreibt den `.env`-Inhalt, aus dem `readSecretStatus`/`upsertSecrets` ihre Sicht
@@ -95,6 +163,22 @@ function decodeAttachments(value: unknown): InboundAttachment[] {
   });
 }
 
+/** `mail-search.json` liefert je nach Anbieter ISO-Text, einen numerischen Epoch-Millis-String
+ * (Gmails `internalDate`-Fallback) oder gar nichts — hier auf ein Format gebracht, das
+ * `formatRelativeTime` in der Oberfläche sicher parst. Unbrauchbares fällt auf "jetzt" zurück,
+ * statt ein "Invalid Date" bis in die Liste durchzureichen. */
+function toIsoDate(value: unknown): string {
+  if (typeof value === "string" && value.trim() !== "") {
+    if (/^\d+$/.test(value)) {
+      const ms = Number(value);
+      if (Number.isFinite(ms)) return new Date(ms).toISOString();
+    }
+    const parsed = new Date(value);
+    if (!Number.isNaN(parsed.getTime())) return parsed.toISOString();
+  }
+  return new Date().toISOString();
+}
+
 export function createServer(deps: ServerDeps): express.Express {
   const app = express();
 
@@ -115,7 +199,9 @@ export function createServer(deps: ServerDeps): express.Express {
       res.setHeader("Access-Control-Allow-Origin", origin);
       res.setHeader("Vary", "Origin");
       res.setHeader("Access-Control-Allow-Headers", "authorization, content-type");
-      res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
+      // DELETE seit den MCP-Server-Routen (Nachtrag 2026-09-16, /settings/mcp-servers/:id) —
+      // vorher genügten GET/POST für jede bestehende Route.
+      res.setHeader("Access-Control-Allow-Methods", "GET, POST, DELETE, OPTIONS");
     }
     if (req.method === "OPTIONS") {
       res.sendStatus(204);
@@ -248,6 +334,29 @@ export function createServer(deps: ServerDeps): express.Express {
     } catch (error) {
       next(error);
     }
+  });
+
+  /**
+   * Was die Oberfläche braucht, um die Sprachschicht zu öffnen (Nachtrag 2026-09-16).
+   *
+   * Vorher standen Adresse und Sitzungsgeheimnis als zwei Handeingabe-Felder in den
+   * Einstellungen — auf jedem Gerät neu, obwohl der Gateway beide Werte längst aus `.env`
+   * kennt. Die Adresse leitet die Oberfläche selbst ab (`ui/backend-origin.ts`, dasselbe
+   * Muster wie beim Gateway-Host), das Geheimnis kommt von hier.
+   *
+   * `configured: false` statt eines leeren Tokens: der Unterschied zwischen "keine
+   * Sprachschicht eingerichtet" und "eingerichtet, aber gerade nicht erreichbar" gehört dem
+   * Aufrufer, nicht dem Zufall eines leeren Strings.
+   */
+  app.get("/channels/web/voice", (req, res) => {
+    const principal = webPrincipal(req, res);
+    if (!principal) return;
+    const sessionToken = deps.identity.voiceSessionToken;
+    res.json(
+      sessionToken.length > 0
+        ? { configured: true, sessionToken }
+        : { configured: false, sessionToken: null },
+    );
   });
 
   /** Holt ab, was außerhalb eines Aufrufs zugestellt wurde. Leert dabei das Postfach. */
@@ -405,6 +514,388 @@ export function createServer(deps: ServerDeps): express.Express {
   });
 
   /**
+   * Neustart eines der drei Dienste (Nachtrag 2026-09-16) — der Knopf, den
+   * `ui/settings/view.ts` bis hierher deaktiviert zeigte ("Kein Fernsteuerungs-Endpunkt").
+   *
+   * Ohne ihn war die Schlüsselverwaltung eine halbe Sache: `.env` wurde geschrieben, aber nichts
+   * las sie neu, und die Oberfläche verlangte einen Neustart, für den sie keinen Weg anbot.
+   *
+   * Der Gateway startet hier **sich selbst** mit: die Antwort geht deshalb zuerst raus und der
+   * Neustart erst, wenn sie auf der Leitung ist (`res.on("finish")`). Andernfalls stürbe der
+   * Prozess mitten im Schreiben, und der Aufrufer sähe einen Verbindungsabbruch statt einer
+   * Zusage — er wüsste nicht, ob sein Neustart überhaupt angefangen hat.
+   */
+  app.post("/settings/restart", (req, res) => {
+    const principal = webPrincipal(req, res);
+    if (!principal) return;
+    if (!deps.restart) {
+      res.status(404).json({ error: "Neustarts sind auf diesem Gateway nicht eingerichtet." });
+      return;
+    }
+
+    const service = req.body?.service;
+    if (!isRestartService(service)) {
+      res
+        .status(400)
+        .json({ error: `service muss einer von ${RESTART_SERVICES.join(", ")} sein.` });
+      return;
+    }
+
+    const runner = deps.restart;
+    res.on("finish", () => {
+      void runner.restart(service).catch((error) => {
+        console.error(
+          `[gateway] Neustart von ${service} fehlgeschlagen: ${error instanceof Error ? error.message : String(error)}`,
+        );
+      });
+    });
+    res.json({ service, started: true });
+  });
+
+  /**
+   * Verwaltung der MCP-Server aus der Oberfläche heraus (Nachtrag 2026-09-16,
+   * `runtime/mcp/config-store.ts`, Migration 0011). Dieselbe Vertrauensgrenze wie
+   * `/settings/api-keys`: hinter demselben Bearer-Token wie `/runs`. Eine Änderung gilt wie
+   * dort erst nach einem Neustart des Gateways (S27: Entdeckung läuft genau einmal beim
+   * Katalogbau) — dieser Rand liest/schreibt nur die Tabelle, nicht den laufenden Katalog.
+   *
+   * `env`-Werte gehen nie zurück zum Browser (`toPublicServer` unten) — dieselbe Zurückhaltung
+   * wie bei den Provider-Schlüsseln, nur ohne Vorschau der letzten vier Zeichen: ein MCP-Server
+   * kann mehrere Variablen tragen, eine einzelne Vorschau je Schlüssel wäre hier mehr Aufwand
+   * als der Fall (ein Betreiber, eine Handvoll Server) rechtfertigt.
+   */
+  function toPublicServer(server: McpServerRecord) {
+    return {
+      serverId: server.serverId,
+      command: server.command,
+      args: server.args,
+      envKeys: Object.keys(server.env).sort(),
+      risk: server.risk,
+      repeatable: server.repeatable,
+      enabled: server.enabled,
+      createdAt: server.createdAt,
+      updatedAt: server.updatedAt,
+    };
+  }
+
+  app.get("/settings/mcp-servers", async (req, res, next) => {
+    try {
+      const principal = webPrincipal(req, res);
+      if (!principal) return;
+      const servers = await listMcpServers(deps.gateway.pool);
+      res.json({ servers: servers.map(toPublicServer) });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.post("/settings/mcp-servers", async (req, res, next) => {
+    try {
+      const principal = webPrincipal(req, res);
+      if (!principal) return;
+
+      const body = req.body ?? {};
+      if (typeof body.serverId !== "string" || body.serverId.trim() === "") {
+        res.status(400).json({ error: "serverId ist erforderlich." });
+        return;
+      }
+      if (typeof body.command !== "string" || body.command.trim() === "") {
+        res.status(400).json({ error: "command ist erforderlich." });
+        return;
+      }
+      if (body.args !== undefined) {
+        if (!Array.isArray(body.args) || body.args.some((a: unknown) => typeof a !== "string")) {
+          res.status(400).json({ error: "args muss eine Liste aus Strings sein." });
+          return;
+        }
+      }
+      if (body.env !== undefined) {
+        if (
+          typeof body.env !== "object" ||
+          body.env === null ||
+          Array.isArray(body.env) ||
+          Object.values(body.env).some((v) => typeof v !== "string")
+        ) {
+          res.status(400).json({ error: "env muss ein Objekt aus String auf String sein." });
+          return;
+        }
+      }
+
+      let server: McpServerRecord;
+      try {
+        server = await upsertMcpServer(deps.gateway.pool, {
+          serverId: body.serverId,
+          command: body.command,
+          args: body.args,
+          env: body.env,
+          risk: body.risk,
+          repeatable: typeof body.repeatable === "boolean" ? body.repeatable : undefined,
+          enabled: typeof body.enabled === "boolean" ? body.enabled : undefined,
+        });
+      } catch (error) {
+        if (error instanceof McpServerConfigInputError || error instanceof RiskLevelError) {
+          res.status(400).json({ error: error.message });
+          return;
+        }
+        throw error;
+      }
+      res.json({ server: toPublicServer(server) });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.delete("/settings/mcp-servers/:serverId", async (req, res, next) => {
+    try {
+      const principal = webPrincipal(req, res);
+      if (!principal) return;
+      const deleted = await deleteMcpServer(deps.gateway.pool, req.params.serverId);
+      if (!deleted) {
+        res
+          .status(404)
+          .json({ error: `Kein MCP-Server mit der Kennung "${req.params.serverId}".` });
+        return;
+      }
+      res.json({ deleted: true });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  /**
+   * Nachtrag 2026-09-16: die Oberfläche liest hier direkt, ohne den Agenten-Loop zu bemühen —
+   * dieselbe Haltung wie beim Trading-Chart (direkter Abruf, kein Modellaufruf). `mail.search`
+   * als Werkzeug bleibt für den Assistenten daneben bestehen (Artefakt, Redaction, Kontext-
+   * Kürzung); dieser Rand hier ist nur die Kurzfassung fürs Dashboard, dieselbe n8n-Brücke,
+   * ohne die Tool-/Policy-/Artefakt-Schicht dazwischen.
+   */
+  app.get("/integrations/mail", async (req, res, next) => {
+    try {
+      const principal = webPrincipal(req, res);
+      if (!principal) return;
+      if (!deps.n8nBridge || !deps.n8nBridge.configured) {
+        res.status(404).json({ error: "n8n ist auf diesem Gateway nicht eingerichtet." });
+        return;
+      }
+      const controller = new AbortController();
+      req.on("close", () => controller.abort());
+      const invocation = await deps.n8nBridge.invoke({
+        webhookPath: "mail-search",
+        input: { limit: 20 },
+        repeatable: true,
+        signal: controller.signal,
+      });
+      const body = invocation.body as {
+        messages?: Array<{
+          id?: unknown;
+          from?: unknown;
+          subject?: unknown;
+          summary?: unknown;
+          date?: unknown;
+          unread?: unknown;
+        }>;
+      };
+      const messages = (Array.isArray(body.messages) ? body.messages : []).map((m) => ({
+        id: typeof m.id === "string" ? m.id : "",
+        from: typeof m.from === "string" ? displayNameOf(m.from) : "(unbekannt)",
+        subject: typeof m.subject === "string" ? m.subject : "(kein Betreff)",
+        preview: typeof m.summary === "string" ? m.summary : "",
+        receivedAt: toIsoDate(m.date),
+        unread: m.unread === true,
+      }));
+      res.json({ messages, unreadCount: messages.filter((m) => m.unread).length });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  /**
+   * Die übrigen Dashboard-Quellen (Nachtrag 2026-09-16, Ablösung von `ui/mock/data.ts`): jede
+   * Route liest genau eine echte Quelle und formt sie für die Oberfläche. Was nicht angeschlossen
+   * ist, antwortet mit einem benannten Zustand (`connected: false` beim Kalender, 404 mit Text
+   * bei fehlender Abhängigkeit) — die Oberfläche zeigt den Grund, nie einen erfundenen Wert.
+   */
+
+  app.get("/integrations/calendar", async (req, res, next) => {
+    try {
+      const principal = webPrincipal(req, res);
+      if (!principal) return;
+      const controller = new AbortController();
+      req.on("close", () => controller.abort());
+      res.json(await loadCalendar(deps.n8nBridge, controller.signal));
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.get("/integrations/notes", async (req, res, next) => {
+    try {
+      const principal = webPrincipal(req, res);
+      if (!principal) return;
+      if (!deps.memory) {
+        res
+          .status(404)
+          .json({ error: "Das Gedächtnis ist auf diesem Gateway nicht eingerichtet." });
+        return;
+      }
+      res.json({ notes: summarizeNotes(await deps.memory.all()) });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.get("/integrations/files", async (req, res, next) => {
+    try {
+      const principal = webPrincipal(req, res);
+      if (!principal) return;
+      const artifacts = await listArtifactFiles(deps.gateway.pool);
+      const notes = deps.memory ? notesAsFiles(summarizeNotes(await deps.memory.all())) : [];
+      const files = [...artifacts, ...notes].sort((a, b) =>
+        b.modifiedAt.localeCompare(a.modifiedAt),
+      );
+      res.json({ files });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.get("/integrations/research", async (req, res, next) => {
+    try {
+      const principal = webPrincipal(req, res);
+      if (!principal) return;
+      res.json({ findings: await listResearch(deps.gateway.pool) });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.get("/integrations/system", async (req, res, next) => {
+    try {
+      const principal = webPrincipal(req, res);
+      if (!principal) return;
+      if (!deps.system) {
+        res.status(404).json({ error: "Systemwerte sind auf diesem Gateway nicht verfügbar." });
+        return;
+      }
+      const snapshot = await deps.system.snapshot();
+      const gib = (bytes: number) => `${(bytes / 1024 ** 3).toFixed(1)}`;
+      // Netz als Anteil einer 100-Mbit-Leitung (12,5 MB/s) — eine Skala für den Ring, kein
+      // Messwert; der Zahlenwert daneben ist der echte.
+      const NET_FULL_SCALE = 12.5 * 1024 * 1024;
+      const net = snapshot.netBytesPerSecond;
+      res.json({
+        snapshot,
+        gauges: [
+          {
+            id: "cpu",
+            label: "CPU",
+            percent: snapshot.cpuPercent,
+            readout: `${snapshot.cpuPercent}`,
+            readoutSub: "%",
+          },
+          {
+            id: "ram",
+            label: "RAM",
+            percent: snapshot.ramPercent,
+            readout: gib(snapshot.ramUsedBytes),
+            readoutSub: `/${gib(snapshot.ramTotalBytes)} GB`,
+          },
+          {
+            id: "disk",
+            label: "Disk",
+            percent: snapshot.diskPercent,
+            readout: `${snapshot.diskPercent}`,
+            readoutSub: "%",
+          },
+          {
+            id: "net",
+            label: "Netz",
+            percent: net === null ? 0 : Math.min(100, Math.round((net / NET_FULL_SCALE) * 100)),
+            readout: net === null ? "—" : formatBytesPerSecond(net),
+            readoutSub: net === null ? "misst" : null,
+          },
+        ],
+      });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  /**
+   * Marktdaten: Suche, Kurse einer Beobachtungsliste, Chart eines Symbols. Yahoo-Fehler kommen
+   * als 502 mit Text zurück — nicht als 500, denn die Ursache liegt beim fremden Dienst.
+   */
+  const marketsMissing = (res: express.Response): boolean => {
+    if (deps.markets) return false;
+    res.status(404).json({ error: "Marktdaten sind auf diesem Gateway nicht eingerichtet." });
+    return true;
+  };
+  const marketError = (error: unknown, res: express.Response, next: express.NextFunction) => {
+    if (error instanceof MarketDataError) {
+      res.status(502).json({ error: error.message });
+      return;
+    }
+    next(error);
+  };
+
+  app.get("/integrations/markets/search", async (req, res, next) => {
+    try {
+      const principal = webPrincipal(req, res);
+      if (!principal || marketsMissing(res) || !deps.markets) return;
+      const q = typeof req.query.q === "string" ? req.query.q : "";
+      res.json({ hits: await deps.markets.search(q) });
+    } catch (error) {
+      marketError(error, res, next);
+    }
+  });
+
+  app.get("/integrations/markets/quotes", async (req, res, next) => {
+    try {
+      const principal = webPrincipal(req, res);
+      if (!principal || marketsMissing(res) || !deps.markets) return;
+      const raw = typeof req.query.symbols === "string" ? req.query.symbols : "";
+      const symbols = raw
+        .split(",")
+        .map((s) => s.trim())
+        .filter((s) => s !== "");
+      const invalid = symbols.filter((s) => !isValidSymbol(s));
+      if (invalid.length > 0) {
+        res.status(400).json({ error: `Ungültige Symbole: ${invalid.join(", ")}` });
+        return;
+      }
+      if (symbols.length > 30) {
+        res.status(400).json({ error: "Höchstens 30 Symbole je Anfrage." });
+        return;
+      }
+      res.json(await deps.markets.quotes(symbols));
+    } catch (error) {
+      marketError(error, res, next);
+    }
+  });
+
+  app.get("/integrations/markets/chart", async (req, res, next) => {
+    try {
+      const principal = webPrincipal(req, res);
+      if (!principal || marketsMissing(res) || !deps.markets) return;
+      const symbol = typeof req.query.symbol === "string" ? req.query.symbol : "";
+      const range = typeof req.query.range === "string" ? req.query.range : "1d";
+      if (!isValidSymbol(symbol)) {
+        res.status(400).json({ error: `Ungültiges Symbol "${symbol}".` });
+        return;
+      }
+      if (!isChartRange(range)) {
+        res.status(400).json({ error: `Unbekannter Zeitraum "${range}".` });
+        return;
+      }
+      const intervalRaw = typeof req.query.interval === "string" ? req.query.interval : "";
+      const interval = isChartInterval(intervalRaw) ? intervalRaw : defaultIntervalFor(range);
+      res.json(await deps.markets.chart(symbol, range, interval));
+    } catch (error) {
+      marketError(error, res, next);
+    }
+  });
+
+  /**
    * Der Sprach-Kanal (S30/S31). Drei Routen, dieselbe Form wie beim Web-Kanal: Nachrichten,
    * Entscheidungen, Postfach.
    *
@@ -436,6 +927,60 @@ export function createServer(deps: ServerDeps): express.Express {
     return auth.principal;
   }
 
+  /**
+   * Antwortet einen Sprachzug — als Block oder als Ereignisstrom (Streaming, 2026-09-16).
+   *
+   * Verlangt der Aufrufer `Accept: text/event-stream`, kommen die Textstücke des Modells als
+   * `delta`-Ereignisse, sobald der Bus sie ansagt, und am Ende als `done` genau die Antwort,
+   * die sonst der ganze Block gewesen wäre. Die Brücke spricht damit den ersten Satz, während
+   * der Zug noch Werkzeuge ruft — statt eine Minute zu schweigen und dann alles vorzulesen.
+   *
+   * Gefiltert wird nach der Session der Unterhaltung: ein Heartbeat-Lauf im Hintergrund hat
+   * seine eigene, und dessen Text gehört nicht in diesen Strom.
+   */
+  async function respondVoiceTurn(
+    req: express.Request,
+    res: express.Response,
+    principal: NonNullable<ReturnType<typeof voicePrincipal>>,
+    voice: VoiceChannel,
+    run: () => ReturnType<typeof receiveMessage>,
+  ): Promise<void> {
+    const bus = deps.bus;
+    const wantsStream =
+      bus !== undefined && (req.header("accept") ?? "").includes("text/event-stream");
+    if (!wantsStream) {
+      const outcome = await run();
+      res.status(200).json({ ...outcome, deliveries: voice.drain(principal.sender.replyTo) });
+      return;
+    }
+
+    const conversation = await deps.gateway.conversations.of(principal.userId);
+    const sessionId = conversation.runner.session.sessionId;
+    res.status(200);
+    res.setHeader("content-type", "text/event-stream");
+    res.setHeader("cache-control", "no-cache");
+    res.setHeader("connection", "keep-alive");
+    res.flushHeaders();
+    const write = (event: string, data: unknown): void => {
+      res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
+    };
+    const unsubscribe = bus.subscribe((event) => {
+      if (event.type !== "model.delta" || event.data.session_id !== sessionId) return;
+      write("delta", { text: event.data.text });
+    });
+    try {
+      const outcome = await run();
+      write("done", { ...outcome, deliveries: voice.drain(principal.sender.replyTo) });
+    } catch (error) {
+      // Die Kopfzeilen sind draußen, ein `next(error)` käme zu spät — der Fehler geht als
+      // Ereignis, mit Wortlaut, wie überall sonst.
+      write("error", { error: error instanceof Error ? error.message : String(error) });
+    } finally {
+      unsubscribe();
+      res.end();
+    }
+  }
+
   app.post("/channels/voice/messages", async (req, res, next) => {
     try {
       const principal = voicePrincipal(req, res);
@@ -447,22 +992,23 @@ export function createServer(deps: ServerDeps): express.Express {
         return;
       }
 
-      const outcome = await receiveMessage(deps.gateway, principal, {
-        channel: "voice",
-        sender: principal.sender,
-        content,
-        // Anhänge gibt es hier nicht: ein Mikrofon liefert Ton, und der Ton ist beim Eintreffen
-        // schon zu Text geworden (S30). Eine Aufnahme mitzuliefern wäre eine eigene Entscheidung
-        // über Aufbewahrung und Datenschutz und gehört nicht nebenbei in diese Zeile.
-        attachments: [],
-        receivedAt: new Date(),
-        externalId:
-          typeof req.body?.externalId === "string" && req.body.externalId.length > 0
-            ? `voice:${req.body.externalId}`
-            : `voice:${randomUUID()}`,
-      });
-
-      res.status(200).json({ ...outcome, deliveries: deps.voice.drain(principal.sender.replyTo) });
+      await respondVoiceTurn(req, res, principal, deps.voice, () =>
+        receiveMessage(deps.gateway, principal, {
+          channel: "voice",
+          sender: principal.sender,
+          content,
+          // Anhänge gibt es hier nicht: ein Mikrofon liefert Ton, und der Ton ist beim
+          // Eintreffen schon zu Text geworden (S30). Eine Aufnahme mitzuliefern wäre eine
+          // eigene Entscheidung über Aufbewahrung und Datenschutz und gehört nicht nebenbei
+          // in diese Zeile.
+          attachments: [],
+          receivedAt: new Date(),
+          externalId:
+            typeof req.body?.externalId === "string" && req.body.externalId.length > 0
+              ? `voice:${req.body.externalId}`
+              : `voice:${randomUUID()}`,
+        }),
+      );
     } catch (error) {
       next(error);
     }
@@ -479,19 +1025,19 @@ export function createServer(deps: ServerDeps): express.Express {
         return;
       }
 
-      const outcome = await receiveDecision(deps.gateway, principal, {
-        channel: "voice",
-        sender: principal.sender,
-        askId,
-        choiceId,
-        receivedAt: new Date(),
-        externalId:
-          typeof req.body?.externalId === "string" && req.body.externalId.length > 0
-            ? `voice:${req.body.externalId}`
-            : `voice:${randomUUID()}`,
-      });
-
-      res.status(200).json({ ...outcome, deliveries: deps.voice.drain(principal.sender.replyTo) });
+      await respondVoiceTurn(req, res, principal, deps.voice, () =>
+        receiveDecision(deps.gateway, principal, {
+          channel: "voice",
+          sender: principal.sender,
+          askId,
+          choiceId,
+          receivedAt: new Date(),
+          externalId:
+            typeof req.body?.externalId === "string" && req.body.externalId.length > 0
+              ? `voice:${req.body.externalId}`
+              : `voice:${randomUUID()}`,
+        }),
+      );
     } catch (error) {
       next(error);
     }

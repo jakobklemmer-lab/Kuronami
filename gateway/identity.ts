@@ -100,6 +100,16 @@ export interface GatewayIdentity {
    * und dass ein abhandengekommener Token zwei Türen öffnet statt einer.
    */
   voiceToken: string;
+  /**
+   * `VOICE_SESSION_TOKEN` — das Geheimnis, das der **Browser** dem WebSocket-Rand der
+   * Sprachschicht vorzeigt. Der Gateway prüft es nie; er reicht es nur an eine Oberfläche
+   * weiter, die sich zuvor mit `webToken` ausgewiesen hat (`GET /channels/web/voice`).
+   *
+   * Das gibt keinen Zugang preis, den der Aufrufer nicht schon hätte: wer den `webToken` hält,
+   * spricht bereits mit dem Agenten. Ihn abtippen zu lassen, was der Gateway ohnehin kennt,
+   * wäre eine Hürde ohne Gegenwert — und eine, die auf jedem neuen Gerät wiederkäme.
+   */
+  voiceSessionToken: string;
 }
 
 /**
@@ -410,6 +420,7 @@ export function identityFromEnv(env: NodeJS.ProcessEnv = process.env): GatewayId
       .map((entry) => entry.trim())
       .filter((entry) => entry.length > 0),
     voiceToken: env.VOICE_BRIDGE_TOKEN?.trim() ?? "",
+    voiceSessionToken: env.VOICE_SESSION_TOKEN?.trim() ?? "",
   };
 }
 

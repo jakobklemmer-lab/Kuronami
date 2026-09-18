@@ -1,4 +1,5 @@
 import { createApiClient } from "./api/client.js";
+import { resolveBackendOrigin } from "./backend-origin.js";
 import { createComposer } from "./compose.js";
 import { createEventBus } from "./events/bus.js";
 import { mountMicButton } from "./mic/button.js";
@@ -58,15 +59,17 @@ function main(): void {
 
   const toast = createToast(toastEl);
 
-  // Der Port des Backends lässt sich über `?events=3005` überschreiben (S21 ff.).
+  // Der Port des Backends lässt sich über `?events=3005` überschreiben (S21 ff.); hinter dem
+  // Reverse-Proxy (Nachtrag 2026-09-16) löst `resolveBackendOrigin` stattdessen die
+  // gateway.-Subdomain auf, siehe dort.
   const params = new URLSearchParams(globalThis.location.search);
-  const backendPort = params.get("events") ?? "3000";
   const hostname = globalThis.location.hostname || "localhost";
-  const backendOrigin = `http://${hostname}:${backendPort}`;
-  const bus = createEventBus({ url: `ws://${hostname}:${backendPort}/events` });
-  const api = createApiClient({ baseUrl: backendOrigin, token: () => loadToken() });
+  const isSecure = globalThis.location.protocol === "https:";
+  const backend = resolveBackendOrigin(hostname, isSecure, params.get("events"));
+  const bus = createEventBus({ url: backend.ws });
+  const api = createApiClient({ baseUrl: backend.http, token: () => loadToken() });
   const mic = createMicStateStore();
-  const composer = createComposer(composerEl, api);
+  const composer = createComposer(composerEl, api, bus);
 
   void applyAppearance(loadSettings(), sceneEl);
   settingsBus.subscribe((settings) => void applyAppearance(settings, sceneEl));
@@ -95,13 +98,30 @@ function main(): void {
    * Pipecat-Prozess statt nur den Zustand umzuschalten; Adresse und Sitzungsgeheimnis kommen
    * bei **jedem** Druck frisch aus den Einstellungen, damit eine Änderung dort sofort gilt.
    *
+   * Steht dort nichts (der Normalfall, Nachtrag 2026-09-16), richtet sich die Sitzung selbst
+   * ein: die Adresse leitet `resolveBackendOrigin` aus dem eigenen Hostnamen ab, das
+   * Sitzungsgeheimnis holt der Gateway aus seiner `.env` (`GET /channels/web/voice`). Es auf
+   * jedem Gerät abzutippen wäre eine Hürde ohne Gegenwert — wer die Seite überhaupt bedienen
+   * kann, hält bereits den mächtigeren Verbindungs-Token.
+   *
    * Läuft kein Sprachprozess, sagt der Knopf das genauso ehrlich wie die Karten es tun, wenn
    * kein Gateway läuft — kein stiller Nichtstuer.
    */
+  let voiceSessionToken: string | null = null;
+  void api
+    .get<{ configured: boolean; sessionToken: string | null }>("/channels/web/voice")
+    .then((config) => {
+      voiceSessionToken = config.sessionToken;
+    })
+    .catch(() => {
+      // Kein Gateway, kein Token — der Mic-Knopf sagt es beim Druck. Ein Fehler beim Laden der
+      // Seite wäre der falsche Ort dafür: die Sprachschicht ist nicht die Seite.
+    });
+
   const voice = createVoiceController({
     mic,
-    url: loadSettings().speech.endpoint ?? undefined,
-    token: () => loadSettings().speech.sessionToken,
+    url: () => loadSettings().speech.endpoint ?? backend.voiceWs,
+    token: () => loadSettings().speech.sessionToken ?? voiceSessionToken,
     notify: (message) => toast.show(message),
     onTranscript: (text, final) => {
       if (final && text.length > 0) toast.show(`Verstanden: „${text}"`);

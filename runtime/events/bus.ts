@@ -147,11 +147,24 @@ export interface EventSocketHandle {
 
 const LOCAL_ORIGIN = /^https?:\/\/(localhost|127\.0\.0\.1|\[::1\])(:\d+)?$/;
 
+/**
+ * Herkünfte jenseits von localhost, die trotzdem vertraut sind — etwa die Oberfläche auf einem
+ * Server, den man über die öffentliche IP statt über einen Tunnel erreicht. Kommagetrennt in
+ * `EVENTS_ALLOWED_ORIGINS`, gelesen wie `EVENTS_PORT` direkt aus der Umgebung. Leer = niemand
+ * zusätzlich, unverändert die alte Vorgabe (nur localhost).
+ */
+function extraAllowedOrigins(): readonly string[] {
+  return (process.env.EVENTS_ALLOWED_ORIGINS ?? "")
+    .split(",")
+    .map((entry) => entry.trim())
+    .filter((entry) => entry.length > 0);
+}
+
 /** Ein Aufruf ohne `Origin` kommt nicht aus einem Browser (curl, Test, Tauri) und ist erlaubt. */
 export function originAllowed(origin: string | undefined, allowed?: readonly string[]): boolean {
   if (origin === undefined || origin === "") return true;
   if (allowed !== undefined) return allowed.includes(origin);
-  return LOCAL_ORIGIN.test(origin);
+  return LOCAL_ORIGIN.test(origin) || extraAllowedOrigins().includes(origin);
 }
 
 /**

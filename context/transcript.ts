@@ -270,6 +270,15 @@ export function deriveLoopState(events: EventRecord[]): LoopState {
 
       case "tool.completed": {
         const callId = requireString(event.payload, "call_id", event.type);
+        // Nur Aufrufe, die das Modell in diesem Zug als `tool_use` angekündigt hat (also in
+        // `pending` stehen), werden zu einem `tool_result`. Ein Aufruf ohne vorangehenden
+        // `tool_use` ergäbe ein verwaistes `tool_result`, und das weist der Anbieter mit 400 ab
+        // ("unexpected tool_use_id ... Each tool_result block must have a corresponding
+        // tool_use block"). Der Fall im Betrieb: die Nachlauf-Zusammenfassung ins Gedächtnis
+        // (`tools/memory/summary.ts`, `memory.write` mit `origin: "run_summary"`), die **nach**
+        // `turn.completed` läuft — sie ist ein Systemaufruf, kein Zug des Modells, und `pending`
+        // ist zu diesem Zeitpunkt bereits geleert.
+        if (!pending.some((entry) => entry.callId === callId)) break;
         const stepId = event.payload.step_id;
         let hull: JsonValue;
         if (typeof stepId === "string") {
@@ -287,14 +296,14 @@ export function deriveLoopState(events: EventRecord[]): LoopState {
         break;
       }
 
-      case "tool.failed":
-        recordOutcome(
-          requireString(event.payload, "call_id", event.type),
-          errorHull(event.payload),
-          true,
-          event.seq,
-        );
+      case "tool.failed": {
+        const callId = requireString(event.payload, "call_id", event.type);
+        // Dieselbe Bedingung wie bei `tool.completed`: ein Aufruf ohne vorangehenden `tool_use`
+        // gehört nicht in die Historie, gleich ob er glückte oder scheiterte.
+        if (!pending.some((entry) => entry.callId === callId)) break;
+        recordOutcome(callId, errorHull(event.payload), true, event.seq);
         break;
+      }
 
       // Alles Übrige sagt nichts über die Historie. Wie in `deriveSessionState`: ein
       // unbekannter Typ ist kein Fehler, die Taxonomie wächst.

@@ -46,6 +46,21 @@ describe("createApiClient", () => {
     await expect(client.get("/runs")).rejects.toThrow("Token stimmt nicht.");
   });
 
+  it("schickt DELETE mit dem Token als Bearer-Header", async () => {
+    let seenMethod: string | undefined;
+    const client = createApiClient({
+      baseUrl: "http://x",
+      token: () => "abc",
+      fetchImpl: fakeFetch((_url, init) => {
+        seenMethod = init.method;
+        return new Response(JSON.stringify({ deleted: true }), { status: 200 });
+      }),
+    });
+    const body = await client.delete<{ deleted: boolean }>("/settings/mcp-servers/x");
+    expect(seenMethod).toBe("DELETE");
+    expect(body.deleted).toBe(true);
+  });
+
   it("markiert einen Netzwerkfehler als solchen", async () => {
     const client = createApiClient({
       baseUrl: "http://x",

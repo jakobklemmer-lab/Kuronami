@@ -2,7 +2,7 @@
   "id": "kuronamiCalList01",
   "name": "cal.list",
   "meta": {
-    "description": "Kuronami S15: Termine in einem Zeitbereich lesen. Eingabe { start, end, calendar?, limit? } (ISO 8601). Ausgabe { events: [{ id, title, start, end, all_day, location, calendar, status, description }] }. Provider-Knoten ist Google Calendar (getAll, LESEN); fuer CalDAV/Outlook austauschen, die Code-Knoten-Vertraege bleiben."
+    "description": "Kuronami S15 + Nachtrag 2026-09-16 (Mehrkonten): Termine in einem Zeitbereich lesen. Eingabe { start, end, calendar?, limit? } (ISO 8601). Fragt alle fuenf konfigurierten Konten (drei Google-Kalender, zwei Outlook-Kalender) parallel ab und fuehrt die Termine zusammen; die id jedes Termins traegt ein Konto-Praefix, das cal-update.json beim Aendern auswertet. Der `calendar`-Parameter wirkt nur auf die Google-Zweige (providerübergreifend nicht abbildbar)."
   },
   "nodes": [
     {
@@ -12,19 +12,19 @@
         "responseMode": "responseNode",
         "options": {}
       },
-      "id": "d3a10001-0001-4a00-8000-000000000001",
+      "id": "cl0001-0000-4a00-8000-000000000001",
       "name": "Webhook",
       "type": "n8n-nodes-base.webhook",
       "typeVersion": 2,
       "position": [240, 300],
-      "webhookId": "d3a10001-0001-4a00-8000-000000000001"
+      "webhookId": "cl0001-0000-4a00-8000-000000000001"
     },
     {
       "parameters": {
         "mode": "runOnceForAllItems",
         "jsCode": "// Eingabe der Runtime: { start, end, calendar?, limit? }\nconst incoming = $input.first().json;\nconst inp = incoming.body && typeof incoming.body === 'object' ? incoming.body : incoming;\nif (typeof inp.start !== 'string' || typeof inp.end !== 'string') {\n  throw new Error('cal-list: Felder \"start\" und \"end\" (ISO 8601) sind erforderlich');\n}\nreturn [{ json: {\n  timeMin: inp.start,\n  timeMax: inp.end,\n  calendar: typeof inp.calendar === 'string' && inp.calendar ? inp.calendar : 'primary',\n  limit: Number.isFinite(Number(inp.limit)) ? Number(inp.limit) : 100\n} }];"
       },
-      "id": "d3a10001-0002-4a00-8000-000000000002",
+      "id": "cl0002-0000-4a00-8000-000000000002",
       "name": "Read range",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
@@ -43,42 +43,387 @@
           "orderBy": "startTime"
         }
       },
-      "id": "d3a10001-0003-4a00-8000-000000000003",
-      "name": "Google Calendar: getAll",
+      "id": "cl0100-0000-4a00-8000-000000000100",
+      "name": "Gmail 1: getAll",
       "type": "n8n-nodes-base.googleCalendar",
       "typeVersion": 1,
-      "position": [680, 300],
-      "notes": "Nur LESEN (event:getAll). Kein create, kein update."
+      "position": [680, 60],
+      "notes": "Google-Kalender des Kontos Gmail 1 — eigene Google-Calendar-Zugangsdaten in diesem Knoten hinterlegen (getrennt von der Gmail-Zugangsdaten desselben Kontos). Nur LESEN.",
+      "onError": "continueRegularOutput"
     },
     {
       "parameters": {
         "mode": "runOnceForAllItems",
-        "jsCode": "// Alle Termine in die von der Runtime erwartete Form bringen.\nconst events = $input.all().map((item) => {\n  const e = item.json || {};\n  const start = (e.start && (e.start.dateTime || e.start.date)) || e.start || '';\n  const end = (e.end && (e.end.dateTime || e.end.date)) || e.end || '';\n  return {\n    id: String(e.id || ''),\n    title: e.summary || '(kein Titel)',\n    start,\n    end,\n    all_day: !!(e.start && e.start.date && !e.start.dateTime),\n    location: e.location || '',\n    calendar: (e.organizer && e.organizer.email) || e.calendarId || '',\n    status: e.status || '',\n    description: e.description || ''\n  };\n});\nreturn [{ json: { events } }];"
+        "jsCode": "return $input.all().map((item) => ({ json: { ...item.json, _account: 'gmail_1' } }));"
       },
-      "id": "d3a10001-0004-4a00-8000-000000000004",
+      "id": "cl0200-0000-4a00-8000-000000000200",
+      "name": "Tag gmail_1",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [900, 60]
+    },
+    {
+      "parameters": {
+        "operation": "getAll",
+        "calendar": "={{ $json.calendar }}",
+        "returnAll": false,
+        "limit": "={{ $json.limit }}",
+        "options": {
+          "timeMin": "={{ $json.timeMin }}",
+          "timeMax": "={{ $json.timeMax }}",
+          "singleEvents": true,
+          "orderBy": "startTime"
+        }
+      },
+      "id": "cl0101-0000-4a00-8000-000000000101",
+      "name": "Gmail 2: getAll",
+      "type": "n8n-nodes-base.googleCalendar",
+      "typeVersion": 1,
+      "position": [680, 200],
+      "notes": "Google-Kalender des Kontos Gmail 2 — eigene Google-Calendar-Zugangsdaten in diesem Knoten hinterlegen (getrennt von der Gmail-Zugangsdaten desselben Kontos). Nur LESEN.",
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "return $input.all().map((item) => ({ json: { ...item.json, _account: 'gmail_2' } }));"
+      },
+      "id": "cl0201-0000-4a00-8000-000000000201",
+      "name": "Tag gmail_2",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [900, 200]
+    },
+    {
+      "parameters": {
+        "operation": "getAll",
+        "calendar": "={{ $json.calendar }}",
+        "returnAll": false,
+        "limit": "={{ $json.limit }}",
+        "options": {
+          "timeMin": "={{ $json.timeMin }}",
+          "timeMax": "={{ $json.timeMax }}",
+          "singleEvents": true,
+          "orderBy": "startTime"
+        }
+      },
+      "id": "cl0102-0000-4a00-8000-000000000102",
+      "name": "Gmail 3: getAll",
+      "type": "n8n-nodes-base.googleCalendar",
+      "typeVersion": 1,
+      "position": [680, 340],
+      "notes": "Google-Kalender des Kontos Gmail 3 — eigene Google-Calendar-Zugangsdaten in diesem Knoten hinterlegen (getrennt von der Gmail-Zugangsdaten desselben Kontos). Nur LESEN.",
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "return $input.all().map((item) => ({ json: { ...item.json, _account: 'gmail_3' } }));"
+      },
+      "id": "cl0202-0000-4a00-8000-000000000202",
+      "name": "Tag gmail_3",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [900, 340]
+    },
+    {
+      "parameters": {
+        "resource": "event",
+        "operation": "getAll",
+        "fromAllCalendars": true,
+        "includeRecurringInstances": true,
+        "startDateTime": "={{ $json.timeMin }}",
+        "endDateTime": "={{ $json.timeMax }}",
+        "returnAll": false,
+        "limit": "={{ $json.limit }}",
+        "output": "fields",
+        "fields": [
+          "id",
+          "subject",
+          "bodyPreview",
+          "start",
+          "end",
+          "isAllDay",
+          "location",
+          "organizer",
+          "webLink"
+        ]
+      },
+      "id": "cl0103-0000-4a00-8000-000000000103",
+      "name": "Outlook 1: getAll",
+      "type": "n8n-nodes-base.microsoftOutlook",
+      "typeVersion": 2,
+      "position": [680, 480],
+      "notes": "Konto Outlook 1 — eigene Outlook-Zugangsdaten in diesem Knoten hinterlegen. fromAllCalendars=true: der Google-spezifische `calendar`-Parameter greift hier nicht (providerübergreifend nicht abbildbar). Nur LESEN.",
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "return $input.all().map((item) => ({ json: { ...item.json, _account: 'outlook_1' } }));"
+      },
+      "id": "cl0203-0000-4a00-8000-000000000203",
+      "name": "Tag outlook_1",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [900, 480]
+    },
+    {
+      "parameters": {
+        "resource": "event",
+        "operation": "getAll",
+        "fromAllCalendars": true,
+        "includeRecurringInstances": true,
+        "startDateTime": "={{ $json.timeMin }}",
+        "endDateTime": "={{ $json.timeMax }}",
+        "returnAll": false,
+        "limit": "={{ $json.limit }}",
+        "output": "fields",
+        "fields": [
+          "id",
+          "subject",
+          "bodyPreview",
+          "start",
+          "end",
+          "isAllDay",
+          "location",
+          "organizer",
+          "webLink"
+        ]
+      },
+      "id": "cl0104-0000-4a00-8000-000000000104",
+      "name": "Outlook 2: getAll",
+      "type": "n8n-nodes-base.microsoftOutlook",
+      "typeVersion": 2,
+      "position": [680, 620],
+      "notes": "Konto Outlook 2 — eigene Outlook-Zugangsdaten in diesem Knoten hinterlegen. fromAllCalendars=true: der Google-spezifische `calendar`-Parameter greift hier nicht (providerübergreifend nicht abbildbar). Nur LESEN.",
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "return $input.all().map((item) => ({ json: { ...item.json, _account: 'outlook_2' } }));"
+      },
+      "id": "cl0204-0000-4a00-8000-000000000204",
+      "name": "Tag outlook_2",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [900, 620]
+    },
+    {
+      "parameters": {
+        "mode": "append",
+        "numberInputs": 5
+      },
+      "id": "cl0300-0000-4a00-8000-000000000300",
+      "name": "Merge",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3.2,
+      "position": [1120, 340],
+      "notes": "Haengt die Terminlisten aller Konten aneinander."
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "// Alle Termine in die von der Runtime erwartete Form bringen. Die id traegt die\n// Konto-Kennung als Praefix (cal-update.json wertet sie aus).\nconst events = $input.all().map((item) => {\n  const e = item.json || {};\n  const account = e._account || 'gmail_1';\n  const isOutlook = account.startsWith('outlook');\n  if (isOutlook) {\n    const org = (e.organizer && e.organizer.emailAddress && e.organizer.emailAddress.address) || '';\n    return {\n      id: account + ':' + String(e.id || ''),\n      title: e.subject || '(kein Titel)',\n      start: (e.start && e.start.dateTime) || '',\n      end: (e.end && e.end.dateTime) || '',\n      all_day: e.isAllDay === true,\n      location: (e.location && e.location.displayName) || '',\n      calendar: org,\n      status: '',\n      description: e.bodyPreview || '',\n      account\n    };\n  }\n  const start = (e.start && (e.start.dateTime || e.start.date)) || e.start || '';\n  const end = (e.end && (e.end.dateTime || e.end.date)) || e.end || '';\n  return {\n    id: account + ':' + String(e.id || ''),\n    title: e.summary || '(kein Titel)',\n    start,\n    end,\n    all_day: !!(e.start && e.start.date && !e.start.dateTime),\n    location: e.location || '',\n    calendar: (e.organizer && e.organizer.email) || e.calendarId || '',\n    status: e.status || '',\n    description: e.description || '',\n    account\n  };\n});\nreturn [{ json: { events } }];"
+      },
+      "id": "cl0301-0000-4a00-8000-000000000301",
       "name": "Shape events",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [900, 300]
+      "position": [1340, 340]
     },
     {
-      "parameters": { "respondWith": "firstIncomingItem", "options": {} },
-      "id": "d3a10001-0005-4a00-8000-000000000005",
+      "parameters": {
+        "respondWith": "firstIncomingItem",
+        "options": {}
+      },
+      "id": "cl0302-0000-4a00-8000-000000000302",
       "name": "Respond to Webhook",
       "type": "n8n-nodes-base.respondToWebhook",
       "typeVersion": 1,
-      "position": [1120, 300]
+      "position": [1560, 340]
     }
   ],
   "connections": {
-    "Webhook": { "main": [[{ "node": "Read range", "type": "main", "index": 0 }]] },
-    "Read range": { "main": [[{ "node": "Google Calendar: getAll", "type": "main", "index": 0 }]] },
-    "Google Calendar: getAll": {
-      "main": [[{ "node": "Shape events", "type": "main", "index": 0 }]]
+    "Webhook": {
+      "main": [
+        [
+          {
+            "node": "Read range",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     },
-    "Shape events": { "main": [[{ "node": "Respond to Webhook", "type": "main", "index": 0 }]] }
+    "Read range": {
+      "main": [
+        [
+          {
+            "node": "Gmail 1: getAll",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Gmail 2: getAll",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Gmail 3: getAll",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Outlook 1: getAll",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Outlook 2: getAll",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Merge": {
+      "main": [
+        [
+          {
+            "node": "Shape events",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Gmail 1: getAll": {
+      "main": [
+        [
+          {
+            "node": "Tag gmail_1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Tag gmail_1": {
+      "main": [
+        [
+          {
+            "node": "Merge",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Gmail 2: getAll": {
+      "main": [
+        [
+          {
+            "node": "Tag gmail_2",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Tag gmail_2": {
+      "main": [
+        [
+          {
+            "node": "Merge",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Gmail 3: getAll": {
+      "main": [
+        [
+          {
+            "node": "Tag gmail_3",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Tag gmail_3": {
+      "main": [
+        [
+          {
+            "node": "Merge",
+            "type": "main",
+            "index": 2
+          }
+        ]
+      ]
+    },
+    "Outlook 1: getAll": {
+      "main": [
+        [
+          {
+            "node": "Tag outlook_1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Tag outlook_1": {
+      "main": [
+        [
+          {
+            "node": "Merge",
+            "type": "main",
+            "index": 3
+          }
+        ]
+      ]
+    },
+    "Outlook 2: getAll": {
+      "main": [
+        [
+          {
+            "node": "Tag outlook_2",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Tag outlook_2": {
+      "main": [
+        [
+          {
+            "node": "Merge",
+            "type": "main",
+            "index": 4
+          }
+        ]
+      ]
+    },
+    "Shape events": {
+      "main": [
+        [
+          {
+            "node": "Respond to Webhook",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
   },
   "active": false,
-  "settings": { "executionOrder": "v1" },
+  "settings": {
+    "executionOrder": "v1"
+  },
   "tags": []
 }

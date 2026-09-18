@@ -45,6 +45,16 @@ describe("normalizeSettings", () => {
     expect(result.speech.bargeIn).toBe(DEFAULT_SETTINGS.speech.bargeIn);
     expect(result.models).toEqual(DEFAULT_SETTINGS.models);
   });
+
+  it("behält eine leere Beobachtungsliste und wirft Fremdes aus ihr heraus", () => {
+    expect(normalizeSettings({ markets: { watchlist: [] } }).markets.watchlist).toEqual([]);
+    expect(
+      normalizeSettings({ markets: { watchlist: ["AAPL", 7, null] } }).markets.watchlist,
+    ).toEqual(["AAPL"]);
+    expect(normalizeSettings({ markets: {} }).markets.watchlist).toEqual(
+      DEFAULT_SETTINGS.markets.watchlist,
+    );
+  });
 });
 
 describe("loadSettings/saveSettings", () => {

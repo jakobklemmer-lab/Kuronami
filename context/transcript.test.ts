@@ -279,6 +279,40 @@ describe("Historie · Faltung über das Protokoll", () => {
     expect(state.messages).toHaveLength(1);
   });
 
+  it("überspringt einen Aufruf ohne vorangehenden tool_use (Nachlauf-Zusammenfassung)", () => {
+    // Der Fall aus dem Betrieb (2026-09-16): `summarizeRun` schreibt nach `turn.completed` eine
+    // Notiz über `memory.write` (origin run_summary, call_id `memory_summary_<turn>`). Das
+    // erzeugt ein `tool.completed`, das zu keinem `tool_use` des Modells gehört. Ohne die
+    // pending-Prüfung landete es als verwaistes `tool_result` in der Historie und die nächste
+    // Anfrage scheiterte mit 400.
+    const state = deriveLoopState([
+      turnStarted("turn_1", "los"),
+      modelResponded("turn_1", [{ callId: "call_1", toolName: "fs.write" }]),
+      stepCompleted("step_1", okHull("geschrieben")),
+      toolCompleted("call_1", "step_1"),
+      modelResponded("turn_1", []),
+      ev("turn.completed", { turn_id: "turn_1", stop: "end_turn" }),
+      // Nach dem Zug: die Zusammenfassung. Kein tool_use ging ihr voraus.
+      ev("tool.requested", {
+        call_id: "memory_summary_turn_1",
+        tool_name: "memory.write",
+        origin: "run_summary",
+      }),
+      toolCompleted("memory_summary_turn_1", null, okHull("Notiz abgelegt")),
+      turnStarted("turn_2", "weiter"),
+    ]);
+
+    const hasOrphan = state.messages.some((message) =>
+      message.content.some(
+        (block) =>
+          (block as { type?: string }).type === "tool_result" &&
+          (block as { tool_use_id?: string }).tool_use_id === "memory_summary_turn_1",
+      ),
+    );
+    expect(hasOrphan).toBe(false);
+    expect(() => assertSendable(state.messages)).not.toThrow();
+  });
+
   it("wirft, wenn ein tool.completed auf einen Schritt ohne Ergebnis zeigt", () => {
     expect(() =>
       deriveLoopState([

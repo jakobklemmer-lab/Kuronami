@@ -563,6 +563,42 @@
 }
 .composer__reply--ask {
   color: var(--state-awaiting);
+  white-space: normal;
+}
+
+.composer__question {
+  margin: 0 0 10px;
+}
+
+.composer__choices {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.composer__choice {
+  flex: 1 1 auto;
+  padding: 8px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  font-size: var(--text-sm);
+  text-align: left;
+  color: var(--fg);
+}
+.composer__choice:hover {
+  border-color: var(--state-awaiting);
+  color: var(--state-awaiting);
+}
+
+.composer__live {
+  margin: 0 0 8px;
+  padding: 10px 12px;
+  border-radius: var(--radius-sm);
+  border-left: 2px solid var(--state-awaiting);
+  background: rgba(255, 255, 255, 0.04);
+  font-size: var(--text-sm);
+  color: var(--fg);
+  white-space: pre-wrap;
 }
 
 /* --------------------------------------------------------------------- */
@@ -571,7 +607,7 @@
 
 body[data-focus="on"] .sidebar,
 body[data-focus="on"] .cockpit__grid,
-body[data-focus="on"] .cockpit__footer,
+body[data-focus="on"] .band,
 body[data-focus="on"] .weather {
   opacity: 0;
   pointer-events: none;

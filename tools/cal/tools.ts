@@ -287,6 +287,20 @@ function writeConfirmation(
   };
 }
 
+/** Kalender-Konten, die `cal.create` kennt — der Workflow (`cal-create.json`) routet danach
+ * zum passenden Konto-Knoten (ein Filter je Konto, genau einer feuert). Dieselben fünf Konten
+ * wie bei `mail.*` (Mehrkonten-Nachtrag, 2026-09-16): drei Google-, zwei Outlook-Kalender.
+ * Google-Kalender-Zugangsdaten sind in n8n von den Gmail-Zugangsdaten desselben Kontos
+ * getrennt — ein eigener einmaliger Verbindungsschritt je Konto. */
+const CAL_ACCOUNTS = ["gmail_1", "gmail_2", "gmail_3", "outlook_1", "outlook_2"] as const;
+type CalAccount = (typeof CAL_ACCOUNTS)[number];
+
+function normalizeCalAccount(value: unknown): CalAccount {
+  return typeof value === "string" && (CAL_ACCOUNTS as readonly string[]).includes(value)
+    ? (value as CalAccount)
+    : "gmail_1";
+}
+
 async function createHandler(deps: CalToolDeps, inv: ToolInvocation): Promise<ToolOutput> {
   const title = typeof inv.input.title === "string" ? inv.input.title.trim() : "";
   const start = typeof inv.input.start === "string" ? inv.input.start.trim() : "";
@@ -294,10 +308,13 @@ async function createHandler(deps: CalToolDeps, inv: ToolInvocation): Promise<To
   if (title === "") throw new CalInputError('cal.create: Pflichtfeld "title" fehlt oder ist leer.');
   if (start === "") throw new CalInputError('cal.create: Pflichtfeld "start" fehlt oder ist leer.');
   if (end === "") throw new CalInputError('cal.create: Pflichtfeld "end" fehlt oder ist leer.');
+  const account = normalizeCalAccount(inv.input.account);
 
   const invocation = await deps.bridge.invoke({
     webhookPath: CAL_WEBHOOKS.create,
-    input: compactInput(inv.input),
+    // `account` immer als gültiger Wert dabei, auch wenn das Modell ihn wegließ — derselbe
+    // Grund wie bei mail.draft: der Workflow verlässt sich darauf.
+    input: compactInput({ ...inv.input, account }),
     // Ein zweiter Anlauf legte einen zweiten Termin an. Nicht wiederholbar — wie mail.draft.
     repeatable: false,
     signal: inv.signal,
@@ -351,7 +368,7 @@ export function createCalTools(deps: CalToolDeps): ToolDefinition[] {
     {
       name: "cal.list",
       description:
-        "Listet Kalender-Termine in einem Zeitbereich. Ohne start/end wird die laufende Woche (Montag–Montag) genommen. In den Kontext geht eine knappe Terminliste; die vollständige Liste mit allen Feldern liegt als Artefakt-Handle bei.",
+        "Listet Kalender-Termine aller konfigurierten Konten (mehrere Google- und Outlook-Kalender) in einem Zeitbereich. Ohne start/end wird die laufende Woche (Montag–Montag) genommen. In den Kontext geht eine knappe Terminliste; die vollständige Liste mit allen Feldern liegt als Artefakt-Handle bei.",
       risk: "read",
       repeatable: true,
       // Assistenz-Tool (Abschnitt 9), nicht Kern-Primitiv — verzögertes Laden (S18b).
@@ -414,7 +431,14 @@ export function createCalTools(deps: CalToolDeps): ToolDefinition[] {
           attendees: {
             type: "string",
             required: false,
-            description: "Teilnehmer-Adressen, kommagetrennt.",
+            description:
+              "Teilnehmer-Adressen, kommagetrennt. Wird nur bei Google-Kalender-Konten gesetzt (offene Lücke bei Outlook).",
+          },
+          account: {
+            type: "string",
+            required: false,
+            description:
+              'Welcher Kalender: eines von "gmail_1", "gmail_2", "gmail_3", "outlook_1", "outlook_2". Vorgabe: "gmail_1".',
           },
         },
       },

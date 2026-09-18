@@ -90,9 +90,10 @@ describe("Modellanbindung · was beim Anbieter ankommt", () => {
       required: ["path"],
       additionalProperties: false,
     });
-    // `strict` macht aus der Schemaprüfung im Router eine Zusage schon beim Anbieter: ein
-    // Zug, der nur an einem fehlenden Feld scheitert, kostet keinen Schritt.
-    expect(tools.every((entry) => entry.strict === true)).toBe(true);
+    // Kein `strict: true` (Fund vom 2026-09-16): beim vollen Katalog (23 Tools) lehnte die
+    // API strict-Aufrufe mit "compiled grammar is too large" ab. Die Schemaprüfung bleibt
+    // Sache des Routers (S07), nicht des Anbieters.
+    expect(tools.every((entry) => entry.strict === undefined)).toBe(true);
   });
 
   it("setzt die drei Cache-Marken genau dort, wo das Kontext-System sie bestimmt hat", async () => {

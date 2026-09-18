@@ -2,7 +2,7 @@
   "id": "kuronamiCalCreate01",
   "name": "cal.create",
   "meta": {
-    "description": "Kuronami S15: einen Termin anlegen. Eingabe { title, start, end, location?, description?, calendar?, attendees? }. Ausgabe { event_id, html_link, calendar, created: true }. Der Runtime-Aufruf ist hard_write und pausiert VOR diesem Workflow fuer eine Freigabe. Provider-Knoten ist Google Calendar (event:create)."
+    "description": "Kuronami S15 + Nachtrag 2026-09-16 (Mehrkonten): einen Termin anlegen. Eingabe { title, start, end, location?, description?, calendar?, attendees?, account? }. Routet nach `account` (gmail_1/gmail_2/gmail_3/outlook_1/outlook_2, von tools/cal/tools.ts immer gesetzt) zum passenden Konto-Knoten. Der Runtime-Aufruf ist hard_write und pausiert VOR diesem Workflow fuer eine Freigabe. Teilnehmer werden bei den Outlook-Zweigen noch nicht gesetzt (offene Luecke, kein Versehen)."
   },
   "nodes": [
     {
@@ -12,23 +12,54 @@
         "responseMode": "responseNode",
         "options": {}
       },
-      "id": "d3a20001-0001-4a00-8000-000000000001",
+      "id": "cc0001-0000-4a00-8000-000000000001",
       "name": "Webhook",
       "type": "n8n-nodes-base.webhook",
       "typeVersion": 2,
       "position": [240, 300],
-      "webhookId": "d3a20001-0001-4a00-8000-000000000001"
+      "webhookId": "cc0001-0000-4a00-8000-000000000001"
     },
     {
       "parameters": {
         "mode": "runOnceForAllItems",
-        "jsCode": "// Eingabe der Runtime: { title, start, end, location?, description?, calendar?, attendees? }\nconst incoming = $input.first().json;\nconst inp = incoming.body && typeof incoming.body === 'object' ? incoming.body : incoming;\nfor (const field of ['title', 'start', 'end']) {\n  if (typeof inp[field] !== 'string' || inp[field].trim() === '') {\n    throw new Error('cal-create: Feld \"' + field + '\" fehlt');\n  }\n}\nconst attendees = typeof inp.attendees === 'string' && inp.attendees\n  ? inp.attendees.split(',').map((a) => a.trim()).filter(Boolean)\n  : [];\nreturn [{ json: {\n  calendar: typeof inp.calendar === 'string' && inp.calendar ? inp.calendar : 'primary',\n  summary: inp.title,\n  start: inp.start,\n  end: inp.end,\n  location: inp.location || '',\n  description: inp.description || '',\n  attendees\n} }];"
+        "jsCode": "// Eingabe der Runtime: { title, start, end, location?, description?, calendar?, attendees?, account? }\nconst incoming = $input.first().json;\nconst inp = incoming.body && typeof incoming.body === 'object' ? incoming.body : incoming;\nfor (const field of ['title', 'start', 'end']) {\n  if (typeof inp[field] !== 'string' || inp[field].trim() === '') {\n    throw new Error('cal-create: Feld \"' + field + '\" fehlt');\n  }\n}\nconst attendees = typeof inp.attendees === 'string' && inp.attendees\n  ? inp.attendees.split(',').map((a) => a.trim()).filter(Boolean)\n  : [];\nconst knownAccounts = ['gmail_1', 'gmail_2', 'gmail_3', 'outlook_1', 'outlook_2'];\nconst account = knownAccounts.includes(inp.account) ? inp.account : 'gmail_1';\nreturn [{ json: {\n  calendar: typeof inp.calendar === 'string' && inp.calendar ? inp.calendar : 'primary',\n  summary: inp.title,\n  start: inp.start,\n  end: inp.end,\n  location: inp.location || '',\n  description: inp.description || '',\n  attendees,\n  attendeesForOutlook: attendees.map((email) => ({ email })),\n  account\n} }];"
       },
-      "id": "d3a20001-0002-4a00-8000-000000000002",
+      "id": "cc0002-0000-4a00-8000-000000000002",
       "name": "Read fields",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [460, 300]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "cc0400-0000-4a00-8000-000000000400-cond",
+              "leftValue": "={{ $json.account }}",
+              "rightValue": "gmail_1",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "cc0400-0000-4a00-8000-000000000400",
+      "name": "Is gmail_1?",
+      "type": "n8n-nodes-base.filter",
+      "typeVersion": 2.3,
+      "position": [680, 60],
+      "notes": "Laesst nur durch, wenn account == \"gmail_1\" ist — genau ein Zweig feuert je Aufruf."
     },
     {
       "parameters": {
@@ -42,44 +73,442 @@
           "description": "={{ $json.description }}"
         }
       },
-      "id": "d3a20001-0003-4a00-8000-000000000003",
-      "name": "Google Calendar: create",
+      "id": "cc0100-0000-4a00-8000-000000000100",
+      "name": "Gmail 1: create",
       "type": "n8n-nodes-base.googleCalendar",
       "typeVersion": 1,
-      "position": [680, 300],
-      "notes": "event:create. Kein delete-Knoten in diesem Workflow."
+      "position": [900, 60],
+      "notes": "Google-Kalender des Kontos Gmail 1 — eigene Google-Calendar-Zugangsdaten hinterlegen. event:create.",
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "cc0401-0000-4a00-8000-000000000401-cond",
+              "leftValue": "={{ $json.account }}",
+              "rightValue": "gmail_2",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "cc0401-0000-4a00-8000-000000000401",
+      "name": "Is gmail_2?",
+      "type": "n8n-nodes-base.filter",
+      "typeVersion": 2.3,
+      "position": [680, 200],
+      "notes": "Laesst nur durch, wenn account == \"gmail_2\" ist — genau ein Zweig feuert je Aufruf."
+    },
+    {
+      "parameters": {
+        "operation": "create",
+        "calendar": "={{ $json.calendar }}",
+        "start": "={{ $json.start }}",
+        "end": "={{ $json.end }}",
+        "additionalFields": {
+          "summary": "={{ $json.summary }}",
+          "location": "={{ $json.location }}",
+          "description": "={{ $json.description }}"
+        }
+      },
+      "id": "cc0101-0000-4a00-8000-000000000101",
+      "name": "Gmail 2: create",
+      "type": "n8n-nodes-base.googleCalendar",
+      "typeVersion": 1,
+      "position": [900, 200],
+      "notes": "Google-Kalender des Kontos Gmail 2 — eigene Google-Calendar-Zugangsdaten hinterlegen. event:create.",
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "cc0402-0000-4a00-8000-000000000402-cond",
+              "leftValue": "={{ $json.account }}",
+              "rightValue": "gmail_3",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "cc0402-0000-4a00-8000-000000000402",
+      "name": "Is gmail_3?",
+      "type": "n8n-nodes-base.filter",
+      "typeVersion": 2.3,
+      "position": [680, 340],
+      "notes": "Laesst nur durch, wenn account == \"gmail_3\" ist — genau ein Zweig feuert je Aufruf."
+    },
+    {
+      "parameters": {
+        "operation": "create",
+        "calendar": "={{ $json.calendar }}",
+        "start": "={{ $json.start }}",
+        "end": "={{ $json.end }}",
+        "additionalFields": {
+          "summary": "={{ $json.summary }}",
+          "location": "={{ $json.location }}",
+          "description": "={{ $json.description }}"
+        }
+      },
+      "id": "cc0102-0000-4a00-8000-000000000102",
+      "name": "Gmail 3: create",
+      "type": "n8n-nodes-base.googleCalendar",
+      "typeVersion": 1,
+      "position": [900, 340],
+      "notes": "Google-Kalender des Kontos Gmail 3 — eigene Google-Calendar-Zugangsdaten hinterlegen. event:create.",
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "cc0403-0000-4a00-8000-000000000403-cond",
+              "leftValue": "={{ $json.account }}",
+              "rightValue": "outlook_1",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "cc0403-0000-4a00-8000-000000000403",
+      "name": "Is outlook_1?",
+      "type": "n8n-nodes-base.filter",
+      "typeVersion": 2.3,
+      "position": [680, 480],
+      "notes": "Laesst nur durch, wenn account == \"outlook_1\" ist — genau ein Zweig feuert je Aufruf."
+    },
+    {
+      "parameters": {
+        "resource": "event",
+        "operation": "create",
+        "calendarId": {
+          "mode": "list",
+          "value": "",
+          "cachedResultName": ""
+        },
+        "subject": "={{ $json.summary }}",
+        "startDateTime": "={{ $json.start }}",
+        "endDateTime": "={{ $json.end }}",
+        "additionalFields": {
+          "body": "={{ $json.description }}",
+          "location": "={{ $json.location }}"
+        }
+      },
+      "id": "cc0103-0000-4a00-8000-000000000103",
+      "name": "Outlook 1: create",
+      "type": "n8n-nodes-base.microsoftOutlook",
+      "typeVersion": 2,
+      "position": [900, 480],
+      "notes": "Konto Outlook 1 — eigene Outlook-Zugangsdaten hinterlegen. event:create. `calendarId` einmalig im n8n-Editor auswaehlen (erst moeglich, sobald die Zugangsdaten verbunden sind — der Knoten kann keinen Kalender ohne Anmeldung auflisten). Teilnehmer (`attendees`) hier bewusst nicht gesetzt — offene Luecke.",
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "cc0404-0000-4a00-8000-000000000404-cond",
+              "leftValue": "={{ $json.account }}",
+              "rightValue": "outlook_2",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "cc0404-0000-4a00-8000-000000000404",
+      "name": "Is outlook_2?",
+      "type": "n8n-nodes-base.filter",
+      "typeVersion": 2.3,
+      "position": [680, 620],
+      "notes": "Laesst nur durch, wenn account == \"outlook_2\" ist — genau ein Zweig feuert je Aufruf."
+    },
+    {
+      "parameters": {
+        "resource": "event",
+        "operation": "create",
+        "calendarId": {
+          "mode": "list",
+          "value": "",
+          "cachedResultName": ""
+        },
+        "subject": "={{ $json.summary }}",
+        "startDateTime": "={{ $json.start }}",
+        "endDateTime": "={{ $json.end }}",
+        "additionalFields": {
+          "body": "={{ $json.description }}",
+          "location": "={{ $json.location }}"
+        }
+      },
+      "id": "cc0104-0000-4a00-8000-000000000104",
+      "name": "Outlook 2: create",
+      "type": "n8n-nodes-base.microsoftOutlook",
+      "typeVersion": 2,
+      "position": [900, 620],
+      "notes": "Konto Outlook 2 — eigene Outlook-Zugangsdaten hinterlegen. event:create. `calendarId` einmalig im n8n-Editor auswaehlen (erst moeglich, sobald die Zugangsdaten verbunden sind — der Knoten kann keinen Kalender ohne Anmeldung auflisten). Teilnehmer (`attendees`) hier bewusst nicht gesetzt — offene Luecke.",
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "mode": "append",
+        "numberInputs": 5
+      },
+      "id": "cc0300-0000-4a00-8000-000000000300",
+      "name": "Merge",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3.2,
+      "position": [1120, 340],
+      "notes": "Genau ein Zweig liefert je Aufruf ein Ergebnis (Filter oben) — append haengt es an."
     },
     {
       "parameters": {
         "mode": "runOnceForAllItems",
-        "jsCode": "const e = $input.first().json || {};\nreturn [{ json: {\n  event_id: String(e.id || ''),\n  html_link: e.htmlLink || '',\n  calendar: (e.organizer && e.organizer.email) || 'primary',\n  created: !!e.id\n} }];"
+        "jsCode": "// Google liefert htmlLink, Outlook webLink — daran unterscheiden wir die Antwortform,\n// ohne die Konto-Kennung extra durchreichen zu muessen (nur ein Zweig feuert je Aufruf).\nconst e = $input.first().json || {};\nconst isOutlook = typeof e.webLink === 'string';\nreturn [{ json: {\n  event_id: String(e.id || ''),\n  html_link: e.htmlLink || e.webLink || '',\n  calendar: isOutlook\n    ? ((e.organizer && e.organizer.emailAddress && e.organizer.emailAddress.address) || '')\n    : ((e.organizer && e.organizer.email) || 'primary'),\n  created: !!e.id\n} }];"
       },
-      "id": "d3a20001-0004-4a00-8000-000000000004",
+      "id": "cc0301-0000-4a00-8000-000000000301",
       "name": "Shape result",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [900, 300]
+      "position": [1340, 340]
     },
     {
-      "parameters": { "respondWith": "firstIncomingItem", "options": {} },
-      "id": "d3a20001-0005-4a00-8000-000000000005",
+      "parameters": {
+        "respondWith": "firstIncomingItem",
+        "options": {}
+      },
+      "id": "cc0302-0000-4a00-8000-000000000302",
       "name": "Respond to Webhook",
       "type": "n8n-nodes-base.respondToWebhook",
       "typeVersion": 1,
-      "position": [1120, 300]
+      "position": [1560, 340]
     }
   ],
   "connections": {
-    "Webhook": { "main": [[{ "node": "Read fields", "type": "main", "index": 0 }]] },
+    "Webhook": {
+      "main": [
+        [
+          {
+            "node": "Read fields",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
     "Read fields": {
-      "main": [[{ "node": "Google Calendar: create", "type": "main", "index": 0 }]]
+      "main": [
+        [
+          {
+            "node": "Is gmail_1?",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Is gmail_2?",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Is gmail_3?",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Is outlook_1?",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Is outlook_2?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     },
-    "Google Calendar: create": {
-      "main": [[{ "node": "Shape result", "type": "main", "index": 0 }]]
+    "Merge": {
+      "main": [
+        [
+          {
+            "node": "Shape result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     },
-    "Shape result": { "main": [[{ "node": "Respond to Webhook", "type": "main", "index": 0 }]] }
+    "Is gmail_1?": {
+      "main": [
+        [
+          {
+            "node": "Gmail 1: create",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Gmail 1: create": {
+      "main": [
+        [
+          {
+            "node": "Merge",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Is gmail_2?": {
+      "main": [
+        [
+          {
+            "node": "Gmail 2: create",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Gmail 2: create": {
+      "main": [
+        [
+          {
+            "node": "Merge",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Is gmail_3?": {
+      "main": [
+        [
+          {
+            "node": "Gmail 3: create",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Gmail 3: create": {
+      "main": [
+        [
+          {
+            "node": "Merge",
+            "type": "main",
+            "index": 2
+          }
+        ]
+      ]
+    },
+    "Is outlook_1?": {
+      "main": [
+        [
+          {
+            "node": "Outlook 1: create",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Outlook 1: create": {
+      "main": [
+        [
+          {
+            "node": "Merge",
+            "type": "main",
+            "index": 3
+          }
+        ]
+      ]
+    },
+    "Is outlook_2?": {
+      "main": [
+        [
+          {
+            "node": "Outlook 2: create",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Outlook 2: create": {
+      "main": [
+        [
+          {
+            "node": "Merge",
+            "type": "main",
+            "index": 4
+          }
+        ]
+      ]
+    },
+    "Shape result": {
+      "main": [
+        [
+          {
+            "node": "Respond to Webhook",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
   },
   "active": false,
-  "settings": { "executionOrder": "v1" },
+  "settings": {
+    "executionOrder": "v1"
+  },
   "tags": []
 }

@@ -3,6 +3,7 @@ import { deriveLoopState } from "../context/transcript.js";
 import { appendEvent, readEvents } from "../runtime/events/log.js";
 import type { LoopOutcome } from "../runtime/loop/api.js";
 import { type StoredAttachment, storeAttachments } from "./attachments.js";
+import { matchChoice } from "./choices.js";
 import type { Conversation, Conversations } from "./conversation.js";
 import type { Principal } from "./identity.js";
 import { type AskRoute, deriveAskRoutes, hasReceived } from "./routing.js";
@@ -296,6 +297,27 @@ export async function receiveMessage(
 
       const pending = await openAsks(deps, sessionId);
       if (pending.length > 0) {
+        // Wortlaut statt Klick (Nachtrag 2026-09-16, `choices.ts`): steht genau **eine** Frage
+        // offen und trifft die Nachricht eindeutig eine ihrer Optionen, ist sie die Antwort —
+        // per Tastatur wie per Stimme, wo es ohnehin nichts zu klicken gibt. Bei zwei offenen
+        // Fragen wäre jede Zuordnung geraten; dann bleibt es bei der Nachfrage.
+        if (pending.length === 1) {
+          const only = pending[0];
+          const choiceId = matchChoice(message.content, only.options);
+          if (choiceId !== null) {
+            return applyDecision(deps, conversation, principal, {
+              sender: origin,
+              askId: only.askId,
+              choiceId,
+              receivedAt: message.receivedAt,
+              // Eigene Kennung: die Nachricht selbst steht schon als `gateway.received` im
+              // Protokoll (der Wortlaut bleibt so nachvollziehbar), die Entscheidung ist ein
+              // zweites, davon unterscheidbares Ereignis.
+              externalId: `${message.externalId}:decision`,
+            });
+          }
+        }
+
         // Der Nutzer hat geschrieben, statt zu entscheiden. Die Nachricht wird **nicht**
         // verworfen und **nicht** zum Zug gemacht: sie bliebe sonst als Eingabe in einem Zug
         // hängen, der auf etwas ganz anderes wartet. Stattdessen wird gesagt, was offen ist.
@@ -360,35 +382,53 @@ export async function receiveDecision(
       return { sessionId, status: "rejected", reason: reply.text, delivered: [reply] };
     }
 
-    await appendEvent(
-      deps.pool,
-      sessionId,
-      "gateway.received",
-      receivedPayload("decision", origin, principal, decision.receivedAt, decision.externalId, {
-        ask_id: decision.askId,
-        choice_id: decision.choiceId,
-      }),
-    );
-
-    try {
-      // Wer entschieden hat, steht damit im `approval.granted` und in `kuronami.approvals` —
-      // der Freigabepfad aus Abschnitt 10 nennt den Auslöser, und der ist ab hier ein Mensch
-      // auf einem Kanal und nicht mehr "operator".
-      await conversation.runner.answer(
-        decision.askId,
-        decision.choiceId,
-        `${origin.channel}:${origin.channelUserId}`,
-      );
-    } catch (error) {
-      return reportFailure(deps, conversation, origin, "Entscheidung eintragen", error);
-    }
-
-    try {
-      return await dispatch(deps, conversation, await conversation.runner.run(), origin);
-    } catch (error) {
-      return reportFailure(deps, conversation, origin, "Lauf fortsetzen", error);
-    }
+    return applyDecision(deps, conversation, principal, decision);
   });
+}
+
+/**
+ * Trägt eine Entscheidung ein und setzt den Lauf fort. Läuft **innerhalb** von
+ * `conversation.serialize` — der Aufrufer hält die Sperre schon. Deshalb eine eigene Funktion
+ * statt eines Aufrufs von `receiveDecision`: die würde die Sperre ein zweites Mal nehmen und
+ * auf sich selbst warten.
+ */
+async function applyDecision(
+  deps: GatewayDeps,
+  conversation: Conversation,
+  principal: Principal,
+  decision: Pick<InboundDecision, "sender" | "askId" | "choiceId" | "receivedAt" | "externalId">,
+): Promise<GatewayOutcome> {
+  const sessionId = conversation.runner.session.sessionId;
+  const origin = decision.sender;
+
+  await appendEvent(
+    deps.pool,
+    sessionId,
+    "gateway.received",
+    receivedPayload("decision", origin, principal, decision.receivedAt, decision.externalId, {
+      ask_id: decision.askId,
+      choice_id: decision.choiceId,
+    }),
+  );
+
+  try {
+    // Wer entschieden hat, steht damit im `approval.granted` und in `kuronami.approvals` —
+    // der Freigabepfad aus Abschnitt 10 nennt den Auslöser, und der ist ab hier ein Mensch
+    // auf einem Kanal und nicht mehr "operator".
+    await conversation.runner.answer(
+      decision.askId,
+      decision.choiceId,
+      `${origin.channel}:${origin.channelUserId}`,
+    );
+  } catch (error) {
+    return reportFailure(deps, conversation, origin, "Entscheidung eintragen", error);
+  }
+
+  try {
+    return await dispatch(deps, conversation, await conversation.runner.run(), origin);
+  } catch (error) {
+    return reportFailure(deps, conversation, origin, "Lauf fortsetzen", error);
+  }
 }
 
 /**

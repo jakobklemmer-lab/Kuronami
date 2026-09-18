@@ -343,6 +343,7 @@ async function makeRig(
     slackSigningSecret: "slack-geheim",
     slackUserIds: [SLACK_USER],
     voiceToken: "voice-geheim",
+    voiceSessionToken: "",
   };
 
   const conversations = createConversations({
@@ -803,6 +804,35 @@ describe("Freigabeanfragen gehen an den passenden Kanal", () => {
     expect(second.delivered[0].kind).toBe("reply");
     const turns = (await rig.events()).filter((event) => event.type === "turn.started");
     expect(turns).toHaveLength(1);
+  });
+
+  it("nimmt eine getippte Antwort im Wortlaut als Entscheidung (Nachtrag 2026-09-16)", async () => {
+    // Der Fall, an dem die Web-Unterhaltung stillstand: der Nutzer tippt (oder spricht) die
+    // Antwort, statt zu klicken. Trifft sie eindeutig eine Option, ist sie die Entscheidung —
+    // derselbe strenge Abgleich wie in der Sprachbrücke (`gateway/choices.ts`).
+    const rig = await makeRig(reportScript);
+
+    const asked = await rig.webMessage("Schreib den Bericht.");
+    expect(asked.status).toBe("awaiting_user");
+
+    const answered = await rig.webMessage("Nur dieses eine Mal erlauben");
+
+    expect(answered.status).toBe("answered");
+    const events = await rig.events();
+    const types = events.map((event) => event.type);
+    expect(types).toContain("approval.granted");
+    expect(types).toContain("step.completed");
+    expect(types).toContain("turn.completed");
+
+    // Beides steht im Protokoll: der Wortlaut als Nachricht, die Zuordnung als Entscheidung.
+    const received = events.filter((event) => event.type === "gateway.received");
+    expect(received.map((event) => event.payload.kind)).toEqual(["message", "message", "decision"]);
+    const decision = received[2];
+    expect(decision.payload.channel).toBe("web");
+    expect(decision.payload.choice_id).toBe("once");
+    // Entschieden hat ein Mensch am Web-Kanal, nicht "operator" (Abschnitt 10).
+    const granted = events.find((event) => event.type === "approval.granted");
+    expect(String(granted?.payload.decided_by)).toMatch(/^web:/);
   });
 });
 
