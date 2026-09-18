@@ -45,6 +45,21 @@ import type { ChannelId, ChannelPort } from "./types.js";
 
 const SIGNALS = ["SIGINT", "SIGTERM"] as const;
 
+/**
+ * Wie ein Zug abgerechnet wird.
+ *
+ * Ohne `ANTHROPIC_API_KEY` meldet sich Claude Code mit der Anmeldung aus
+ * `~/.claude/.credentials.json` an — bei Jakob ein Pro-Abo. Das SDK rechnet die Token
+ * trotzdem in Dollar um, aber diese Zahl ist dann eine **Schätzung des Verbrauchs** und keine
+ * Rechnung. Sie so hinzuschreiben, als koste sie Geld, wäre irreführend: sie zählt gegen das
+ * Nutzungslimit des Abos, nicht gegen ein Guthaben.
+ */
+function abrechnung(usd: number): string {
+  return process.env.ANTHROPIC_API_KEY?.trim()
+    ? `$${usd.toFixed(4)}`
+    : `~$${usd.toFixed(4)} (Abo, nicht berechnet)`;
+}
+
 async function main(): Promise<void> {
   const identity = identityFromEnv();
   const available = configuredChannels(identity);
@@ -85,11 +100,14 @@ async function main(): Promise<void> {
         data: { session_id: agent.sessionId ?? "", turn_id: "", text },
       }),
     // Kosten pro Zug, sichtbar statt geschätzt. Das war der Anlass für den Wechsel.
+    // Ereignisse für die Präsenz-Oberfläche — dieselbe Leitung wie die Textstücke.
+    publish: (type, data) =>
+      eventBus.publish({ type, timestamp: new Date().toISOString(), data }),
     onUsage: (u) =>
       console.log(
         `[gateway] Zug: ${(u.dauerMs / 1000).toFixed(1)}s, ${u.zuege} Schritte, ` +
           `${u.eingabe} neu + ${u.cacheGelesen} gelesen + ${u.cacheGeschrieben} geschrieben, ` +
-          `${u.ausgabe} raus, $${u.kostenUsd.toFixed(4)}`,
+          `${u.ausgabe} raus, ${abrechnung(u.kostenUsd)}`,
       ),
   });
   await agent.start();

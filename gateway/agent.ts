@@ -9,6 +9,7 @@ import {
 } from "@anthropic-ai/claude-agent-sdk";
 import { KURO_PERSONA } from "../context/persona.js";
 import { redactText } from "../runtime/redaction/redact.js";
+import { BUEHNE_TOOLS, createBuehne } from "./buehne.js";
 import { BEAUFTRAGE_TOOL, createHaus } from "./haus.js";
 import { createSendePostfach } from "./postfach-werkzeuge.js";
 import { konten } from "./postfach.js";
@@ -54,7 +55,14 @@ const DEFAULT_WORKDIR = "/opt/kuronami/workspace";
  * Reibung, die das ganze System unbenutzbar macht. Schreiben innerhalb des Arbeitsbereichs
  * zählt dazu — es ist sein Schreibtisch.
  */
-const ALLOWED_WITHOUT_ASKING = ["WebSearch", "WebFetch", "Read", "Write", BEAUFTRAGE_TOOL];
+const ALLOWED_WITHOUT_ASKING = [
+  "WebSearch",
+  "WebFetch",
+  "Read",
+  "Write",
+  BEAUFTRAGE_TOOL,
+  ...BUEHNE_TOOLS,
+];
 
 /**
  * Werkzeuge, die **Kuro** nicht bekommt.
@@ -125,6 +133,13 @@ export interface AgentDeps {
   onDelta?(text: string): void;
   /** Kosten und Token nach jedem Zug, für die Anzeige in den Einstellungen. */
   onUsage?(usage: ZugKosten): void;
+  /**
+   * Ein Ereignis für die Oberfläche: `ui.zeige`/`ui.verberge` von der Bühne, `haus.arbeitet`/
+   * `haus.fertig`, wenn ein Bediensteter anfängt oder zurückkommt. Die Präsenz-Oberfläche
+   * macht daraus Bewegung im Wasser — ohne diesen Kanal wüsste sie nur vom Butler, nichts vom
+   * Personal.
+   */
+  publish?(type: string, data: Record<string, unknown>): void;
 }
 
 export interface ZugKosten {
@@ -164,6 +179,8 @@ export class KuroAgent {
   #laufend: Promise<unknown> = Promise.resolve();
   /** Das Personal, hinter einem Werkzeug. */
   readonly #haus: ReturnType<typeof createHaus>;
+  /** Die Bühne: womit Kuro Jakob etwas hinstellt. */
+  readonly #buehne: ReturnType<typeof createBuehne>;
   /** Wohin ein nachgereichter Bericht geht: dorthin, wo zuletzt jemand geschrieben hat. */
   #letzterSender: Sender | null = null;
 
@@ -180,6 +197,9 @@ export class KuroAgent {
           `[haus] ${wer} fertig nach ${(dauer / 1000).toFixed(1)}s, $${kosten.toFixed(4)}`,
         ),
       onNachgereicht: (wer, bericht) => void this.#trageNach(wer, bericht),
+    });
+    this.#buehne = createBuehne({
+      publish: (type, data) => deps.publish?.(type, data),
     });
   }
 
@@ -282,6 +302,7 @@ export class KuroAgent {
           // Katalog, und was sie lesen und denken, landet nicht in seinem Kontext.
           mcpServers: {
             haus: this.#haus,
+            buehne: this.#buehne,
             // Der Versand liegt bei Kuro, nicht beim Sekretär — und steht bewusst **nicht**
             // in `ALLOWED_WITHOUT_ASKING`. Er fragt also vor jeder Mail, die hinausgeht.
             ...(konten().length > 0 ? { versand: createSendePostfach() } : {}),

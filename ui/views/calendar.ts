@@ -43,7 +43,7 @@ export const calendarView: View = {
         if (!listEl) return;
         if (!data.connected) {
           if (subtitleEl) subtitleEl.textContent = "Kein Kalender verbunden";
-          listEl.innerHTML = `<li class="field__hint">Die Kalender-Workflows in n8n sind noch nicht aktiv — Google-Kalender-Zugangsdaten hinterlegen, dann erscheinen die Termine hier.${
+          listEl.innerHTML = `<li class="field__hint">Kein Kalender verbunden.${
             data.reason ? `<br><small>${escapeHtml(data.reason)}</small>` : ""
           }</li>`;
           return;

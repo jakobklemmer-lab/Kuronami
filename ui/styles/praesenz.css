@@ -1,0 +1,451 @@
+/* ---------------------------------------------------------------------------
+   Die Präsenz.
+
+   Eigene Farbwelt, bewusst nicht die des Dashboards: kein Foto, kein Glas, keine Karten.
+   Tiefes Wasser als Grund, ein einziger Mondlicht-Reflex, und sonst nur Text. Die Tokens
+   hängen an `.praesenz`, nicht an `:root` — das Dashboard bleibt unberührt.
+   --------------------------------------------------------------------------- */
+
+.praesenz {
+  --wasser-grund: #0b1418;
+  --wasser-tief: #10202a;
+  --mond: #e3ecef;
+  --text: #c9d4d8;
+  --text-leise: #6f8288;
+  --linie: rgba(227, 236, 239, 0.12);
+  --bernstein: #c9a25a;
+  --rauf: #7fc99b;
+  --runter: #e0857d;
+  --dauer: 220ms;
+  --kurve: cubic-bezier(0.2, 0.7, 0.2, 1);
+
+  position: fixed;
+  inset: 0;
+  display: grid;
+  grid-template-rows: auto 1fr auto;
+  padding: clamp(18px, 3vh, 32px) clamp(16px, 4vw, 48px);
+  background:
+    radial-gradient(60vmax 45vmax at 30% 8%, rgba(227, 236, 239, 0.035), transparent 70%),
+    var(--wasser-grund);
+  color: var(--text);
+  font-family: "Zen Kaku Gothic New", "Hiragino Sans", "Noto Sans JP", system-ui, sans-serif;
+  font-weight: 300;
+  font-size: 15px;
+  line-height: 1.6;
+  overflow: hidden;
+}
+
+/* Im Präsenz-Modus verschwinden Seitenleiste und Szene. Nicht die ganze `.app-shell` —
+   in ihr sitzt `#view-outlet`, und darin die Präsenz selbst. Ein `display: none` auf der
+   Hülle hätte die Ansicht mit ihrem eigenen Rahmen versteckt (so war es beim ersten Lauf). */
+body[data-modus="praesenz"] .sidebar,
+body[data-modus="praesenz"] .scene {
+  display: none;
+}
+body[data-modus="praesenz"] .app-shell {
+  display: block;
+  padding: 0;
+}
+
+/* ---- Kopf: Marke links, Uhr rechts ---------------------------------------- */
+
+.praesenz__kopf {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  min-height: 44px;
+}
+
+.praesenz__marke {
+  color: var(--text-leise);
+  opacity: 0.7;
+  transition: opacity var(--dauer) var(--kurve);
+}
+.praesenz__marke:hover,
+.praesenz__marke:focus-visible {
+  opacity: 1;
+  outline: none;
+}
+.praesenz__emblem {
+  height: 22px;
+  width: auto;
+  display: block;
+}
+
+.praesenz__uhr {
+  font-size: clamp(26px, 3.2vw, 34px);
+  font-weight: 300;
+  letter-spacing: 0.02em;
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+}
+
+/* ---- Mitte: Tafeln links, Wesen zentriert ---------------------------------- */
+
+.praesenz__mitte {
+  position: relative;
+  display: grid;
+  place-items: center;
+  min-height: 0;
+}
+
+.praesenz__wesen {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: clamp(18px, 3vh, 30px);
+  width: 100%;
+  max-width: 640px;
+}
+
+.praesenz__welle-knopf {
+  appearance: none;
+  border: 0;
+  padding: 0;
+  background: transparent;
+  cursor: pointer;
+  border-radius: 50%;
+  width: min(38vmin, 440px);
+  aspect-ratio: 1;
+  display: block;
+  /* Der Schatten ist der einzige Hinweis auf Tiefe: das Wasser liegt im Boden, nicht darauf. */
+  box-shadow:
+    inset 0 0 0 1px rgba(227, 236, 239, 0.05),
+    0 30px 80px -30px rgba(0, 0, 0, 0.9);
+  transition: box-shadow var(--dauer) var(--kurve);
+}
+.praesenz__welle-knopf:focus-visible {
+  outline: 1.5px solid var(--mond);
+  outline-offset: 10px;
+}
+.praesenz__welle-knopf[aria-pressed="true"] {
+  box-shadow:
+    inset 0 0 0 1px rgba(227, 236, 239, 0.16),
+    0 30px 80px -30px rgba(0, 0, 0, 0.9);
+}
+.praesenz__welle {
+  display: block;
+  width: 100%;
+  height: 100%;
+  border-radius: 50%;
+}
+
+/* ---- Worte -------------------------------------------------------------- */
+
+.praesenz__worte {
+  text-align: center;
+  max-width: 58ch;
+  min-height: 3.2em;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.praesenz__frage {
+  margin: 0;
+  color: var(--text-leise);
+  font-size: 13px;
+}
+.praesenz__frage:empty {
+  display: none;
+}
+.praesenz__antwort {
+  margin: 0;
+  font-size: clamp(16px, 1.6vw, 18px);
+  font-weight: 300;
+  line-height: 1.55;
+  color: var(--text);
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  cursor: default;
+  transition: opacity 1.2s var(--kurve);
+}
+.praesenz__antwort.ist-offen {
+  -webkit-line-clamp: unset;
+  max-height: 40vh;
+  overflow-y: auto;
+  cursor: default;
+}
+.praesenz__antwort:not(.ist-offen) {
+  cursor: pointer;
+}
+.praesenz__antwort.ist-verblasst {
+  opacity: 0.4;
+}
+.praesenz__antwort.ist-frage {
+  color: var(--bernstein);
+}
+.praesenz__antwort:empty {
+  display: none;
+}
+
+/* ---- Tafeln: Text auf dem Wasser, mit einer Linie links ------------------ */
+
+.praesenz__tafeln {
+  position: absolute;
+  left: 0;
+  top: 50%;
+  transform: translateY(-50%);
+  width: min(320px, 28vw);
+  display: flex;
+  flex-direction: column;
+  gap: 28px;
+}
+
+.tafel {
+  border-left: 1px solid var(--linie);
+  padding-left: 16px;
+  font-size: 14px;
+  animation: tafel-kommt var(--dauer) var(--kurve);
+}
+.tafel.ist-weg {
+  opacity: 0;
+  transition: opacity 260ms var(--kurve);
+}
+@keyframes tafel-kommt {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+.tafel__kopf {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  margin-bottom: 8px;
+}
+.tafel__titel {
+  color: var(--text-leise);
+  font-size: 13px;
+}
+.tafel__zu {
+  appearance: none;
+  background: none;
+  border: 0;
+  color: var(--text-leise);
+  font-size: 16px;
+  line-height: 1;
+  padding: 0 4px;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity var(--dauer);
+}
+.tafel:hover .tafel__zu,
+.tafel__zu:focus-visible {
+  opacity: 1;
+  outline: none;
+}
+.tafel__hinweis {
+  margin: 0 0 10px;
+  color: var(--text);
+}
+.tafel__inhalt {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.tafel__zeile {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  color: var(--text);
+}
+.tafel__zeile--gross {
+  font-size: 22px;
+  font-weight: 300;
+}
+.tafel__zahl {
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.tafel__zahl em {
+  font-style: normal;
+  color: var(--text-leise);
+  margin-left: 6px;
+}
+.tafel__zahl em.ist-rauf { color: var(--rauf); }
+.tafel__zahl em.ist-runter { color: var(--runter); }
+.tafel__leise {
+  color: var(--text-leise);
+  font-size: 13px;
+}
+.tafel__reihe {
+  display: flex;
+  gap: 14px;
+  margin-top: 6px;
+}
+.tafel__tag {
+  display: flex;
+  flex-direction: column;
+  font-size: 13px;
+  color: var(--text-leise);
+}
+.tafel__tag .tafel__zahl { color: var(--text); }
+.tafel__post {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  gap: 2px 8px;
+  padding: 4px 0 4px 10px;
+  border-left: 2px solid var(--konto-farbe, var(--linie));
+  color: var(--text-leise);
+}
+.tafel__post.ist-ungelesen .tafel__von,
+.tafel__post.ist-ungelesen .tafel__betreff { color: var(--text); }
+.tafel__konto { font-size: 12px; color: var(--konto-farbe, var(--text-leise)); }
+.tafel__von { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tafel__zeit { font-size: 12px; font-variant-numeric: tabular-nums; }
+.tafel__betreff { grid-column: 1 / -1; font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tafel__mass {
+  display: grid;
+  grid-template-columns: 44px 1fr auto;
+  align-items: center;
+  gap: 10px;
+  color: var(--text-leise);
+}
+.tafel__balken {
+  display: block;
+  height: 1px;
+  background: var(--linie);
+  position: relative;
+}
+.tafel__balken i {
+  position: absolute;
+  inset: -1px auto -1px 0;
+  background: var(--text);
+  display: block;
+}
+
+/* ---- Fuß: die eine Bubble, zwei leise Knöpfe ------------------------------ */
+
+.praesenz__fuss {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
+}
+
+.praesenz__bubble {
+  display: flex;
+  align-items: flex-end;
+  gap: 8px;
+  width: min(640px, 100%);
+  padding: 8px 8px 8px 20px;
+  border-radius: 28px;
+  border: 1px solid var(--linie);
+  background: rgba(16, 32, 42, 0.55);
+  backdrop-filter: blur(14px);
+  transition: border-color var(--dauer) var(--kurve), border-radius var(--dauer) var(--kurve);
+}
+.praesenz__bubble:focus-within {
+  border-color: rgba(227, 236, 239, 0.28);
+}
+.praesenz__bubble.ist-mehrzeilig {
+  border-radius: 20px;
+}
+.praesenz__eingabe {
+  flex: 1;
+  resize: none;
+  border: 0;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  font-size: 16px;
+  line-height: 1.5;
+  padding: 6px 0;
+  min-height: 28px;
+  max-height: 140px;
+  outline: none;
+}
+.praesenz__eingabe::placeholder {
+  color: var(--text-leise);
+}
+.praesenz__mic {
+  appearance: none;
+  border: 0;
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--text-leise);
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+  transition: color var(--dauer), background var(--dauer);
+}
+.praesenz__mic:hover,
+.praesenz__mic:focus-visible {
+  color: var(--text);
+  outline: none;
+}
+.praesenz__mic.ist-an {
+  color: var(--wasser-grund);
+  background: var(--mond);
+}
+
+.praesenz__leiste {
+  display: flex;
+  gap: 6px;
+}
+.praesenz__leise-knopf {
+  appearance: none;
+  border: 0;
+  background: transparent;
+  color: var(--text-leise);
+  opacity: 0.55;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+  transition: opacity var(--dauer);
+}
+.praesenz__leise-knopf:hover,
+.praesenz__leise-knopf:focus-visible {
+  opacity: 1;
+  outline: none;
+}
+
+/* ---- Fokus: Wasser, Uhr, Bubble. Und eine Zeile Worte. -------------------- */
+
+body[data-focus="on"] .praesenz__marke,
+body[data-focus="on"] .praesenz__tafeln,
+body[data-focus="on"] .praesenz__leiste,
+body[data-focus="on"] .praesenz__frage {
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity var(--dauer) var(--kurve);
+}
+body[data-focus="on"] .praesenz__antwort {
+  -webkit-line-clamp: 1;
+  max-height: none;
+  overflow: hidden;
+}
+
+/* ---- Schmal: Tafeln unter die Worte, Uhr kleiner --------------------------- */
+
+@media (max-width: 760px) {
+  .praesenz__tafeln {
+    position: static;
+    transform: none;
+    width: 100%;
+    max-width: 640px;
+    margin-top: 20px;
+  }
+  .praesenz__mitte {
+    grid-template-rows: auto auto;
+    align-content: center;
+  }
+  .praesenz__uhr {
+    font-size: 24px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .praesenz *,
+  .praesenz *::before,
+  .praesenz *::after {
+    transition: none !important;
+    animation: none !important;
+  }
+}

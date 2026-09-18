@@ -318,3 +318,54 @@ export async function sende(
 
   return `Verschickt an ${an} über ${konto.name}.`;
 }
+
+// ---------------------------------------------------------------------------
+// Zwischenspeicher
+// ---------------------------------------------------------------------------
+
+/**
+ * Ein kurzer Zwischenspeicher für Übersichten.
+ *
+ * Ohne ihn baut jeder Seitenaufruf drei IMAP-Verbindungen neu auf — Anmeldung, Postfach
+ * öffnen, Kopfzeilen holen, abmelden, und das dreimal. Das dauerte spürbar lange, und zwar
+ * bei **jedem** Öffnen, jedem Neuladen und sogar jedem Wechsel zwischen den Ansichten, weil
+ * die Oberfläche beim Einhängen einer Ansicht neu lädt.
+ *
+ * Eine Minute ist bewusst kurz: Post, die vor 40 Sekunden ankam, darf man verpassen; eine
+ * Liste, die fünf Minuten alt ist, wäre eine Lüge. Der erste Abruf nach einem Neustart kostet
+ * weiterhin seine Sekunden — danach ist die Ansicht sofort da.
+ */
+const UEBERSICHT_TTL_MS = Number(process.env.POSTFACH_CACHE_MS ?? 60_000);
+
+interface Eintrag {
+  zeit: number;
+  wert: Promise<Kopf[]>;
+}
+
+const zwischenspeicher = new Map<string, Eintrag>();
+
+/** Wie `liste`, aber mit Zwischenspeicher. Gleiche Anfrage innerhalb der Frist = gleiche Antwort. */
+export function listeGepuffert(
+  alle: Konto[],
+  opts: { konto?: string; anzahl?: number; nurUngelesen?: boolean } = {},
+): Promise<Kopf[]> {
+  const schluessel = JSON.stringify([opts.konto ?? "*", opts.anzahl ?? 15, opts.nurUngelesen ?? false]);
+  const vorhanden = zwischenspeicher.get(schluessel);
+  if (vorhanden && Date.now() - vorhanden.zeit < UEBERSICHT_TTL_MS) return vorhanden.wert;
+
+  // Das **Versprechen** wird abgelegt, nicht erst das Ergebnis: rufen zwei Ansichten
+  // gleichzeitig ab (Startseite und Mail-Seite beim Umschalten), teilen sie sich denselben
+  // Abruf, statt zwei parallele IMAP-Runden auszulösen.
+  const wert = liste(alle, opts).catch((fehler) => {
+    // Ein Fehlschlag darf sich nicht für eine Minute einbrennen.
+    zwischenspeicher.delete(schluessel);
+    throw fehler;
+  });
+  zwischenspeicher.set(schluessel, { zeit: Date.now(), wert });
+  return wert;
+}
+
+/** Den Zwischenspeicher leeren — nach dem Versand, oder wenn der Nutzer ausdrücklich neu lädt. */
+export function vergissUebersichten(): void {
+  zwischenspeicher.clear();
+}

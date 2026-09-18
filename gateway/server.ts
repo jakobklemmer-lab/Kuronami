@@ -1,7 +1,8 @@
 import { randomUUID } from "node:crypto";
 import express from "express";
 import { postfachVerbindenRouten } from "./postfach-verbinden.js";
-import { konten, liste } from "./postfach.js";
+import { BEDIENSTETE, HANDELSTISCH } from "../context/bedienstete.js";
+import { konten, lies, listeGepuffert } from "./postfach.js";
 import { RiskLevelError } from "../policy/risk.js";
 import { originAllowed } from "../runtime/events/bus.js";
 import { readEvents } from "../runtime/events/log.js";
@@ -670,6 +671,76 @@ export function createServer(deps: ServerDeps): express.Express {
   postfachVerbindenRouten(app);
 
   /**
+   * Der Ist-Zustand des Hauses (Nachtrag 2026-09-18).
+   *
+   * Ersetzt die Felder in den Einstellungen, die auf Module zeigten, die es nicht mehr gibt:
+   * ein Modell-Router, eine Policy-Engine, ein Kompaktierungsknopf. Alles drei war beim
+   * Motorwechsel weggefallen, die Felder standen aber weiter da — deaktiviert, mit einem
+   * Hinweis auf eine Datei, die niemand mehr öffnet. Ein Schalter ohne Wirkung ist schlimmer
+   * als kein Schalter; er behauptet eine Möglichkeit.
+   */
+  app.get("/integrations/haushalt", (req, res, next) => {
+    try {
+      const principal = webPrincipal(req, res);
+      if (!principal) return;
+
+      const perAbo = !process.env.ANTHROPIC_API_KEY?.trim();
+      res.json({
+        modell: process.env.KURO_MODEL?.trim() || "(Vorgabe des SDK)",
+        abrechnung: perAbo ? "abo" : "api",
+        arbeitsbereich: deps.gateway.agent.workdir,
+        sitzung: deps.gateway.agent.sessionId,
+        postfaecher: konten().map((k) => ({ name: k.name, adresse: k.user })),
+        bedienstete: Object.entries(BEDIENSTETE).map(([name, p]) => ({
+          name,
+          modell: p.model ?? "(geerbt)",
+          beschreibung: p.description,
+        })),
+        handelstisch: Object.entries(HANDELSTISCH).map(([name, p]) => ({
+          name,
+          modell: p.model ?? "(geerbt)",
+          beschreibung: p.description,
+        })),
+      });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  /**
+   * Eine einzelne Nachricht im Volltext (Nachtrag 2026-09-18).
+   *
+   * Vorher zeigte die Mail-Ansicht nur Absender und Betreff — den Inhalt gab es nirgends,
+   * weil `preview` aus der Übersicht leer bleibt (Kopfzeilen tragen keinen Text). Ohne diese
+   * Route war die Liste eine Sackgasse: anklickbar sah sie aus, passiert ist nichts.
+   *
+   * Nicht gepuffert: eine Nachricht wird einmal geöffnet und gelesen, ein zweiter Abruf ist
+   * die Ausnahme. Dafür lohnt kein Speicher, der Stand vortäuscht.
+   */
+  app.get("/integrations/mail/nachricht", async (req, res, next) => {
+    try {
+      const principal = webPrincipal(req, res);
+      if (!principal) return;
+
+      const alle = konten();
+      const konto = typeof req.query.konto === "string" ? req.query.konto : "";
+      const uid = Number(req.query.uid);
+      if (!konto || !Number.isFinite(uid)) {
+        res.status(400).json({ error: "konto und uid müssen angegeben sein." });
+        return;
+      }
+      if (alle.length === 0) {
+        res.status(404).json({ error: "Es ist noch kein Postfach verbunden." });
+        return;
+      }
+
+      res.json(await lies(alle, konto, uid));
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  /**
    * Nachtrag 2026-09-16: die Oberfläche liest hier direkt, ohne den Agenten-Loop zu bemühen —
    * dieselbe Haltung wie beim Trading-Chart (direkter Abruf, kein Modellaufruf). `mail.search`
    * als Werkzeug bleibt für den Assistenten daneben bestehen (Artefakt, Redaction, Kontext-
@@ -690,7 +761,9 @@ export function createServer(deps: ServerDeps): express.Express {
       // Gefiltert auf ein Konto, wenn die Oberfläche eines nennt — sonst alle, nach Zeit
       // gemischt. `liste()` sortiert über die Postfächer hinweg.
       const nur = typeof req.query.konto === "string" ? req.query.konto : undefined;
-      const koepfe = await liste(alle, { konto: nur, anzahl: 20 });
+      // Gepuffert: ohne das baut jeder Seitenaufruf drei IMAP-Verbindungen neu auf, und die
+      // Oberfläche lädt schon beim Wechsel zwischen den Ansichten neu.
+      const koepfe = await listeGepuffert(alle, { konto: nur, anzahl: 30 });
 
       const messages = koepfe.map((k) => ({
         id: `${k.konto}#${k.uid}`,

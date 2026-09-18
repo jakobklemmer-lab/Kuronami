@@ -1649,3 +1649,122 @@
     overflow-x: auto;
   }
 }
+
+/* --- Mail-Ansicht -------------------------------------------------------
+   Die Herkunft steht als Name an der Zeile, nicht nur als Punkt: bei drei
+   Postfächern in einer gemischten Liste ist eine Farbe allein zu wenig, wenn
+   man wissen will, welches Konto gemeint ist. Der farbige Streifen links
+   verbindet beides — man erkennt die Gruppe im Vorbeisehen und liest den
+   Namen, wenn man genau hinschaut. */
+
+.mail-liste {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.mail-eintrag {
+  border-bottom: 1px solid var(--line);
+  border-left: 2px solid var(--konto-farbe, transparent);
+  padding-left: 12px;
+}
+.mail-eintrag:last-child {
+  border-bottom: none;
+}
+.mail-eintrag.ist-offen {
+  background: color-mix(in srgb, var(--konto-farbe, transparent) 7%, transparent);
+}
+
+.mail-zeile {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: baseline;
+  gap: 8px 10px;
+  padding: 12px 14px 12px 8px;
+  cursor: pointer;
+}
+.mail-zeile:hover {
+  background: color-mix(in srgb, var(--fg) 4%, transparent);
+}
+.mail-zeile:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+
+.mail-konto {
+  font-size: var(--text-xs);
+  color: var(--konto-farbe, var(--fg-muted));
+  letter-spacing: 0.03em;
+  white-space: nowrap;
+}
+
+.mail-von {
+  font-size: var(--text-md);
+  color: var(--fg-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ist-ungelesen .mail-von {
+  color: var(--fg);
+  font-weight: 500;
+}
+
+.mail-zeit {
+  font-size: var(--text-xs);
+  color: var(--fg-faint);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.mail-betreff {
+  grid-column: 1 / -1;
+  font-size: var(--text-sm);
+  color: var(--fg-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ist-ungelesen .mail-betreff {
+  color: var(--fg);
+}
+/* Offen darf der Betreff umbrechen — abgeschnitten zu lesen, was man gerade
+   aufgeklappt hat, wäre die falsche Sparsamkeit. */
+.ist-offen .mail-betreff {
+  white-space: normal;
+}
+
+.mail-text {
+  padding: 0 14px 16px 8px;
+  font-size: var(--text-sm);
+  color: var(--fg-muted);
+}
+.mail-text__kopf {
+  font-size: var(--text-xs);
+  color: var(--fg-faint);
+  padding-bottom: 8px;
+}
+.mail-text__koerper {
+  margin: 0;
+  max-height: 420px;
+  overflow-y: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-family: inherit;
+  line-height: 1.6;
+}
+.mail-text--laedt,
+.mail-text--fehler {
+  color: var(--fg-faint);
+}
+
+@media (max-width: 560px) {
+  .mail-zeile {
+    grid-template-columns: 1fr auto;
+  }
+  .mail-konto {
+    grid-column: 1 / -1;
+  }
+}

@@ -12,6 +12,9 @@
  */
 
 export const ROUTE_IDS = [
+  // Die Präsenz (2026-09-18): Kuro als Gegenüber statt als Dashboard. Eine eigene Route,
+  // damit sie ein Lesezeichen sein kann und `main.ts` die Hülle daran umschaltet.
+  "praesenz",
   "home",
   "mail",
   "calendar",
@@ -30,9 +33,10 @@ export function isRouteId(value: string): value is RouteId {
 
 export const SETTINGS_SECTION_IDS = [
   "appearance",
-  "models",
-  "approvals",
-  "memory",
+  // "models", "approvals" und "memory" sind am 18.09.2026 zu "haushalt" zusammengefallen:
+  // sie zeigten Schalter für einen Modell-Router, eine Policy-Engine und eine Kompaktierung,
+  // die es seit dem Motorwechsel nicht mehr gibt.
+  "haushalt",
   "integrations",
   "apiKeys",
   "mcpServers",

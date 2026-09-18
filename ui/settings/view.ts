@@ -1,6 +1,7 @@
 import { ApiError } from "../api/client.js";
 import { icon } from "../icons.js";
 import { SETTINGS_SECTION_IDS, type SettingsSectionId } from "../router/router.js";
+import { escapeHtml } from "../views/html.js";
 import { loadToken, saveToken } from "../settings.js";
 import {
   BUILTIN_BACKGROUNDS,
@@ -32,9 +33,7 @@ import {
 
 const SECTION_LABEL: Record<SettingsSectionId, string> = {
   appearance: "Erscheinungsbild",
-  models: "Modelle",
-  approvals: "Freigaben",
-  memory: "Gedächtnis",
+  haushalt: "Der Haushalt",
   integrations: "Integrationen",
   apiKeys: "API-Keys",
   mcpServers: "MCP-Server",
@@ -120,55 +119,71 @@ function renderAppearance(settings: KuronamiSettings): string {
   `;
 }
 
-function renderModels(settings: KuronamiSettings): string {
+/**
+ * Der Ist-Zustand des Hauses.
+ *
+ * Hier standen bis zum 18.09.2026 drei Abschnitte mit insgesamt sechs toten Feldern:
+ * Modell-Router, Policy-Freigabestufen und Gedächtnis-Knöpfe, alle deaktiviert und alle mit
+ * einem Hinweis auf eine Datei, die es seit dem Motorwechsel nicht mehr gibt. Ein Schalter
+ * ohne Wirkung ist schlimmer als kein Schalter — er behauptet eine Möglichkeit.
+ *
+ * Statt Schaltern also Auskunft: was tatsächlich läuft, gelesen aus
+ * `GET /integrations/haushalt`. Geändert wird weiterhin in der `.env`, und das steht auch da.
+ */
+interface HaushaltStand {
+  modell: string;
+  abrechnung: "abo" | "api";
+  arbeitsbereich: string;
+  sitzung: string | null;
+  postfaecher: Array<{ name: string; adresse: string }>;
+  bedienstete: Array<{ name: string; modell: string; beschreibung: string }>;
+  handelstisch: Array<{ name: string; modell: string; beschreibung: string }>;
+}
+
+/** Ein Bediensteter als Zeile: Name, Modell, wofür er da ist. */
+function personenZeile(p: { name: string; modell: string; beschreibung: string }): string {
+  // Die Beschreibungen sind für das Modell geschrieben und entsprechend ausführlich; hier
+  // genügt der erste Satz.
+  const kurz = p.beschreibung.split(/(?<=[.:])\s/)[0] ?? p.beschreibung;
+  return `<li class="service-list__row"><span>${escapeHtml(p.name)} · ${escapeHtml(kurz)}</span>` +
+    `<span class="service-list__status">${escapeHtml(p.modell)}</span></li>`;
+}
+
+function renderHaushaltStand(stand: HaushaltStand): string {
+  const abo = stand.abrechnung === "abo";
   return `
-    <section class="settings-section" aria-labelledby="section-models-title">
-      <h2 class="settings-section__title" id="section-models-title">Modelle</h2>
-      <div class="field">
-        <label class="field__label" for="setting-routine-model">Standardmodell für Routine</label>
-        <input class="field__control" id="setting-routine-model" type="text" value="${settings.models.routineModel ?? ""}" placeholder="z. B. claude-haiku-4-5" disabled />
-        ${disabledHint("Routing läuft serverseitig über runtime/model/router.ts — noch keine Steuerung von hier.")}
-      </div>
-      <div class="field">
-        <label class="field__label" for="setting-architecture-model">Standardmodell für Architektur</label>
-        <input class="field__control" id="setting-architecture-model" type="text" value="${settings.models.architectureModel ?? ""}" placeholder="z. B. claude-opus-5" disabled />
-        ${disabledHint("Dieselbe Anbindung wie oben — beide Felder sind vorbereitet, aber noch nicht verdrahtet.")}
-      </div>
-    </section>
+    <ul class="service-list">
+      <li class="service-list__row"><span>Butler</span>
+        <span class="service-list__status">${escapeHtml(stand.modell)}</span></li>
+      <li class="service-list__row"><span>Abrechnung</span>
+        <span class="service-list__status">${abo ? "Claude-Abo" : "API-Schlüssel"}</span></li>
+      <li class="service-list__row"><span>Arbeitsbereich</span>
+        <span class="service-list__status">${escapeHtml(stand.arbeitsbereich)}</span></li>
+      <li class="service-list__row"><span>Unterhaltung</span>
+        <span class="service-list__status">${stand.sitzung ? "läuft" : "beginnt bei der nächsten Nachricht"}</span></li>
+    </ul>
+    <p class="field__hint">${
+      abo
+        ? "Kuro läuft über das Claude-Abo — die Beträge im Protokoll sind Schätzungen des Verbrauchs, keine Rechnung."
+        : "Kuro läuft über den API-Schlüssel; jeder Zug wird abgerechnet. Ohne ANTHROPIC_API_KEY liefe er über das Abo."
+    } Geändert wird das in der <code>.env</code>.</p>
+
+    <span class="field__label" style="margin-top:18px">Bedienstete</span>
+    <ul class="service-list">${stand.bedienstete.map(personenZeile).join("")}</ul>
+
+    <span class="field__label" style="margin-top:18px">Handelstisch</span>
+    <ul class="service-list">${stand.handelstisch.map(personenZeile).join("")}</ul>
+    <p class="field__hint">Der Handelstisch arbeitet nur für die Börse — Kuro ruft ihn nicht
+    direkt an.</p>
   `;
 }
 
-function renderApprovals(settings: KuronamiSettings): string {
+function renderHaushalt(_settings: KuronamiSettings): string {
   return `
-    <section class="settings-section" aria-labelledby="section-approvals-title">
-      <h2 class="settings-section__title" id="section-approvals-title">Freigaben</h2>
-      <div class="field">
-        <label class="field__label" for="setting-auto-approve">Ohne Rückfrage erlaubt bis Risikostufe</label>
-        <select class="field__control" id="setting-auto-approve" disabled>
-          ${RISK_LEVELS.map((level) => `<option value="${level}" ${settings.approvals.autoApproveUpTo === level ? "selected" : ""}>${RISK_LABEL[level]}</option>`).join("")}
-        </select>
-        ${disabledHint("Risikostufen und Freigaberegeln laufen über die Policy-Engine (policy/engine.ts) serverseitig — keine Steuerung von hier.")}
-      </div>
-    </section>
-  `;
-}
-
-function renderMemory(): string {
-  return `
-    <section class="settings-section" aria-labelledby="section-memory-title">
-      <h2 class="settings-section__title" id="section-memory-title">Gedächtnis</h2>
-      <div class="field">
-        <label class="field__label" for="setting-memory-location">Ablageort</label>
-        <input class="field__control" id="setting-memory-location" type="text" value="memory/ (eigenes Git-Repo)" disabled />
-        ${disabledHint("Siehe docs/GEDAECHTNIS.md — der Ort ist fest, keine Verlegung von hier.")}
-      </div>
-      <div class="field">
-        <button class="field__button" type="button" disabled>Kompaktierung jetzt anstoßen</button>
-        ${disabledHint("Kompaktierung läuft automatisch als Teil des Loops (context/compaction.ts) — kein manueller Anstoß von hier.")}
-      </div>
-      <div class="field">
-        <button class="field__button" type="button" disabled>Index neu aufbauen</button>
-        ${disabledHint("tools/memory/index-db.ts hat noch keinen erreichbaren Neuaufbau-Endpunkt.")}
+    <section class="settings-section" aria-labelledby="section-haushalt-title">
+      <h2 class="settings-section__title" id="section-haushalt-title">Der Haushalt</h2>
+      <div class="field" data-role="haushalt">
+        <p class="field__hint">Wird geladen …</p>
       </div>
     </section>
   `;
@@ -179,18 +194,12 @@ function renderIntegrations(settings: KuronamiSettings): string {
     <section class="settings-section" aria-labelledby="section-integrations-title">
       <h2 class="settings-section__title" id="section-integrations-title">Integrationen</h2>
       <div class="field">
-        <label class="field__label" for="setting-n8n">n8n-Endpunkt</label>
-        <input class="field__control" id="setting-n8n" type="text" value="${settings.integrations.n8nEndpoint ?? ""}" placeholder="N8N_WEBHOOK_URL" disabled />
-        ${disabledHint("Wird über die Umgebungsvariable N8N_WEBHOOK_URL (.env) gesetzt, nicht von hier.")}
-      </div>
-      <div class="field">
-        <span class="field__label">Verbundene Dienste</span>
-        <ul class="service-list">
-          <li class="service-list__row"><span>Slack</span><span class="service-list__status">Events-API-Webhook (S26)</span></li>
-          <li class="service-list__row"><span>Telegram</span><span class="service-list__status">Long-Polling</span></li>
-          <li class="service-list__row"><span>MCP</span><span class="service-list__status">Mechanismus gebaut, kein Server verkabelt (S27)</span></li>
+        <span class="field__label">Postfächer</span>
+        <ul class="service-list" data-role="postfaecher">
+          <li class="service-list__row"><span>Wird geladen …</span></li>
         </ul>
-        <p class="field__hint">Nur zur Ansicht — Verwaltung läuft über die jeweilige Umgebungsvariable, nicht von hier.</p>
+        <p class="field__hint">Ein weiteres verbinden: <code>/postfach/verbinden</code> im Browser
+        aufrufen und die ausgegebenen Zeilen in die <code>.env</code> übernehmen.</p>
       </div>
     </section>
   `;
@@ -362,20 +371,13 @@ function renderSystem(): string {
         <p class="field__hint">Ein geänderter API-Schlüssel gilt erst danach. Welcher Dienst: <code>ANTHROPIC_API_KEY</code> und die n8n-Werte liest der Gateway, <code>DEEPGRAM_API_KEY</code>/<code>ELEVENLABS_API_KEY</code> die Sprachschicht. Die Sprachschicht wird dabei neu <em>angelegt</em>, nicht nur neu gestartet — sonst behielte der Container seine alte Umgebung.</p>
         <span class="field__status" data-role="restart-status"></span>
       </div>
-      <div class="field">
-        <span class="field__label">Mic-Zustand (Demo)</span>
-        <button class="field__button" type="button" data-role="mic-cycle">Nächsten Zustand zeigen</button>
-        <p class="field__hint">Schaltet die eine Zustandsquelle (<code>ui/mic/state.ts</code>) durch alle sechs Agentenzustände — vorerst gegen Mock, bis eine echte Spracherkennung (S30/S31) dahintersteht.</p>
-      </div>
     </section>
   `;
 }
 
 const SECTION_RENDER: Record<SettingsSectionId, (settings: KuronamiSettings) => string> = {
   appearance: renderAppearance,
-  models: renderModels,
-  approvals: renderApprovals,
-  memory: renderMemory,
+  haushalt: renderHaushalt,
   integrations: renderIntegrations,
   apiKeys: renderApiKeys,
   mcpServers: renderMcp,
@@ -404,6 +406,40 @@ export const settingsView: View = {
         </div>
       </div>
     `;
+
+    // Der Haushalts-Abschnitt und die Postfachliste holen ihren Inhalt vom Gateway. Beide
+    // fragen dieselbe Route; sie steht nur in zwei Abschnitten, also lädt je nach geöffnetem
+    // Abschnitt höchstens einer davon.
+    const haushaltEl = container.querySelector<HTMLElement>('[data-role="haushalt"]');
+    const postfaecherEl = container.querySelector<HTMLElement>('[data-role="postfaecher"]');
+    if (haushaltEl || postfaecherEl) {
+      void ctx.api
+        .get<HaushaltStand>("/integrations/haushalt")
+        .then((stand) => {
+          if (haushaltEl) haushaltEl.innerHTML = renderHaushaltStand(stand);
+          if (postfaecherEl) {
+            postfaecherEl.innerHTML =
+              stand.postfaecher.length === 0
+                ? '<li class="service-list__row"><span>Keines verbunden</span></li>'
+                : stand.postfaecher
+                    .map(
+                      (f) =>
+                        `<li class="service-list__row"><span>${escapeHtml(f.name)}</span>` +
+                        `<span class="service-list__status">${escapeHtml(f.adresse)}</span></li>`,
+                    )
+                    .join("");
+          }
+        })
+        .catch((fehler) => {
+          const text = fehler instanceof Error ? fehler.message : String(fehler);
+          if (haushaltEl) {
+            haushaltEl.innerHTML = `<p class="field__hint">Nicht abrufbar: ${escapeHtml(text)}</p>`;
+          }
+          if (postfaecherEl) {
+            postfaecherEl.innerHTML = `<li class="service-list__row"><span>${escapeHtml(text)}</span></li>`;
+          }
+        });
+    }
 
     container.querySelector('[data-role="content"]')?.addEventListener("click", (event) => {
       const target = event.target as HTMLElement;

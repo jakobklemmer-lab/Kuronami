@@ -18,7 +18,7 @@ describe("parseHash", () => {
   });
 
   it("liest den Einstellungs-Abschnitt mit", () => {
-    expect(parseHash("#/settings/models")).toEqual({ view: "settings", section: "models" });
+    expect(parseHash("#/settings/haushalt")).toEqual({ view: "settings", section: "haushalt" });
   });
 
   it("fällt bei Einstellungen ohne oder mit unbekanntem Abschnitt auf die Vorgabe zurück", () => {
@@ -39,7 +39,7 @@ describe("hashFor", () => {
   });
 
   it("baut den Hash für Einstellungen samt Abschnitt", () => {
-    expect(hashFor("settings", "models")).toBe("#/settings/models");
+    expect(hashFor("settings", "haushalt")).toBe("#/settings/haushalt");
   });
 
   it("nimmt die Vorgabe, wenn Einstellungen ohne Abschnitt gebaut werden", () => {

@@ -15,6 +15,7 @@ import {
 import { loadToken } from "./settings.js";
 import { loadSettings, settingsBus } from "./settings/store.js";
 import { applyAppearance, settingsView } from "./settings/view.js";
+import { praesenzView } from "./praesenz/view.js";
 import { mountSidebar } from "./sidebar/view.js";
 import { createToast } from "./toast.js";
 import { calendarView } from "./views/calendar.js";
@@ -34,6 +35,7 @@ import { createVoiceController } from "./voice/controller.js";
  */
 
 const VIEWS: Record<RouteId, View> = {
+  praesenz: praesenzView,
   home: homeView,
   mail: mailView,
   calendar: calendarView,
@@ -150,6 +152,9 @@ function main(): void {
     const parsed = parseHash(globalThis.location.hash);
     cleanupCurrentView?.();
     outletEl.innerHTML = "";
+    // Zwei Hüllen, ein Schalter: im Präsenz-Modus verschwinden Seitenleiste und Szene per
+    // CSS (`praesenz.css`), die Ansicht füllt das Fenster. Der Fokus-Modus gilt in beiden.
+    document.body.dataset.modus = parsed.view === "praesenz" ? "praesenz" : "dashboard";
     sidebar.setActive(parsed.view);
     const ctx: ViewContext = {
       api,
@@ -160,6 +165,7 @@ function main(): void {
       compose: () => composer.open(),
       toggleFocus,
       section: parsed.section,
+      voice: { toggle: () => voice.toggle() },
     };
     cleanupCurrentView = VIEWS[parsed.view].mount(outletEl, ctx);
   }

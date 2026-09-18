@@ -26,6 +26,9 @@ export interface ViewContext {
   toggleFocus(): void;
   /** Nur gesetzt, wenn `view === "settings"`. */
   section?: SettingsSectionId;
+  /** Die Sprachsitzung, wenn es eine gibt — die Präsenz startet sie mit einem Tipp auf das
+   * Wasser. Fehlt sie, schaltet die Ansicht nur den Mic-Zustand um. */
+  voice?: { toggle(): void };
 }
 
 export interface View {

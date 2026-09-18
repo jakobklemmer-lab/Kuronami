@@ -35,6 +35,7 @@ export type IconName =
   | "plusSquare"
   | "terminal"
   | "focus"
+  | "praesenz"
   | "monitor"
   | "dumbbell"
   | "utensils"
@@ -74,6 +75,8 @@ const PATHS: Record<IconName, string> = {
     '<rect x="4" y="4" width="12" height="12" rx="2.5" /><path d="M10 7.4v5.2M7.4 10h5.2" />',
   terminal:
     '<rect x="3" y="4" width="14" height="12" rx="2.5" /><path d="m6.6 8.4 2.3 1.9-2.3 1.9M11 12.6h3" />',
+  praesenz:
+    '<circle cx="10" cy="10" r="7" /><path d="M6 10.6c1.3-1.4 2.7-1.4 4 0s2.7 1.4 4 0" />',
   focus:
     '<circle cx="10" cy="10" r="6.4" /><circle cx="10" cy="10" r="1.9" fill="currentColor" stroke="none" />',
   monitor:

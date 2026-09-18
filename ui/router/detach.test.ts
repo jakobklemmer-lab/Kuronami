@@ -61,11 +61,11 @@ describe("detachView", () => {
     const opener = vi.fn(() => ({ focus: vi.fn() }) as unknown as Window);
     detachView("settings", {
       opener,
-      section: "models",
+      section: "haushalt",
       baseUrl: () => "http://localhost:3001/",
     });
     expect(opener).toHaveBeenCalledWith(
-      "http://localhost:3001/#/settings/models",
+      "http://localhost:3001/#/settings/haushalt",
       "kuronami-settings",
       DEFAULT_WINDOW_FEATURES,
     );
@@ -126,8 +126,8 @@ describe("detachView unter Tauri (S29)", () => {
 
   it("traegt den Einstellungs-Abschnitt auch unter Tauri mit", () => {
     const { scope, created } = fakeTauri();
-    detachView("settings", { scope, section: "models", baseUrl: () => "http://localhost:3001/" });
-    expect(created[0]?.options.url).toBe("http://localhost:3001/#/settings/models");
+    detachView("settings", { scope, section: "haushalt", baseUrl: () => "http://localhost:3001/" });
+    expect(created[0]?.options.url).toBe("http://localhost:3001/#/settings/haushalt");
   });
 
   it("wertet ein bereits vergebenes Fenster-Label als Erfolg, nicht als Fehlschlag", () => {
