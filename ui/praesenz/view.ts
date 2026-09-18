@@ -164,7 +164,7 @@ export const praesenzView: View = {
         el.innerHTML = h;
         // Beim allerersten Laden kann der Token gerade erst gesetzt sein; dann steht hier
         // für eine Minute eine Fehlermeldung. Ein einziger zweiter Versuch räumt das weg.
-        if (erneut && h.includes("k-leer") && !nochmal.has(role)) {
+        if (erneut && /k-leer|Not connected|unavailable|Nicht abrufbar/.test(h) && !nochmal.has(role)) {
           nochmal.add(role);
           globalThis.setTimeout(() => lade(role, erneut()), 4000);
         }
@@ -232,7 +232,9 @@ export const praesenzView: View = {
      * in ein begrenztes Feld. Das Motto unter der Sphäre bleibt; gesprochen wird hier.
      */
     const zeigeAntwort = (text: string, opts: { frage?: string; rueckfrage?: boolean } = {}): void => {
-      antwortEl.hidden = false;
+      // Ein leeres Panel ist kein Panel: sichtbar wird es erst mit einer eigenen Frage oder
+      // mit Text. Ein fremder Zug, der nur leert, öffnet nichts.
+      if (text || opts.frage) antwortEl.hidden = false;
       antwortEl.classList.toggle("ist-frage", opts.rueckfrage === true);
       if (opts.frage !== undefined) antwortFrage.textContent = opts.frage;
       antwortText.textContent = text;
@@ -358,7 +360,14 @@ export const praesenzView: View = {
     });
 
     // ------------------------------------------------------ Ereignisstrom
+    // Der Ereignis-Socket spielt beim Verbinden die letzten Ereignisse nach — darunter die
+    // Textstücke früherer Züge. Ohne diese Grenze hingen sie sich ans Panel, mitten im Wort
+    // beginnend, als kämen sie gerade erst. Was vor dem Öffnen dieser Ansicht geschah, geht
+    // sie nichts an.
+    const geoeffnetUm = Date.now() - 1500;
     const busAbo = ctx.bus.onMessage((message) => {
+      const wann = Date.parse(message.timestamp);
+      if (Number.isFinite(wann) && wann < geoeffnetUm) return;
       const data = (message.data ?? {}) as Record<string, unknown>;
 
       if (message.type === "model.delta") {
@@ -415,6 +424,10 @@ export const praesenzView: View = {
       else if (signal === "idle") zustandNeu();
     });
 
+    // Beim Öffnen liegen im Postfach des Web-Kanals oft Reste aus früheren Sitzungen. Die
+    // werden einmal abgeholt und **verworfen** — sonst stünde beim ersten Blick eine fremde,
+    // alte Antwort im Panel. Erst was danach eintrifft, ist ein Nachtrag für diese Sitzung.
+    void ctx.api.get<OutboxResponse>("/channels/web/outbox").catch(() => undefined);
     const outboxTimer = globalThis.setInterval(async () => {
       if (inFlight) return;
       try {

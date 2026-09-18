@@ -83,6 +83,15 @@ body[data-modus="neu"] #view-outlet {
   font-size: 14px;
   line-height: 1.5;
   overflow: hidden;
+  /* Derselbe Raum wie in `.p-raum`, aber HIER, viewport-fest: `position: fixed` macht
+     `.praesenz` zu einem eigenen Stapelkontext, und ein `mix-blend-mode` auf dem Orb-Video
+     sieht nur, was in diesem Kontext liegt. Ohne diesen Hintergrund blendete das Video mit
+     Nichts — und sein Schwarz blieb eine schwarze Scheibe vor dem See. */
+  background:
+    linear-gradient(180deg, rgba(6, 10, 14, 0.22) 0%, rgba(6, 10, 14, 0.04) 40%, rgba(6, 10, 14, 0.58) 100%),
+    var(--p-bild, radial-gradient(90vmax 70vmax at 60% 30%, #1a2b36, #0a1116 70%)) center / cover no-repeat,
+    var(--p-grund);
+  background-attachment: fixed, fixed, scroll;
 }
 
 /* ---- Leiste links --------------------------------------------------------- */
@@ -311,12 +320,14 @@ body[data-modus="neu"] #view-outlet {
   height: 100%;
   object-fit: cover;
   border-radius: 50%;
-  mix-blend-mode: screen;
+  /* `lighten` statt `screen`: nimmt je Kanal nur, was heller ist als der Raum. Ein Rest von
+     Grau im Videoschwarz hebt so nichts an — bei `screen` lag ein milchiger Schleier im Kreis. */
+  mix-blend-mode: lighten;
   transform: scale(var(--orb-scale)) rotate(var(--orb-kipp));
   filter:
     brightness(var(--orb-hell))
     saturate(1.15)
-    drop-shadow(0 0 calc(var(--orb-glow) * 1px) rgba(127, 184, 255, 0.35));
+    drop-shadow(0 0 calc(var(--orb-glow) * 1px) rgba(127, 184, 255, 0.28));
   will-change: transform, filter;
 }
 .p-orb__overlay {
