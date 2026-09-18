@@ -10,6 +10,8 @@
 
 export interface MailMessage {
   id: string;
+  /** Name des Postfachs, aus dem die Nachricht stammt. */
+  konto: string;
   from: string;
   subject: string;
   preview: string;
@@ -20,6 +22,8 @@ export interface MailMessage {
 export interface MailData {
   messages: MailMessage[];
   unreadCount: number;
+  /** Alle verbundenen Postfächer, in der Reihenfolge der Einrichtung. */
+  konten: string[];
 }
 
 // --- Märkte ---------------------------------------------------------------

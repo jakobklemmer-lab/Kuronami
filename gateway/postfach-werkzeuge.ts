@@ -1,6 +1,6 @@
 import { createSdkMcpServer, tool } from "@anthropic-ai/claude-agent-sdk";
 import { z } from "zod";
-import { type Konto, entwurf, konten, liste, lies, sende } from "./postfach.js";
+import { type Konto, entwurf, konten, lies, liste, sende } from "./postfach.js";
 
 /**
  * Die Postfach-Werkzeuge, aufgeteilt nach dem, wer sie haben darf.
@@ -14,10 +14,7 @@ import { type Konto, entwurf, konten, liste, lies, sende } from "./postfach.js";
  * verschickt, ist genau das, was man an einem Assistenten fürchtet.
  */
 
-const kontoFeld = z
-  .string()
-  .optional()
-  .describe("Name des Postfachs. Weglassen heißt: alle.");
+const kontoFeld = z.string().optional().describe("Name des Postfachs. Weglassen heißt: alle.");
 
 export function createLesePostfach(alle: Konto[] = konten()) {
   const werkzeuge = [

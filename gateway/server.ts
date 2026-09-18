@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import express from "express";
 import { postfachVerbindenRouten } from "./postfach-verbinden.js";
+import { konten, liste } from "./postfach.js";
 import { RiskLevelError } from "../policy/risk.js";
 import { originAllowed } from "../runtime/events/bus.js";
 import { readEvents } from "../runtime/events/log.js";
@@ -679,37 +680,34 @@ export function createServer(deps: ServerDeps): express.Express {
     try {
       const principal = webPrincipal(req, res);
       if (!principal) return;
-      if (!deps.n8nBridge || !deps.n8nBridge.configured) {
-        res.status(404).json({ error: "n8n ist auf diesem Gateway nicht eingerichtet." });
+
+      const alle = konten();
+      if (alle.length === 0) {
+        res.status(404).json({ error: "Es ist noch kein Postfach verbunden." });
         return;
       }
-      const controller = new AbortController();
-      req.on("close", () => controller.abort());
-      const invocation = await deps.n8nBridge.invoke({
-        webhookPath: "mail-search",
-        input: { limit: 20 },
-        repeatable: true,
-        signal: controller.signal,
-      });
-      const body = invocation.body as {
-        messages?: Array<{
-          id?: unknown;
-          from?: unknown;
-          subject?: unknown;
-          summary?: unknown;
-          date?: unknown;
-          unread?: unknown;
-        }>;
-      };
-      const messages = (Array.isArray(body.messages) ? body.messages : []).map((m) => ({
-        id: typeof m.id === "string" ? m.id : "",
-        from: typeof m.from === "string" ? displayNameOf(m.from) : "(unbekannt)",
-        subject: typeof m.subject === "string" ? m.subject : "(kein Betreff)",
-        preview: typeof m.summary === "string" ? m.summary : "",
-        receivedAt: toIsoDate(m.date),
-        unread: m.unread === true,
+
+      // Gefiltert auf ein Konto, wenn die Oberfläche eines nennt — sonst alle, nach Zeit
+      // gemischt. `liste()` sortiert über die Postfächer hinweg.
+      const nur = typeof req.query.konto === "string" ? req.query.konto : undefined;
+      const koepfe = await liste(alle, { konto: nur, anzahl: 20 });
+
+      const messages = koepfe.map((k) => ({
+        id: `${k.konto}#${k.uid}`,
+        konto: k.konto,
+        from: displayNameOf(k.von),
+        subject: k.betreff,
+        preview: k.anriss,
+        receivedAt: k.am,
+        unread: k.ungelesen,
       }));
-      res.json({ messages, unreadCount: messages.filter((m) => m.unread).length });
+      res.json({
+        messages,
+        unreadCount: messages.filter((m) => m.unread).length,
+        // Damit die Oberfläche die Umschalter bauen kann, ohne selbst zu wissen, welche
+        // Postfächer eingerichtet sind.
+        konten: alle.map((k) => k.name),
+      });
     } catch (error) {
       next(error);
     }

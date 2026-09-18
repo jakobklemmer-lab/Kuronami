@@ -118,9 +118,11 @@ GOOGLE_CLIENT_SECRET=…</pre>
     const fehler = typeof req.query.error === "string" ? req.query.error : null;
 
     if (fehler) {
-      res.status(400).send(
-        seite("Abgebrochen", `<h1>Abgebrochen</h1><p>Google meldet: <code>${fehler}</code></p>`),
-      );
+      res
+        .status(400)
+        .send(
+          seite("Abgebrochen", `<h1>Abgebrochen</h1><p>Google meldet: <code>${fehler}</code></p>`),
+        );
       return;
     }
     if (!google || !code) {
@@ -155,11 +157,11 @@ GOOGLE_CLIENT_SECRET=…</pre>
       // gerade verbunden hat — bei fünf Postfächern ist das keine Kleinigkeit.
       let adresse = "…";
       try {
-        const profil = await fetch(
-          "https://gmail.googleapis.com/gmail/v1/users/me/profile",
-          { headers: { authorization: `Bearer ${daten.access_token}` } },
-        );
-        if (profil.ok) adresse = ((await profil.json()) as { emailAddress?: string }).emailAddress ?? "…";
+        const profil = await fetch("https://gmail.googleapis.com/gmail/v1/users/me/profile", {
+          headers: { authorization: `Bearer ${daten.access_token}` },
+        });
+        if (profil.ok)
+          adresse = ((await profil.json()) as { emailAddress?: string }).emailAddress ?? "…";
       } catch {
         // Nicht schlimm — die Zeile unten steht auch ohne Adresse.
       }

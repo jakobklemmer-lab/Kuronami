@@ -9,6 +9,21 @@ import type {
   SystemGauge,
 } from "../integrations/types.js";
 import { loadWeather } from "../integrations/weather.js";
+
+/**
+ * Feste Farbe je Postfach, vergeben nach der Reihenfolge in der Konfiguration.
+ *
+ * Nicht aus dem Namen abgeleitet (etwa per Prüfsumme): dann bekäme ein umbenanntes Konto
+ * plötzlich eine andere Farbe, und die Zuordnung, die man sich gerade eingeprägt hat, wäre
+ * hin. Die Töne stehen bewusst weit auseinander, damit sie sich auch als 6-Pixel-Punkt
+ * unterscheiden lassen.
+ */
+const KONTO_FARBEN = ["#6BA8F5", "#E0A75F", "#7FC99B", "#C88BD6", "#E0857D"] as const;
+
+function kontoFarbe(konto: string, alle: readonly string[]): string {
+  const i = alle.indexOf(konto);
+  return KONTO_FARBEN[(i < 0 ? 0 : i) % KONTO_FARBEN.length];
+}
 import { formatPercent, formatPrice } from "../markets/format.js";
 import { loadWatchlist, rememberSelectedSymbol } from "../markets/watchlist.js";
 import { loadSettings } from "../settings/store.js";
@@ -278,29 +293,65 @@ export const homeView: View = {
     });
 
     // --- Inbox (GET /integrations/mail, alle verbundenen Konten) -------------
-    void ctx.api
-      .get<MailData>("/integrations/mail")
-      .then((data) => {
-        const el = role<HTMLElement>("inbox");
-        if (!el || disposed) return;
-        if (data.messages.length === 0) {
-          el.innerHTML = '<li class="card__empty">Keine Nachrichten.</li>';
-          return;
-        }
-        el.innerHTML = data.messages
-          .slice(0, 5)
-          .map(
-            (message) => `
-              <li class="inbox-row${message.unread ? "" : " inbox-row--read"}">
+    // Seit dem Postfach-Umbau kommen die Nachrichten aus mehreren Konten gemischt an. Damit
+    // man sieht, welche wohin gehört, trägt jedes Konto eine feste Farbe, und über der Liste
+    // steht eine Filterzeile — aber nur, wenn es überhaupt mehr als ein Postfach gibt.
+    let nurKonto: string | null = null;
+
+    const zeichneInbox = (data: MailData): void => {
+      const el = role<HTMLElement>("inbox");
+      if (!el || disposed) return;
+
+      const sichtbar = nurKonto ? data.messages.filter((m) => m.konto === nurKonto) : data.messages;
+
+      const leiste =
+        data.konten.length > 1
+          ? `<li class="konten-leiste">${data.konten
+              .map(
+                (k) => `
+                  <button type="button" class="konto-schalter" data-konto="${escapeHtml(k)}"
+                          aria-pressed="${nurKonto === k}"
+                          style="--konto-farbe:${kontoFarbe(k, data.konten)}">
+                    <span class="konto-schalter__punkt"></span>${escapeHtml(k)}
+                  </button>`,
+              )
+              .join("")}</li>`
+          : "";
+
+      const zeilen =
+        sichtbar.length === 0
+          ? '<li class="card__empty">Keine Nachrichten.</li>'
+          : sichtbar
+              .slice(0, 5)
+              .map(
+                (message) => `
+              <li class="inbox-row${message.unread ? "" : " inbox-row--read"}"
+                  style="--konto-farbe:${kontoFarbe(message.konto, data.konten)}"
+                  title="${escapeHtml(message.konto)}">
                 <span class="inbox-row__dot"></span>
                 <span class="inbox-row__from">${escapeHtml(message.from)}</span>
                 <span class="inbox-row__time">${escapeHtml(formatRelativeTime(message.receivedAt))}</span>
                 <span class="inbox-row__subject">${escapeHtml(message.subject)}</span>
               </li>
             `,
-          )
-          .join("");
-      })
+              )
+              .join("");
+
+      el.innerHTML = leiste + zeilen;
+
+      for (const knopf of el.querySelectorAll<HTMLButtonElement>(".konto-schalter")) {
+        knopf.addEventListener("click", () => {
+          // Nochmal auf dasselbe Konto heißt: Filter wieder weg. Ein eigener
+          // „Alle"-Knopf wäre eine Schaltfläche mehr für dieselbe Aussage.
+          nurKonto = nurKonto === knopf.dataset.konto ? null : (knopf.dataset.konto ?? null);
+          zeichneInbox(data);
+        });
+      }
+    };
+
+    void ctx.api
+      .get<MailData>("/integrations/mail")
+      .then(zeichneInbox)
       .catch((error) => {
         const el = role<HTMLElement>("inbox");
         if (el && !disposed)
@@ -315,7 +366,7 @@ export const homeView: View = {
         if (!el || disposed) return;
         if (!data.connected) {
           el.innerHTML =
-            '<li class="card__empty">Kein Kalender verbunden. Zugangsdaten in n8n hinterlegen, dann stehen die Termine hier.</li>';
+            '<li class="card__empty">Kein Kalender verbunden.</li>';
           return;
         }
         if (data.events.length === 0) {

@@ -8,6 +8,7 @@ import {
   query,
 } from "@anthropic-ai/claude-agent-sdk";
 import { KURO_PERSONA } from "../context/persona.js";
+import { redactText } from "../runtime/redaction/redact.js";
 import { BEAUFTRAGE_TOOL, createHaus } from "./haus.js";
 import { createSendePostfach } from "./postfach-werkzeuge.js";
 import { konten } from "./postfach.js";
@@ -170,10 +171,14 @@ export class KuroAgent {
     this.#deps = deps;
     this.#workdir = deps.workdir ?? process.env.KURO_WORKDIR?.trim() ?? DEFAULT_WORKDIR;
     this.#haus = createHaus({
+      // Auch die Protokollzeile läuft durch den Filter: der Auftragstext trägt alles weiter,
+      // was Jakob vorher geschrieben hat, und journalctl bewahrt es auf.
       onArbeitet: (wer, auftrag) =>
-        console.log(`[haus] ${wer} übernimmt: ${auftrag.slice(0, 90)}`),
+        console.log(`[haus] ${wer} übernimmt: ${redactText(auftrag.slice(0, 90))}`),
       onFertig: (wer, kosten, dauer) =>
-        console.log(`[haus] ${wer} fertig nach ${(dauer / 1000).toFixed(1)}s, $${kosten.toFixed(4)}`),
+        console.log(
+          `[haus] ${wer} fertig nach ${(dauer / 1000).toFixed(1)}s, $${kosten.toFixed(4)}`,
+        ),
       onNachgereicht: (wer, bericht) => void this.#trageNach(wer, bericht),
     });
   }
@@ -340,8 +345,9 @@ export class KuroAgent {
       if ((nachricht as { parent_tool_use_id?: string | null }).parent_tool_use_id) return null;
       // Textstücke live an die Oberfläche. Nur Text — Werkzeugaufrufe gehören nicht in den
       // Antwortstrom, die Oberfläche zeigt sie über die Statuszeile.
-      const ereignis = (nachricht as { event?: { type?: string; delta?: { type?: string; text?: string } } })
-        .event;
+      const ereignis = (
+        nachricht as { event?: { type?: string; delta?: { type?: string; text?: string } } }
+      ).event;
       if (ereignis?.type === "content_block_delta" && ereignis.delta?.type === "text_delta") {
         const stueck = ereignis.delta.text ?? "";
         if (stueck) this.#deps.onDelta?.(stueck);

@@ -1,6 +1,8 @@
 import { createSdkMcpServer, query, tool } from "@anthropic-ai/claude-agent-sdk";
 import { z } from "zod";
 import { BEDIENSTETE, type BedienstetenName, WERKSTATT } from "../context/bedienstete.js";
+import { redactText } from "../runtime/redaction/redact.js";
+import { FRAGE_TEAM_TOOL, createHandelstisch } from "./handelstisch.js";
 import { createLesePostfach } from "./postfach-werkzeuge.js";
 import { konten } from "./postfach.js";
 
@@ -143,8 +145,15 @@ async function fuehreAus(
           ? {
               allowedTools:
                 wer === "korrespondenz"
-                  ? [...person.tools, "mcp__postfach__liste", "mcp__postfach__lies", "mcp__postfach__entwurf"]
-                  : person.tools,
+                  ? [
+                      ...person.tools,
+                      "mcp__postfach__liste",
+                      "mcp__postfach__lies",
+                      "mcp__postfach__entwurf",
+                    ]
+                  : wer === "boerse"
+                    ? [...person.tools, FRAGE_TEAM_TOOL]
+                    : person.tools,
             }
           : {}),
         // Hier — und nur hier — darf die Werkzeugbeschränkung greifen: sie betrifft
@@ -152,9 +161,24 @@ async function fuehreAus(
         ...(person.disallowedTools ? { disallowedTools: person.disallowedTools } : {}),
         maxBudgetUsd: BUDGET_JE_AUFTRAG,
         ...(person.maxTurns ? { maxTurns: person.maxTurns } : {}),
-        // Die Postfächer gehören dem Sekretär. Kein anderer Bediensteter bekommt sie —
-        // die Börse hat in Jakobs Post nichts zu suchen.
+        // Werkzeuge, die nur einem gehören. Die Postfächer hat der Sekretär — die Börse hat
+        // in Jakobs Post nichts zu suchen; den Handelstisch hat die Börse — Kuro soll die
+        // Spezialisten weder kennen noch einzeln beauftragen können.
         ...(wer === "korrespondenz" ? { mcpServers: { postfach: createLesePostfach() } } : {}),
+        ...(wer === "boerse"
+          ? {
+              mcpServers: {
+                tisch: createHandelstisch({
+                  onArbeitet: (wen, frage) =>
+                    console.log(`[tisch] ${wen}: ${redactText(frage.slice(0, 80))}`),
+                  onFertig: (wen, k, d) =>
+                    console.log(
+                      `[tisch] ${wen} fertig nach ${(d / 1000).toFixed(1)}s, $${k.toFixed(4)}`,
+                    ),
+                }),
+              },
+            }
+          : {}),
       },
     })) {
       if (nachricht.type === "assistant" && nachricht.parent_tool_use_id === null) {
@@ -168,11 +192,23 @@ async function fuehreAus(
     }
   } catch (error) {
     const grund = error instanceof Error ? error.message : String(error);
-    return `${wer} konnte den Auftrag nicht ausführen: ${grund}`;
+    // Auch die Fehlermeldung: eine gescheiterte Anmeldung nennt gern den Schlüssel, mit dem
+    // sie es versucht hat.
+    return redactText(`${wer} konnte den Auftrag nicht ausführen: ${grund}`);
   }
 
   deps.onFertig?.(wer, kosten, Date.now() - start);
-  return bericht.trim() || `${wer} hat nichts berichtet.`;
+
+  // Der Filter aus `runtime/redaction` — beim Motorwechsel war er ausgefallen und wird hier
+  // wieder angeschlossen, an der Stelle, an der er jetzt zählt: **die Grenze zwischen einem
+  // Bedienstetenlauf und Kuros dauerhafter Sitzung.** Ein Sekretär, der eine Mail mit einem
+  // Zugangsschlüssel zitiert, oder eine Werkstatt, die eine Konfigurationsdatei liest, trüge
+  // das Geheimnis sonst in eine Unterhaltung, die auf der Platte liegt und nie endet.
+  //
+  // Bewusst **nicht** auf Kuros eigene Antwort an Jakob angewandt: fragt der Hausherr nach
+  // etwas, das er selbst hinterlegt hat, wäre ein `[redacted]` keine Sicherheit, sondern
+  // eine Schikane.
+  return redactText(bericht.trim()) || `${wer} hat nichts berichtet.`;
 }
 
 /** Der Werkzeugname, wie er in `allowedTools` stehen muss. */

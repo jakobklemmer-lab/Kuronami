@@ -204,8 +204,7 @@ export async function liste(
           gesammelt.push({
             konto: konto.name,
             uid: nachricht.uid,
-            von:
-              umschlag?.from?.map((a) => a.name || a.address || "").join(", ") || "(unbekannt)",
+            von: umschlag?.from?.map((a) => a.name || a.address || "").join(", ") || "(unbekannt)",
             betreff: umschlag?.subject || "(kein Betreff)",
             am: umschlag?.date ? new Date(umschlag.date).toISOString() : "",
             ungelesen,
