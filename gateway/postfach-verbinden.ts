@@ -34,6 +34,21 @@ function rueckadresse(req: Request): string {
   return `${schema}://${host}/postfach/zurueck`;
 }
 
+/**
+ * Die erste Nummer, unter der noch kein Postfach steht.
+ *
+ * Gelesen wird aus der laufenden Umgebung, nicht aus der Datei: der Prozess kennt genau die
+ * Konten, mit denen er gestartet wurde, und nur die zählen. Trägt jemand eine Zeile ein, ohne
+ * neu zu starten, bekäme er hier dieselbe Nummer noch einmal — das fällt beim Einfügen sofort
+ * auf und ist besser, als eine Datei zu parsen, die gerade bearbeitet wird.
+ */
+function naechsteFreieNummer(env: NodeJS.ProcessEnv = process.env): number {
+  for (let i = 1; i <= 20; i++) {
+    if (!env[`MAIL_${i}_USER`]?.trim()) return i;
+  }
+  return 21;
+}
+
 function seite(titel: string, inhalt: string): string {
   return `<!doctype html><html lang="de"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
@@ -149,7 +164,11 @@ GOOGLE_CLIENT_SECRET=…</pre>
         // Nicht schlimm — die Zeile unten steht auch ohne Adresse.
       }
 
-      const nummer = Number(process.env.POSTFACH_NAECHSTE_NUMMER ?? 1);
+      // Die nächste freie Nummer selbst ermitteln, statt immer 1 auszugeben. Die feste 1
+      // war ein Fehler mit Folgen: wer drei Postfächer nacheinander verbindet, bekam
+      // dreimal `MAIL_1_` und musste von Hand umnummerieren — und wer das übersieht,
+      // hat am Ende ein einziges verbundenes Konto statt drei.
+      const nummer = naechsteFreieNummer();
       res.send(
         seite(
           "Verbunden",
@@ -159,7 +178,8 @@ GOOGLE_CLIENT_SECRET=…</pre>
 MAIL_${nummer}_USER=${adresse}
 MAIL_${nummer}_GOOGLE=${daten.refresh_token}</pre>
            <p>Danach das Gateway neu starten. Für das nächste Postfach erneut
-           <code>/postfach/verbinden</code> aufrufen und die Nummer hochzählen.</p>
+           <code>/postfach/verbinden</code> aufrufen — die Nummer zählt sich selbst hoch,
+           sobald das Gateway die Zeilen oben kennt.</p>
            <p class="leise">Die Zeile ist ein Schlüssel zu Ihrem Postfach — behandeln Sie sie
            wie ein Passwort und schließen Sie diese Seite danach.</p>`,
         ),
