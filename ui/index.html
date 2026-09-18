@@ -11,7 +11,7 @@
     <!-- Nur die Präsenz nutzt diese Schrift; das Dashboard bleibt bei der Systemschrift. -->
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Zen+Kaku+Gothic+New:wght@300;500&display=swap" />
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Manrope:wght@200;300;400;500&family=Zen+Kaku+Gothic+New:wght@400&display=swap" />
   </head>
   <body>
     <!--
@@ -24,6 +24,9 @@
     -->
 
     <div class="scene" id="scene" aria-hidden="true"></div>
+    <!-- Die neue Hülle (Raum + Leiste, ui/praesenz/huelle.ts). Leer, wenn der Nutzer das
+         klassische Dashboard gewählt hat. -->
+    <div id="huelle"></div>
 
     <div class="app-shell">
       <aside class="sidebar" id="sidebar" data-collapsed="false"></aside>

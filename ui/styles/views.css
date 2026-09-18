@@ -1768,3 +1768,18 @@
     grid-column: 1 / -1;
   }
 }
+
+/* Ein Schalter als Zeile: Kästchen und Text zusammen anklickbar. */
+.field__toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  cursor: pointer;
+  color: var(--fg);
+  font-size: var(--text-md);
+}
+.field__toggle input {
+  width: 16px;
+  height: 16px;
+  accent-color: var(--accent);
+}

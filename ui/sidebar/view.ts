@@ -20,7 +20,6 @@ import { loadSidebarCollapsed, saveSidebarCollapsed } from "./collapse.js";
  */
 
 const NAV_ITEMS: { route: RouteId; label: string }[] = [
-  { route: "praesenz", label: "Kuro" },
   { route: "home", label: "Home" },
   { route: "mail", label: "Mail" },
   { route: "calendar", label: "Calendar" },

@@ -1,23 +1,22 @@
-import { emblemMarkup } from "../emblem.js";
 import { signalFor } from "../events/bus.js";
+import { icon } from "../icons.js";
 import { escapeHtml } from "../views/html.js";
 import type { View, ViewContext } from "../views/types.js";
-import { TAFEL_TITEL, type TafelName, renderTafel } from "./tafeln.js";
-import { type Welle, type WellenZustand, mountWelle } from "./welle.js";
+import { meldeStatus } from "./huelle.js";
+import { type Karte, renderActivity, renderMarkets, renderSystem, renderWetter } from "./karten.js";
+import { type Sphaere, type Zustand, mountSphaere } from "./sphaere.js";
 
 /**
- * Die Präsenz — Kuronami als Gegenüber, nicht als Dashboard.
+ * Die Präsenz — nach Jakobs Bild.
  *
- * Drei Dinge sind immer da: das Wasser in der Mitte, die Uhr, die Bubble unten. Alles andere
- * — Kuros Worte, die Tafeln, die Marke, die zwei Knöpfe — ist entweder Antwort auf etwas oder
- * verschwindet im Fokus ganz. Die Oberfläche soll sich anfühlen, als stünde jemand vor einem:
- * er hört zu, während man spricht, denkt sichtbar, antwortet, und legt etwas auf den Tisch,
- * wenn es dazugehört.
+ * Ein Raum bei Dämmerung, und darin steht Kuronami: eine Glassphäre mit einem Lichtband auf
+ * einem Tresen. Oben die Uhr und ein Gruß, rechts drei Karten aus Glas, unten die eine Bubble
+ * mit fünf Vorschlägen. Die Leiste links gehört zur Hülle (`huelle.ts`), nicht zu dieser Ansicht. Unter der Sphäre sein Name — und darunter
+ * das, was er gerade sagt. In Ruhe steht dort sein Motto; sobald er spricht, spricht er.
  *
- * Alles reagiert **sofort und lokal**: das Feld bekommt Fokus → das Wasser hört zu. Senden →
- * es denkt. Das erste Textstück kommt an → es spricht, und jedes weitere Stück ist ein Ring.
- * Ein Bediensteter fängt an → eine Quelle am Ufer. Nichts davon wartet auf eine Antwort vom
- * Server; die Antwort bestätigt nur, was das Wasser schon zeigt.
+ * Zwei Dinge aus dem Text-Prompt liegen über dem Bild: die Karten ruhen gedimmt und treten
+ * nur hervor, wenn Kuro sie zeigt oder Jakob fragt; und im Fokus bleibt nichts als Sphäre, Uhr
+ * und Bubble.
  */
 
 interface MessageResponse {
@@ -28,169 +27,226 @@ interface PendingResponse {
   pending?: Array<{ askId: string; question: string }>;
 }
 interface OutboxResponse {
-  deliveries?: Array<{ message: { kind: string; text?: string; question?: string } }>;
+  deliveries?: Array<{ message: { kind: string; text?: string } }>;
 }
 
-const MIC_SVG = `<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg>`;
-const RASTER_SVG = `<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><rect x="4" y="4" width="6" height="6" rx="1"/><rect x="14" y="4" width="6" height="6" rx="1"/><rect x="4" y="14" width="6" height="6" rx="1"/><rect x="14" y="14" width="6" height="6" rx="1"/></svg>`;
-const FOKUS_SVG = `<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><circle cx="12" cy="12" r="7"/></svg>`;
+const MOTTO = "Always here. Always working.";
+const NAME = "Jakob";
 
-/** Wie lange eine Tafel steht, wenn niemand sie anfasst. */
-const TAFEL_STEHT_MS = 45_000;
+const CHIPS: Array<{ label: string; ikon: Parameters<typeof icon>[0]; text: string }> = [
+  { label: "Check my emails", ikon: "mail", text: "Kuro, was ist an Mails reingekommen?" },
+  { label: "Show me the markets", ikon: "trading", text: "Kuro, wie stehen die Märkte?" },
+  { label: "What's on my calendar?", ikon: "calendar", text: "Kuro, was steht heute im Kalender?" },
+  { label: "Check my server", ikon: "system", text: "Kuro, wie geht es dem Rechner?" },
+  { label: "Research something", ikon: "research", text: "Kuro, recherchiere für mich: " },
+];
+
+/** Welche Karte eine Tafel der Bühne hervorhebt. */
+const TAFEL_ZU_KARTE: Record<string, Karte | "wetter"> = {
+  wetter: "wetter",
+  kurse: "markets",
+  post: "activity",
+  kalender: "activity",
+  system: "system",
+};
+
+const HERVOR_MS = 45_000;
+
+const SEND_SVG = `<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 12l16-8-6 16-3-6-7-2z"/></svg>`;
+
+function gruss(d = new Date()): string {
+  const h = d.getHours();
+  const tageszeit = h < 5 ? "Good night" : h < 12 ? "Good morning" : h < 18 ? "Good afternoon" : "Good evening";
+  return `${tageszeit}, ${NAME}.`;
+}
 
 export const praesenzView: View = {
   mount(container, ctx: ViewContext) {
     container.innerHTML = `
-      <div class="praesenz" data-role="praesenz">
-        <header class="praesenz__kopf">
-          <a class="praesenz__marke" href="#/home" title="Zum Dashboard">${emblemMarkup("praesenz__emblem")}</a>
-          <time class="praesenz__uhr" data-role="uhr" aria-live="off"></time>
-        </header>
+      <div class="praesenz">
+        <header class="p-wetter" data-role="wetter" data-karte="wetter"></header>
 
-        <div class="praesenz__mitte">
-          <aside class="praesenz__tafeln" data-role="tafeln" aria-live="polite"></aside>
+        <main class="p-mitte">
+          <p class="p-datum" data-role="datum"></p>
+          <time class="p-uhr" data-role="uhr"></time>
+          <p class="p-gruss" data-role="gruss"></p>
+          <button type="button" class="p-sphaere-knopf" data-role="sphaere-knopf" aria-label="Kuro zuhören lassen">
+            <canvas class="p-sphaere" data-role="sphaere" role="img" aria-label="Kuronami"></canvas>
+          </button>
+          <p class="p-name">Kuronami</p>
+          <p class="p-worte" data-role="worte">${MOTTO}</p>
+        </main>
 
-          <div class="praesenz__wesen">
-            <button type="button" class="praesenz__welle-knopf" data-role="welle-knopf"
-                    aria-label="Kuro zuhören lassen">
-              <canvas class="praesenz__welle" data-role="welle" role="img" aria-label="Kuronami"></canvas>
-            </button>
-            <div class="praesenz__worte" data-role="worte">
-              <p class="praesenz__frage" data-role="frage"></p>
-              <p class="praesenz__antwort" data-role="antwort"></p>
-            </div>
-          </div>
-        </div>
+        <aside class="p-karten">
+          <section class="karte" data-karte="activity">
+            <header class="karte__kopf"><span class="karte__titel">${icon("bell")} Recent Activity</span></header>
+            <div class="karte__inhalt" data-role="activity"><div class="k-leer">…</div></div>
+          </section>
+          <section class="karte" data-karte="system">
+            <header class="karte__kopf"><span class="karte__titel">${icon("system")} System Overview</span><a class="karte__link" href="#/system">View</a></header>
+            <div class="karte__inhalt" data-role="system"><div class="k-leer">…</div></div>
+          </section>
+          <section class="karte" data-karte="markets">
+            <header class="karte__kopf"><span class="karte__titel">${icon("trading")} Markets</span><a class="karte__link" href="#/trading">View all</a></header>
+            <div class="karte__inhalt" data-role="markets"><div class="k-leer">…</div></div>
+          </section>
+        </aside>
 
-        <footer class="praesenz__fuss">
-          <form class="praesenz__bubble" data-role="bubble">
-            <textarea class="praesenz__eingabe" data-role="eingabe" rows="1"
-                      placeholder="Kuro …" aria-label="An Kuro" autocomplete="off"></textarea>
-            <button type="button" class="praesenz__mic" data-role="mic" aria-label="Zuhören">${MIC_SVG}</button>
+        <footer class="p-fuss">
+          <form class="p-bubble" data-role="bubble">
+            <button type="button" class="p-bubble__mic" data-role="mic" aria-label="Talk to Kuro">${icon("mic")}</button>
+            <textarea class="p-bubble__eingabe" data-role="eingabe" rows="1"
+                      placeholder="Tell me what you need..." aria-label="Tell Kuro what you need"
+                      autocomplete="off"></textarea>
+            <button type="submit" class="p-bubble__senden" data-role="senden" aria-label="Send">${SEND_SVG}</button>
           </form>
-          <div class="praesenz__leiste">
-            <button type="button" class="praesenz__leise-knopf" data-role="dashboard" title="Dashboard">${RASTER_SVG}</button>
-            <button type="button" class="praesenz__leise-knopf" data-role="fokus" title="Fokus (Esc beendet)">${FOKUS_SVG}</button>
+          <div class="p-chips">
+            ${CHIPS.map(
+              (c, i) =>
+                `<button type="button" class="p-chip" data-chip="${i}">${icon(c.ikon)}<span>${escapeHtml(c.label)}</span></button>`,
+            ).join("")}
           </div>
+          <button type="button" class="p-fokus" data-role="fokus" title="Focus (Esc to leave)">${icon("focus")}</button>
         </footer>
       </div>
     `;
 
     const q = <T extends Element>(role: string): T | null =>
       container.querySelector<T>(`[data-role="${role}"]`);
-    const canvas = q<HTMLCanvasElement>("welle");
-    const uhrEl = q<HTMLElement>("uhr");
-    const frageEl = q<HTMLElement>("frage");
-    const antwortEl = q<HTMLElement>("antwort");
-    const tafelnEl = q<HTMLElement>("tafeln");
+    const canvas = q<HTMLCanvasElement>("sphaere");
     const eingabe = q<HTMLTextAreaElement>("eingabe");
     const bubble = q<HTMLFormElement>("bubble");
+    const worteEl = q<HTMLElement>("worte");
+    const uhrEl = q<HTMLElement>("uhr");
+    const datumEl = q<HTMLElement>("datum");
+    const grussEl = q<HTMLElement>("gruss");
     const micKnopf = q<HTMLButtonElement>("mic");
-    const welleKnopf = q<HTMLButtonElement>("welle-knopf");
-    if (!canvas || !eingabe || !bubble) return () => {};
+    const sphaereKnopf = q<HTMLButtonElement>("sphaere-knopf");
+    if (!canvas || !eingabe || !bubble || !worteEl) return () => {};
 
-    const ruhigerModus = globalThis.matchMedia?.("(prefers-reduced-motion: reduce)").matches ?? false;
-    const welle: Welle = mountWelle(canvas, { reducedMotion: ruhigerModus });
+    const ruhig = globalThis.matchMedia?.("(prefers-reduced-motion: reduce)").matches ?? false;
+    const sphaere: Sphaere = mountSphaere(canvas, { reducedMotion: ruhig });
 
     // ------------------------------------------------------------------ Uhr
-    const zeigeUhr = (): void => {
-      if (uhrEl) {
-        uhrEl.textContent = new Date().toLocaleTimeString("de-AT", { hour: "2-digit", minute: "2-digit" });
+    const zeigeZeit = (): void => {
+      const d = new Date();
+      if (uhrEl) uhrEl.textContent = d.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" });
+      if (datumEl) {
+        datumEl.textContent = d.toLocaleDateString("en-GB", {
+          weekday: "long",
+          day: "numeric",
+          month: "long",
+          year: "numeric",
+        });
       }
+      if (grussEl) grussEl.textContent = gruss(d);
     };
-    zeigeUhr();
-    const uhrTimer = globalThis.setInterval(zeigeUhr, 1000);
+    zeigeZeit();
+    const uhrTimer = globalThis.setInterval(zeigeZeit, 1000);
 
-    // ------------------------------------------------------------ Zustand
+    // --------------------------------------------------------------- Karten
+    const nochmal = new Set<string>();
+    const lade = (role: string, html: Promise<string>, erneut?: () => Promise<string>): void => {
+      void html.then((h) => {
+        const el = q<HTMLElement>(role);
+        if (!el || entladen) return;
+        el.innerHTML = h;
+        // Beim allerersten Laden kann der Token gerade erst gesetzt sein; dann steht hier
+        // für eine Minute eine Fehlermeldung. Ein einziger zweiter Versuch räumt das weg.
+        if (erneut && h.includes("k-leer") && !nochmal.has(role)) {
+          nochmal.add(role);
+          globalThis.setTimeout(() => lade(role, erneut()), 4000);
+        }
+      });
+    };
+    let entladen = false;
+    const ladeKarten = (): void => {
+      lade("wetter", renderWetter(), renderWetter);
+      lade("activity", renderActivity(ctx.api), () => renderActivity(ctx.api));
+      lade("system", renderSystem(ctx.api), () => renderSystem(ctx.api));
+      lade("markets", renderMarkets(ctx.api), () => renderMarkets(ctx.api));
+    };
+    ladeKarten();
+    const kartenTimer = globalThis.setInterval(ladeKarten, 60_000);
+
+    const hervorTimer = new Map<string, ReturnType<typeof setTimeout>>();
+    const hebeHervor = (karte: string): void => {
+      const el = container.querySelector<HTMLElement>(`[data-karte="${karte}"]`);
+      if (!el) return;
+      el.classList.add("ist-aktiv");
+      const alt = hervorTimer.get(karte);
+      if (alt) globalThis.clearTimeout(alt);
+      hervorTimer.set(karte, globalThis.setTimeout(() => el.classList.remove("ist-aktiv"), HERVOR_MS));
+      // Frische Zahlen, wenn Kuro darauf zeigt.
+      if (karte === "markets") lade("markets", renderMarkets(ctx.api));
+      if (karte === "system") lade("system", renderSystem(ctx.api));
+      if (karte === "activity") lade("activity", renderActivity(ctx.api));
+      if (karte === "wetter") lade("wetter", renderWetter());
+    };
+    const alleZurueck = (): void => {
+      for (const el of container.querySelectorAll(".ist-aktiv")) el.classList.remove("ist-aktiv");
+      for (const t of hervorTimer.values()) globalThis.clearTimeout(t);
+      hervorTimer.clear();
+    };
+
+    // ------------------------------------------------------------- Zustand
     let inFlight = false;
     const arbeitende = new Set<string>();
-    let verblassTimer: ReturnType<typeof setTimeout> | null = null;
+    let worteTimer: ReturnType<typeof setTimeout> | null = null;
 
-    /** Der Zustand des Wassers aus allem, was gerade gilt — eine Stelle, nicht viele Flags. */
-    const zustandNeu = (hinweis?: WellenZustand): void => {
+    const zustandNeu = (hinweis?: Zustand): void => {
       if (hinweis) {
-        welle.setZustand(hinweis);
+        sphaere.setZustand(hinweis);
         return;
       }
-      if (arbeitende.size > 0) welle.setZustand("arbeiten");
-      else if (inFlight) welle.setZustand("denken");
-      else if (ctx.mic.state === "listening") welle.setZustand("zuhoeren");
-      else welle.setZustand("ruhe");
+      if (arbeitende.size > 0) sphaere.setZustand("arbeiten");
+      else if (inFlight) sphaere.setZustand("denken");
+      else if (ctx.mic.state === "listening") sphaere.setZustand("zuhoeren");
+      else sphaere.setZustand("ruhe");
+      meldeStatus(
+        arbeitende.size > 0
+          ? `Working · ${[...arbeitende].join(", ")}`
+          : inFlight
+            ? "Thinking"
+            : ctx.mic.state === "listening"
+              ? "Listening"
+              : "Online",
+      );
     };
 
-    const setAntwort = (text: string, frage = false): void => {
-      if (!antwortEl) return;
-      antwortEl.textContent = text;
-      antwortEl.classList.toggle("ist-frage", frage);
-      antwortEl.classList.remove("ist-verblasst");
-      if (verblassTimer) globalThis.clearTimeout(verblassTimer);
-      verblassTimer = globalThis.setTimeout(() => antwortEl.classList.add("ist-verblasst"), 24_000);
-    };
-
-    // ------------------------------------------------------------- Tafeln
-    const offeneTafeln = new Map<TafelName, { el: HTMLElement; timer: ReturnType<typeof setTimeout> }>();
-
-    const entferneTafel = (name: TafelName): void => {
-      const t = offeneTafeln.get(name);
-      if (!t) return;
-      globalThis.clearTimeout(t.timer);
-      t.el.classList.add("ist-weg");
-      globalThis.setTimeout(() => t.el.remove(), 260);
-      offeneTafeln.delete(name);
-    };
-
-    const zeigeTafel = async (name: TafelName, hinweis?: string): Promise<void> => {
-      if (!tafelnEl) return;
-      entferneTafel(name);
-      // Höchstens zwei zugleich — die älteste geht, wenn eine dritte kommt.
-      if (offeneTafeln.size >= 2) {
-        const aelteste = offeneTafeln.keys().next().value;
-        if (aelteste) entferneTafel(aelteste);
+    /** Was unter dem Namen steht. Leer heißt: das Motto kommt zurück. */
+    const setWorte = (text: string, frage = false): void => {
+      worteEl.classList.toggle("ist-frage", frage);
+      worteEl.classList.remove("ist-motto", "ist-offen");
+      worteEl.textContent = text;
+      if (worteTimer) globalThis.clearTimeout(worteTimer);
+      if (!text) {
+        worteEl.textContent = MOTTO;
+        worteEl.classList.add("ist-motto");
+        return;
       }
-      const el = document.createElement("section");
-      el.className = "tafel";
-      el.innerHTML = `
-        <header class="tafel__kopf">
-          <span class="tafel__titel">${escapeHtml(TAFEL_TITEL[name])}</span>
-          <button type="button" class="tafel__zu" aria-label="Tafel wegnehmen">×</button>
-        </header>
-        ${hinweis ? `<p class="tafel__hinweis">${escapeHtml(hinweis)}</p>` : ""}
-        <div class="tafel__inhalt"><div class="tafel__leise">…</div></div>`;
-      tafelnEl.prepend(el);
-      const timer = globalThis.setTimeout(() => entferneTafel(name), TAFEL_STEHT_MS);
-      offeneTafeln.set(name, { el, timer });
-      el.querySelector(".tafel__zu")?.addEventListener("click", () => entferneTafel(name));
-      // Solange die Hand darauf liegt, bleibt sie.
-      el.addEventListener("mouseenter", () => {
-        const t = offeneTafeln.get(name);
-        if (t) globalThis.clearTimeout(t.timer);
-      });
-      el.addEventListener("mouseleave", () => {
-        const t = offeneTafeln.get(name);
-        if (t) t.timer = globalThis.setTimeout(() => entferneTafel(name), TAFEL_STEHT_MS);
-      });
-      const inhalt = el.querySelector<HTMLElement>(".tafel__inhalt");
-      if (inhalt) inhalt.innerHTML = await renderTafel(name, ctx.api);
+      worteTimer = globalThis.setTimeout(() => setWorte(""), 40_000);
     };
-
-    const alleTafelnWeg = (): void => {
-      for (const name of [...offeneTafeln.keys()]) entferneTafel(name);
-    };
+    worteEl.classList.add("ist-motto");
+    worteEl.addEventListener("click", () => {
+      if (!worteEl.classList.contains("ist-motto")) worteEl.classList.toggle("ist-offen");
+    });
 
     // -------------------------------------------------------------- Senden
     const wachsen = (): void => {
       eingabe.style.height = "auto";
-      eingabe.style.height = `${Math.min(eingabe.scrollHeight, 140)}px`;
+      eingabe.style.height = `${Math.min(eingabe.scrollHeight, 132)}px`;
       bubble.classList.toggle("ist-mehrzeilig", eingabe.scrollHeight > 44);
     };
 
-    const sende = async (): Promise<void> => {
-      const text = eingabe.value.trim();
+    const sende = async (textVorgabe?: string): Promise<void> => {
+      const text = (textVorgabe ?? eingabe.value).trim();
       if (!text || inFlight) return;
       eingabe.value = "";
       wachsen();
-      if (frageEl) frageEl.textContent = text;
-      setAntwort("");
+      setWorte("");
+      worteEl.classList.remove("ist-motto");
+      worteEl.textContent = "";
       inFlight = true;
       zustandNeu("denken");
 
@@ -198,25 +254,26 @@ export const praesenzView: View = {
         try {
           const p = await ctx.api.get<PendingResponse>("/channels/web/pending");
           const offen = p.pending?.[0];
-          if (offen && antwortEl && !antwortEl.classList.contains("ist-frage")) {
-            setAntwort(offen.question, true);
+          if (offen && !worteEl.classList.contains("ist-frage")) {
+            setWorte(offen.question, true);
             zustandNeu("zuhoeren");
           }
         } catch {
-          // Ein fehlgeschlagener Blick auf die offenen Fragen ist kein Grund für Aufregung.
+          // kein Grund für Aufregung
         }
       }, 1500);
 
       try {
         const antwort = await ctx.api.post<MessageResponse>("/channels/web/messages", { content: text });
         const reply = antwort.delivered?.find((d) => d.kind === "reply")?.text;
-        if (reply) setAntwort(reply);
+        if (reply) setWorte(reply);
+        else if (!worteEl.textContent) setWorte("");
       } catch (error) {
-        setAntwort(error instanceof Error ? error.message : String(error));
+        setWorte(error instanceof Error ? error.message : String(error));
       } finally {
         globalThis.clearInterval(pendingTimer);
         inFlight = false;
-        welle.fertig();
+        sphaere.fertig();
         globalThis.setTimeout(() => zustandNeu(), 900);
       }
     };
@@ -232,13 +289,29 @@ export const praesenzView: View = {
       }
     });
     eingabe.addEventListener("input", wachsen);
-    // Aufmerksamkeit: sobald man zu schreiben ansetzt, hört das Wasser zu.
     eingabe.addEventListener("focus", () => {
-      if (!inFlight && arbeitende.size === 0) welle.setZustand("zuhoeren");
+      if (!inFlight && arbeitende.size === 0) sphaere.setZustand("zuhoeren");
     });
     eingabe.addEventListener("blur", () => {
       if (!inFlight) zustandNeu();
     });
+
+    for (const knopf of container.querySelectorAll<HTMLButtonElement>(".p-chip")) {
+      knopf.addEventListener("click", () => {
+        const chip = CHIPS[Number(knopf.dataset.chip)];
+        if (!chip) return;
+        // Ein offener Vorschlag („recherchiere für mich: ") wartet auf die Ergänzung, ein
+        // fertiger geht sofort.
+        if (chip.text.endsWith(": ")) {
+          eingabe.value = chip.text;
+          eingabe.focus();
+          eingabe.setSelectionRange(chip.text.length, chip.text.length);
+          wachsen();
+        } else {
+          void sende(chip.text);
+        }
+      });
+    }
 
     // ------------------------------------------------------------- Stimme
     const zuhoerenUmschalten = (): void => {
@@ -246,14 +319,10 @@ export const praesenzView: View = {
       else ctx.mic.toggleListening();
     };
     micKnopf?.addEventListener("click", zuhoerenUmschalten);
-    welleKnopf?.addEventListener("click", zuhoerenUmschalten);
+    sphaereKnopf?.addEventListener("click", zuhoerenUmschalten);
     const micAbo = ctx.mic.subscribe((state) => {
       micKnopf?.classList.toggle("ist-an", state === "listening");
-      welleKnopf?.setAttribute("aria-pressed", String(state === "listening"));
-      canvas.setAttribute(
-        "aria-label",
-        state === "listening" ? "Kuronami hört zu" : inFlight ? "Kuronami arbeitet" : "Kuronami",
-      );
+      sphaereKnopf?.setAttribute("aria-pressed", String(state === "listening"));
       if (!inFlight) zustandNeu();
     });
 
@@ -265,82 +334,79 @@ export const praesenzView: View = {
         const payload = (data.payload ?? data) as Record<string, unknown>;
         const stueck = typeof payload.text === "string" ? payload.text : "";
         if (!stueck) return;
-        if (antwortEl) {
-          if (antwortEl.classList.contains("ist-frage")) setAntwort("");
-          antwortEl.textContent = `${antwortEl.textContent ?? ""}${stueck}`;
-          antwortEl.classList.remove("ist-verblasst");
+        if (worteEl.classList.contains("ist-frage") || worteEl.classList.contains("ist-motto")) {
+          worteEl.classList.remove("ist-frage", "ist-motto");
+          worteEl.textContent = "";
         }
-        welle.setZustand("sprechen");
-        welle.impuls(Math.min(1, stueck.length / 14));
+        worteEl.textContent = `${worteEl.textContent ?? ""}${stueck}`;
+        sphaere.setZustand("sprechen");
+        sphaere.impuls(Math.min(1, stueck.length / 14));
         return;
       }
       if (message.type === "haus.arbeitet" && typeof data.wer === "string") {
         arbeitende.add(data.wer);
-        welle.setArbeitende([...arbeitende]);
+        sphaere.setArbeitende([...arbeitende]);
         zustandNeu();
         return;
       }
       if (message.type === "haus.fertig" && typeof data.wer === "string") {
         arbeitende.delete(data.wer);
-        welle.setArbeitende([...arbeitende]);
+        sphaere.setArbeitende([...arbeitende]);
         zustandNeu();
         return;
       }
       if (message.type === "ui.zeige") {
-        const tafel = data.tafel;
-        if (typeof tafel === "string" && tafel in TAFEL_TITEL) {
-          void zeigeTafel(tafel as TafelName, typeof data.hinweis === "string" ? data.hinweis : undefined);
-        }
+        const karte = typeof data.tafel === "string" ? TAFEL_ZU_KARTE[data.tafel] : undefined;
+        if (karte) hebeHervor(karte);
         return;
       }
       if (message.type === "ui.verberge") {
-        alleTafelnWeg();
+        alleZurueck();
         return;
       }
-
-      // Alles Übrige nur, wenn hier gerade kein eigener Zug läuft — ein Nachtrag eines
-      // Bediensteten oder ein Heartbeat soll sich im Wasser zeigen, aber nicht eine laufende
-      // Antwort überschreiben.
       if (inFlight) return;
+      // Ein Zug, den nicht dieser Tab angestoßen hat (Sprachschicht, ein zweites Fenster, ein
+      // Nachtrag): seine Worte fangen leer an. Ohne das hängt sich die neue Antwort an die
+      // alte — so stand hier einmal „…rot heute.Sehr wohl. In Wien…" in einer Zeile.
+      if (message.type === "turn.started") {
+        worteEl.classList.remove("ist-motto", "ist-frage", "ist-offen");
+        worteEl.textContent = "";
+      }
       const signal = signalFor(message);
-      if (signal === "processing") welle.setZustand("denken");
-      else if (signal === "speaking") welle.setZustand("sprechen");
-      else if (signal === "complete") welle.fertig();
+      if (signal === "processing") sphaere.setZustand("denken");
+      else if (signal === "speaking") sphaere.setZustand("sprechen");
+      else if (signal === "complete") sphaere.fertig();
       else if (signal === "idle") zustandNeu();
     });
 
-    // Nachträge (ein Bediensteter kam später zurück) liegen im Postfach des Web-Kanals.
     const outboxTimer = globalThis.setInterval(async () => {
       if (inFlight) return;
       try {
         const o = await ctx.api.get<OutboxResponse>("/channels/web/outbox");
         const letzte = o.deliveries?.filter((d) => d.message.kind === "reply").pop();
         if (letzte?.message.text) {
-          if (frageEl) frageEl.textContent = "";
-          setAntwort(letzte.message.text);
-          welle.fertig();
+          setWorte(letzte.message.text);
+          sphaere.fertig();
         }
       } catch {
-        // Kein Gateway erreichbar — das Wasser bleibt ruhig, mehr gibt es hier nicht zu sagen.
+        // kein Gateway — nichts zu sagen
       }
     }, 4000);
 
-    // ---------------------------------------------------------------- Knöpfe
-    q<HTMLButtonElement>("dashboard")?.addEventListener("click", () => ctx.navigate("home"));
     q<HTMLButtonElement>("fokus")?.addEventListener("click", () => ctx.toggleFocus());
-    antwortEl?.addEventListener("click", () => antwortEl.classList.toggle("ist-offen"));
 
     zustandNeu();
-    eingabe.focus({ preventScroll: true });
 
     return () => {
+      entladen = true;
       globalThis.clearInterval(uhrTimer);
+      globalThis.clearInterval(kartenTimer);
       globalThis.clearInterval(outboxTimer);
-      if (verblassTimer) globalThis.clearTimeout(verblassTimer);
-      for (const t of offeneTafeln.values()) globalThis.clearTimeout(t.timer);
+      if (worteTimer) globalThis.clearTimeout(worteTimer);
+      alleZurueck();
       micAbo();
       busAbo();
-      welle.destroy();
+      sphaere.destroy();
     };
   },
 };

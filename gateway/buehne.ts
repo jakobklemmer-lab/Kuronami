@@ -49,6 +49,7 @@ export function createBuehne(deps: BuehneDeps) {
         .describe("Ein kurzer Satz über der Tafel, wenn einer nötig ist."),
     },
     async ({ tafel, hinweis }) => {
+      console.log(`[buehne] zeige ${tafel}${hinweis ? ` — ${hinweis}` : ""}`);
       deps.publish("ui.zeige", { tafel, ...(hinweis ? { hinweis } : {}) });
       return { content: [{ type: "text" as const, text: `Die Tafel „${tafel}" steht.` }] };
     },
@@ -60,6 +61,7 @@ export function createBuehne(deps: BuehneDeps) {
     "Alle Tafeln wieder wegnehmen. Selten nötig — sie verschwinden nach einer Weile von selbst.",
     {},
     async () => {
+      console.log("[buehne] verberge");
       deps.publish("ui.verberge", {});
       return { content: [{ type: "text" as const, text: "Die Tafeln sind weg." }] };
     },

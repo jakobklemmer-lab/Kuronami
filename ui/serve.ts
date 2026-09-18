@@ -28,6 +28,7 @@ export const STATIC_FILES = [
   "styles/layout.css",
   "styles/views.css",
   "assets/lake.jpg",
+  "assets/praesenz.jpg",
   // Gepinnt wie alles hier (siehe docker-compose.yml): TradingView Lightweight Charts, Apache
   // 2.0, als vorgebautes ESM-Standalone-Modul. Kein npm-Import — der Browser lädt `ui/**`
   // ohne Bundler (siehe oben), und ein bloßer Paketname wäre kein gültiger Browser-Import.

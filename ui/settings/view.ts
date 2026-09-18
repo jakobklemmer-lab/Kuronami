@@ -1,6 +1,7 @@
 import { ApiError } from "../api/client.js";
 import { icon } from "../icons.js";
 import { SETTINGS_SECTION_IDS, type SettingsSectionId } from "../router/router.js";
+import { klassischModus, setzeKlassischModus } from "../praesenz/huelle.js";
 import { escapeHtml } from "../views/html.js";
 import { loadToken, saveToken } from "../settings.js";
 import {
@@ -114,6 +115,16 @@ function renderAppearance(settings: KuronamiSettings): string {
           <option value="comfortable" ${settings.appearance.density === "comfortable" ? "selected" : ""}>Komfortabel</option>
           <option value="compact" ${settings.appearance.density === "compact" ? "selected" : ""}>Kompakt</option>
         </select>
+      </div>
+      <div class="field">
+        <span class="field__label">Oberfläche</span>
+        <label class="field__toggle">
+          <input type="checkbox" data-role="klassisch" ${klassischModus() ? "checked" : ""} />
+          <span>Klassisches Dashboard verwenden</span>
+        </label>
+        <p class="field__hint">Die neue Oberfläche — Kuro als Gegenüber, Raum und Leiste — ist die
+        Vorgabe. Das alte Dashboard ist nur noch über diesen Schalter erreichbar; die Seite lädt
+        nach dem Umschalten neu.</p>
       </div>
     </section>
   `;
@@ -410,6 +421,14 @@ export const settingsView: View = {
     // Der Haushalts-Abschnitt und die Postfachliste holen ihren Inhalt vom Gateway. Beide
     // fragen dieselbe Route; sie steht nur in zwei Abschnitten, also lädt je nach geöffnetem
     // Abschnitt höchstens einer davon.
+    container
+      .querySelector<HTMLInputElement>('[data-role="klassisch"]')
+      ?.addEventListener("change", (e) => {
+        setzeKlassischModus((e.target as HTMLInputElement).checked);
+        globalThis.location.hash = "";
+        globalThis.location.reload();
+      });
+
     const haushaltEl = container.querySelector<HTMLElement>('[data-role="haushalt"]');
     const postfaecherEl = container.querySelector<HTMLElement>('[data-role="postfaecher"]');
     if (haushaltEl || postfaecherEl) {

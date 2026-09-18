@@ -15,6 +15,7 @@ import {
 import { loadToken } from "./settings.js";
 import { loadSettings, settingsBus } from "./settings/store.js";
 import { applyAppearance, settingsView } from "./settings/view.js";
+import { klassischModus, mountHuelle } from "./praesenz/huelle.js";
 import { praesenzView } from "./praesenz/view.js";
 import { mountSidebar } from "./sidebar/view.js";
 import { createToast } from "./toast.js";
@@ -135,12 +136,21 @@ function main(): void {
     },
   });
 
-  const sidebar = mountSidebar(sidebarEl, { navigate, toast });
-  mountMicButton(sidebar.micHost, mic, {
-    stateTarget: sidebarEl,
-    onToggle: () => voice.toggle(),
-  });
-  bus.onStatus((status, attempts) => sidebar.setConnectionStatus(status, attempts));
+  // Zwei Hüllen, ein Schalter (Einstellungen › Erscheinungsbild). Die neue ist die Vorgabe:
+  // Raum und Leiste aus `praesenz/huelle.ts` umgeben jede Ansicht. Die alte Seitenleiste
+  // steht nur noch, wenn der Nutzer sie ausdrücklich zurückgeholt hat.
+  const klassisch = klassischModus();
+  document.body.dataset.modus = klassisch ? "klassisch" : "neu";
+  const huelleEl = element<HTMLElement>("huelle");
+  const huelle = klassisch ? null : mountHuelle(huelleEl);
+  const sidebar = klassisch ? mountSidebar(sidebarEl, { navigate, toast }) : null;
+  if (sidebar) {
+    mountMicButton(sidebar.micHost, mic, {
+      stateTarget: sidebarEl,
+      onToggle: () => voice.toggle(),
+    });
+    bus.onStatus((status, attempts) => sidebar.setConnectionStatus(status, attempts));
+  }
 
   document.addEventListener("keydown", (event) => {
     if (event.key === "Escape" && document.body.dataset.focus === "on") toggleFocus();
@@ -150,12 +160,15 @@ function main(): void {
 
   function renderRoute(): void {
     const parsed = parseHash(globalThis.location.hash);
+    // Die Präsenz gibt es nur in der neuen Hülle; in der alten ist „Home" das Dashboard.
+    if (klassisch && parsed.view === "praesenz") {
+      globalThis.location.hash = hashFor("home");
+      return;
+    }
     cleanupCurrentView?.();
     outletEl.innerHTML = "";
-    // Zwei Hüllen, ein Schalter: im Präsenz-Modus verschwinden Seitenleiste und Szene per
-    // CSS (`praesenz.css`), die Ansicht füllt das Fenster. Der Fokus-Modus gilt in beiden.
-    document.body.dataset.modus = parsed.view === "praesenz" ? "praesenz" : "dashboard";
-    sidebar.setActive(parsed.view);
+    sidebar?.setActive(parsed.view);
+    huelle?.setActive(parsed.view);
     const ctx: ViewContext = {
       api,
       bus,
@@ -172,7 +185,7 @@ function main(): void {
 
   globalThis.addEventListener("hashchange", renderRoute);
   if (globalThis.location.hash.length === 0) {
-    globalThis.location.hash = hashFor(DEFAULT_ROUTE);
+    globalThis.location.hash = hashFor(klassisch ? DEFAULT_ROUTE : "praesenz");
   } else {
     renderRoute();
   }

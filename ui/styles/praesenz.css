@@ -1,443 +1,711 @@
 /* ---------------------------------------------------------------------------
-   Die Präsenz.
+   Die Präsenz — nach Jakobs Bild.
 
-   Eigene Farbwelt, bewusst nicht die des Dashboards: kein Foto, kein Glas, keine Karten.
-   Tiefes Wasser als Grund, ein einziger Mondlicht-Reflex, und sonst nur Text. Die Tokens
-   hängen an `.praesenz`, nicht an `:root` — das Dashboard bleibt unberührt.
+   Ein Raum bei Dämmerung als Grund (Foto), darauf Glas: eine schmale Leiste links, Uhr und
+   Gruß in der Mitte, drei Karten rechts, die Bubble unten. Alles liegt AUF dem Raum, nichts
+   ist der Raum. Die Tokens hängen an `.praesenz`; das Dashboard bleibt unberührt.
    --------------------------------------------------------------------------- */
 
-.praesenz {
-  --wasser-grund: #0b1418;
-  --wasser-tief: #10202a;
-  --mond: #e3ecef;
-  --text: #c9d4d8;
-  --text-leise: #6f8288;
-  --linie: rgba(227, 236, 239, 0.12);
-  --bernstein: #c9a25a;
-  --rauf: #7fc99b;
-  --runter: #e0857d;
-  --dauer: 220ms;
-  --kurve: cubic-bezier(0.2, 0.7, 0.2, 1);
+/* Die Tokens liegen am body, damit Hülle (Leiste, Raum) und jede Ansicht dieselben sehen. */
+body[data-modus="neu"] {
+  --p-grund: #0a1116;
+  --p-text: #e6edf2;
+  --p-leise: rgba(230, 237, 242, 0.58);
+  --p-still: rgba(230, 237, 242, 0.36);
+  --p-glas: rgba(14, 22, 30, 0.42);
+  --p-glas-rand: rgba(255, 255, 255, 0.09);
+  --p-glas-rand-aktiv: rgba(127, 184, 255, 0.35);
+  --p-akzent: #7fb8ff;
+  --p-rauf: #62d391;
+  --p-runter: #e0857d;
+  --p-bernstein: #c9a25a;
+  --p-dauer: 240ms;
+  --p-kurve: cubic-bezier(0.2, 0.7, 0.2, 1);
+  --p-nav: 176px;
+  --p-karten: 300px;
+  --p-bild: url("/assets/praesenz.jpg");
 
+  background: var(--p-grund);
+  color: var(--p-text);
+  font-family: Manrope, "Helvetica Neue", Arial, system-ui, sans-serif;
+}
+
+/* Der Raum: das Foto als Grund, mit einem leichten Verlauf für die Lesbarkeit unten. */
+.p-raum {
   position: fixed;
   inset: 0;
-  display: grid;
-  grid-template-rows: auto 1fr auto;
-  padding: clamp(18px, 3vh, 32px) clamp(16px, 4vw, 48px);
+  z-index: 0;
   background:
-    radial-gradient(60vmax 45vmax at 30% 8%, rgba(227, 236, 239, 0.035), transparent 70%),
-    var(--wasser-grund);
-  color: var(--text);
-  font-family: "Zen Kaku Gothic New", "Hiragino Sans", "Noto Sans JP", system-ui, sans-serif;
+    linear-gradient(180deg, rgba(6, 10, 14, 0.22) 0%, rgba(6, 10, 14, 0.04) 40%, rgba(6, 10, 14, 0.58) 100%),
+    var(--p-bild, radial-gradient(90vmax 70vmax at 60% 30%, #1a2b36, #0a1116 70%)) center / cover no-repeat,
+    var(--p-grund);
+}
+
+/* Die alte Hülle tritt zurück; der Auslass liegt neben der Leiste. */
+body[data-modus="neu"] .sidebar,
+body[data-modus="neu"] .scene {
+  display: none;
+}
+body[data-modus="neu"] .app-shell {
+  display: block;
+  padding: 0;
+}
+body[data-modus="neu"] #view-outlet {
+  position: relative;
+  z-index: 1;
+  margin-left: var(--p-nav);
+  min-height: 100vh;
+  padding: 28px 32px 28px 8px;
   font-weight: 300;
-  font-size: 15px;
-  line-height: 1.6;
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+/* Kuros Ansicht selbst füllt das Fenster rechts der Leiste. */
+.praesenz {
+  position: fixed;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  left: var(--p-nav);
+  z-index: 1;
+  display: grid;
+  grid-template-columns: 1fr var(--p-karten);
+  grid-template-rows: auto 1fr auto;
+  grid-template-areas:
+    "mitte wetter"
+    "mitte karten"
+    "fuss  karten";
+  padding: 28px 32px 28px 8px;
+  gap: 0 28px;
+  color: var(--p-text);
+  font-weight: 300;
+  font-size: 14px;
+  line-height: 1.5;
   overflow: hidden;
 }
 
-/* Im Präsenz-Modus verschwinden Seitenleiste und Szene. Nicht die ganze `.app-shell` —
-   in ihr sitzt `#view-outlet`, und darin die Präsenz selbst. Ein `display: none` auf der
-   Hülle hätte die Ansicht mit ihrem eigenen Rahmen versteckt (so war es beim ersten Lauf). */
-body[data-modus="praesenz"] .sidebar,
-body[data-modus="praesenz"] .scene {
-  display: none;
-}
-body[data-modus="praesenz"] .app-shell {
-  display: block;
-  padding: 0;
-}
+/* ---- Leiste links --------------------------------------------------------- */
 
-/* ---- Kopf: Marke links, Uhr rechts ---------------------------------------- */
-
-.praesenz__kopf {
+.p-nav {
+  position: fixed;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  z-index: 3;
+  width: var(--p-nav);
   display: flex;
-  justify-content: space-between;
-  align-items: flex-start;
-  min-height: 44px;
-}
-
-.praesenz__marke {
-  color: var(--text-leise);
-  opacity: 0.7;
-  transition: opacity var(--dauer) var(--kurve);
-}
-.praesenz__marke:hover,
-.praesenz__marke:focus-visible {
-  opacity: 1;
-  outline: none;
-}
-.praesenz__emblem {
-  height: 22px;
-  width: auto;
-  display: block;
-}
-
-.praesenz__uhr {
-  font-size: clamp(26px, 3.2vw, 34px);
+  flex-direction: column;
+  padding: 28px 0 28px 28px;
+  gap: 8px;
+  color: var(--p-text);
   font-weight: 300;
-  letter-spacing: 0.02em;
-  color: var(--text);
-  font-variant-numeric: tabular-nums;
+}
+.p-nav__marke {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  color: var(--p-text);
+  text-decoration: none;
+  margin-bottom: 44px;
+  min-height: 34px;
+}
+.p-nav__kanji {
+  font-family: "Zen Kaku Gothic New", "Hiragino Sans", "Noto Sans JP", sans-serif;
+  font-size: 26px;
+  font-weight: 400;
   line-height: 1;
 }
-
-/* ---- Mitte: Tafeln links, Wesen zentriert ---------------------------------- */
-
-.praesenz__mitte {
+.p-nav__wort {
+  font-size: 15px;
+  font-weight: 400;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+}
+.p-nav__liste,
+.p-nav__unten {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.p-nav__unten {
+  margin-top: auto;
+  padding-bottom: 28px;
+}
+.p-nav__link {
   position: relative;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 10px 12px 10px 14px;
+  margin-left: -14px;
+  color: var(--p-leise);
+  text-decoration: none;
+  font-size: 14px;
+  border-radius: 0 10px 10px 0;
+  transition: color var(--p-dauer), background var(--p-dauer);
+}
+.p-nav__link:hover,
+.p-nav__link:focus-visible {
+  color: var(--p-text);
+  background: rgba(255, 255, 255, 0.04);
+  outline: none;
+}
+.p-nav__link.ist-aktiv {
+  color: var(--p-text);
+  background: rgba(255, 255, 255, 0.05);
+}
+.p-nav__link.ist-aktiv::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 8px;
+  bottom: 8px;
+  width: 2px;
+  border-radius: 2px;
+  background: var(--p-akzent);
+}
+.p-nav__ikon {
   display: grid;
   place-items: center;
-  min-height: 0;
+  width: 20px;
+  height: 20px;
+}
+.p-nav__ikon svg {
+  width: 18px;
+  height: 18px;
+}
+.p-nav__status {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  font-size: 12px;
+  color: var(--p-leise);
+  line-height: 1.35;
+}
+.p-nav__status strong {
+  font-weight: 400;
+  color: var(--p-text);
+}
+.p-nav__punkt {
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  border: 1px solid var(--p-glas-rand);
+  background:
+    radial-gradient(circle at 50% 50%, var(--p-akzent) 0 3px, transparent 4px),
+    rgba(255, 255, 255, 0.03);
+  flex: none;
 }
 
-.praesenz__wesen {
+/* ---- Wetter oben rechts ---------------------------------------------------- */
+
+.p-wetter {
+  grid-area: wetter;
+  display: grid;
+  grid-template-columns: auto auto;
+  grid-template-rows: auto auto;
+  column-gap: 12px;
+  align-items: center;
+  justify-content: end;
+  color: var(--p-text);
+  min-height: 44px;
+  padding: 2px 4px;
+  border-radius: 12px;
+  transition: background var(--p-dauer), box-shadow var(--p-dauer);
+}
+.p-wetter__ikon {
+  grid-row: 1 / 3;
+  display: grid;
+  place-items: center;
+}
+.p-wetter__ikon svg {
+  width: 26px;
+  height: 26px;
+}
+.p-wetter__temp {
+  font-size: 17px;
+  font-weight: 400;
+}
+.p-wetter__ort {
+  grid-column: 2;
+  font-size: 12px;
+  color: var(--p-leise);
+}
+.p-wetter__lage {
+  grid-column: 3;
+  grid-row: 1 / 3;
+  padding-left: 14px;
+  border-left: 1px solid var(--p-glas-rand);
+  font-size: 12px;
+  color: var(--p-leise);
+  margin-left: 4px;
+}
+.p-wetter.ist-aktiv {
+  background: var(--p-glas);
+  box-shadow: inset 0 0 0 1px var(--p-glas-rand-aktiv);
+}
+
+/* ---- Mitte ------------------------------------------------------------------ */
+
+.p-mitte {
+  grid-area: mitte;
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: clamp(18px, 3vh, 30px);
-  width: 100%;
-  max-width: 640px;
+  justify-content: flex-start;
+  text-align: center;
+  padding-top: 26px;
+  min-height: 0;
 }
-
-.praesenz__welle-knopf {
+.p-datum {
+  margin: 0;
+  color: var(--p-leise);
+  font-size: 14px;
+}
+.p-uhr {
+  font-size: clamp(44px, 5.2vw, 62px);
+  font-weight: 200;
+  letter-spacing: 0.01em;
+  line-height: 1.1;
+  font-variant-numeric: tabular-nums;
+  margin-top: 2px;
+}
+.p-gruss {
+  margin: 4px 0 0;
+  font-size: clamp(17px, 1.5vw, 21px);
+  font-weight: 300;
+  color: var(--p-text);
+}
+.p-sphaere-knopf {
   appearance: none;
   border: 0;
   padding: 0;
+  margin-top: clamp(24px, 6vh, 64px);
   background: transparent;
   cursor: pointer;
-  border-radius: 50%;
-  width: min(38vmin, 440px);
-  aspect-ratio: 1;
+  width: min(30vmin, 300px);
+  aspect-ratio: 1 / 1.05;
   display: block;
-  /* Der Schatten ist der einzige Hinweis auf Tiefe: das Wasser liegt im Boden, nicht darauf. */
-  box-shadow:
-    inset 0 0 0 1px rgba(227, 236, 239, 0.05),
-    0 30px 80px -30px rgba(0, 0, 0, 0.9);
-  transition: box-shadow var(--dauer) var(--kurve);
+  border-radius: 50%;
 }
-.praesenz__welle-knopf:focus-visible {
-  outline: 1.5px solid var(--mond);
-  outline-offset: 10px;
+.p-sphaere-knopf:focus-visible {
+  outline: 1px solid var(--p-glas-rand-aktiv);
+  outline-offset: 16px;
 }
-.praesenz__welle-knopf[aria-pressed="true"] {
-  box-shadow:
-    inset 0 0 0 1px rgba(227, 236, 239, 0.16),
-    0 30px 80px -30px rgba(0, 0, 0, 0.9);
-}
-.praesenz__welle {
+.p-sphaere {
   display: block;
   width: 100%;
   height: 100%;
-  border-radius: 50%;
 }
-
-/* ---- Worte -------------------------------------------------------------- */
-
-.praesenz__worte {
-  text-align: center;
-  max-width: 58ch;
-  min-height: 3.2em;
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
-.praesenz__frage {
-  margin: 0;
-  color: var(--text-leise);
+.p-name {
+  margin: 8px 0 0;
   font-size: 13px;
+  font-weight: 400;
+  letter-spacing: 0.28em;
+  text-transform: uppercase;
+  color: var(--p-text);
 }
-.praesenz__frage:empty {
-  display: none;
-}
-.praesenz__antwort {
-  margin: 0;
-  font-size: clamp(16px, 1.6vw, 18px);
-  font-weight: 300;
+.p-worte {
+  margin: 6px 0 0;
+  max-width: 54ch;
+  font-size: 13px;
   line-height: 1.55;
-  color: var(--text);
+  color: var(--p-leise);
   display: -webkit-box;
   -webkit-line-clamp: 3;
   -webkit-box-orient: vertical;
   overflow: hidden;
-  cursor: default;
-  transition: opacity 1.2s var(--kurve);
+  cursor: pointer;
+  transition: color 600ms var(--p-kurve);
 }
-.praesenz__antwort.ist-offen {
+.p-worte.ist-motto {
+  cursor: default;
+}
+.p-worte:not(.ist-motto) {
+  color: var(--p-text);
+  font-size: 15px;
+}
+.p-worte.ist-offen {
   -webkit-line-clamp: unset;
-  max-height: 40vh;
+  max-height: 34vh;
   overflow-y: auto;
-  cursor: default;
 }
-.praesenz__antwort:not(.ist-offen) {
-  cursor: pointer;
-}
-.praesenz__antwort.ist-verblasst {
-  opacity: 0.4;
-}
-.praesenz__antwort.ist-frage {
-  color: var(--bernstein);
-}
-.praesenz__antwort:empty {
-  display: none;
+.p-worte.ist-frage {
+  color: var(--p-bernstein);
 }
 
-/* ---- Tafeln: Text auf dem Wasser, mit einer Linie links ------------------ */
+/* ---- Karten rechts ---------------------------------------------------------- */
 
-.praesenz__tafeln {
-  position: absolute;
-  left: 0;
-  top: 50%;
-  transform: translateY(-50%);
-  width: min(320px, 28vw);
+.p-karten {
+  grid-area: karten;
   display: flex;
   flex-direction: column;
-  gap: 28px;
+  gap: 14px;
+  padding-top: 16px;
+  min-height: 0;
+  overflow: hidden;
 }
-
-.tafel {
-  border-left: 1px solid var(--linie);
-  padding-left: 16px;
-  font-size: 14px;
-  animation: tafel-kommt var(--dauer) var(--kurve);
+.karte {
+  background: var(--p-glas);
+  border: 1px solid var(--p-glas-rand);
+  border-radius: 14px;
+  padding: 14px 16px 12px;
+  backdrop-filter: blur(18px);
+  /* Ruhelage: die Karten liegen im Halbdunkel. Erst wenn Kuro auf eine zeigt, tritt sie vor. */
+  opacity: 0.62;
+  transition: opacity var(--p-dauer) var(--p-kurve), border-color var(--p-dauer), transform var(--p-dauer) var(--p-kurve);
 }
-.tafel.ist-weg {
-  opacity: 0;
-  transition: opacity 260ms var(--kurve);
+.karte:hover,
+.karte:focus-within {
+  opacity: 0.92;
 }
-@keyframes tafel-kommt {
-  from { opacity: 0; }
-  to { opacity: 1; }
-}
-.tafel__kopf {
-  display: flex;
-  justify-content: space-between;
-  align-items: baseline;
-  margin-bottom: 8px;
-}
-.tafel__titel {
-  color: var(--text-leise);
-  font-size: 13px;
-}
-.tafel__zu {
-  appearance: none;
-  background: none;
-  border: 0;
-  color: var(--text-leise);
-  font-size: 16px;
-  line-height: 1;
-  padding: 0 4px;
-  cursor: pointer;
-  opacity: 0;
-  transition: opacity var(--dauer);
-}
-.tafel:hover .tafel__zu,
-.tafel__zu:focus-visible {
+.karte.ist-aktiv {
   opacity: 1;
-  outline: none;
+  border-color: var(--p-glas-rand-aktiv);
+  transform: translateX(-4px);
 }
-.tafel__hinweis {
-  margin: 0 0 10px;
-  color: var(--text);
-}
-.tafel__inhalt {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
-.tafel__zeile {
+.karte__kopf {
   display: flex;
   justify-content: space-between;
+  align-items: center;
+  margin-bottom: 10px;
+}
+.karte__titel {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  font-weight: 400;
+  color: var(--p-text);
+}
+.karte__titel svg {
+  width: 15px;
+  height: 15px;
+  color: var(--p-leise);
+}
+.karte__link {
+  font-size: 12px;
+  color: var(--p-leise);
+  text-decoration: none;
+}
+.karte__link:hover {
+  color: var(--p-text);
+}
+.karte__inhalt {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.k-reihe {
+  display: flex;
+  align-items: center;
   gap: 12px;
-  color: var(--text);
+  padding: 7px 6px;
+  margin: 0 -6px;
+  border-radius: 8px;
+  color: var(--p-text);
+  text-decoration: none;
+  transition: background var(--p-dauer);
 }
-.tafel__zeile--gross {
-  font-size: 22px;
-  font-weight: 300;
+.k-reihe:hover {
+  background: rgba(255, 255, 255, 0.04);
 }
-.tafel__zahl {
+.k-reihe__ikon {
+  width: 30px;
+  height: 30px;
+  border-radius: 8px;
+  display: grid;
+  place-items: center;
+  background: rgba(255, 255, 255, 0.05);
+  color: var(--p-leise);
+  flex: none;
+}
+.k-reihe__ikon svg {
+  width: 15px;
+  height: 15px;
+}
+.k-reihe__text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.k-reihe__titel {
+  font-size: 13px;
+  font-weight: 400;
+}
+.k-reihe__unter {
+  font-size: 11.5px;
+  color: var(--p-leise);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.k-leer {
+  color: var(--p-still);
+  font-size: 12px;
+  padding: 4px 0;
+}
+.k-zahl {
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
 }
-.tafel__zahl em {
-  font-style: normal;
-  color: var(--text-leise);
-  margin-left: 6px;
+.k-zahl.ist-rauf { color: var(--p-rauf); }
+.k-zahl.ist-runter { color: var(--p-runter); }
+
+.k-system {
+  display: grid;
+  grid-template-columns: 58px 1fr;
+  gap: 16px;
+  align-items: center;
 }
-.tafel__zahl em.ist-rauf { color: var(--rauf); }
-.tafel__zahl em.ist-runter { color: var(--runter); }
-.tafel__leise {
-  color: var(--text-leise);
-  font-size: 13px;
+.k-ring {
+  width: 58px;
+  height: 58px;
+  color: var(--p-text);
 }
-.tafel__reihe {
-  display: flex;
-  gap: 14px;
-  margin-top: 6px;
-}
-.tafel__tag {
+.k-masse {
   display: flex;
   flex-direction: column;
-  font-size: 13px;
-  color: var(--text-leise);
+  gap: 5px;
 }
-.tafel__tag .tafel__zahl { color: var(--text); }
-.tafel__post {
-  display: grid;
-  grid-template-columns: auto 1fr auto;
-  gap: 2px 8px;
-  padding: 4px 0 4px 10px;
-  border-left: 2px solid var(--konto-farbe, var(--linie));
-  color: var(--text-leise);
-}
-.tafel__post.ist-ungelesen .tafel__von,
-.tafel__post.ist-ungelesen .tafel__betreff { color: var(--text); }
-.tafel__konto { font-size: 12px; color: var(--konto-farbe, var(--text-leise)); }
-.tafel__von { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.tafel__zeit { font-size: 12px; font-variant-numeric: tabular-nums; }
-.tafel__betreff { grid-column: 1 / -1; font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.tafel__mass {
-  display: grid;
-  grid-template-columns: 44px 1fr auto;
-  align-items: center;
+.k-mass {
+  display: flex;
+  justify-content: space-between;
   gap: 10px;
-  color: var(--text-leise);
+  font-size: 13px;
+  color: var(--p-leise);
 }
-.tafel__balken {
-  display: block;
-  height: 1px;
-  background: var(--linie);
-  position: relative;
-}
-.tafel__balken i {
-  position: absolute;
-  inset: -1px auto -1px 0;
-  background: var(--text);
-  display: block;
+.k-mass .k-zahl {
+  color: var(--p-text);
 }
 
-/* ---- Fuß: die eine Bubble, zwei leise Knöpfe ------------------------------ */
+.k-kurs {
+  display: grid;
+  grid-template-columns: 26px 1fr auto auto;
+  gap: 10px;
+  align-items: center;
+  padding: 7px 6px;
+  margin: 0 -6px;
+  border-radius: 8px;
+  color: var(--p-text);
+  text-decoration: none;
+  font-size: 13px;
+}
+.k-kurs:hover {
+  background: rgba(255, 255, 255, 0.04);
+}
+.k-kurs__zeichen {
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  background: rgba(127, 184, 255, 0.14);
+  color: var(--p-akzent);
+  font-size: 11px;
+  font-weight: 500;
+}
+.k-kurs__name {
+  font-weight: 400;
+}
 
-.praesenz__fuss {
+/* ---- Fuß: Bubble, Chips, Fokus -------------------------------------------- */
+
+.p-fuss {
+  grid-area: fuss;
   display: flex;
   flex-direction: column;
   align-items: center;
   gap: 14px;
+  position: relative;
+  padding-bottom: 6px;
 }
-
-.praesenz__bubble {
+.p-bubble {
   display: flex;
-  align-items: flex-end;
+  align-items: center;
   gap: 8px;
-  width: min(640px, 100%);
-  padding: 8px 8px 8px 20px;
-  border-radius: 28px;
-  border: 1px solid var(--linie);
-  background: rgba(16, 32, 42, 0.55);
-  backdrop-filter: blur(14px);
-  transition: border-color var(--dauer) var(--kurve), border-radius var(--dauer) var(--kurve);
+  width: min(700px, 100%);
+  padding: 8px 10px 8px 14px;
+  border-radius: 999px;
+  border: 1px solid var(--p-glas-rand);
+  background: var(--p-glas);
+  backdrop-filter: blur(18px);
+  transition: border-color var(--p-dauer), border-radius var(--p-dauer) var(--p-kurve);
 }
-.praesenz__bubble:focus-within {
-  border-color: rgba(227, 236, 239, 0.28);
+.p-bubble:focus-within {
+  border-color: rgba(255, 255, 255, 0.2);
 }
-.praesenz__bubble.ist-mehrzeilig {
-  border-radius: 20px;
+.p-bubble.ist-mehrzeilig {
+  border-radius: 22px;
+  align-items: flex-end;
 }
-.praesenz__eingabe {
+.p-bubble__eingabe {
   flex: 1;
   resize: none;
   border: 0;
   background: transparent;
-  color: var(--text);
+  color: var(--p-text);
   font: inherit;
-  font-size: 16px;
+  font-size: 15px;
   line-height: 1.5;
-  padding: 6px 0;
+  padding: 7px 0;
   min-height: 28px;
-  max-height: 140px;
+  max-height: 132px;
   outline: none;
 }
-.praesenz__eingabe::placeholder {
-  color: var(--text-leise);
+.p-bubble__eingabe::placeholder {
+  color: var(--p-leise);
 }
-.praesenz__mic {
+.p-bubble__mic,
+.p-bubble__senden {
   appearance: none;
   border: 0;
-  width: 40px;
-  height: 40px;
+  width: 38px;
+  height: 38px;
   border-radius: 50%;
   background: transparent;
-  color: var(--text-leise);
+  color: var(--p-leise);
   display: grid;
   place-items: center;
   cursor: pointer;
-  transition: color var(--dauer), background var(--dauer);
+  flex: none;
+  transition: color var(--p-dauer), background var(--p-dauer);
 }
-.praesenz__mic:hover,
-.praesenz__mic:focus-visible {
-  color: var(--text);
+.p-bubble__mic svg {
+  width: 18px;
+  height: 18px;
+}
+.p-bubble__mic:hover,
+.p-bubble__senden:hover,
+.p-bubble__mic:focus-visible,
+.p-bubble__senden:focus-visible {
+  color: var(--p-text);
   outline: none;
 }
-.praesenz__mic.ist-an {
-  color: var(--wasser-grund);
-  background: var(--mond);
+.p-bubble__mic.ist-an {
+  color: var(--p-grund);
+  background: var(--p-akzent);
 }
-
-.praesenz__leiste {
+.p-chips {
   display: flex;
-  gap: 6px;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 8px;
 }
-.praesenz__leise-knopf {
+.p-chip {
+  appearance: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 14px;
+  border-radius: 999px;
+  border: 1px solid var(--p-glas-rand);
+  background: var(--p-glas);
+  color: var(--p-leise);
+  font: inherit;
+  font-size: 12.5px;
+  cursor: pointer;
+  backdrop-filter: blur(12px);
+  transition: color var(--p-dauer), border-color var(--p-dauer);
+}
+.p-chip svg {
+  width: 13px;
+  height: 13px;
+}
+.p-chip:hover,
+.p-chip:focus-visible {
+  color: var(--p-text);
+  border-color: rgba(255, 255, 255, 0.2);
+  outline: none;
+}
+.p-fokus {
+  position: absolute;
+  right: -8px;
+  bottom: 8px;
   appearance: none;
   border: 0;
   background: transparent;
-  color: var(--text-leise);
-  opacity: 0.55;
-  width: 32px;
-  height: 32px;
-  border-radius: 50%;
+  color: var(--p-still);
+  width: 30px;
+  height: 30px;
   display: grid;
   place-items: center;
   cursor: pointer;
-  transition: opacity var(--dauer);
+  border-radius: 50%;
 }
-.praesenz__leise-knopf:hover,
-.praesenz__leise-knopf:focus-visible {
-  opacity: 1;
+.p-fokus:hover,
+.p-fokus:focus-visible {
+  color: var(--p-text);
   outline: none;
 }
+.p-fokus svg {
+  width: 16px;
+  height: 16px;
+}
 
-/* ---- Fokus: Wasser, Uhr, Bubble. Und eine Zeile Worte. -------------------- */
+/* ---- Fokus: Sphäre, Uhr, Bubble. Und eine Zeile Worte. ---------------------- */
 
-body[data-focus="on"] .praesenz__marke,
-body[data-focus="on"] .praesenz__tafeln,
-body[data-focus="on"] .praesenz__leiste,
-body[data-focus="on"] .praesenz__frage {
+body[data-focus="on"] .p-nav,
+body[data-focus="on"] .p-karten,
+body[data-focus="on"] .p-wetter,
+body[data-focus="on"] .p-chips,
+body[data-focus="on"] .p-datum,
+body[data-focus="on"] .p-gruss,
+body[data-focus="on"] .p-name {
   opacity: 0;
   pointer-events: none;
-  transition: opacity var(--dauer) var(--kurve);
+  transition: opacity var(--p-dauer) var(--p-kurve);
 }
-body[data-focus="on"] .praesenz__antwort {
+body[data-focus="on"] .p-worte {
   -webkit-line-clamp: 1;
-  max-height: none;
-  overflow: hidden;
+}
+body[data-focus="on"] .p-worte.ist-motto {
+  opacity: 0;
 }
 
-/* ---- Schmal: Tafeln unter die Worte, Uhr kleiner --------------------------- */
+/* ---- Schmal: eine Spalte ---------------------------------------------------- */
 
+@media (max-width: 1080px) {
+  .praesenz {
+    --p-karten: 260px;
+    --p-nav: 64px;
+  }
+  .p-nav__wort,
+  .p-nav__label,
+  .p-nav__status span:last-child {
+    display: none;
+  }
+  .p-nav__marke {
+    justify-content: center;
+  }
+}
 @media (max-width: 760px) {
-  .praesenz__tafeln {
-    position: static;
-    transform: none;
-    width: 100%;
-    max-width: 640px;
-    margin-top: 20px;
+  .praesenz {
+    left: 0;
+    grid-template-columns: 1fr;
+    grid-template-areas:
+      "wetter"
+      "mitte"
+      "karten"
+      "fuss";
+    padding: 16px;
+    gap: 12px;
+    overflow-y: auto;
   }
-  .praesenz__mitte {
-    grid-template-rows: auto auto;
-    align-content: center;
+  .p-nav {
+    display: none;
   }
-  .praesenz__uhr {
-    font-size: 24px;
+  body[data-modus="neu"] #view-outlet {
+    margin-left: 0;
+    padding: 16px;
+  }
+  .p-karten {
+    overflow: visible;
+    padding-top: 0;
+  }
+  .p-wetter {
+    justify-content: start;
   }
 }
 
