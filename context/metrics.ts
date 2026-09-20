@@ -12,6 +12,12 @@ import type { EventRecord } from "../runtime/events/log.js";
  * Vier der Kennzahlen aus Abschnitt 12 stehen hier; die übrigen (Freigaben pro Aufgabe,
  * Wartezeit auf Freigabe, Tool-Latenz) brauchen Zeitmessungen über Ereignispaare hinweg und
  * gehören zur Beobachtbarkeits-Session, nicht hierher.
+ *
+ * **Stand 2026-09-20:** Die Faltung läuft weiter, aber drei Zähler (`offloadedResults`,
+ * `approvalsRequested`, `contextCompactions`/`freshSections`) gehören zu Kontextstufen, die
+ * mit dem alten Motor gegangen sind; sie bleiben null, solange niemand solche Ereignisse
+ * schreibt. Sie stehen noch hier, weil die Faltung über Altbestände im Protokoll dieselbe
+ * bleiben muss — nicht, weil sie heute etwas messen.
  */
 
 export interface RunMetrics {
@@ -39,12 +45,12 @@ export interface RunMetrics {
   approvalsRequested: number;
   /**
    * "Kompaktierungshäufigkeit" (Abschnitt 12): wie oft Kontextstufe 2 oder 3 in diesem Lauf
-   * gegriffen hat (S18a, `context/compaction.ts`). Gezählt wird das Ereignis, nicht sein
+   * gegriffen hat (S18a, damals `context/compaction.ts`). Gezählt wird das Ereignis, nicht sein
    * Inhalt — dieselbe Kennzahl, die auch `turn.completed` als `context_compactions` trägt.
    */
   contextCompactions: number;
   /**
-   * Wie oft Kontextstufe 4 gegriffen hat (S18b, `context/section.ts`) — absichtlich getrennt
+   * Wie oft Kontextstufe 4 gegriffen hat (S18b, damals `context/section.ts`) — absichtlich getrennt
    * von `contextCompactions` und nicht mitgezählt: ein frischer Abschnitt ist kein weiterer
    * Fall von "Kompaktierung greift zu oft", sondern das Gegenteil, ein proaktiver Neuanfang, und
    * der bestehende 110-Schritte-Nachweis aus S18a prüft `context_compactions` auf einen exakten

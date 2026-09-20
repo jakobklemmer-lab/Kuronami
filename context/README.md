@@ -1,1 +1,1 @@
-Hierhin gehört das Context System: Prompt-Aufbau, Artefakt-Referenzen, Kompaktierung, Cache-Disziplin. Keine Tool-Implementierungen und keine Ausführungslogik, die gehört in `tools/` beziehungsweise `runtime/`.
+Hierhin gehört, was in den Modellkontext geht und was er kostet: die Persona des Butlers (`persona.ts`), die Bediensteten mit Prompt, Werkzeugkasten, Modell und Budget (`bedienstete.ts`), die Kostenfaltung (`costs.ts`) und die Lauf-Kennzahlen (`metrics.ts`). Keine Tool-Implementierungen und keine Ausführungslogik.

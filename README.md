@@ -1,24 +1,25 @@
 # Kuronami
 
-Persönlicher AI-Assistent als vollständiges Agent Harness: eigener Ausführungsmotor,
-dauerhafter Zustand, ausgelagertes Gedächtnis, erzwungene Freigaben, austauschbare
-Oberfläche. Vollständiger Kontext in [`docs/ARCHITEKTUR.md`](docs/ARCHITEKTUR.md).
+Persönlicher AI-Assistent: ein Butler mit Personal, dauerhaftem Zustand, ausgelagertem
+Gedächtnis und austauschbarer Oberfläche. Der Motor ist seit 2026-09-18 das Claude Agent SDK;
+die Arbeitsregeln stehen in [`AGENTS.md`](AGENTS.md).
 
-## Die fünf Schichten
+## Der Baum
 
-| Schicht | Aufgabe | Ordner |
+| Teil | Aufgabe | Ordner |
 |---|---|---|
-| Execution Runtime | Loop, Sessions, Checkpoints, Wiederaufnahme, Abbruch, Retry | `runtime/` |
-| Context System | Prompt-Aufbau, Artefakt-Referenzen, Kompaktierung, Cache-Disziplin | `context/` |
-| Capability Surface | Tool-Router, Kern-Tools, n8n-Brücke, Skills, Subagenten | `tools/`, `skills/` |
-| Governance | Freigaben, Hooks, Allow/Deny, Sandbox, Risikostufen | `policy/` |
-| Surface / Protokoll | Kanal-Normalisierung, Web, Telegram, Mail, Sprache | `gateway/` |
+| Gateway | Motor, Personal, Kanäle (Web, Telegram, Slack, Sprache), HTTP-API | `gateway/` |
+| Oberfläche | Präsenz, Kurstafel, Postfach, Analysen, Einstellungen | `ui/` |
+| Zustand | Postgres-Schema, Ereignisprotokoll, Sessions, Artefakte, Redaction | `runtime/` |
+| Kontext | Persona, Bedienstete, Kostentabellen | `context/` |
+| Ablagen | Langzeitgedächtnis, n8n-Brücke | `tools/` |
+| Sprachschicht | Pipecat-Prozess (Python), hinter seiner Prozessgrenze | `voice/` |
 
-Dazu: `memory/` (Langzeitgedächtnis), `evals/` (Harness-Evals), `docs/` (Architektur und
-Folgeentscheidungen).
+Dazu: `memory/` (Langzeitgedächtnis), `workspace/` (Kuros Arbeitsbereich), `docs/` (Architektur
+des alten Motors — Historie, siehe `AGENTS.md`).
 
-**Harte Regel:** Die Surface-Schicht ist austauschbar. Die Runtime darf niemals von ihr
-abhängen.
+**Harte Regel:** Die Oberfläche ist austauschbar. `runtime/`, `context/` und `tools/` dürfen
+niemals von `gateway/` abhängen (geprüft in `gateway/layering.test.ts`).
 
 ## Start
 

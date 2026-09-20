@@ -1,5 +1,13 @@
 # Kuronami · Architektur und Phase-0-Entscheidungen
 
+> **Historie, keine Anleitung (Stand 2026-09-20).** Dieses Dokument beschreibt das Harness mit
+> eigenem Ausführungsmotor — Loop, Tool-Router, Policy-Engine, Kontextstufen, Skills, Heartbeat.
+> Am 2026-09-18 hat das Claude Agent SDK diesen Motor ersetzt, am 2026-09-20 ist sein Code aus
+> dem Baum geflogen (`git checkout archiv/eigener-motor`). Die Abschnitte über Runtime-Schleife,
+> Policy-Schicht, Tool-Katalog, Kompaktierung, Skills und Heartbeat beschreiben damit nichts,
+> was heute läuft. Was gilt, steht in [`AGENTS.md`](../AGENTS.md); geblieben sind von hier vor
+> allem das Datenmodell (Abschnitt 5), das Ereignisprotokoll und der Redaction-Filter.
+
 Diese Datei ist die einzige Kontextquelle für alle Claude-Code-Sessions.
 Sie ersetzt die Notion-Seite im Arbeitsalltag. Wenn eine Session etwas braucht,
 das hier nicht steht, wird es hier ergänzt und nicht in der Session improvisiert.
@@ -1167,4 +1175,4 @@ Deployment-Ziel für den 24/7-Betrieb relevant, nicht als Entwicklungsumgebung.
 * Hermes Agent (Nous Research), als Blaupause geprüft, nicht geforkt
 * OpenJarvis (Stanford SAIL / Hazy Research): https://github.com/open-jarvis/OpenJarvis
 * awesome-harness-engineering: https://github.com/ai-boost/awesome-harness-engineering
-* Notion-Masterseite: https://app.notion.com/p/3c9251f9ae70817a823af96428f3030d
+* Notion-Masterseite: https://app.notion.com/p/<notion-seite>

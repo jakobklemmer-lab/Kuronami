@@ -71,6 +71,9 @@ describe("mapChartResponse", () => {
 
   it("rechnet die Veränderung aus dem Vortagesschluss, wenn Yahoo keine nennt", () => {
     const json = structuredClone(chartJson);
+    // Der Schlüssel muss wirklich fehlen — genau das ist der Fall, den Yahoo liefert und den
+    // der Test nachstellt. Ein `undefined` daneben wäre ein anderer Fall.
+    // biome-ignore lint/performance/noDelete: siehe oben
     delete (json.chart.result[0].meta as Record<string, unknown>).regularMarketChangePercent;
     const chart = mapChartResponse(json, "1d", "5m");
     expect(chart.changePct).toBeCloseTo(((227.48 - 226.25) / 226.25) * 100);

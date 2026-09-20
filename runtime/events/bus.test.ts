@@ -7,11 +7,11 @@ import {
   attachEventSocket,
   originAllowed,
   startEventServer,
-} from "../runtime/events/bus.js";
-import type { EventRecord } from "../runtime/events/log.js";
+} from "./bus.js";
+import type { EventRecord } from "./log.js";
 
 /**
- * Die Runtime-Seite des Ereignisbusses (S21): der Bus selbst, der WebSocket-Endpunkt und die
+ * Die Gateway-Seite des Ereignisbusses (S21): der Bus selbst, der WebSocket-Endpunkt und die
  * Zusage, dass von außen nichts hineingeschrieben werden kann.
  *
  * Die Tests laufen gegen einen **echten** Server auf einem vom System vergebenen Port (`0`)

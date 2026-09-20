@@ -1,104 +1,75 @@
 # AGENTS.md
 
-Dauerhafte Konventionen und Arbeitsregeln. Vollständiger Kontext steht in
-`docs/ARCHITEKTUR.md`. Diese Datei ist die verdichtete Fassung für den Alltag beim
+Dauerhafte Konventionen und Arbeitsregeln — die verdichtete Fassung für den Alltag beim
 Codeschreiben.
 
-## Tool-Namenskonvention
+**Stand 2026-09-20.** Am 18.09. wurde der eigene Ausführungsmotor durch das Claude Agent SDK
+ersetzt, am 20.09. ist sein Code aus dem Baum geflogen (Archiv: `git checkout
+archiv/eigener-motor`). `docs/ARCHITEKTUR.md` beschreibt in weiten Teilen diesen alten Aufbau
+und ist damit **Historie, keine Anleitung** — verbindlich ist, was hier steht.
 
-`namensraum.aktion`, kleingeschrieben, Punkt als Trenner, Aktion englisch.
-Erlaubte Namensräume: `fs`, `web`, `exec`, `task`, `user`, `agent`, `mail`, `cal`,
-`notes`, `memory`, `github`, `server`, `dev`, `tool`, `skill`, `mcp`. Ein neuer Namensraum
-braucht eine Begründung in `docs/`. `dev.*` sind Prüf-Tools des Harness und gehören in keinen
-produktiven Tool-Katalog.
+## Der Motor ist das Agent-SDK
 
-`mcp.*` (seit S27) sind dynamisch von externen MCP-Servern entdeckte Tools, lokal benannt als
-`mcp.<serverId>__<sanitierter Fernname>`. Ihre Risikostufe ist immer eine lokale, pro Server
-konfigurierte Obergrenze — nie aus der Fernbeschreibung oder dem Fernschema abgeleitet.
+`gateway/agent.ts` fährt jeden Zug über `query()` aus `@anthropic-ai/claude-agent-sdk`.
+`gateway/core.ts` ist nur noch der Adapter dorthin; die Kanäle (Web, Telegram, Slack, Sprache)
+kennen ausschließlich `receiveMessage`/`receiveDecision`/`redeliverPending`.
 
-`notes.*` und `memory.*` sind **nicht dasselbe** und werden es auch nicht: `notes.*` greift
-auf den Obsidian-Vault des Nutzers zu (fremdes Gebiet, `hard_write`, jede Änderung mit
-Freigabe), `memory.*` auf das Langzeitgedächtnis des Assistenten (eigene Ablage, `soft_write`,
-eigenes Git-Repo). Begründung in `docs/GEDAECHTNIS.md`.
+Neue Fähigkeiten kommen als **MCP-Server im Prozess** (`gateway/haus.ts`, `kurse.ts`,
+`buehne.ts`, `postfach-werkzeuge.ts`) oder als Hausregel in `workspace/CLAUDE.md` — nicht als
+neue Tool-Definition mit eigener Registry. Jedes Werkzeugschema kostet Token in **jedem**
+Modellaufruf; die Grundlast steht unter Beobachtung (Jakobs Ziel: eine kurze Frage unter 2 ct).
 
-## Einheitliche Rückgabehülle
+Kuro arbeitet in `/opt/kuronami/workspace` (`KURO_WORKDIR`), nicht im Quellbaum.
 
-Jedes Tool liefert genau diese Form zurück:
+## Das Personal läuft hinter einem einzigen Werkzeug
 
-```json
-{
-  "status": "ok",
-  "summary": "kurze Zusammenfassung",
-  "structured": {},
-  "artifact_refs": [],
-  "preview": []
-}
-```
+Die Bediensteten (`context/bedienstete.ts`) sind **keine** `agents`-Option des SDK: die wirkt
+global, und `disallowedTools` hätte damit auch Kuros eigenen Katalog aufgebläht. Stattdessen
+startet `gateway/haus.ts` hinter dem Werkzeug `beauftrage` je Auftrag einen eigenen `query()`
+mit eigenem Prompt, Werkzeugkasten, Modell und Budget.
 
-`status` ist `ok` oder `error`.
+Text aus einem Bedienstetenlauf gehört nie ungefiltert in Kuros Antwort — auf
+`parent_tool_use_id !== null` prüfen. Der letzte Textblock ist der Bericht, alles davor geht
+als Fortschritt an die Oberfläche.
 
-## Jedes Tool hat eine Risikostufe
+## Bash nur im Sandkasten
 
-`read`, `soft_write`, `hard_write` oder `destructive` (Abschnitt 10). **Kein Tool ohne
-Zuordnung**, und keine Vorgabe für ein Tool, das keine angibt: eine geratene Stufe sieht aus
-wie eine entschiedene. Geprüft wird an zwei Toren, in der Registry und in der Policy-Engine.
+Die Bediensteten bekommen Bash **ausschließlich**, wenn `sandkastenLage()` beim Start trägt
+(`gateway/sandkasten.ts`: bwrap, socat, verschachtelte Namensräume). Trägt sie nicht, fliegt
+Bash aus dem Katalog — kein ungeschützter Lauf als root. `allowUnsandboxedCommands` bleibt
+`false`, das Netz auf die Kursquelle beschränkt, `.env` und Zugangsdaten sind weder lesbar noch
+in der Umgebung.
 
-Ein Tool, das einen Pfad entgegennimmt, nennt das Feld `path`; eines mit einer Adresse `url`.
-Das ist keine Empfehlung, sondern eine Prüfung in der Registry: unter anderen Namen fände die
-Policy-Engine weder Pfad noch Domain, und der Aufruf liefe an jeder Zonen-, Geheimnis- und
-Domainregel vorbei — unbemerkt, weil er ja durchginge.
+Eine Rückfrage, die im Hintergrund niemand beantworten kann, ist keine Sicherheit: `canUseTool`
+gibt eine **Absage mit Begründung** zurück, damit der Lauf weiterarbeitet statt sich in
+Umformulierungen zu verfangen.
 
-## Kein Tool läuft ohne Policy-Prüfung
+## Jeder MCP-Server hat eine Risikostufe
 
-Der Router ruft die Engine (`policy/engine.ts`) zwischen Schema-Prüfung und Ausführung, für
-beide Ausführungswege. Ein Handler bekommt seine Aufrufdaten nur mit einer `PolicyGrant`, und
-die stellt allein die Engine aus — der Weg daran vorbei ist nicht verboten, es gibt ihn nicht.
-
-Es gewinnt immer die schärfste Aussage aller Ebenen. Ein `allow` aus einer Regel oder einem
-Hook senkt nichts; nur der Sessionmodus darf den Boden senken, und nie bei `destructive`.
-
-## Ein Subagent bekommt nur seine eigenen Werkzeuge
-
-Die Werkzeugliste in `kuronami.agents.tools` ist abschließend, und sie wird an **zwei**
-unabhängigen Toren durchgesetzt: der Katalog eines Arbeiters enthält nur diese Werkzeuge (jedes
-andere ist für ihn ein unbekanntes Tool), und ein Policy-Hook am Profil lehnt einen Aufruf
-außerhalb der Liste auch dann ab, wenn der Katalog ihn kennt. Kein Prompt-Hinweis, sondern zwei
-Prüfungen — die zweite für den Tag, an dem jemand `runWorker` mit einem breiteren Katalog
-aufruft.
-
-Dazu zwei Obergrenzen: `token_budget` je Agent (geprüft vor jedem Modellaufruf, aufgebraucht
-beendet den Lauf) und ein Kontingent paralleler Arbeiter je Prozess (`AGENT_MAX_PARALLEL`,
-Vorgabe zwei; wer darüber hinaus delegiert, wartet).
+`read`, `soft_write`, `hard_write` oder `destructive`. **Keine Vorgabe** für einen Server, der
+keine angibt: eine geratene Stufe sieht aus wie eine entschiedene. Geprüft in
+`runtime/mcp/config-store.ts`, weil eine Server-Konfiguration aus JSON entsteht und damit am
+Compiler vorbeikommt. Die Stufe ist immer eine lokale Obergrenze — nie aus der Fernbeschreibung
+eines Servers abgeleitet.
 
 ## Secrets laufen durch den Redaction-Filter
 
-Jeder Schreibpfad, der Text auf die Platte oder in den Modellkontext bringt, läuft durch
-`redact` aus `runtime/redaction/`. Heute sind das sieben: Ereignisprotokoll, Artefaktmetadaten,
-Prompt-Aufbau, die Freigabezeilen in `kuronami.approvals` (dort steht die Eingabe des
-freigegebenen Aufrufs), der Notiztext im Langzeitgedächtnis, die Nachlauf-Zusammenfassung,
-die es füllt, und seit S19 das Agentenprofil in `kuronami.agents`. Kommt ein achter dazu, wird
-er dort angeschlossen — nicht mit einer eigenen Prüfung an der Aufrufstelle.
-
-Das Agentenprofil ist aus demselben Grund heikel wie der Gedächtnispfad: es steht dauerhaft in
-der Registry **und** geht als System-Prompt in jeden künftigen Lauf dieses Agenten, auch in
-die, die nach Zeitplan ohne Zuschauer laufen.
+Jeder Weg, der fremden oder eigenen Text auf die Platte oder in den Modellkontext bringt, läuft
+durch `redact`/`redactText` aus `runtime/redaction/`. Heute sind das die Berichte und
+Fortschrittszeilen der Bediensteten (`gateway/haus.ts`, `handelstisch.ts`), die
+Artefaktmetadaten und der Notiztext im Langzeitgedächtnis. Kommt ein weiterer dazu, wird er
+dort angeschlossen — nicht mit einer eigenen Prüfung an der Aufrufstelle.
 
 Der Gedächtnispfad ist der heikelste: eine Notiz mit einem Zugangsschlüssel läge nicht nur im
-Klartext auf der Platte, sondern **dauerhaft in einer Git-Historie**, und der Recall legte sie
-bei jedem thematisch verwandten Lauf erneut in den Modellkontext.
+Klartext auf der Platte, sondern **dauerhaft in einer Git-Historie**, und sie käme bei jedem
+thematisch verwandten Lauf erneut in den Modellkontext.
 
-Der Filter regelt das **Durchsickern**, nicht den **Zugriff**. Wer eine Datei öffnen darf,
-deren Inhalt per Bauart ein Geheimnis ist (`.env`, `*.pem`, `.ssh/`), entscheidet die
-Policy-Engine über die Geheimnisklassen in `policy/secrets.ts`, und jeder solche Zugriff
-hinterlässt ein `policy.secret_accessed`.
+Ein Wert, der als Schlüssel wieder nachgeschlagen wird, darf vom Filter nicht verändert werden.
+Passiert es doch, wird abgewiesen statt einen kaputten Schlüssel entstehen zu lassen.
 
-Ein Wert, der als Schlüssel wieder nachgeschlagen wird — `idempotency_key`, `task_id`, der
-Subjektschlüssel einer Freigabe — darf vom Filter nicht verändert werden. Passiert es doch,
-wird abgewiesen statt einen kaputten Schlüssel entstehen zu lassen.
-
-Der Filter ist **nicht abschaltbar**, und er bekommt kein Flag. Die Reichweite ändert man
-über die Musterliste in `runtime/redaction/patterns.ts`, also durch eine sichtbare Änderung
-an einer versionierten Datei.
+Der Filter ist **nicht abschaltbar** und bekommt kein Flag. Die Reichweite ändert man über die
+Musterliste in `runtime/redaction/patterns.ts`, also durch eine sichtbare Änderung an einer
+versionierten Datei.
 
 ## Fehler nie verstecken oder glätten
 
@@ -106,28 +77,11 @@ Fehlgeschlagene Aktionen, Stacktraces und Ablehnungsgründe bleiben im Verlauf u
 Fehlertext erhalten. Kein Abfangen, das den Fehler in eine freundliche Zusammenfassung
 verwandelt.
 
-## `fs.*` bleibt in seinen Zonen
+## Halbe Wege gibt es nicht
 
-Jeder `fs.*`-Pfad wird über `resolvePath` aus `tools/fs/paths.ts` aufgelöst — relativ zur
-Workspace-Wurzel, danach lexikalisch und nach Auflösung aller Symlinks gegen zwei Zonen
-geprüft. Ein Pfad außerhalb beider wird abgewiesen (`PathEscapeError`). Kein Handler öffnet
-je die rohe Eingabe.
-
-Zwei Zonen: die **Artefaktzone** (`ARTIFACT_ROOT`) ist frei beschreibbar, die **Quellzone**
-(Workspace-Wurzel) braucht zum Schreiben eine Freigabe — ein Schreibzugriff dorthin ist
-hartes Schreiben, und darüber entscheidet die Policy-Engine. `..`, absolute Ausbrüche und
-Symlinks nach außen werden nicht toleriert; das ist keine Konfigurationsfrage.
-
-## Vor einem Edit erst lesen
-
-`fs.edit` verlangt `expected_sha256` aus dem letzten `fs.read` und bricht ab, wenn die Datei
-sich seither geändert hat. Ein Edit ohne frischen Lesestand ist ein stiller Überschreiber.
-
-## Checkpoint vor und nach jedem Seiteneffekt
-
-Jeder externe Seiteneffekt läuft in einer Ausführungshülle mit `step_id` als
-Idempotenzschlüssel. Ohne Checkpoint vor und nach dem Seiteneffekt ist Wiederaufnahme
-nicht sicher und ein Replay kann die Aktion doppelt ausführen.
+Wenn die Oberfläche etwas verlangt, wofür sie selbst keinen Weg anbietet, ist das ein Fehler
+und kein dokumentiertes Verhalten. Den fehlenden Weg bauen, nicht den Hinweistext schärfen.
+Eine Statuszeile sagt nie „Angenommen.", wenn nichts angenommen wurde.
 
 ## Schema-Änderungen nur über Migrationen
 
@@ -136,8 +90,9 @@ Schemaänderungen an der laufenden Datenbank.
 
 ## Ereignistypen nie umbenennen
 
-Namensform `namensraum.vergangenheitsform`. Neue Ereignistypen kommen dazu, bestehende
-werden nie umbenannt und nie in ihrer Bedeutung verändert.
+Namensform `namensraum.vergangenheitsform`. Neue Ereignistypen kommen dazu, bestehende werden
+nie umbenannt und nie in ihrer Bedeutung verändert — auch die nicht, die nur noch der alte
+Bestand im Protokoll trägt.
 
 ## Konventionen hierher, Erkenntnisse ins Gedächtnis
 
@@ -148,8 +103,7 @@ am Feld `art` einer Notiz, das genau zwei Werte kennt (`ereignis`, `erkenntnis`)
 für eine Konvention.
 
 **Nicht alles wird gespeichert.** Die meisten Läufe hinterlassen keine Notiz; das ist der
-Normalfall und keine Panne. Eine bewusste Nicht-Ablage steht als `memory.skipped` im
-Protokoll, damit sie nicht wie eine vergessene Zusammenfassung aussieht.
+Normalfall und keine Panne.
 
 Eine neue Notiz überschreibt nie eine alte. Widerspricht sie einer, wird das über `supersedes`
 vermerkt und **beide bleiben stehen** — die Entscheidung, welche gilt, trifft der Leser mit
@@ -163,18 +117,16 @@ Ein bestehender Artefaktname wird nie überschrieben, bei Kollision hängt der S
 ## Jede Session endet mit einem Commit
 
 Sobald `pnpm typecheck && pnpm lint && pnpm test` grün sind, wird committet — ohne
-Rückfrage, ohne Ausnahme. Commit-Message im Format `S<Nr>: <Thema>`, wie die bisherige
-Historie. Kein Zwischenzustand bleibt uncommittet liegen, auch nicht "bis zur nächsten
-Freigabe". Das Fertig-Kriterium einer Session ist erst erfüllt, wenn Tests grün UND der
-Commit geschrieben ist.
+Rückfrage, ohne Ausnahme. Commit-Message im Format der bisherigen Historie. Kein
+Zwischenzustand bleibt uncommittet liegen, auch nicht "bis zur nächsten Freigabe".
 
 ## Die Sprachschicht ist Python und bleibt hinter ihrer Prozessgrenze
 
 `voice/` (seit S30) ist der einzige Python-Teil des Systems. Er importiert **nichts** aus
-`runtime/`, `tools/`, `policy/` oder `gateway/` und spricht mit der Runtime ausschließlich über
-den Sprach-Kanal des Gateways (`POST /channels/voice/messages`). Umgekehrt kennt kein
-TypeScript-Modul einen Pfad unter `voice/`. Das ist keine Stilfrage: es ist der Grund, warum
-Abschnitt 4.1 Pipecat überhaupt zulässt — eine Prozessgrenze, kein zweiter Stack im Kern.
+`gateway/`, `runtime/`, `tools/` oder `context/` und spricht mit dem Gateway ausschließlich
+über den Sprach-Kanal (`POST /channels/voice/messages`). Umgekehrt kennt kein TypeScript-Modul
+einen Pfad unter `voice/`. Das ist keine Stilfrage, sondern der Grund, warum Pipecat überhaupt
+zulässig ist — eine Prozessgrenze, kein zweiter Stack im Kern.
 
 Python läuft nicht auf dem Entwicklungsrechner, sondern im Container. Auch die Tests:
 
@@ -188,12 +140,18 @@ docker compose run --rm voice-test
 pnpm install && pnpm typecheck && pnpm lint && pnpm test
 ```
 
-`pnpm test` deckt seit S21 nur `ui/**`, `phase-6/**` und (seit S30) `gateway/channels/voice/**`
-ab. Wer `runtime/`, `tools/`, `policy/`, `gateway/` außerhalb des Sprach-Kanals, `heartbeat/`,
-`context/`, `skills/` oder `evals/` ändert, braucht dafür einen Lauf mit angepasstem `include` —
-`pnpm typecheck` bleibt die einzige durchgehende Prüfung über alle Schichten.
+`pnpm test` läuft seit 2026-09-20 wieder über **alles** im Baum (`**/*.test.ts`, ohne `voice/`).
+Die lange Ausnahmeliste in `vitest.config.ts` gehörte zu den Tests des alten Motors; die sind
+mit ihm gelöscht. Ein Test, der still nicht läuft, ist schlimmer als keiner — wer eine neue
+Ausnahme einträgt, begründet sie dort.
+
+Gateway-Codeänderungen brauchen `systemctl restart kuronami-gateway` (tsx, kein Watch); die
+Oberfläche (`kuronami-ui`) transpiliert im Zugriff.
 
 ## Codestil
 
 TypeScript, strict, ESM, NodeNext, Node 24 LTS. Biome für Lint und Format, kein ESLint,
 kein Prettier. Kein ORM. pnpm als Paketmanager, vitest als Testrunner.
+
+Kommentare erklären das **Warum**, auf Deutsch, in ganzen Sätzen. Ein Verweis auf eine Datei,
+die es nicht mehr gibt, ist ein Fehler wie ein toter Import.

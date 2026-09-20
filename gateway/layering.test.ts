@@ -20,8 +20,12 @@ import { describe, expect, it } from "vitest";
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(HERE, "..");
 
-/** Die vier Schichten, die die Surface-Schicht nicht kennen dürfen (Abschnitt 3). */
-const INNER_LAYERS = ["runtime", "context", "tools", "policy"];
+/**
+ * Die Schichten, die die Surface-Schicht nicht kennen dürfen (Abschnitt 3). Bis 2026-09-20 war
+ * `policy` die vierte; mit dem alten Motor ist sie gegangen, das eine noch benutzte Stück (die
+ * Risikostufen) steht heute in `runtime/mcp/config-store.ts`.
+ */
+const INNER_LAYERS = ["runtime", "context", "tools"];
 
 const IMPORT_PATTERN = /(?:^|\n)\s*(?:import|export)[^;\n]*?from\s+["']([^"']+)["']/g;
 const DYNAMIC_IMPORT_PATTERN = /\bimport\s*\(\s*["']([^"']+)["']/g;
@@ -57,7 +61,7 @@ function pointsAtGateway(from: string, specifier: string): boolean {
 }
 
 describe("Schichtung", () => {
-  it("hält runtime, context, tools und policy frei von jedem Import aus gateway/", async () => {
+  it("hält runtime, context und tools frei von jedem Import aus gateway/", async () => {
     const offenders: string[] = [];
 
     for (const layer of INNER_LAYERS) {
@@ -77,11 +81,13 @@ describe("Schichtung", () => {
   it("prüft dabei wirklich Dateien (Gegenprobe zum Test selbst)", async () => {
     // Ein Schichtungstest, der versehentlich null Dateien liest, ist immer grün. Deshalb steht
     // die Zahl hier fest genug, um das zu bemerken, und offen genug, um nicht bei jeder neuen
-    // Datei zu reißen.
+    // Datei zu reißen. Bis 2026-09-20 waren es über 50 Dateien; nach dem Ausbau des alten
+    // Motors sind 44 übrig, und die Schwelle rutscht mit — sie soll ein leeres Verzeichnis
+    // melden, nicht eine Aufräumarbeit.
     let count = 0;
     for (const layer of INNER_LAYERS) count += (await sourceFiles(path.join(ROOT, layer))).length;
 
-    expect(count).toBeGreaterThan(50);
+    expect(count).toBeGreaterThan(30);
     // Und der Erkenner selbst muss anschlagen, sonst prüfte der Test oben nur sein eigenes
     // leeres Ergebnis.
     expect(pointsAtGateway(path.join(ROOT, "runtime", "index.ts"), "../gateway/core.js")).toBe(

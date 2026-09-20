@@ -7,10 +7,8 @@
     "node": ">=24 <25"
   },
   "scripts": {
-    "dev": "tsx watch --env-file=.env runtime/index.ts",
     "dev:ui": "tsx watch --env-file=.env ui/dev.ts",
-    "dev:full": "concurrently \"pnpm dev\" \"pnpm dev:ui\"",
-    "run:task": "tsx --env-file=.env runtime/index.ts",
+    "dev:full": "concurrently \"pnpm gateway\" \"pnpm dev:ui\"",
     "build": "tsc -p tsconfig.json",
     "build:ui": "tsx ui/build.ts",
     "test": "vitest run",
@@ -20,12 +18,8 @@
     "format": "biome format --write .",
     "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p ui/tsconfig.json --noEmit",
     "migrate": "tsx --env-file=.env runtime/db/migrate.ts",
-    "devui": "tsx --env-file=.env runtime/devui/server.ts",
     "gateway": "tsx --env-file=.env gateway/index.ts",
-    "heartbeat": "tsx --env-file=.env heartbeat/index.ts",
-    "say": "tsx --env-file=.env gateway/cli.ts",
-    "agents:seed": "tsx --env-file=.env runtime/agents/seed.ts",
-    "evals": "tsx --env-file=.env evals/run.ts"
+    "say": "tsx --env-file=.env gateway/cli.ts"
   },
   "dependencies": {
     "@anthropic-ai/claude-agent-sdk": "^0.3.274",

@@ -159,27 +159,13 @@ services:
       timeout: 5s
       retries: 12
 
-  runtime:
-    build:
-      context: .
-      dockerfile: Dockerfile
-    restart: unless-stopped
-    env_file:
-      - .env
-    environment:
-      # Die Runtime erreicht n8n nur über das Compose-Netz.
-      N8N_BASE_URL: "http://n8n:5678"
-      N8N_WEBHOOK_TOKEN: "${N8N_WEBHOOK_TOKEN:-}"
-    depends_on:
-      - postgres
-      - n8n
-    volumes:
-      - ./artifacts:/app/artifacts
-
-  # Der Gateway-Prozess (S16) — die Außenwelt des Systems und ab Phase 3 der Dienst, der
-  # dauerhaft läuft. Wie `runtime` ein Platzhalter, solange es kein Dockerfile gibt: er steht
-  # hier, damit die Betriebsform dokumentiert ist (eigener Prozess, eigener Port, dieselbe
-  # Datenbank), nicht weil `docker compose up gateway` heute schon baut.
+  # Der Gateway-Prozess — die Außenwelt des Systems und der Dienst, der dauerhaft läuft. Ein
+  # Platzhalter, solange es kein Dockerfile gibt: er steht hier, damit die Betriebsform
+  # dokumentiert ist (eigener Prozess, eigener Port, dieselbe Datenbank), nicht weil
+  # `docker compose up gateway` heute schon baut. Heute fährt ihn systemd (kuronami-gateway).
+  #
+  # Die Dienste `runtime` (der alte Agentenlauf) und `heartbeat` standen bis 2026-09-20 daneben;
+  # beide sind mit dem alten Motor gegangen.
   gateway:
     build:
       context: .
@@ -201,36 +187,11 @@ services:
     volumes:
       - ./artifacts:/app/artifacts
 
-  # Der Heartbeat-Prozess (S17) — proaktives Verhalten: Morgen-Digest nach Zeitplan,
-  # Hintergrundläufe auf gemeldete Ereignisse (POST /notify). Wie `runtime` und `gateway` ein
-  # Platzhalter, solange es kein Dockerfile gibt; er dokumentiert die Betriebsform (eigener
-  # Prozess, eigener Port, dieselbe Datenbank).
-  heartbeat:
-    build:
-      context: .
-      dockerfile: Dockerfile
-    restart: unless-stopped
-    command: ["pnpm", "heartbeat"]
-    env_file:
-      - .env
-    environment:
-      N8N_BASE_URL: "http://n8n:5678"
-      N8N_WEBHOOK_TOKEN: "${N8N_WEBHOOK_TOKEN:-}"
-    ports:
-      # Nur Loopback. POST /notify trägt ein Bearer-Geheimnis; ein n8n-Workflow im Compose-Netz
-      # erreicht den Dienst als http://heartbeat:8789.
-      - "127.0.0.1:8789:8789"
-    depends_on:
-      - postgres
-      - n8n
-    volumes:
-      - ./artifacts:/app/artifacts
-
   # Die Sprachschicht (S30/S31) — der einzige Python-Prozess des Systems. Abschnitt 4.1 nennt
-  # das eine **Prozessgrenze, keinen zweiten Stack**: er teilt keinen Code mit der Runtime und
-  # spricht mit ihr nur über den Sprach-Kanal des Gateways (POST /channels/voice/messages).
+  # das eine **Prozessgrenze, keinen zweiten Stack**: er teilt keinen Code mit dem Gateway und
+  # spricht mit ihm nur über den Sprach-Kanal des Gateways (POST /channels/voice/messages).
   #
-  # Anders als `runtime`, `gateway` und `heartbeat` ist dieser Dienst **kein Platzhalter**: das
+  # Anders als `gateway` ist dieser Dienst **kein Platzhalter**: das
   # Dockerfile existiert, das Image baut, und `docker compose run --rm voice-test` fährt seine
   # Tests. Er läuft trotzdem nicht mit `docker compose up` los (Profil `voice`) — eine Sitzung
   # beginnt, wenn jemand das Mikrofon drückt, nicht wenn ein Rechner hochfährt.

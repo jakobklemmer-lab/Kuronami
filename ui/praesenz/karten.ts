@@ -33,7 +33,10 @@ function fehler(error: unknown): string {
 }
 
 function zahl(n: number, stellen = 0): string {
-  return n.toLocaleString("en-GB", { minimumFractionDigits: stellen, maximumFractionDigits: stellen });
+  return n.toLocaleString("en-GB", {
+    minimumFractionDigits: stellen,
+    maximumFractionDigits: stellen,
+  });
 }
 
 function prozent(p: number): string {
@@ -105,7 +108,9 @@ export async function renderActivity(api: ApiClient): Promise<string> {
       reihe(
         "trading",
         "Markets update",
-        kurse.value.quotes.map((q) => `${q.symbol.replace(/^\^/, "")} ${prozent(q.changePct)}`).join(" · "),
+        kurse.value.quotes
+          .map((q) => `${q.symbol.replace(/^\^/, "")} ${prozent(q.changePct)}`)
+          .join(" · "),
         "trading",
       ),
     );
@@ -141,7 +146,14 @@ export async function renderActivity(api: ApiClient): Promise<string> {
 
   if (research.status === "fulfilled" && research.value.findings.length > 0) {
     const f = research.value.findings[0];
-    zeilen.push(reihe("research", "Research", `${f.summary.slice(0, 40)} · ${formatRelativeTime(f.savedAt)}`, "research"));
+    zeilen.push(
+      reihe(
+        "research",
+        "Research",
+        `${f.summary.slice(0, 40)} · ${formatRelativeTime(f.savedAt)}`,
+        "research",
+      ),
+    );
   }
 
   return zeilen.join("") || `<div class="k-leer">Nothing yet.</div>`;
@@ -160,7 +172,8 @@ export async function renderSystem(api: ApiClient): Promise<string> {
     const zeilen = d.gauges
       .filter((g) => g.id !== "cpu")
       .map(
-        (g) => `<div class="k-mass"><span>${escapeHtml(g.label)}</span><span class="k-zahl">${escapeHtml(g.readout)}</span></div>`,
+        (g) =>
+          `<div class="k-mass"><span>${escapeHtml(g.label)}</span><span class="k-zahl">${escapeHtml(g.readout)}</span></div>`,
       )
       .join("");
     return `

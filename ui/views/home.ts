@@ -365,8 +365,7 @@ export const homeView: View = {
         const el = role<HTMLElement>("today");
         if (!el || disposed) return;
         if (!data.connected) {
-          el.innerHTML =
-            '<li class="card__empty">Kein Kalender verbunden.</li>';
+          el.innerHTML = '<li class="card__empty">Kein Kalender verbunden.</li>';
           return;
         }
         if (data.events.length === 0) {

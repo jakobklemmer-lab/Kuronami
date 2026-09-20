@@ -16,8 +16,7 @@ import type { SessionChannel } from "./types.js";
  * eigenes, unabhängiges "Plan"-Panel).
  *
  * Liegt in `runtime/`, nicht in `gateway/`: Abschnitt 3 erlaubt Runtime → Context
- * (`deriveRunMetrics` kommt von dort, dasselbe Muster wie `runtime/devui/server.ts` mit
- * `deriveLoopState`), aber nie Runtime → Surface. `gateway/server.ts` ruft diese Datei auf,
+ * (`deriveRunMetrics` kommt von dort), aber nie Runtime → Surface. `gateway/server.ts` ruft diese Datei auf,
  * nicht umgekehrt.
  */
 
@@ -68,7 +67,7 @@ interface SessionRow {
   created_at: Date;
 }
 
-/** Wie viele Runs die Liste höchstens zeigt — dieselbe Vorgabe wie `runtime/devui/server.ts`. */
+/** Wie viele Runs die Liste höchstens zeigt. */
 const DEFAULT_RUN_LIMIT = 50;
 
 async function resolveArtifacts(pool: Pool, uris: readonly string[]): Promise<ArtifactMeta[]> {

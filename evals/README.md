@@ -1,1 +1,0 @@
-Hierhin gehören Harness-Evals: Tests, die das Gesamtsystem prüfen (Wiederaufnahme, Policy, Kontextverwaltung), nicht nur einzelne Tools. Keine reinen Unit-Tests von Funktionen, die gehören neben den jeweiligen Quelldateien.

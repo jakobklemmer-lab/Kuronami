@@ -8,7 +8,7 @@ import {
   upsertMcpServer,
 } from "./config-store.js";
 
-/** Gegen die echte Datenbank, wie `runtime/agents/store.test.ts`. */
+/** Gegen die echte Datenbank, nicht gegen einen Nachbau. */
 
 const pool = createPool();
 const serverIds: string[] = [];

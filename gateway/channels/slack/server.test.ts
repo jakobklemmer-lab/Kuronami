@@ -11,9 +11,8 @@ import { createSlackClient } from "./client.js";
 
 /**
  * Der HTTP-Rand von `/channels/slack/events` (S26): Signaturprüfung, `url_verification` und
- * die 3-Sekunden-Zusage ("antwortet sofort, verarbeitet danach"). Was `handleSlackEvent`
- * selbst mit einer offenen Rückfrage tut, prüft `gateway.test.ts` end-to-end mit echter
- * Datenbank — hier geht es nur um den Rand.
+ * die 3-Sekunden-Zusage ("antwortet sofort, verarbeitet danach"). Nur der Rand — was der Motor
+ * mit der Nachricht danach tut, steht hier bewusst nicht zur Prüfung.
  */
 
 const pool = createPool();
@@ -31,24 +30,23 @@ const identity: GatewayIdentity = {
 
 let server: Server;
 let baseUrl = "";
-let resolveConversation: (() => void) | null = null;
+let resolveVerarbeitung: (() => void) | null = null;
 
 function sign(timestamp: string, rawBody: string): string {
   return `v0=${createHmac("sha256", SIGNING_SECRET).update(`v0:${timestamp}:${rawBody}`, "utf8").digest("hex")}`;
 }
 
 beforeAll(async () => {
-  // Eine Unterhaltung, die absichtlich nie von selbst fertig wird — das ist der Nachweis für
-  // die 3-Sekunden-Zusage: die HTTP-Antwort muss da sein, lange bevor dieses Promise auflöst.
-  const conversations = {
-    of: () =>
+  // Ein Motor, der absichtlich nie von selbst fertig wird — das ist der Nachweis für die
+  // 3-Sekunden-Zusage: die HTTP-Antwort muss da sein, lange bevor dieses Promise auflöst.
+  const agent = {
+    receive: () =>
       new Promise((resolve) => {
-        resolveConversation = () =>
-          resolve({ runner: { session: { sessionId: "sess_never_used" } } } as never);
+        resolveVerarbeitung = () => resolve({ status: "answered" } as never);
       }),
-  } as unknown as GatewayDeps["conversations"];
+  } as unknown as GatewayDeps["agent"];
 
-  const gateway = { pool, conversations, channels: new Map() } as unknown as GatewayDeps;
+  const gateway = { pool, agent, channels: new Map() } as unknown as GatewayDeps;
   const slack: SlackChannelDeps = {
     client: createSlackClient({ token: "xoxb-test" }),
     identity,
@@ -65,7 +63,7 @@ beforeAll(async () => {
 });
 
 afterAll(async () => {
-  resolveConversation?.();
+  resolveVerarbeitung?.();
   await new Promise<void>((resolve) => server.close(() => resolve()));
   await pool.end();
 });
@@ -139,13 +137,13 @@ describe("POST /channels/slack/events", () => {
 
     expect(response.status).toBe(200);
     expect(await response.json()).toEqual({ ok: true });
-    // `conversations.of` oben löst erst am Ende der ganzen Testdatei auf — die Antwort kam also
+    // `agent.receive` oben löst erst am Ende der ganzen Testdatei auf — die Antwort kam also
     // nachweislich zurück, während die eigentliche Verarbeitung noch aussteht.
     expect(elapsedMs).toBeLessThan(1000);
   });
 
   it("ist unbekannt, wenn kein Slack-Kanal eingerichtet ist", async () => {
-    const gateway = { pool, conversations: {}, channels: new Map() } as unknown as GatewayDeps;
+    const gateway = { pool, channels: new Map() } as unknown as GatewayDeps;
     const app = createServer({ gateway, identity, web: createWebChannel() });
     const withoutSlack = app.listen(0);
     await new Promise<void>((resolve) => withoutSlack.once("listening", resolve));

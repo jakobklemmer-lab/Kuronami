@@ -23,3 +23,11 @@ src-tauri/gen/
 __pycache__/
 venv/
 .env
+
+# Kuros Arbeitsbereich: sein **Zustand** gehoert nicht in die Historie. Die Sitzungskennung
+# wechselt mit jedem Neustart, das Analysen-Archiv waechst mit jedem Bericht, und `.claude/`
+# ist Innenleben des SDK. Seine Arbeitsergebnisse (`workspace/notizen/`, `workspace/ablage/`)
+# und die Hausregeln (`workspace/CLAUDE.md`) bleiben versioniert.
+/workspace/.kuro-session
+/workspace/.claude/
+/workspace/analysen/

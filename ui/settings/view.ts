@@ -1,8 +1,7 @@
 import { ApiError } from "../api/client.js";
 import { icon } from "../icons.js";
-import { SETTINGS_SECTION_IDS, type SettingsSectionId } from "../router/router.js";
 import { klassischModus, setzeKlassischModus } from "../praesenz/huelle.js";
-import { escapeHtml } from "../views/html.js";
+import { SETTINGS_SECTION_IDS, type SettingsSectionId } from "../router/router.js";
 import { loadToken, saveToken } from "../settings.js";
 import {
   BUILTIN_BACKGROUNDS,
@@ -12,6 +11,7 @@ import {
   resizeImageDataUrl,
 } from "../theme/background.js";
 import { APP_VERSION } from "../version.js";
+import { escapeHtml } from "../views/html.js";
 import type { View, ViewContext } from "../views/types.js";
 import {
   type KuronamiSettings,
@@ -156,8 +156,10 @@ function personenZeile(p: { name: string; modell: string; beschreibung: string }
   // Die Beschreibungen sind für das Modell geschrieben und entsprechend ausführlich; hier
   // genügt der erste Satz.
   const kurz = p.beschreibung.split(/(?<=[.:])\s/)[0] ?? p.beschreibung;
-  return `<li class="service-list__row"><span>${escapeHtml(p.name)} · ${escapeHtml(kurz)}</span>` +
-    `<span class="service-list__status">${escapeHtml(p.modell)}</span></li>`;
+  return (
+    `<li class="service-list__row"><span>${escapeHtml(p.name)} · ${escapeHtml(kurz)}</span>` +
+    `<span class="service-list__status">${escapeHtml(p.modell)}</span></li>`
+  );
 }
 
 function renderHaushaltStand(stand: HaushaltStand): string {

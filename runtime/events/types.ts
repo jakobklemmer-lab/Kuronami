@@ -78,11 +78,10 @@ export const EVENT_TYPES = [
   "gateway.delivered",
 
   // Seither dazugekommen (S17). Ein fünfzehnter Namensraum, und der zweite, den nicht die
-  // Runtime schreibt — der Heartbeat-Dienst schreibt ihn. Die Begründung ist dieselbe wie bei
-  // `gateway.*`: die Liste ist das Vokabular des Protokolls und keine Abhängigkeit, `assertEventType`
-  // soll genau die stille Aufspaltung in zwei Schreibweisen verhindern, und `heartbeat/` wird
-  // in `runtime/`, `context/`, `tools/` und `policy/` nirgends importiert (geprüft in
-  // `heartbeat/layering.test.ts`).
+  // Runtime schrieb — der Heartbeat-Dienst schrieb ihn. Den Dienst gibt es seit 2026-09-20
+  // nicht mehr; das Vokabular bleibt, weil das Protokoll seine alten Einträge weiter lesbar
+  // halten muss. Die Begründung für den Eintrag war dieselbe wie bei `gateway.*`: die Liste ist
+  // das Vokabular des Protokolls und keine Abhängigkeit.
   //
   // Warum eigene Ereignisse: der Heartbeat läuft **ohne Nutzereingabe** und trifft trotzdem
   // Entscheidungen, die nachvollziehbar bleiben müssen — hat er heute schon zu oft gelaufen
@@ -141,8 +140,8 @@ export const EVENT_TYPES = [
   //
   //   * `context.section_started` — ein frischer Abschnitt beginnt. Trägt `through_seq` wie
   //     `context.compacted` (Stufe 3): die höchste bisherige Marke aus beiden Ereignistypen
-  //     zusammen sagt, bis wohin die Historie schon ersetzt ist (`context/compaction.ts` liest
-  //     beide zurück). `handover` ist die kompakte Übergabe — nur was der nächste Abschnitt
+  //     zusammen sagt, bis wohin die Historie schon ersetzt ist (das alte `context/compaction.ts`
+  //     las beide zurück). `handover` ist die kompakte Übergabe — nur was der nächste Abschnitt
   //     sofort braucht; länger geltendes Wissen geht über das Langzeitgedächtnis (S18) zurück,
   //     nicht über dieses Feld.
   "context.section_started",
@@ -172,8 +171,8 @@ export const EVENT_TYPES = [
   // dieselbe Begründung wie bei `skill.invoked` und `memory.recalled`.
   //
   //   * `model.routed` — Klasse (`routine`/`thinking`), Begründung, gewähltes Modell und
-  //     welches Modell klassifiziert hat. Steht **einmal** je Session, geschrieben von
-  //     `createRunner` (`runtime/loop/api.ts`), bevor der erste Zug beginnt.
+  //     welches Modell klassifiziert hat. Stand **einmal** je Session, geschrieben von
+  //     `createRunner` des alten Motors, bevor der erste Zug begann.
   "model.routed",
 
   // Seither dazugekommen (S19). Kein neuer Namensraum: `agent.*` steht seit Abschnitt 4.4 mit

@@ -272,9 +272,9 @@ async function readNoteFile(root: string, id: string): Promise<IndexedNote> {
 }
 
 /**
- * Schreibt Bytes atomar: `.tmp` im selben Verzeichnis, `fsync`, dann `rename`. Wortgleich mit
- * `atomicWrite` in `tools/fs/tools.ts` und `tools/notes/tools.ts` — am gültigen Pfad liegt nie
- * eine halb geschriebene Notiz.
+ * Schreibt Bytes atomar: `.tmp` im selben Verzeichnis, `fsync`, dann `rename` — am gültigen
+ * Pfad liegt nie eine halb geschriebene Notiz. (Bis 2026-09-20 stand derselbe Code wortgleich
+ * in den Datei- und Notiz-Werkzeugen des alten Motors; hier ist die letzte Kopie.)
  */
 async function atomicWrite(absPath: string, text: string): Promise<void> {
   await mkdir(path.dirname(absPath), { recursive: true });

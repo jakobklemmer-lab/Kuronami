@@ -14,14 +14,6 @@
     "declaration": true,
     "sourceMap": true
   },
-  "include": [
-    "runtime/**/*.ts",
-    "context/**/*.ts",
-    "tools/**/*.ts",
-    "policy/**/*.ts",
-    "gateway/**/*.ts",
-    "evals/**/*.ts",
-    "phase-6/**/*.ts"
-  ],
+  "include": ["runtime/**/*.ts", "context/**/*.ts", "tools/**/*.ts", "gateway/**/*.ts"],
   "exclude": ["node_modules", "dist", "build", "ui"]
 }

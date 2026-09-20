@@ -39,7 +39,8 @@ function inline(text: string, options: MarkdownOptions): string {
     const link = options.linkArtifact;
     out = out.replace(
       ARTIFACT_URI,
-      (uri) => `<a class="artifact-link" href="${escapeHtml(link(uri))}" data-artifact="${uri}">${uri}</a>`,
+      (uri) =>
+        `<a class="artifact-link" href="${escapeHtml(link(uri))}" data-artifact="${uri}">${uri}</a>`,
     );
   }
   return out;
@@ -59,7 +60,9 @@ export function renderMarkdown(source: string, options: MarkdownOptions = {}): s
   };
   const flushList = (): void => {
     if (!list) return;
-    html.push(`<${list.kind}>${list.items.map((item) => `<li>${item}</li>`).join("")}</${list.kind}>`);
+    html.push(
+      `<${list.kind}>${list.items.map((item) => `<li>${item}</li>`).join("")}</${list.kind}>`,
+    );
     list = null;
   };
 
