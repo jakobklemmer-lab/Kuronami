@@ -1086,6 +1086,75 @@ export function createServer(deps: ServerDeps): express.Express {
    * Rechnung (`strategien.ts`, `bewerte`) — die Oberfläche darf ihn ändern, weil am Ende
    * Jakob entscheidet, aber sie erfindet ihn nicht.
    */
+  /**
+   * Der Papierhandel (2026-09-20): was gerade gegen den laufenden Markt läuft.
+   *
+   * Lesen darf die Oberfläche alles; starten und sperren sind Jakobs Entscheidungen und
+   * stehen deshalb als eigene Wege da, nicht als Feld in einem PATCH.
+   */
+  app.get("/integrations/papierhandel", async (req, res, next) => {
+    try {
+      const principal = webPrincipal(req, res);
+      if (!principal) return;
+      res.json({ konten: await deps.gateway.agent.papier.liste() });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.post("/integrations/papierhandel/:id", async (req, res, next) => {
+    try {
+      const principal = webPrincipal(req, res);
+      if (!principal) return;
+      try {
+        res.json(await deps.gateway.agent.papier.starte(req.params.id));
+      } catch (error) {
+        res.status(400).json({ error: error instanceof Error ? error.message : String(error) });
+      }
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.patch("/integrations/papierhandel/:id", async (req, res, next) => {
+    try {
+      const principal = webPrincipal(req, res);
+      if (!principal) return;
+      const gesperrt = req.body?.gesperrt;
+      if (typeof gesperrt !== "boolean") {
+        res.status(400).json({ error: "gesperrt (true/false) ist erforderlich." });
+        return;
+      }
+      const konto = await deps.gateway.agent.papier.setzeSperre(
+        req.params.id,
+        gesperrt,
+        typeof req.body?.grund === "string" ? req.body.grund.slice(0, 300) : undefined,
+      );
+      if (!konto) {
+        res.status(404).json({ error: "Für diese Strategie läuft kein Papierhandel." });
+        return;
+      }
+      res.json(konto);
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.delete("/integrations/papierhandel/:id", async (req, res, next) => {
+    try {
+      const principal = webPrincipal(req, res);
+      if (!principal) return;
+      const konto = await deps.gateway.agent.papier.beende(req.params.id);
+      if (!konto) {
+        res.status(404).json({ error: "Für diese Strategie läuft kein Papierhandel." });
+        return;
+      }
+      res.json({ beendet: true, handel: konto.handel.length });
+    } catch (error) {
+      next(error);
+    }
+  });
+
   app.get("/integrations/strategien", async (req, res, next) => {
     try {
       const principal = webPrincipal(req, res);

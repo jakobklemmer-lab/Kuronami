@@ -270,7 +270,43 @@ function trifftZu(b: Gerechnet, i: number): boolean {
   return linksVor >= rechtsVor && links < rechts;
 }
 
-function pruefeStrategie(s: Strategie): void {
+/**
+ * Trifft die Regel auf einer **bestimmten** Kerze zu?
+ *
+ * Dieselbe Auswertung wie im Backtest, nur für einen einzelnen Zeitpunkt — der Papierhandel
+ * (`papierhandel.ts`) fragt damit die zuletzt **abgeschlossene** Kerze ab. Es ist bewusst
+ * dieselbe Funktion und kein Nachbau: eine Strategie, die im Backtest anders bewertet wird als
+ * im Betrieb, ist schlimmer als keine geprüfte Strategie. Der Betrieb wäre dann ein anderes
+ * Verfahren als das, was die Kennzahlen erzeugt hat.
+ */
+export function signalAm(
+  strategie: Strategie,
+  kerzen: readonly MarketCandle[],
+  index: number,
+): { einstieg: boolean; ausstieg: boolean } {
+  if (index < 0 || index >= kerzen.length) return { einstieg: false, ausstieg: false };
+  const einstieg = strategie.einstieg.map((b) => ({
+    links: reiheFuer(b.links, kerzen),
+    rechts: reiheFuer(b.rechts, kerzen),
+    vergleich: b.vergleich,
+  }));
+  const ausstieg = (strategie.ausstieg ?? []).map((b) => ({
+    links: reiheFuer(b.links, kerzen),
+    rechts: reiheFuer(b.rechts, kerzen),
+    vergleich: b.vergleich,
+  }));
+  return {
+    einstieg: einstieg.length > 0 && einstieg.every((b) => trifftZu(b, index)),
+    ausstieg: ausstieg.length > 0 && ausstieg.some((b) => trifftZu(b, index)),
+  };
+}
+
+/** Der ATR(14) an einer Kerze — der Papierhandel setzt seinen Stop damit wie der Backtest. */
+export function atrAm(kerzen: readonly MarketCandle[], index: number): number | undefined {
+  return atrReihe(kerzen, 14)[index];
+}
+
+export function pruefeStrategie(s: Strategie): void {
   if (s.einstieg.length === 0) {
     throw new StrategieFehler(
       "Eine Strategie ohne Einstiegsbedingung kauft immer — das ist keine Strategie, sondern ein Kauf.",

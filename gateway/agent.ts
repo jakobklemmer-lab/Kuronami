@@ -12,6 +12,8 @@ import { redactText } from "../runtime/redaction/redact.js";
 import { type AnalysenArchiv, createAnalysen } from "./analysen.js";
 import { BUEHNE_TOOLS, createBuehne } from "./buehne.js";
 import { HAUS_TOOLS, createHaus } from "./haus.js";
+import { createYahooMarkets } from "./integrations/markets.js";
+import { type Papierhandel, createPapierhandel } from "./papierhandel.js";
 import { createSendePostfach } from "./postfach-werkzeuge.js";
 import { konten } from "./postfach.js";
 import { type StrategienArchiv, createStrategien } from "./strategien.js";
@@ -153,6 +155,8 @@ export interface AgentDeps {
   analysen?: AnalysenArchiv;
   /** Das Strategie-Archiv. Vorgabe: ein Ordner `strategien/` im Arbeitsbereich. */
   strategien?: StrategienArchiv;
+  /** Der Papierhandel. Vorgabe: ein Ordner `papierhandel/` im Arbeitsbereich, Kurse von Yahoo. */
+  papier?: Papierhandel;
 }
 
 export interface ZugKosten {
@@ -236,6 +240,8 @@ export class KuroAgent {
   readonly #analysen: AnalysenArchiv;
   /** Wohin geprüfte Strategien gelegt werden — Regeln samt ihrem Backtest. */
   readonly #strategien: StrategienArchiv;
+  /** Der Betrieb: geprüfte Regeln gegen den laufenden Markt, mit Buchgeld. */
+  readonly #papier: Papierhandel;
   /** Die Bühne: womit Kuro Jakob etwas hinstellt. */
   readonly #buehne: ReturnType<typeof createBuehne>;
   /** Wohin ein nachgereichter Bericht geht: dorthin, wo zuletzt jemand geschrieben hat. */
@@ -250,8 +256,22 @@ export class KuroAgent {
     this.#workdir = deps.workdir ?? process.env.KURO_WORKDIR?.trim() ?? DEFAULT_WORKDIR;
     this.#analysen = deps.analysen ?? createAnalysen({ workdir: this.#workdir });
     this.#strategien = deps.strategien ?? createStrategien({ workdir: this.#workdir });
+    this.#papier =
+      deps.papier ??
+      createPapierhandel({
+        workdir: this.#workdir,
+        markets: createYahooMarkets(),
+        strategien: this.#strategien,
+        // Was im Betrieb passiert, gehört auf den Bus: die Oberfläche zeigt es, und ein
+        // gesperrtes Konto soll niemand erst beim nächsten Nachfragen erfahren.
+        onEreignis: (text) => {
+          console.log(`[papier] ${text}`);
+          deps.publish?.("papier.ereignis", { text });
+        },
+      });
     this.#haus = createHaus({
       strategien: this.#strategien,
+      papier: this.#papier,
       // Auch die Protokollzeile läuft durch den Filter: der Auftragstext trägt alles weiter,
       // was Jakob vorher geschrieben hat, und journalctl bewahrt es auf.
       //
@@ -307,6 +327,10 @@ export class KuroAgent {
 
   get strategien(): StrategienArchiv {
     return this.#strategien;
+  }
+
+  get papier(): Papierhandel {
+    return this.#papier;
   }
 
   /** Was die Bediensteten gerade tun. Die Oberfläche zeigt es, wenn kein Zug läuft. */

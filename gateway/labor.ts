@@ -7,6 +7,7 @@ import {
   backtest,
   formatiereBacktest,
 } from "./backtest.js";
+import { formatiereGegenprobe, nachbarschaft, pruefeVariante, urteile } from "./gegenprobe.js";
 import {
   CHART_INTERVALS,
   type ChartInterval,
@@ -14,6 +15,7 @@ import {
   createYahooMarkets,
 } from "./integrations/markets.js";
 import { formatiereVerlauf } from "./kurse.js";
+import { PapierFehler, type Papierhandel, papierKennzahlen } from "./papierhandel.js";
 import {
   ReplayFehler,
   formatiereKerzen,
@@ -51,6 +53,10 @@ export interface LaborDeps {
   strategien?: StrategienArchiv;
   /** Wer gerade arbeitet — steht als Urheber an einer abgelegten Strategie. */
   wer?: string;
+  /** Der Papierhandel. Ohne ihn fehlen die beiden Betriebs-Werkzeuge. */
+  papier?: Papierhandel;
+  /** Darf dieser Lauf den Papierhandel **starten**? Lesen darf jeder, der ihn hat. */
+  darfStarten?: boolean;
 }
 
 const TAG = /^\d{4}-\d{2}-\d{2}$/;
@@ -485,6 +491,138 @@ export function createLabor(deps: LaborDeps = {}) {
     { annotations: { title: "Wiedergabe abschließen" } },
   );
 
+  const gegenprobe = tool(
+    "gegenprobe",
+    [
+      "Eine **abgelegte** Strategie unter anderen Bedingungen nachrechnen: verschobene Perioden",
+      "(±20 %), verdoppelte Kosten und, wenn du willst, andere Märkte und Zeitfenster.",
+      "",
+      "Das ist die eigentliche Prüfung. Ein zweites Urteil über dieselben Zahlen ist keine —",
+      "eine Regel, die bei SMA 50 trägt und bei SMA 40 und SMA 60 zusammenfällt, ist an einen",
+      "Zufall angepasst. Ein echter Effekt ist eine Hochebene, keine Nadelspitze.",
+      "",
+      "Zurück kommt eine Tabelle aller Varianten und die rechnerische Einstufung: robust,",
+      "wackelig oder fragil. Die Einstufung bestimmst nicht du — du deutest sie.",
+    ].join("\n"),
+    {
+      id: z
+        .string()
+        .regex(/^[0-9a-f]{12}$/)
+        .describe("Kennung der abgelegten Strategie."),
+      maerkte: z
+        .array(z.string().min(1).max(20))
+        .max(3)
+        .optional()
+        .describe("Zusätzliche Symbole, an denen dieselbe Regel geprüft wird."),
+      von: z.string().regex(TAG).optional().describe("Anderes Zeitfenster: Beginn."),
+      bis: z.string().regex(TAG).optional(),
+    },
+    async ({ id, maerkte, von, bis }) => {
+      if (!deps.strategien)
+        return text("Ohne Strategie-Archiv gibt es nichts nachzurechnen.", true);
+      const eintrag = await deps.strategien.lies(id);
+      if (!eintrag) return text(`Keine Strategie mit der Kennung ${id}.`, true);
+
+      const beginn = von ?? eintrag.von;
+      const ende = bis ?? eintrag.bis;
+      const varianten = [
+        { name: "Original", strategie: eintrag.strategie },
+        ...nachbarschaft(eintrag.strategie),
+      ];
+      const symbole = [eintrag.symbol, ...(maerkte ?? [])];
+      const ergebnisse = [];
+
+      for (const symbol of symbole) {
+        let kerzen: Awaited<ReturnType<typeof markets.zeitraum>>["candles"];
+        try {
+          kerzen = (await markets.zeitraum(symbol, unix(beginn), unix(ende) + 86_400, "1d"))
+            .candles;
+        } catch (error) {
+          return text(
+            `Kurse zu ${symbol} nicht abrufbar: ${error instanceof Error ? error.message : error}`,
+            true,
+          );
+        }
+        // Am fremden Markt zählt nur das Original: dort ginge es um die Regel, nicht um ihre
+        // Parameter — und vier Varianten je Markt wären eine Zahlenwand ohne Mehrwert.
+        const zuPruefen = symbol === eintrag.symbol ? varianten : [varianten[0]];
+        for (const variante of zuPruefen) {
+          ergebnisse.push(pruefeVariante(variante, kerzen, symbol));
+        }
+      }
+
+      const urteilDavon = urteile(ergebnisse);
+      return text(formatiereGegenprobe(eintrag.name, ergebnisse, urteilDavon));
+    },
+    { annotations: { title: "Strategie gegenprüfen", readOnlyHint: true } },
+  );
+
+  /**
+   * Der Blick in den Betrieb. **Lesen darf jeder am Tisch, starten nur, wer es soll** — und
+   * niemand darf hier eine Order auslösen: Ausführung ist Code (`papierhandel.ts`), nicht
+   * Urteil. Der Agent sieht zu und berichtet.
+   */
+  function papierWerkzeuge(papier: Papierhandel) {
+    const stand = tool(
+      "papier_stand",
+      "Wie die Strategien im Papierhandel laufen: Handel, Trefferquote, Erwartungswert im " +
+        "Betrieb gegen den des Backtests — und ob ein Konto gesperrt wurde.",
+      {},
+      async () => {
+        const konten = await papier.liste();
+        if (konten.length === 0) return text("Im Papierhandel läuft nichts.");
+        const zeilen = konten.map((k) => {
+          const z = papierKennzahlen(k);
+          const kopf = `${k.name} (${k.symbol}, seit ${k.seit.slice(0, 10)})${k.gesperrt ? " — GESPERRT" : ""}`;
+          const zahlen =
+            z.anzahl === 0
+              ? k.offen
+                ? "eine Position offen, noch kein abgeschlossener Handel"
+                : k.wartetAufEinstieg
+                  ? "Signal erkannt, wartet auf die nächste Eröffnung"
+                  : "noch kein Signal"
+              : `${z.anzahl} Handel, ${(z.trefferquote * 100).toFixed(0)} % Treffer, ${z.erwartungswertR.toFixed(2)} R je Handel (Backtest versprach ${k.erwartetR.toFixed(2)} R), Rückschlag ${z.maxDrawdownProzent.toFixed(1)} %`;
+          return `${kopf}\n  ${zahlen}${k.gesperrt ? `\n  Grund: ${k.sperrgrund ?? "—"}` : ""}`;
+        });
+        return text(zeilen.join("\n\n"));
+      },
+      { annotations: { title: "Papierhandel ansehen", readOnlyHint: true } },
+    );
+
+    if (!deps.darfStarten) return [stand];
+
+    return [
+      stand,
+      tool(
+        "papier_start",
+        [
+          "Eine Strategie in den Papierhandel geben: sie läuft ab jetzt gegen den laufenden",
+          "Markt, mit Buchgeld, ausgeführt von Code und nicht von dir.",
+          "",
+          "Nur Strategien mit dem Status `kandidat` — also geprüft und im ungesehenen Zeitraum",
+          "bestanden. Der Betrieb fängt **heute** an und spielt keine Geschichte nach; die",
+          "ersten Wochen sind die ersten ehrlichen Zahlen, die es zu dieser Regel gibt.",
+        ].join("\n"),
+        { id: z.string().regex(/^[0-9a-f]{12}$/) },
+        async ({ id }) => {
+          try {
+            const konto = await papier.starte(id);
+            return text(
+              `„${konto.name}" läuft im Papierhandel (${konto.symbol}, seit ${konto.seit.slice(0, 10)}). Gesperrt wird von selbst bei 20 % Rückschlag, sechs Verlusten in Folge oder wenn der Betrieb deutlich hinter dem Backtest zurückbleibt.`,
+            );
+          } catch (error) {
+            if (error instanceof PapierFehler) return text(error.message, true);
+            return text(
+              `Start fehlgeschlagen: ${error instanceof Error ? error.message : error}`,
+              true,
+            );
+          }
+        },
+        { annotations: { title: "In den Papierhandel geben" } },
+      ),
+    ];
+  }
+
   /**
    * Die Ablage-Werkzeuge gibt es nur mit Archiv. Sie stehen in einer eigenen Funktion, damit
    * die Werkzeugliste **ein** Ausdruck bleibt: ein `push` auf ein Array, dessen Typ aus den
@@ -615,6 +753,8 @@ export function createLabor(deps: LaborDeps = {}) {
       replayGlatt,
       replayStand,
       replayEnde,
+      gegenprobe,
+      ...(deps.papier ? papierWerkzeuge(deps.papier) : []),
       ...(deps.strategien ? archivWerkzeuge(deps.strategien) : []),
     ],
   });
@@ -625,6 +765,7 @@ export const LABOR_TOOLS = [
   "mcp__labor__stichtag",
   "mcp__labor__rueckblick",
   "mcp__labor__backtest",
+  "mcp__labor__gegenprobe",
   "mcp__labor__replay_start",
   "mcp__labor__replay_weiter",
   "mcp__labor__replay_handeln",
@@ -634,6 +775,8 @@ export const LABOR_TOOLS = [
   "mcp__labor__strategie_ablegen",
   "mcp__labor__strategien",
   "mcp__labor__strategie_lesen",
+  "mcp__labor__papier_stand",
+  "mcp__labor__papier_start",
 ];
 
 /** Was ein Prüfer braucht, der keine Strategien ablegt. */

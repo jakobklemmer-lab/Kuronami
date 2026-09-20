@@ -2094,3 +2094,27 @@
 .analysen__marke.ist-entwurf {
   color: var(--fg-muted);
 }
+
+/* Der Betrieb einer Strategie: abgesetzt, damit „läuft" und „geprüft" nicht dasselbe aussehen. */
+.strategie__betrieb {
+  margin: 12px 0;
+  padding: 10px 12px;
+  border-radius: 10px;
+  border: 1px solid var(--border, rgb(237 240 245 / 9%));
+  background: rgb(126 166 204 / 7%);
+}
+.strategie__betrieb.ist-gesperrt {
+  border-color: #e8a0a055;
+  background: rgb(232 160 160 / 8%);
+}
+.strategie__betrieb h3 {
+  margin: 0 0 4px;
+  font-size: 12px;
+  font-weight: 500;
+  letter-spacing: 0.04em;
+  color: var(--fg-muted);
+}
+.strategie__betrieb p {
+  margin: 0 0 6px;
+  font-size: 13px;
+}

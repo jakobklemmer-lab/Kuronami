@@ -255,6 +255,34 @@ async function main(): Promise<void> {
     console.log(`${pending.length} offene Rückfrage(n) nachgestellt.`);
   }
 
+  /**
+   * Der Taktgeber des Papierhandels.
+   *
+   * Tageskerzen ändern sich einmal am Tag; öfter als stündlich nachzusehen wäre Arbeit ohne
+   * Erkenntnis und Last auf einer fremden Schnittstelle. Der erste Tick läuft kurz nach dem
+   * Start, damit ein Neustart keine Kerze verschluckt — `verarbeite` holt ohnehin alles nach,
+   * was seit dem letzten Stand dazukam.
+   *
+   * Der Lauf ist **Code, kein Agent**: er führt die gespeicherte Regel aus und fragt niemanden.
+   */
+  const papierTaktMs = Number(process.env.KURO_PAPIER_TAKT_MS ?? 3_600_000);
+  const papierTick = async (): Promise<void> => {
+    try {
+      const ereignisse = await agent.papier.tick();
+      if (ereignisse.length === 0) return;
+      for (const zeile of ereignisse) console.log(`[papier] ${zeile}`);
+    } catch (fehler) {
+      console.error("[papier] Tick fehlgeschlagen:", fehler);
+    }
+  };
+  const papierUhr = setInterval(() => void papierTick(), papierTaktMs);
+  // `unref`: ein wartender Zeitgeber soll den Prozess nicht am Herunterfahren hindern.
+  papierUhr.unref();
+  setTimeout(() => void papierTick(), 15_000).unref();
+  console.log(
+    `Papierhandel: Takt alle ${Math.round(papierTaktMs / 60_000)} min — geprüfte Regeln gegen den laufenden Markt, mit Buchgeld.`,
+  );
+
   const polling =
     telegram && process.env.TELEGRAM_MODE?.trim() !== "webhook"
       ? startTelegramPolling(telegram, {
@@ -284,6 +312,7 @@ async function main(): Promise<void> {
     console.log(`\n[gateway] ${reason} — herunterfahren.`);
     polling?.stop();
     postfachWarm.stop();
+    clearInterval(papierUhr);
     await polling?.done.catch(() => undefined);
     await events.close().catch(() => undefined);
     await eventNotify.close().catch(() => undefined);

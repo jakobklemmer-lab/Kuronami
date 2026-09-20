@@ -54,6 +54,20 @@ interface StrategieEintrag extends StrategieKopf {
   notiz?: string;
 }
 
+interface PapierKonto {
+  strategieId: string;
+  name: string;
+  symbol: string;
+  seit: string;
+  erwartetR: number;
+  offen: { richtung: string; einstieg: number; stop: number } | null;
+  wartetAufEinstieg: boolean;
+  handel: { r: number }[];
+  gesperrt: boolean;
+  sperrgrund?: string;
+  zuletztGeprueft: string;
+}
+
 const STATUS_LABEL: Record<Status, string> = {
   entwurf: "Entwurf",
   geprueft: "Geprüft",
@@ -96,6 +110,7 @@ export const strategienView: View = {
     const blattEl = container.querySelector<HTMLElement>('[data-role="blatt"]');
     const untertitelEl = container.querySelector<HTMLElement>('[data-role="subtitle"]');
     let koepfe: StrategieKopf[] = [];
+    let konten: PapierKonto[] = [];
     let offen: string | null = null;
     let verworfen = false;
 
@@ -147,6 +162,59 @@ export const strategienView: View = {
         <div><dt>Verlustserie</dt><dd>${k.laengsteVerlustserie}</dd></div>
       </dl>`;
 
+    /**
+     * Der Betrieb: läuft die Regel schon gegen den laufenden Markt?
+     *
+     * Bewusst zwischen Kennzahlen und Regel und nicht ganz unten: wer hier steht, will wissen,
+     * ob etwas läuft, bevor er die Regel liest. „Kandidat" heißt geprüft — der Schritt in den
+     * Papierhandel ist trotzdem eine eigene Entscheidung, und zwar Jakobs.
+     */
+    const betriebsblock = (e: StrategieEintrag): string => {
+      const konto = konten.find((k) => k.strategieId === e.id);
+      if (!konto) {
+        if (e.status !== "kandidat") {
+          return `<p class="field__hint">Im Papierhandel läuft das nicht — dafür braucht es den
+            Status „Kandidat", also eine Regel, die auch im ungesehenen Zeitraum getragen hat.</p>`;
+        }
+        return `
+          <div class="strategie__betrieb">
+            <p class="field__hint">Noch nicht im Betrieb. Der Papierhandel führt die Regel als
+            Code gegen den laufenden Markt aus — mit Buchgeld, ohne Broker, und er sperrt sich
+            selbst bei 20 % Rückschlag, sechs Verlusten in Folge oder wenn er hinter dem
+            Backtest zurückbleibt.</p>
+            <button class="field__button" type="button" data-role="papier-start">In den Papierhandel geben</button>
+            <span class="field__status" data-role="papier-status"></span>
+          </div>`;
+      }
+      const summeR = konto.handel.reduce((a, h) => a + h.r, 0);
+      const treffer = konto.handel.filter((h) => h.r > 0).length;
+      const lage = konto.gesperrt
+        ? `<strong>Gesperrt.</strong> ${escapeHtml(konto.sperrgrund ?? "")}`
+        : konto.offen
+          ? `Eine Position offen (${escapeHtml(konto.offen.richtung)} ab ${konto.offen.einstieg.toFixed(2)}, Stop ${konto.offen.stop.toFixed(2)}).`
+          : konto.wartetAufEinstieg
+            ? "Signal erkannt — Einstieg zur nächsten Eröffnung."
+            : "Läuft, gerade ohne Position.";
+      return `
+        <div class="strategie__betrieb${konto.gesperrt ? " ist-gesperrt" : ""}">
+          <h3>Papierhandel seit ${escapeHtml(konto.seit.slice(0, 10))}</h3>
+          <p>${lage}</p>
+          <p class="field__hint">
+            ${konto.handel.length} abgeschlossene Handel${
+              konto.handel.length > 0
+                ? ` · ${((treffer / konto.handel.length) * 100).toFixed(0)} % Treffer · ${(summeR / konto.handel.length).toFixed(2)} R je Handel
+                   (Backtest: ${konto.erwartetR.toFixed(2)} R)`
+                : ""
+            } · zuletzt geprüft ${escapeHtml(new Date(konto.zuletztGeprueft).toLocaleString("de-AT"))}
+          </p>
+          <button class="field__button" type="button" data-role="papier-sperre">
+            ${konto.gesperrt ? "Wieder freigeben" : "Sperren"}
+          </button>
+          <button class="field__button" type="button" data-role="papier-ende">Beenden</button>
+          <span class="field__status" data-role="papier-status"></span>
+        </div>`;
+    };
+
     const zeichneBlatt = (e: StrategieEintrag): void => {
       if (!blattEl) return;
       blattEl.innerHTML = `
@@ -166,6 +234,7 @@ export const strategienView: View = {
             : '<p class="field__hint">Keine Vorbehalte aus der Rechnung.</p>'
         }
         ${e.kennzahlen ? kennzahlenTabelle(e.kennzahlen) : ""}
+        ${betriebsblock(e)}
         <details class="analysen__auftrag">
           <summary>Die Regel</summary>
           <pre class="strategie__regel">${escapeHtml(JSON.stringify(e.strategie, null, 2))}</pre>
@@ -227,6 +296,66 @@ export const strategienView: View = {
         });
       }
 
+      const papierStatus = blattEl.querySelector<HTMLElement>('[data-role="papier-status"]');
+      const sagePapier = (t: string): void => {
+        if (papierStatus) papierStatus.textContent = t;
+      };
+      const ladeKonten = (): Promise<void> =>
+        ctx.api
+          .get<{ konten: PapierKonto[] }>("/integrations/papierhandel")
+          .then((daten) => {
+            konten = daten.konten;
+            if (!verworfen && offen === e.id) zeichneBlatt(e);
+          })
+          .catch(() => undefined);
+
+      blattEl
+        .querySelector<HTMLButtonElement>('[data-role="papier-start"]')
+        ?.addEventListener("click", (ereignis) => {
+          const knopf = ereignis.currentTarget as HTMLButtonElement;
+          knopf.disabled = true;
+          sagePapier("Wird gestartet …");
+          void ctx.api
+            .post<PapierKonto>(`/integrations/papierhandel/${e.id}`, {})
+            .then(() => ladeKonten())
+            .catch((fehler) => {
+              knopf.disabled = false;
+              sagePapier(fehler instanceof Error ? fehler.message : String(fehler));
+            });
+        });
+
+      blattEl
+        .querySelector<HTMLButtonElement>('[data-role="papier-sperre"]')
+        ?.addEventListener("click", () => {
+          const konto = konten.find((k) => k.strategieId === e.id);
+          if (!konto) return;
+          sagePapier("…");
+          void ctx.api
+            .patch<PapierKonto>(`/integrations/papierhandel/${e.id}`, {
+              gesperrt: !konto.gesperrt,
+              grund: konto.gesperrt ? undefined : "Von Jakob gesperrt.",
+            })
+            .then(() => ladeKonten())
+            .catch((fehler) =>
+              sagePapier(fehler instanceof Error ? fehler.message : String(fehler)),
+            );
+        });
+
+      blattEl
+        .querySelector<HTMLButtonElement>('[data-role="papier-ende"]')
+        ?.addEventListener("click", () => {
+          sagePapier("Wird beendet …");
+          void ctx.api
+            .delete<{ beendet: boolean; handel: number }>(`/integrations/papierhandel/${e.id}`)
+            .then((antwort) => {
+              sagePapier(`Beendet — ${antwort.handel} Handel liegen im Archiv.`);
+              return ladeKonten();
+            })
+            .catch((fehler) =>
+              sagePapier(fehler instanceof Error ? fehler.message : String(fehler)),
+            );
+        });
+
       const notizEl = blattEl.querySelector<HTMLTextAreaElement>('[data-role="notiz"]');
       notizEl?.addEventListener("blur", () => {
         if (notizEl.value === (e.notiz ?? "")) return;
@@ -258,11 +387,16 @@ export const strategienView: View = {
       if (knopf?.dataset.id) oeffne(knopf.dataset.id);
     });
 
-    void ctx.api
-      .get<{ strategien: StrategieKopf[] }>("/integrations/strategien")
-      .then((daten) => {
+    void Promise.all([
+      ctx.api.get<{ strategien: StrategieKopf[] }>("/integrations/strategien"),
+      ctx.api
+        .get<{ konten: PapierKonto[] }>("/integrations/papierhandel")
+        .catch(() => ({ konten: [] as PapierKonto[] })),
+    ])
+      .then(([daten, betrieb]) => {
         if (verworfen) return;
         koepfe = daten.strategien;
+        konten = betrieb.konten;
         if (untertitelEl) {
           const kandidaten = koepfe.filter((k) => k.status === "kandidat").length;
           untertitelEl.textContent =

@@ -5,6 +5,7 @@ import { redactText } from "../runtime/redaction/redact.js";
 import { crvVermerk } from "./crv.js";
 import { CRV_TOOL, createKurse } from "./kurse.js";
 import { createLabor } from "./labor.js";
+import type { Papierhandel } from "./papierhandel.js";
 import { sandkastenOptionen } from "./sandkasten.js";
 import type { StrategienArchiv } from "./strategien.js";
 
@@ -40,6 +41,11 @@ const BUDGET_STRATEGE = Number(process.env.KURO_BUDGET_STRATEGE_USD ?? 2.5);
 export interface HandelstischDeps {
   /** Das Strategie-Archiv — ohne es fehlen dem Strategen die Ablage-Werkzeuge. */
   strategien?: StrategienArchiv;
+  /**
+   * Der Papierhandel. Die Spezialisten dürfen **zusehen**, nicht starten: wer eine Strategie
+   * in den Betrieb gibt, hat sie selbst geprüft — und genau das soll hier getrennt bleiben.
+   */
+  papier?: Papierhandel;
   onArbeitet?(wer: string, frage: string): void;
   onFertig?(wer: string, kostenUsd: number, dauerMs: number): void;
   /** Ein Zwischensatz aus dem Lauf eines Spezialisten, während er arbeitet. */
@@ -102,6 +108,7 @@ export function createHandelstisch(deps: HandelstischDeps = {}) {
                 workdir: WERKSTATT,
                 wer: wen,
                 ...(deps.strategien ? { strategien: deps.strategien } : {}),
+                ...(deps.papier ? { papier: deps.papier, darfStarten: false } : {}),
               }),
             },
             maxBudgetUsd: wen === "stratege" ? BUDGET_STRATEGE : BUDGET_JE_FRAGE,
