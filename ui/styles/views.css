@@ -1934,3 +1934,93 @@
   border-color: var(--accent, #7fb8ff);
   background: color-mix(in srgb, var(--accent, #7fb8ff) 14%, transparent);
 }
+
+/* ---------------------------------------------------------------- Anmeldung
+   Die erste Fläche, die jemand sieht, der die Adresse kennt (2026-09-20). Sie liegt über
+   allem, bringt ihren eigenen Hintergrund mit und folgt der Sprache der Präsenz: viel Raum,
+   dünne Schrift, eine Glasfläche in der Mitte. Kein Logo-Karussell, kein „Konto anlegen" —
+   das Haus hat einen Bewohner. */
+.anmeldung {
+  position: fixed;
+  inset: 0;
+  z-index: 200;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: radial-gradient(120% 90% at 50% 0%, rgb(126 166 204 / 12%), transparent 60%),
+    var(--bg, #0b0d11);
+}
+.anmeldung__karte {
+  width: min(360px, 100%);
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 28px 26px 24px;
+  border-radius: 18px;
+  border: 1px solid var(--border, rgb(237 240 245 / 9%));
+  background: rgb(255 255 255 / 4%);
+  backdrop-filter: blur(var(--glass-blur, 22px));
+  -webkit-backdrop-filter: blur(var(--glass-blur, 22px));
+  box-shadow: 0 24px 60px rgb(0 0 0 / 45%);
+}
+.anmeldung__marke {
+  margin: 0;
+  font-size: 11px;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  color: var(--fg-faint);
+}
+.anmeldung__titel {
+  margin: 0;
+  font-size: 22px;
+  font-weight: 300;
+  letter-spacing: 0.01em;
+}
+.anmeldung__zeile {
+  margin: -6px 0 6px;
+  font-size: 13px;
+  color: var(--fg-muted);
+}
+.anmeldung__feld {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--fg-muted);
+}
+.anmeldung__feld input {
+  padding: 10px 12px;
+  border-radius: 10px;
+  border: 1px solid var(--border, rgb(237 240 245 / 9%));
+  background: rgb(0 0 0 / 22%);
+  color: var(--fg);
+  font: inherit;
+  font-size: 14px;
+}
+.anmeldung__feld input:focus-visible {
+  outline: 1.5px solid var(--accent);
+  outline-offset: 1px;
+}
+.anmeldung__knopf {
+  margin-top: 4px;
+  padding: 10px 14px;
+  border-radius: 999px;
+  border: 1px solid var(--accent-strong);
+  background: rgb(126 166 204 / 16%);
+  color: var(--fg);
+  font: inherit;
+  font-size: 14px;
+  cursor: pointer;
+}
+.anmeldung__knopf:hover:not(:disabled) {
+  background: rgb(126 166 204 / 26%);
+}
+.anmeldung__knopf:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+.anmeldung__fehler {
+  margin: 0;
+  font-size: 13px;
+  color: #e8a0a0;
+}

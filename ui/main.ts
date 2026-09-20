@@ -1,4 +1,6 @@
 import { createApiClient } from "./api/client.js";
+import { holeLage } from "./auth/anmeldung.js";
+import { zeigeAnmeldung } from "./auth/view.js";
 import { resolveBackendOrigin } from "./backend-origin.js";
 import { createComposer } from "./compose.js";
 import { createEventBus } from "./events/bus.js";
@@ -14,7 +16,7 @@ import {
   hashFor,
   parseHash,
 } from "./router/router.js";
-import { loadToken } from "./settings.js";
+import { loadToken, saveToken } from "./settings.js";
 import { loadSettings, settingsBus } from "./settings/store.js";
 import { applyAppearance, settingsView } from "./settings/view.js";
 import { mountSidebar } from "./sidebar/view.js";
@@ -72,7 +74,28 @@ function main(): void {
   const isSecure = globalThis.location.protocol === "https:";
   const backend = resolveBackendOrigin(hostname, isSecure, params.get("events"));
   const bus = createEventBus({ url: backend.ws });
-  const api = createApiClient({ baseUrl: backend.http, token: () => loadToken() });
+  // Läuft eine Sitzung ab oder wird der Betreiber-Token gewechselt, antwortet jeder Aufruf mit
+  // 401. Statt jede Ansicht einzeln „nicht berechtigt" zeigen zu lassen, kommt die Maske
+  // zurück — einmal, nicht einmal je Karte.
+  let anmeldungOffen = false;
+  const api = createApiClient({
+    baseUrl: backend.http,
+    token: () => loadToken(),
+    onUnauthorized: () => {
+      if (anmeldungOffen) return;
+      anmeldungOffen = true;
+      saveToken("");
+      zeigeAnmeldung(document.body, {
+        baseUrl: backend.http,
+        grund: "Die Sitzung ist abgelaufen. Bitte noch einmal anmelden.",
+        onAngemeldet: (token) => {
+          saveToken(token);
+          anmeldungOffen = false;
+          globalThis.location.reload();
+        },
+      });
+    },
+  });
   const mic = createMicStateStore();
   const composer = createComposer(composerEl, api, bus);
 
@@ -195,4 +218,37 @@ function main(): void {
   bus.connect();
 }
 
-main();
+/**
+ * Vor der Oberfläche steht die Tür.
+ *
+ * Kein Token im Browser **und** ein Gateway, der eine Anmeldung verlangt: dann kommt zuerst die
+ * Maske und erst nach ihr die Anwendung. Verlangt der Gateway keine (die `.env` ist nicht
+ * eingerichtet), bleibt alles wie vorher — der Betreiber trägt seinen Token unter Einstellungen
+ * ein. Ein halber Zustand wäre das Schlimmste von beidem: eine Maske, die nichts schützt.
+ */
+async function start(): Promise<void> {
+  const params = new URLSearchParams(globalThis.location.search);
+  const hostname = globalThis.location.hostname || "localhost";
+  const backend = resolveBackendOrigin(
+    hostname,
+    globalThis.location.protocol === "https:",
+    params.get("events"),
+  );
+
+  if (loadToken() === null) {
+    const lage = await holeLage(backend.http);
+    if (lage.anmeldung) {
+      zeigeAnmeldung(document.body, {
+        baseUrl: backend.http,
+        onAngemeldet: (token) => {
+          saveToken(token);
+          main();
+        },
+      });
+      return;
+    }
+  }
+  main();
+}
+
+void start();

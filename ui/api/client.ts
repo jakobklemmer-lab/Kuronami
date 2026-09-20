@@ -30,6 +30,13 @@ export interface ApiClientOptions {
    * den Einstellungen geänderter Token gilt damit sofort, ohne dass der Client neu gebaut
    * werden müsste. */
   token: () => string | null;
+  /**
+   * Wird gerufen, wenn der Gateway den Ausweis ablehnt (401) — abgelaufene Sitzung, gewechselter
+   * Token. Die Oberfläche zeigt dann die Anmeldemaske, statt jede Karte einzeln „nicht
+   * berechtigt" sagen zu lassen. Der Fehler fliegt trotzdem: der Aufrufer soll ihn nicht
+   * verpassen, nur weil jemand anderes zuhört.
+   */
+  onUnauthorized?: () => void;
   fetchImpl?: typeof fetch;
 }
 
@@ -78,6 +85,7 @@ export function createApiClient(options: ApiClientOptions): ApiClient {
       );
     }
 
+    if (response.status === 401) options.onUnauthorized?.();
     if (!response.ok) throw await toApiError(response);
     return (await response.json()) as T;
   }

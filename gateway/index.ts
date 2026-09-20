@@ -7,6 +7,7 @@ import { envFilePathFromEnv, readEnvFile, writeEnvFile } from "../runtime/secret
 import { buildMemoryRoot, createMemoryStore } from "../tools/memory/store.js";
 import { createN8nBridge } from "../tools/n8n/bridge.js";
 import { KuroAgent } from "./agent.js";
+import { SITZUNG_GUELTIG_MS, anmeldungAusUmgebung } from "./anmeldung.js";
 import { createSlackChannel } from "./channels/slack/channel.js";
 import type { SlackChannelDeps } from "./channels/slack/channel.js";
 import { createSlackClient } from "./channels/slack/client.js";
@@ -189,9 +190,19 @@ async function main(): Promise<void> {
   const postfachWarm = haltePostfaecherWarm(konten, { anzahl: 30 });
 
   const port = Number(process.env.GATEWAY_PORT ?? 8788);
+  // Die Anmeldung der Oberfläche. Fehlt sie in der `.env`, bleibt es beim Betreiber-Token —
+  // dann steht die Oberfläche jedem offen, der den Token hat, und die Startmeldung sagt das.
+  const anmeldung = anmeldungAusUmgebung();
+  console.log(
+    anmeldung
+      ? `Anmeldung: Benutzer ${anmeldung.benutzer}, Sitzung ${Math.round(SITZUNG_GUELTIG_MS / 86_400_000)} Tage gültig.`
+      : "Anmeldung: keine (WEB_LOGIN_USER/WEB_LOGIN_HASH fehlen) — die Oberfläche verlangt weiter den Betreiber-Token von Hand.",
+  );
+
   const app = createServer({
     gateway,
     identity,
+    anmeldung: anmeldung ?? undefined,
     web,
     telegram,
     slack,

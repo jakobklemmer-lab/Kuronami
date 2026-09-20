@@ -17,6 +17,7 @@ import { DEFAULT_SPEND_DAYS, listDailySpend } from "../runtime/session/costs.js"
 import { getRunDetail, listRuns } from "../runtime/session/runs.js";
 import type { MemoryStore } from "../tools/memory/store.js";
 import type { N8nBridge } from "../tools/n8n/bridge.js";
+import { type Anmeldung, SITZUNG_GUELTIG_MS } from "./anmeldung.js";
 import { handleSlackEvent } from "./channels/slack/channel.js";
 import type { SlackChannelDeps } from "./channels/slack/channel.js";
 import { isUrlVerification } from "./channels/slack/normalize.js";
@@ -93,6 +94,11 @@ export interface ServerDeps {
   /** Fehlt sie, bleibt der Neustart-Knopf der Oberfläche tot (Nachtrag 2026-09-16) — dann gilt
    * eine Schlüsseländerung erst, wenn jemand die Dienste von Hand neu startet. */
   restart?: RestartDeps;
+  /**
+   * Die Anmeldung der Oberfläche (2026-09-20). Fehlt sie, bleibt es beim Betreiber-Token von
+   * Hand — `GET /auth/lage` sagt der Oberfläche, was gilt.
+   */
+  anmeldung?: Anmeldung;
   /** Der Ereignisbus des Prozesses (Streaming, 2026-09-16): die Sprach-Routen hören darauf nach
    * `model.delta` und reichen die Textstücke als SSE weiter. Fehlt er, antworten sie wie bisher
    * mit einem Block. */
@@ -184,6 +190,13 @@ function toIsoDate(value: unknown): string {
 export function createServer(deps: ServerDeps): express.Express {
   const app = express();
 
+  // Hinter Caddy (auf demselben Rechner) trägt jede Anfrage die IP des Proxys. Für die Bremse
+  // der Anmeldung wäre das eine einzige Herkunft für die ganze Welt — die Sperre nach fünf
+  // Fehlversuchen träfe dann auch Jakob, während der Ratende weitermacht. `loopback` heißt:
+  // **nur** einem Proxy von 127.0.0.1/::1 wird sein `X-Forwarded-For` geglaubt. Ein Aufrufer
+  // aus dem Netz kann die Kopfzeile damit nicht selbst setzen.
+  app.set("trust proxy", "loopback");
+
   /**
    * CORS für die Oberfläche (S22). Die Oberfläche läuft im Dev-Betrieb auf einem eigenen
    * Ursprung (`ui/dev.ts`, Port 3001) und ruft dieses Gateway auf einem anderen (8788) —
@@ -201,9 +214,13 @@ export function createServer(deps: ServerDeps): express.Express {
       res.setHeader("Access-Control-Allow-Origin", origin);
       res.setHeader("Vary", "Origin");
       res.setHeader("Access-Control-Allow-Headers", "authorization, content-type");
-      // DELETE seit den MCP-Server-Routen (Nachtrag 2026-09-16, /settings/mcp-servers/:id) —
-      // vorher genügten GET/POST für jede bestehende Route.
-      res.setHeader("Access-Control-Allow-Methods", "GET, POST, DELETE, OPTIONS");
+      // DELETE seit den MCP-Server-Routen (Nachtrag 2026-09-16, /settings/mcp-servers/:id),
+      // PATCH seit dem Analysen-Archiv (2026-09-20). **PATCH fehlte hier**: die Oberfläche
+      // läuft auf einer anderen Subdomain als der Gateway, der Preflight lehnte die Methode
+      // ab, und damit liefen „gehandelt"/„verworfen" und das Notizfeld im Browser ins Leere,
+      // während sie per curl funktionierten. Wer hier eine Methode ergänzt, ergänzt sie auch
+      // in dieser Zeile.
+      res.setHeader("Access-Control-Allow-Methods", "GET, POST, PATCH, DELETE, OPTIONS");
     }
     if (req.method === "OPTIONS") {
       res.sendStatus(204);
@@ -243,9 +260,26 @@ export function createServer(deps: ServerDeps): express.Express {
    * zurück — damit gibt es in den Handlern keinen Weg, den Rückgabewert zu ignorieren und
    * trotzdem weiterzumachen.
    */
+  /**
+   * Der Ausweis, den dieser Aufruf vorzeigt — entweder der Betreiber-Token oder ein
+   * Sitzungsticket aus der Anmeldung.
+   *
+   * Ein gültiges Ticket gilt wie der Betreiber-Token, weil dahinter derselbe eine Nutzer steht:
+   * Jakob. Es ist trotzdem nicht dasselbe Geheimnis — es läuft ab, es steht in keiner `.env`,
+   * und es wird ungültig, sobald der Betreiber-Token wechselt (er signiert es).
+   */
+  function ausweis(req: express.Request): string | null {
+    const roh = bearerToken(req.header("authorization"));
+    if (roh === null || roh.length === 0) return roh;
+    if (deps.anmeldung !== undefined && deps.anmeldung.ticketGilt(roh) !== null) {
+      return deps.identity.webToken;
+    }
+    return roh;
+  }
+
   function webPrincipal(req: express.Request, res: express.Response) {
     const auth = authenticateWeb(deps.identity, {
-      token: bearerToken(req.header("authorization")),
+      token: ausweis(req),
       displayName: typeof req.body?.displayName === "string" ? req.body.displayName : undefined,
       replyTo:
         typeof req.body?.replyTo === "string"
@@ -262,6 +296,71 @@ export function createServer(deps: ServerDeps): express.Express {
     }
     return auth.principal;
   }
+
+  /**
+   * Woran ist die Oberfläche? Ohne eingerichtete Anmeldung bleibt es beim Betreiber-Token.
+   *
+   * Diese Route ist absichtlich offen: sie verrät nichts, was ein Aufrufer nicht durch einen
+   * Anmeldeversuch herausfände, und die Oberfläche muss vor jeder Anmeldung wissen, ob sie eine
+   * Maske zeigen soll oder ein Token-Feld.
+   */
+  app.get("/auth/lage", (_req, res) => {
+    res.json({
+      anmeldung: deps.anmeldung !== undefined,
+      benutzer: deps.anmeldung?.benutzer ?? null,
+    });
+  });
+
+  /**
+   * Anmelden. **Es gibt keinen Gegenpart, der ein Konto anlegt** — dieses Haus hat einen Nutzer,
+   * und der steht in der `.env`.
+   *
+   * Die Antwort auf einen Fehlversuch nennt nie, welcher Teil falsch war: ein „Benutzer
+   * unbekannt" verrät, welche Namen es gibt.
+   */
+  app.post("/auth/anmelden", (req, res) => {
+    if (!deps.anmeldung) {
+      res.status(404).json({ error: "Dieser Gateway hat keine Anmeldung eingerichtet." });
+      return;
+    }
+    const benutzer = typeof req.body?.benutzer === "string" ? req.body.benutzer : "";
+    const passwort = typeof req.body?.passwort === "string" ? req.body.passwort : "";
+    const herkunft = req.ip ?? "unbekannt";
+
+    const wartenMs = deps.anmeldung.bremse.gesperrtFuer(herkunft);
+    if (wartenMs !== null) {
+      const sekunden = Math.ceil(wartenMs / 1000);
+      res.status(429).json({
+        error: `Zu viele Fehlversuche. Nächster Versuch in ${sekunden} Sekunden.`,
+        wartenMs,
+      });
+      return;
+    }
+    if (benutzer === "" || passwort === "") {
+      res.status(400).json({ error: "Benutzername und Passwort sind erforderlich." });
+      return;
+    }
+
+    const ticket = deps.anmeldung.melde(benutzer, passwort);
+    if (ticket === null) {
+      deps.anmeldung.bremse.merkeFehlschlag(herkunft);
+      console.log(`[auth] Fehlversuch von ${herkunft}`);
+      res.status(401).json({ error: "Benutzername oder Passwort stimmt nicht." });
+      return;
+    }
+    deps.anmeldung.bremse.merkeErfolg(herkunft);
+    console.log(`[auth] ${deps.anmeldung.benutzer} angemeldet (${herkunft})`);
+    res.json({ token: ticket, benutzer: deps.anmeldung.benutzer, gueltigMs: SITZUNG_GUELTIG_MS });
+  });
+
+  /**
+   * Abmelden. Der Server hat nichts zu vergessen — das Ticket ist signiert, nicht gespeichert —,
+   * aber die Oberfläche soll einen Knopf haben, der eine Antwort bekommt, statt ins Leere zu
+   * greifen. Wirklich weg ist das Ticket, sobald der Browser es wegwirft.
+   */
+  app.post("/auth/abmelden", (_req, res) => {
+    res.json({ ok: true });
+  });
 
   app.post("/channels/web/messages", async (req, res, next) => {
     try {
@@ -1047,10 +1146,10 @@ export function createServer(deps: ServerDeps): express.Express {
    *
    * **Bewusst neben den Web-Routen und nicht mit ihnen verschmolzen.** Die Versuchung ist da —
    * die Rümpfe gleichen sich bis auf den Kanalnamen. Dagegen steht, dass die Tests der
-   * Web-Routen seit S21 nicht mehr automatisch laufen (`vitest.config.ts`): eine Änderung dort
-   * wäre eine Änderung am Herzstück der Außengrenze ohne laufendes Netz darunter. Sechzig
-   * Zeilen Wiederholung sind der billigere Preis. Wenn die alten Tests wieder laufen, gehört
-   * das hier zusammengelegt — bis dahin steht der Grund in dieser Zeile.
+   * Web-Routen damals nicht automatisch liefen (`vitest.config.ts` vor 2026-09-20): eine
+   * Änderung dort wäre eine Änderung am Herzstück der Außengrenze ohne laufendes Netz darunter
+   * gewesen. Seit dem Ausbau des alten Motors läuft wieder alles — das Zusammenlegen ist damit
+   * möglich geworden und steht noch aus.
    */
   function voicePrincipal(req: express.Request, res: express.Response) {
     if (!deps.voice) {

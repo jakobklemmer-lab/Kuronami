@@ -369,8 +369,13 @@ function renderSystem(): string {
       <div class="field">
         <label class="field__label" for="setting-token">Verbindungs-Token (GATEWAY_WEB_TOKEN)</label>
         <input class="field__control" id="setting-token" type="password" autocomplete="off" value="${token}" placeholder="Token einfügen" />
-        <p class="field__hint">Für <code>/runs</code> und <code>/channels/web/*</code> am Gateway — in <code>localStorage</code> dieses Browserprofils, nie an Kuronami selbst gerichtet.</p>
+        <p class="field__hint">Für <code>/runs</code> und <code>/channels/web/*</code> am Gateway — in <code>localStorage</code> dieses Browserprofils, nie an Kuronami selbst gerichtet. Nach einer Anmeldung steht hier das Sitzungsticket; es läuft ab, der Betreiber-Token nicht.</p>
         <span class="field__status" data-role="token-status"></span>
+      </div>
+      <div class="field">
+        <span class="field__label">Anmeldung</span>
+        <button class="field__button" type="button" data-role="abmelden">Abmelden</button>
+        <p class="field__hint">Wirft das Sitzungsticket aus diesem Browser. Auf anderen Geräten bleibt die Anmeldung bestehen — die schließt ein Wechsel des Verbindungs-Tokens, der sie alle signiert.</p>
       </div>
       <div class="field">
         <button class="field__button" type="button" disabled>Logs öffnen</button>
@@ -585,6 +590,15 @@ export const settingsView: View = {
       );
       confirmSaved();
     });
+
+    container
+      .querySelector<HTMLButtonElement>('[data-role="abmelden"]')
+      ?.addEventListener("click", () => {
+        saveToken("");
+        // Neu laden statt die Maske hier einzublenden: nach dem Abmelden soll nichts
+        // stehenbleiben, was mit dem alten Ausweis geholt wurde.
+        globalThis.location.reload();
+      });
 
     const voiceTokenInput = container.querySelector<HTMLInputElement>('[data-role="voice-token"]');
     voiceTokenInput?.addEventListener("change", () => {
