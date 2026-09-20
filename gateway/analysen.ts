@@ -40,6 +40,14 @@ export interface AnalyseKopf {
   auftrag: string;
   /** Steht im Bericht eine handelbare Idee — Einstieg, Stop, Ziel? */
   hatIdee: boolean;
+  /**
+   * Wurde ein behauptetes Chance-Risiko-Verhältnis wirklich gerechnet (`gateway/crv.ts`)?
+   *
+   * `true` heißt: der Lauf hat das Werkzeug `crv` aufgerufen. `false` heißt: er hat eine
+   * Kennzahl genannt, ohne zu rechnen — der Bericht trägt dann den Vermerk. Fehlt das Feld,
+   * stand im Bericht gar keine Kennzahl (oder er ist älter als die Prüfung).
+   */
+  crvGerechnet?: boolean;
   /** Welche Spezialisten zugearbeitet haben. */
   zuarbeit: string[];
   status: AnalyseStatus;
@@ -62,6 +70,8 @@ export interface AnalysenArchiv {
     beitraege: AnalyseBeitrag[];
     kostenUsd: number;
     dauerMs: number;
+    /** Siehe `crvGerechnet` am Kopf: nur gesetzt, wenn der Bericht eine Kennzahl nennt. */
+    crvGerechnet?: boolean;
   }): Promise<AnalyseKopf | null>;
   liste(grenze?: number): Promise<AnalyseKopf[]>;
   lies(id: string): Promise<Analyse | null>;
@@ -163,6 +173,7 @@ export function createAnalysen(deps: AnalysenDeps): AnalysenArchiv {
         titel: titelAus(eintrag.bericht, eintrag.auftrag),
         auftrag: eintrag.auftrag,
         hatIdee: erkenneIdee(eintrag.bericht),
+        ...(eintrag.crvGerechnet === undefined ? {} : { crvGerechnet: eintrag.crvGerechnet }),
         zuarbeit: [...new Set(eintrag.beitraege.map((b) => b.wer))],
         status: "offen",
         kostenUsd: eintrag.kostenUsd,

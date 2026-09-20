@@ -1850,6 +1850,16 @@
   color: var(--fg-muted);
   opacity: 0.7;
 }
+/* Gerechnet oder geschätzt: bei einer Zahl, auf die Geld gesetzt wird, ist das der
+   Unterschied zwischen einem Befund und einer Behauptung. */
+.analysen__marke.ist-gerechnet {
+  color: #8fd6a4;
+  border-color: #8fd6a455;
+}
+.analysen__marke.ist-geschaetzt {
+  color: #e8b35c;
+  border-color: #e8b35c66;
+}
 .analysen__kopf h2 {
   margin: 0 0 4px;
   font-size: 17px;

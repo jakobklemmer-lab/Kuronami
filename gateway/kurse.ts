@@ -1,5 +1,6 @@
 import { createSdkMcpServer, tool } from "@anthropic-ai/claude-agent-sdk";
 import { z } from "zod";
+import { CrvEingabeFehler, formatiereCrv, rechneCrv } from "./crv.js";
 import {
   CHART_INTERVALS,
   CHART_RANGES,
@@ -185,15 +186,103 @@ export function createKurse(deps: KurseDeps = {}) {
     { annotations: { title: "Symbol suchen", readOnlyHint: true } },
   );
 
+  const crv = tool(
+    "crv",
+    [
+      "Chance-Risiko-Verhältnis einer Handelsidee **ausrechnen**. Dieses Werkzeug ist der",
+      "einzige zulässige Weg zu dieser Zahl — rechne sie nie selbst aus und schätze sie nie.",
+      "",
+      "Du gibst Richtung, Einstieg, Stop und ein bis drei Kursziele. Zurück kommen: Risiko je",
+      "Einheit, CRV je Ziel, der Abstand in Prozent und die Trefferquote, ab der sich der",
+      "Handel rechnet. Mit `symbol` kommt der Kursverlauf dazu: die durchschnittliche",
+      "Tagesspanne (ATR 14), wie viele davon der Stop entfernt liegt, der aktuelle Kurs und die",
+      "52-Wochen-Lage. Mit `kapital` und `risiko_prozent` zusätzlich die Positionsgröße.",
+      "",
+      "Passt eine Zahl nicht zur Richtung — Stop über dem Einstieg bei einer Long-Idee —,",
+      "bekommst du einen Fehler und keine Zahl. Das ist Absicht: eine falsche Kennzahl sieht",
+      "aus wie ein Befund.",
+    ].join("\n"),
+    {
+      richtung: z
+        .enum(["long", "short"])
+        .describe("Long = auf steigende Kurse, short = auf fallende."),
+      einstieg: z.number().positive().describe("Geplanter Einstiegskurs."),
+      stop: z
+        .number()
+        .positive()
+        .describe("Stop-Loss. Bei long unter, bei short über dem Einstieg."),
+      ziele: z
+        .array(z.number().positive())
+        .min(1)
+        .max(3)
+        .describe("Ein bis drei Kursziele, z. B. [114, 120]."),
+      symbol: z
+        .string()
+        .min(1)
+        .max(20)
+        .optional()
+        .describe("Yahoo-Symbol. Damit kommen ATR, aktueller Kurs und 52-Wochen-Lage dazu."),
+      kapital: z.number().positive().optional().describe("Eingesetztes Gesamtkapital."),
+      risiko_prozent: z
+        .number()
+        .positive()
+        .max(100)
+        .optional()
+        .describe("Wie viel Prozent des Kapitals dieser Handel riskieren darf, z. B. 1."),
+    },
+    async ({ richtung, einstieg, stop, ziele, symbol, kapital, risiko_prozent }) => {
+      let ergebnis: ReturnType<typeof rechneCrv>;
+      try {
+        ergebnis = rechneCrv({
+          richtung,
+          einstieg,
+          stop,
+          ziele,
+          kapital,
+          risikoProzent: risiko_prozent,
+        });
+      } catch (error) {
+        if (error instanceof CrvEingabeFehler) {
+          return {
+            content: [{ type: "text" as const, text: `Nicht gerechnet: ${error.message}` }],
+            isError: true,
+          };
+        }
+        throw error;
+      }
+
+      // Der Verlauf ist Beiwerk: fällt er aus, steht die Rechnung trotzdem. Ein fehlender ATR
+      // ist eine fehlende Zeile, kein fehlendes Ergebnis.
+      let chart: MarketChart | undefined;
+      let hinweis = "";
+      if (symbol !== undefined) {
+        try {
+          chart = await markets.chart(symbol, "6mo", "1d");
+        } catch (error) {
+          const grund = error instanceof Error ? error.message : String(error);
+          hinweis = `\n\n(Kursverlauf zu ${symbol} nicht abrufbar: ${grund} — die Rechnung oben steht trotzdem.)`;
+        }
+      }
+      return {
+        content: [{ type: "text" as const, text: formatiereCrv(ergebnis, { chart }) + hinweis }],
+      };
+    },
+    { annotations: { title: "Chance-Risiko-Verhältnis rechnen", readOnlyHint: true } },
+  );
+
   return createSdkMcpServer({
     name: "kurse",
-    version: "1",
+    version: "2",
     instructions:
       "Kursdaten aus erster Hand. `verlauf` gibt dir den Kursverlauf als Tabelle mit echten " +
-      "Datumsangaben, `suche` findet ein Symbol. Hol jede Zahl hier — nicht über WebFetch.",
-    tools: [verlauf, suche],
+      "Datumsangaben, `suche` findet ein Symbol, `crv` rechnet das Chance-Risiko-Verhältnis " +
+      "einer Idee aus. Hol jede Zahl hier — nicht über WebFetch, und rechne das CRV nie selbst.",
+    tools: [verlauf, suche, crv],
   });
 }
 
 /** Die Werkzeugnamen, wie sie in `allowedTools` stehen müssen. */
-export const KURSE_TOOLS = ["mcp__kurse__verlauf", "mcp__kurse__suche"];
+export const KURSE_TOOLS = ["mcp__kurse__verlauf", "mcp__kurse__suche", "mcp__kurse__crv"];
+
+/** Der Name des Rechenwerkzeugs — die Stelle, an der geprüft wird, ob wirklich gerechnet wurde. */
+export const CRV_TOOL = "mcp__kurse__crv";

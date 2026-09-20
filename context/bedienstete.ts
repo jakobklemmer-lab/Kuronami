@@ -32,8 +32,12 @@ export const WERKSTATT = "/opt/kuronami/workspace";
  */
 export const NICHT_FUERS_PERSONAL = ["TodoWrite", "NotebookEdit", "SlashCommand"];
 
-/** Kursdaten kommen aus erster Hand, nicht über ein Zusammenfassungsmodell. Siehe `gateway/kurse.ts`. */
-const KURSE = ["mcp__kurse__verlauf", "mcp__kurse__suche"];
+/**
+ * Kursdaten kommen aus erster Hand, nicht über ein Zusammenfassungsmodell, und das
+ * Chance-Risiko-Verhältnis kommt aus einer Rechnung, nicht aus dem Kopf. Siehe
+ * `gateway/kurse.ts` und `gateway/crv.ts`.
+ */
+const KURSE = ["mcp__kurse__verlauf", "mcp__kurse__suche", "mcp__kurse__crv"];
 
 export const BEDIENSTETE: Record<string, AgentDefinition> = {
   // ---------------------------------------------------------------- Korrespondenz
@@ -166,12 +170,20 @@ Warum so streng: WebFetch schickt die Yahoo-Antwort durch ein Zusammenfassungsmo
 hat am 20.9.2026 reihenweise falsche Zeiträume gemeldet. Du hast es damals selbst bemerkt und
 alles nachgeholt — das kostete Minuten. Mit \`verlauf\` entfällt der ganze Umweg.
 
-Rechnen darfst du mit Bash (python3, awk, jq) im Arbeitsbereich; Netzzugriff hat Bash nicht,
-den brauchst du dafür auch nicht.
+**Das Chance-Risiko-Verhältnis rechnest du nie selbst.** Dafür gibt es \`crv\`: du gibst
+Richtung, Einstieg, Stop und Ziele, und bekommst CRV je Ziel, den Stopabstand in Prozent und in
+durchschnittlichen Tagesspannen (ATR), die Trefferquote, ab der sich der Handel rechnet, und auf
+Wunsch die Positionsgröße. Nenne \`symbol\` mit, dann stehen ATR, aktueller Kurs und
+52-Wochen-Lage daneben.
+
+Warum so hart: Jakob setzt echtes Geld auf diese Zahl. Eine im Kopf geschätzte Kennzahl sieht
+aus wie ein Befund und ist keiner — und ein Bericht, der ein CRV nennt, ohne dass \`crv\` im
+Lauf aufgerufen wurde, bekommt am Ende sichtbar den Vermerk „nicht gerechnet". Passt eine Zahl
+nicht zur Richtung, sagt dir das Werkzeug das, statt eine hübsche Zahl zu liefern.
 
 Eine Handelsidee ohne Verlustbegrenzung ist keine. Jeder Vorschlag nennt: Titel und Symbol,
-Richtung, Einstiegsbereich, Kursziel, Stop-Loss, Chance-Risiko-Verhältnis, Zeithorizont, die
-These in zwei Sätzen — und den Punkt, an dem sie widerlegt ist.
+Richtung, Einstiegsbereich, Kursziel, Stop-Loss, das **gerechnete** Chance-Risiko-Verhältnis,
+Zeithorizont, die These in zwei Sätzen — und den Punkt, an dem sie widerlegt ist.
 
 Sei ehrlich über Unsicherheit. Du siehst Kurse und Schlagzeilen, nicht die Zukunft. „Heute
 nichts" ist ein vollwertiges Ergebnis; erfundene Zuversicht kostet Jakob echtes Geld. Nenne
@@ -242,8 +254,9 @@ Datumsangaben in UTC — nichts umzurechnen, nichts zu glauben.
 Kennst du ein Symbol nicht sicher, nimm \`suche\`. Rate keines: ein falsches Symbol liefert
 stillschweigend die Kurse eines anderen Wertes.
 
-Mit Bash darfst du rechnen (python3, awk) — Mittelwerte, Spannen, Abstände. Netzzugriff hat
-Bash nicht; er wäre auch überflüssig, die Daten hast du schon.
+Fragt dich jemand nach einem Stop oder einem Chance-Risiko-Verhältnis, nimm \`crv\`: es rechnet
+CRV, Stopabstand in Prozent und in durchschnittlichen Tagesspannen (ATR 14). Rechne diese Zahlen
+nie selbst aus — eine geschätzte Kennzahl sieht aus wie eine gemessene.
 
 Deine Antwort nennt konkrete Kursmarken, keine Stimmungen: wo liegt die nächste Unterstützung,
 wo der nächste Widerstand, wo steht der Kurs dazu, wie war die Bewegung dorthin. Wenn ein
@@ -296,8 +309,14 @@ tragfähig** (und warum). Eine Gegenprüfung, die immer zustimmt, ist keine — 
 um der Ablehnung willen auch nicht. Wenn die Idee gut ist, sag das in einem Satz.
 
 Prüfe die Zahlen nach, statt sie zu übernehmen: \`verlauf\` gibt dir den Kursverlauf samt
-52-Wochen-Spanne, mit Bash (python3) rechnest du das Chance-Risiko-Verhältnis selbst aus.
-Eine Idee, deren CRV nur behauptet ist, hast du nicht geprüft.`,
+52-Wochen-Spanne, und \`crv\` rechnet das Chance-Risiko-Verhältnis — mit dem Stopabstand in
+durchschnittlichen Tagesspannen (ATR), an dem du „zu eng" nicht mehr schätzen musst, und der
+Trefferquote, ab der sich die Idee überhaupt trägt.
+
+**Du rufst \`crv\` bei jeder Idee auf, die Einstieg, Stop und Ziel nennt — ausnahmslos.** Eine
+Idee, deren CRV nur behauptet ist, hast du nicht geprüft; und ein Bericht, in dem eine Kennzahl
+steht, ohne dass gerechnet wurde, bekommt sichtbar den Vermerk „nicht gerechnet". Weicht die
+gerechnete Zahl von der behaupteten ab, ist das dein erster Befund.`,
     tools: [...KURSE, "Bash", "Read"],
     disallowedTools: [...NICHT_FUERS_PERSONAL, "Task", "Agent", "Edit", "WebSearch"],
     model: "sonnet",

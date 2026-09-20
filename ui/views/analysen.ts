@@ -26,6 +26,8 @@ interface AnalyseKopf {
   titel: string;
   auftrag: string;
   hatIdee: boolean;
+  /** Ob ein genanntes Chance-Risiko-Verhältnis gerechnet wurde. Fehlt: keine Kennzahl im Bericht. */
+  crvGerechnet?: boolean;
   zuarbeit: string[];
   status: "offen" | "gehandelt" | "verworfen";
   kostenUsd: number;
@@ -111,6 +113,13 @@ export const analysenView: View = {
                 <p class="detail-list__body">
                   ${escapeHtml(k.wer)}${k.zuarbeit.length > 0 ? ` · ${escapeHtml(k.zuarbeit.join(", "))}` : ""}
                   ${k.hatIdee ? '<span class="analysen__marke">Idee</span>' : ""}
+                  ${
+                    k.crvGerechnet === undefined
+                      ? ""
+                      : k.crvGerechnet
+                        ? '<span class="analysen__marke ist-gerechnet" title="Das Chance-Risiko-Verhältnis wurde gerechnet, nicht geschätzt.">CRV gerechnet</span>'
+                        : '<span class="analysen__marke ist-geschaetzt" title="Der Bericht nennt ein Chance-Risiko-Verhältnis, ohne es zu rechnen.">CRV geschätzt</span>'
+                  }
                   ${k.status !== "offen" ? `<span class="analysen__marke ist-${escapeHtml(k.status)}">${escapeHtml(STATUS_LABEL[k.status])}</span>` : ""}
                 </p>
               </button>

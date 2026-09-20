@@ -60,6 +60,11 @@ describe("createSystemSampler", () => {
     expect(first.netBytesPerSecond).toBeNull();
     expect(first.ramPercent).toBeGreaterThan(0);
     expect(first.diskPercent).toBeGreaterThanOrEqual(0);
+    // Zwei Messpunkte in derselben Millisekunde ergeben keine Rate (Division durch null
+    // Sekunden, siehe `netBytesPerSecondBetween`) — das ist richtig so und war hier der
+    // Grund für einen Test, der unter Last gelegentlich rot wurde. Also echte Zeit vergehen
+    // lassen, statt die Rate ohne Zeitbasis zu erwarten.
+    await new Promise((fertig) => setTimeout(fertig, 2));
     const second = await sampler.snapshot();
     expect(second.netBytesPerSecond).not.toBeNull();
 

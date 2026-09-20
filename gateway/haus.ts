@@ -7,8 +7,9 @@ import {
   ZUSATZ_DOMAENEN,
 } from "../context/bedienstete.js";
 import { redactText } from "../runtime/redaction/redact.js";
+import { crvVermerk } from "./crv.js";
 import { FRAGE_TEAM_TOOL, createHandelstisch } from "./handelstisch.js";
-import { KURSE_TOOLS, createKurse } from "./kurse.js";
+import { CRV_TOOL, KURSE_TOOLS, createKurse } from "./kurse.js";
 import { createLesePostfach } from "./postfach-werkzeuge.js";
 import { konten } from "./postfach.js";
 import { sandkastenOptionen } from "./sandkasten.js";
@@ -67,6 +68,8 @@ export interface HausDeps {
     beitraege: Array<{ wer: string; frage: string; antwort: string }>;
     kostenUsd: number;
     dauerMs: number;
+    /** Ob eine genannte Chance-Risiko-Kennzahl gerechnet wurde (`gateway/crv.ts`). */
+    crvGerechnet?: boolean;
   }): void;
 }
 
@@ -289,6 +292,8 @@ async function fuehreAus(
   const bloecke: string[] = [];
   const beitraege: Array<{ wer: string; frage: string; antwort: string }> = [];
   let kosten = 0;
+  /** Wurde das Chance-Risiko-Verhältnis in diesem Lauf gerechnet oder nur behauptet? */
+  let crvGerechnet = false;
 
   const zusatz = ZUSATZ_DOMAENEN[wer];
 
@@ -343,6 +348,7 @@ async function fuehreAus(
     })) {
       if (nachricht.type === "assistant" && nachricht.parent_tool_use_id === null) {
         for (const block of nachricht.message.content) {
+          if (block.type === "tool_use" && block.name === CRV_TOOL) crvGerechnet = true;
           if (block.type === "text" && block.text.trim() !== "") {
             // Was jetzt kommt, ist ein Zwischenstand — der vorherige Block war es
             // rückblickend auch. Nur der letzte bleibt am Ende als Bericht stehen.
@@ -382,10 +388,18 @@ async function fuehreAus(
   // Bewusst **nicht** auf Kuros eigene Antwort an Jakob angewandt: fragt der Hausherr nach
   // etwas, das er selbst hinterlegt hat, wäre ein `[redacted]` keine Sicherheit, sondern
   // eine Schikane.
-  const bericht = redactText((bloecke[bloecke.length - 1] ?? "").trim());
-  if (bericht === "") return `${wer} hat nichts berichtet.`;
+  const bericht = crvVermerk(redactText((bloecke[bloecke.length - 1] ?? "").trim()), crvGerechnet);
+  if (bericht.trim() === "") return `${wer} hat nichts berichtet.`;
 
-  deps.onAnalyse?.({ wer, auftrag, bericht, beitraege, kostenUsd: kosten, dauerMs });
+  deps.onAnalyse?.({
+    wer,
+    auftrag,
+    bericht,
+    beitraege,
+    kostenUsd: kosten,
+    dauerMs,
+    crvGerechnet: crvGerechnet || undefined,
+  });
   return bericht;
 }
 

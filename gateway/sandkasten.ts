@@ -224,7 +224,7 @@ export function absageStattSackgasse(wer: string): CanUseTool {
       if (!lage.ok) {
         return {
           behavior: "deny",
-          message: `Bash steht dir auf diesem Rechner nicht zur Verfügung: der Sandkasten trägt nicht (${lage.grund}), und ohne Abschottung läuft hier kein Befehl — der Dienst läuft als root. Kursdaten holst du mit \`verlauf\` aus dem Werkzeug \`kurse\`, Webseiten mit WebFetch. Rechne im Kopf oder beschreibe, was du gerechnet hättest; versuche es nicht noch einmal.`,
+          message: `Bash steht dir auf diesem Rechner nicht zur Verfügung: der Sandkasten trägt nicht (${lage.grund}), und ohne Abschottung läuft hier kein Befehl — der Dienst läuft als root. Kursdaten holst du mit \`verlauf\` aus dem Werkzeug \`kurse\`, das Chance-Risiko-Verhältnis mit \`crv\` — das ist ohnehin der einzig zulässige Weg zu dieser Zahl, mit oder ohne Bash. Webseiten mit WebFetch. Andere Nebenrechnungen beschreibst du, statt sie zu behaupten; versuche es nicht noch einmal.`,
         };
       }
       if (input.dangerouslyDisableSandbox === true) {

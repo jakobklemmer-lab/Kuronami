@@ -2,7 +2,8 @@ import { createSdkMcpServer, query, tool } from "@anthropic-ai/claude-agent-sdk"
 import { z } from "zod";
 import { HANDELSTISCH, type HandelstischName, WERKSTATT } from "../context/bedienstete.js";
 import { redactText } from "../runtime/redaction/redact.js";
-import { createKurse } from "./kurse.js";
+import { crvVermerk } from "./crv.js";
+import { CRV_TOOL, createKurse } from "./kurse.js";
 import { sandkastenOptionen } from "./sandkasten.js";
 
 /**
@@ -67,6 +68,9 @@ export function createHandelstisch(deps: HandelstischDeps = {}) {
       // Zwischenstand, der sofort hinausgeht statt am Ende vorn zu kleben.
       const bloecke: string[] = [];
       let kosten = 0;
+      // Hat dieser Lauf wirklich gerechnet? Siehe `crv.ts` — eine behauptete Kennzahl ohne
+      // Rechnung bekommt ihr Etikett, statt als Befund durchzugehen.
+      let crvGerechnet = false;
 
       try {
         for await (const nachricht of query({
@@ -87,6 +91,7 @@ export function createHandelstisch(deps: HandelstischDeps = {}) {
         })) {
           if (nachricht.type === "assistant" && nachricht.parent_tool_use_id === null) {
             for (const block of nachricht.message.content) {
+              if (block.type === "tool_use" && block.name === CRV_TOOL) crvGerechnet = true;
               if (block.type === "text" && block.text.trim() !== "") {
                 const vorheriger = bloecke[bloecke.length - 1];
                 if (vorheriger !== undefined) {
@@ -111,7 +116,10 @@ export function createHandelstisch(deps: HandelstischDeps = {}) {
       }
 
       deps.onFertig?.(wen, kosten, Date.now() - start);
-      const antwort = redactText((bloecke[bloecke.length - 1] ?? "").trim());
+      const antwort = crvVermerk(
+        redactText((bloecke[bloecke.length - 1] ?? "").trim()),
+        crvGerechnet,
+      );
       if (antwort === "") {
         return { content: [{ type: "text" as const, text: `${wen} hat nichts gesagt.` }] };
       }
