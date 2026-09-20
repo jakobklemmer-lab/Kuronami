@@ -21,6 +21,7 @@ const NAV: Array<{ route: RouteId; label: string; ikon: Parameters<typeof icon>[
   { route: "mail", label: "Mail", ikon: "mail" },
   { route: "calendar", label: "Calendar", ikon: "calendar" },
   { route: "trading", label: "Markets", ikon: "trading" },
+  { route: "analysen", label: "Analysen", ikon: "analysen" },
   { route: "research", label: "Research", ikon: "research" },
   { route: "system", label: "System", ikon: "system" },
 ];

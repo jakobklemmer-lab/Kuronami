@@ -1,5 +1,4 @@
 import type { Pool } from "pg";
-import { type RiskLevel, assertRiskLevel } from "../../policy/risk.js";
 
 /**
  * Die MCP-Server-Konfiguration (Nachtrag 2026-09-16, Migration 0011): Lesen und Schreiben von
@@ -8,12 +7,37 @@ import { type RiskLevel, assertRiskLevel } from "../../policy/risk.js";
  * —, nur strukturiert statt Zeilen einer `.env`, weil ein Server mehr als einen Skalarwert
  * mitbringt (Kommando, Argumente, Umgebungsvariablen).
  *
- * **Nur stdio-Server** (S27: kein zweiter Transport). `command`/`args`/`env` entsprechen
- * `StdioMcpClientConfig` aus `tools/mcp/client.ts`; `gateway/index.ts` baut daraus beim Start
- * `McpClient`-Instanzen und reicht sie als `McpServerConfig[]` an `buildCatalog`.
+ * **Nur stdio-Server** (S27: kein zweiter Transport). `command`/`args`/`env` sind die Felder,
+ * die das Agent-SDK für einen stdio-Server braucht; `gateway/index.ts` liest sie beim Start und
+ * reicht sie als `mcpServers` in den Lauf.
  */
 
 export class McpServerConfigInputError extends Error {}
+
+/**
+ * Die vier Risikostufen. Sie standen bis 2026-09-20 in `policy/risk.ts`, mitten in der
+ * Governance-Schicht des alten Motors — die ist mit ihm gegangen. Geblieben ist die eine Stelle,
+ * die sie wirklich braucht: ein MCP-Server entsteht aus JSON und kommt damit am Compiler vorbei.
+ * Die Stufe wird hier geprüft, nicht vorausgesetzt.
+ */
+export const RISK_LEVELS = ["read", "soft_write", "hard_write", "destructive"] as const;
+
+export type RiskLevel = (typeof RISK_LEVELS)[number];
+
+/** Ein Server ohne (gültige) Risikostufe. */
+export class RiskLevelError extends Error {}
+
+/**
+ * Auf eine fehlende Stufe antwortet diese Prüfung nicht mit einer Vorgabe: eine geratene Stufe
+ * wäre schlimmer als keine, weil sie nach einer Entscheidung aussieht.
+ */
+export function assertRiskLevel(value: unknown, context: string): asserts value is RiskLevel {
+  if (typeof value !== "string" || !(RISK_LEVELS as readonly string[]).includes(value)) {
+    throw new RiskLevelError(
+      `${context}: Risikostufe "${String(value)}" ist keine der vier (${RISK_LEVELS.join(", ")}). Ohne Zuordnung wird ein Server nicht aufgenommen.`,
+    );
+  }
+}
 
 const SERVER_ID_PATTERN = /^[a-z][a-z0-9_]*$/;
 
@@ -88,7 +112,7 @@ function validate(input: McpServerInput): {
 } {
   if (!SERVER_ID_PATTERN.test(input.serverId)) {
     throw new McpServerConfigInputError(
-      `server_id "${input.serverId}" passt nicht auf ${SERVER_ID_PATTERN} — wird Teil des lokalen Toolnamens (mcp.<id>__<...>, tools/mcp/tools.ts).`,
+      `server_id "${input.serverId}" passt nicht auf ${SERVER_ID_PATTERN} — wird Teil des lokalen Toolnamens (mcp.<id>__<...>).`,
     );
   }
   const command = input.command.trim();

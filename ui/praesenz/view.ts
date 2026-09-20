@@ -56,7 +56,8 @@ const SEND_SVG = `<svg viewBox="0 0 24 24" width="18" height="18" fill="none" st
 
 function gruss(d = new Date()): string {
   const h = d.getHours();
-  const tageszeit = h < 5 ? "Good night" : h < 12 ? "Good morning" : h < 18 ? "Good afternoon" : "Good evening";
+  const tageszeit =
+    h < 5 ? "Good night" : h < 12 ? "Good morning" : h < 18 ? "Good afternoon" : "Good evening";
   return `${tageszeit}, ${NAME}.`;
 }
 
@@ -93,6 +94,14 @@ export const praesenzView: View = {
         </aside>
 
         <footer class="p-fuss">
+          <!--
+            Die Arbeitsleiste. Sie steht **über** dem Antwortpanel und lebt unabhängig vom Zug:
+            ein Auftrag an den Handelstisch läuft weiter, lange nachdem Kuro „ich melde mich"
+            gesagt hat — am 20.9.2026 im längsten Fall 594 Sekunden. Solange stand hier nichts,
+            und Jakob fragte viermal nach, was denn los sei. Jetzt steht hier, wer arbeitet
+            und woran.
+          -->
+          <section class="p-arbeit" data-role="arbeit" hidden aria-live="polite"></section>
           <section class="p-antwort" data-role="antwort" hidden aria-live="polite">
             <header class="p-antwort__kopf">
               <span class="p-antwort__frage" data-role="antwort-frage"></span>
@@ -128,12 +137,14 @@ export const praesenzView: View = {
     const antwortText = q<HTMLElement>("antwort-text");
     const antwortFrage = q<HTMLElement>("antwort-frage");
     const antwortStand = q<HTMLElement>("antwort-stand");
+    const arbeitEl = q<HTMLElement>("arbeit");
     const uhrEl = q<HTMLElement>("uhr");
     const datumEl = q<HTMLElement>("datum");
     const grussEl = q<HTMLElement>("gruss");
     const micKnopf = q<HTMLButtonElement>("mic");
     const sphaereKnopf = q<HTMLButtonElement>("sphaere-knopf");
-    if (!orbHost || !eingabe || !bubble || !antwortEl || !antwortText || !antwortFrage) return () => {};
+    if (!orbHost || !eingabe || !bubble || !antwortEl || !antwortText || !antwortFrage)
+      return () => {};
 
     const ruhig = globalThis.matchMedia?.("(prefers-reduced-motion: reduce)").matches ?? false;
     const sphaere: Sphaere = mountSphaere(orbHost, { reducedMotion: ruhig });
@@ -141,7 +152,8 @@ export const praesenzView: View = {
     // ------------------------------------------------------------------ Uhr
     const zeigeZeit = (): void => {
       const d = new Date();
-      if (uhrEl) uhrEl.textContent = d.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" });
+      if (uhrEl)
+        uhrEl.textContent = d.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" });
       if (datumEl) {
         datumEl.textContent = d.toLocaleDateString("en-GB", {
           weekday: "long",
@@ -164,7 +176,11 @@ export const praesenzView: View = {
         el.innerHTML = h;
         // Beim allerersten Laden kann der Token gerade erst gesetzt sein; dann steht hier
         // für eine Minute eine Fehlermeldung. Ein einziger zweiter Versuch räumt das weg.
-        if (erneut && /k-leer|Not connected|unavailable|Nicht abrufbar/.test(h) && !nochmal.has(role)) {
+        if (
+          erneut &&
+          /k-leer|Not connected|unavailable|Nicht abrufbar/.test(h) &&
+          !nochmal.has(role)
+        ) {
           nochmal.add(role);
           globalThis.setTimeout(() => lade(role, erneut()), 4000);
         }
@@ -187,7 +203,10 @@ export const praesenzView: View = {
       el.classList.add("ist-aktiv");
       const alt = hervorTimer.get(karte);
       if (alt) globalThis.clearTimeout(alt);
-      hervorTimer.set(karte, globalThis.setTimeout(() => el.classList.remove("ist-aktiv"), HERVOR_MS));
+      hervorTimer.set(
+        karte,
+        globalThis.setTimeout(() => el.classList.remove("ist-aktiv"), HERVOR_MS),
+      );
       // Frische Zahlen, wenn Kuro darauf zeigt.
       if (karte === "markets") lade("markets", renderMarkets(ctx.api));
       if (karte === "system") lade("system", renderSystem(ctx.api));
@@ -231,7 +250,10 @@ export const praesenzView: View = {
      * hübsch und als Text unbenutzbar: Fließtext gehört nah an die Eingabe, an eine Kante,
      * in ein begrenztes Feld. Das Motto unter der Sphäre bleibt; gesprochen wird hier.
      */
-    const zeigeAntwort = (text: string, opts: { frage?: string; rueckfrage?: boolean } = {}): void => {
+    const zeigeAntwort = (
+      text: string,
+      opts: { frage?: string; rueckfrage?: boolean } = {},
+    ): void => {
       // Ein leeres Panel ist kein Panel: sichtbar wird es erst mit einer eigenen Frage oder
       // mit Text. Ein fremder Zug, der nur leert, öffnet nichts.
       if (text || opts.frage) antwortEl.hidden = false;
@@ -250,12 +272,47 @@ export const praesenzView: View = {
     const setStand = (text: string): void => {
       if (antwortStand) antwortStand.textContent = text;
     };
+
+    /**
+     * Die Arbeitsleiste: wer arbeitet, seit wann, woran.
+     *
+     * Getrennt vom Antwortpanel, weil der Auftrag den Zug überlebt. Die Laufzeit tickt
+     * mit — „seit 4 min" beantwortet die Frage, die Jakob sonst stellt, bevor er sie stellt.
+     */
+    const arbeit = new Map<string, { seit: number; stand: string }>();
+    const zeichneArbeit = (): void => {
+      if (!arbeitEl) return;
+      if (arbeit.size === 0) {
+        arbeitEl.hidden = true;
+        arbeitEl.innerHTML = "";
+        return;
+      }
+      arbeitEl.hidden = false;
+      arbeitEl.innerHTML = [...arbeit.entries()]
+        .map(([wer, a]) => {
+          const s = Math.round((Date.now() - a.seit) / 1000);
+          const seit = s < 90 ? `${s} s` : `${Math.round(s / 60)} min`;
+          return `<div class="p-arbeit__zeile">
+              <span class="p-arbeit__punkt"></span>
+              <span class="p-arbeit__wer">${escapeHtml(wer)}</span>
+              <span class="p-arbeit__stand">${escapeHtml(a.stand)}</span>
+              <span class="p-arbeit__zeit">seit ${seit}</span>
+            </div>`;
+        })
+        .join("");
+    };
+    // Einmal pro Sekunde, damit die Laufzeit sichtbar läuft. Ohne Arbeit kostet das nichts.
+    const arbeitUhr = globalThis.setInterval(() => {
+      if (arbeit.size > 0) zeichneArbeit();
+    }, 1000);
     const WERKZEUG_STAND: Record<string, string> = {
       WebFetch: "Schlägt nach …",
       WebSearch: "Sucht …",
       Read: "Liest nach …",
       Write: "Notiert …",
       mcp__haus__beauftrage: "Gibt weiter …",
+      mcp__haus__stand: "Sieht nach, wie weit es ist …",
+      mcp__haus__abbrechen: "Zieht den Auftrag zurück …",
       mcp__buehne__zeige: "Legt eine Tafel hin …",
       mcp__versand__sende: "Verschickt …",
     };
@@ -297,7 +354,9 @@ export const praesenzView: View = {
       }, 1500);
 
       try {
-        const antwort = await ctx.api.post<MessageResponse>("/channels/web/messages", { content: text });
+        const antwort = await ctx.api.post<MessageResponse>("/channels/web/messages", {
+          content: text,
+        });
         const reply = antwort.delivered?.find((d) => d.kind === "reply")?.text;
         if (reply) zeigeAntwort(reply);
       } catch (error) {
@@ -365,15 +424,62 @@ export const praesenzView: View = {
     // beginnend, als kämen sie gerade erst. Was vor dem Öffnen dieser Ansicht geschah, geht
     // sie nichts an.
     const geoeffnetUm = Date.now() - 1500;
+
+    /**
+     * Welcher Zug gerade im Panel steht.
+     *
+     * Das ist die Grenze, die am 2026-09-20 gefehlt hat. Der Motor schickt die Textstücke
+     * aller Züge über dieselbe Leitung; ohne eine Kennung daran hängte diese Ansicht sie
+     * einfach aneinander, und nach vier gesprochenen Fragen stand hier ein einziger Absatz
+     * aus vier Antworten. Eine Antwort je Zug — der Wechsel der Kennung räumt die vorige weg.
+     */
+    let gezeigterZug: string | null = null;
+    const neuerZug = (zugId: string): void => {
+      gezeigterZug = zugId;
+      antwortEl.classList.remove("ist-frage");
+      antwortText.textContent = "";
+      // Ein fremder Zug (Sprachschicht, zweites Fenster, ein Nachtrag) bringt seine Frage
+      // nicht mit. Die alte darüber stehen zu lassen wäre eine falsche Zuordnung; den
+      // eigenen Zug hat `sende` schon beschriftet.
+      if (!inFlight) antwortFrage.textContent = "";
+    };
+
     const busAbo = ctx.bus.onMessage((message) => {
       const wann = Date.parse(message.timestamp);
       if (Number.isFinite(wann) && wann < geoeffnetUm) return;
       const data = (message.data ?? {}) as Record<string, unknown>;
 
+      if (message.type === "turn.started") {
+        const zugId = typeof data.turn_id === "string" ? data.turn_id : "";
+        if (zugId && zugId !== gezeigterZug) neuerZug(zugId);
+        if (!inFlight) {
+          antwortEl.hidden = false;
+          setStand("Denkt …");
+          sphaere.setZustand("denken");
+        }
+        return;
+      }
+
+      if (message.type === "turn.completed") {
+        const zugId = typeof data.turn_id === "string" ? data.turn_id : "";
+        // Der fertige Text statt der Summe der Stücke: er trägt die Absätze zwischen zwei
+        // Wortmeldungen und ist auch dann vollständig, wenn ein Stück unterwegs verloren ging.
+        const fertig = typeof data.text === "string" ? data.text : "";
+        if (zugId && zugId === gezeigterZug && fertig) zeigeAntwort(fertig);
+        setStand("");
+        sphaere.fertig();
+        if (!inFlight) globalThis.setTimeout(() => zustandNeu(), 900);
+        return;
+      }
+
       if (message.type === "model.delta") {
         const payload = (data.payload ?? data) as Record<string, unknown>;
         const stueck = typeof payload.text === "string" ? payload.text : "";
         if (!stueck) return;
+        // Auch ohne `turn.started` (ein Ereignis kann ausfallen, ein Fenster kann mitten im
+        // Zug aufgehen) reicht die Kennung am Stück selbst, um die Grenze zu ziehen.
+        const zugId = typeof payload.turn_id === "string" ? payload.turn_id : "";
+        if (zugId && zugId !== gezeigterZug) neuerZug(zugId);
         if (antwortEl.classList.contains("ist-frage")) {
           antwortEl.classList.remove("ist-frage");
           antwortText.textContent = "";
@@ -391,12 +497,28 @@ export const praesenzView: View = {
       if (message.type === "haus.arbeitet" && typeof data.wer === "string") {
         if (!antwortText.textContent) setStand(`${data.wer} arbeitet …`);
         arbeitende.add(data.wer);
+        arbeit.set(data.wer, { seit: Date.now(), stand: "übernimmt" });
+        zeichneArbeit();
         sphaere.setArbeitende([...arbeitende]);
         zustandNeu();
         return;
       }
+      if (message.type === "haus.fortschritt" && typeof data.wer === "string") {
+        const vorher = arbeit.get(data.wer);
+        const text = typeof data.text === "string" ? data.text : "";
+        const wobei = typeof data.wobei === "string" ? data.wobei : "";
+        arbeit.set(data.wer, {
+          seit: vorher?.seit ?? Date.now(),
+          stand: wobei ? `${wobei} — ${text}` : text,
+        });
+        zeichneArbeit();
+        if (!antwortText.textContent) setStand(`${data.wer}: ${text}`);
+        return;
+      }
       if (message.type === "haus.fertig" && typeof data.wer === "string") {
         arbeitende.delete(data.wer);
+        arbeit.delete(data.wer);
+        zeichneArbeit();
         sphaere.setArbeitende([...arbeitende]);
         zustandNeu();
         return;
@@ -411,12 +533,6 @@ export const praesenzView: View = {
         return;
       }
       if (inFlight) return;
-      // Ein Zug, den nicht dieser Tab angestoßen hat (Sprachschicht, ein zweites Fenster, ein
-      // Nachtrag): seine Worte fangen leer an. Ohne das hängt sich die neue Antwort an die
-      // alte — so stand hier einmal „…rot heute.Sehr wohl. In Wien…" in einer Zeile.
-      if (message.type === "turn.started") {
-        zeigeAntwort("", { frage: "" });
-      }
       const signal = signalFor(message);
       if (signal === "processing") sphaere.setZustand("denken");
       else if (signal === "speaking") sphaere.setZustand("sprechen");
@@ -446,11 +562,34 @@ export const praesenzView: View = {
 
     zustandNeu();
 
+    // Ein Fenster, das mitten in einem Auftrag aufgeht, soll ihn sehen. Die Ereignisse davor
+    // hat es verpasst — der Gateway weiß trotzdem, wer gerade arbeitet.
+    void ctx.api
+      .get<{ laufende: Array<{ wer: string; stand: string; begonnen: number }> }>(
+        "/integrations/haus",
+      )
+      .then(({ laufende }) => {
+        if (entladen) return;
+        for (const l of laufende) {
+          arbeit.set(l.wer, { seit: l.begonnen, stand: l.stand });
+          arbeitende.add(l.wer);
+        }
+        if (laufende.length > 0) {
+          zeichneArbeit();
+          sphaere.setArbeitende([...arbeitende]);
+          zustandNeu();
+        }
+      })
+      .catch(() => {
+        // Kein Grund, die Präsenz daran scheitern zu lassen.
+      });
+
     return () => {
       entladen = true;
       globalThis.clearInterval(uhrTimer);
       globalThis.clearInterval(kartenTimer);
       globalThis.clearInterval(outboxTimer);
+      globalThis.clearInterval(arbeitUhr);
       alleZurueck();
       micAbo();
       busAbo();

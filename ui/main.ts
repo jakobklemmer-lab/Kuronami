@@ -4,6 +4,8 @@ import { createComposer } from "./compose.js";
 import { createEventBus } from "./events/bus.js";
 import { mountMicButton } from "./mic/button.js";
 import { createMicStateStore } from "./mic/state.js";
+import { klassischModus, mountHuelle } from "./praesenz/huelle.js";
+import { praesenzView } from "./praesenz/view.js";
 import { detachView } from "./router/detach.js";
 import {
   DEFAULT_ROUTE,
@@ -15,10 +17,9 @@ import {
 import { loadToken } from "./settings.js";
 import { loadSettings, settingsBus } from "./settings/store.js";
 import { applyAppearance, settingsView } from "./settings/view.js";
-import { klassischModus, mountHuelle } from "./praesenz/huelle.js";
-import { praesenzView } from "./praesenz/view.js";
 import { mountSidebar } from "./sidebar/view.js";
 import { createToast } from "./toast.js";
+import { analysenView } from "./views/analysen.js";
 import { calendarView } from "./views/calendar.js";
 import { filesView } from "./views/files.js";
 import { homeView } from "./views/home.js";
@@ -41,6 +42,7 @@ const VIEWS: Record<RouteId, View> = {
   mail: mailView,
   calendar: calendarView,
   trading: tradingView,
+  analysen: analysenView,
   research: researchView,
   files: filesView,
   system: systemView,

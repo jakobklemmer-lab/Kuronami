@@ -156,7 +156,9 @@ export function createComposer(
       // Der Text, während er entsteht (Streaming, 2026-09-16) — Wort für Wort, wie beim
       // Sprechen. Beim Eintreffen der fertigen Zustellung wird die Zeile durch die Antwort
       // ersetzt; ein neuer Modellaufruf im selben Zug hängt einfach an.
-      const payload = (message.data?.payload ?? {}) as Record<string, unknown>;
+      // Der Motor schickt die Stücke flach (`data.text`), das alte Protokoll verpackt sie in
+      // `data.payload`. Beide Formen lesen, sonst bleibt die Zeile hier stumm.
+      const payload = (message.data?.payload ?? message.data ?? {}) as Record<string, unknown>;
       const delta = typeof payload.text === "string" ? payload.text : "";
       if (live && delta.length > 0) {
         live.hidden = false;

@@ -59,7 +59,7 @@ class GatewayError(RuntimeError):
 
 
 class GatewayClient(Protocol):
-    """Was die Brücke vom Backend braucht. Zwei Verben — mehr kennt ein Sprachzug nicht."""
+    """Was die Brücke vom Backend braucht. Zwei Verben für einen Zug — und das Postfach."""
 
     async def turn(self, text: str, external_id: str) -> GatewayTurn: ...
 
@@ -234,6 +234,43 @@ class HttpGatewayClient:
             {"askId": ask_id, "choiceId": choice_id, "externalId": external_id},
             on_delta,
         )
+
+    async def outbox(self) -> tuple[str, ...]:
+        """Was zugestellt wurde, ohne dass jemand danach gefragt hat.
+
+        Das ist der Weg für einen **nachgereichten Bericht**: Kuro sagt „ich lasse das
+        ansehen", der Bedienstete braucht zwei Minuten, und danach trägt Kuro von sich aus vor
+        (`agent.ts`, `#trageNach`). Dieser Vortrag ist ein eigener Zug, der zu keinem Aufruf
+        von hier gehört — seine Antwort lag deshalb im Postfach und wurde **nie gesprochen**.
+        Am 2026-09-20 war das der halbe Postfachbericht: in der Oberfläche stand er, zu hören
+        war er nicht.
+
+        Ein leeres Postfach ist der Normalfall und kein Fehler; ein nicht erreichbares Gateway
+        hier ebenso wenig — der nächste Aufruf in ein paar Sekunden sagt dasselbe.
+        """
+        session = await self._ensure_session()
+        url = f"{self._base_url}/channels/voice/outbox"
+        try:
+            async with session.get(
+                url,
+                params={"replyTo": self._reply_to},
+                headers={"authorization": f"Bearer {self._token}"},
+            ) as response:
+                if response.status >= 400:
+                    return ()
+                payload = await response.json(content_type=None)
+        except aiohttp.ClientError:
+            return ()
+        if not isinstance(payload, dict):
+            return ()
+        texte: list[str] = []
+        for delivery in payload.get("deliveries") or []:
+            message = delivery.get("message") if isinstance(delivery, dict) else None
+            if not isinstance(message, dict):
+                continue
+            if message.get("kind") == "reply" and isinstance(message.get("text"), str):
+                texte.append(message["text"])
+        return tuple(texte)
 
     async def close(self) -> None:
         if self._session is not None and self._owns_session and not self._session.closed:

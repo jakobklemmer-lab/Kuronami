@@ -72,8 +72,7 @@ export async function freigabe(app: GoogleAnwendung, erneuerung: string): Promis
   });
   if (!antwort.ok) {
     throw new Error(
-      `Google verweigert den Zugang (HTTP ${antwort.status}). Vermutlich wurde die Freigabe ` +
-        `entzogen — dann hilft nur, das Konto unter /postfach/verbinden neu zu verbinden.`,
+      `Google verweigert den Zugang (HTTP ${antwort.status}). Vermutlich wurde die Freigabe entzogen — dann hilft nur, das Konto unter /postfach/verbinden neu zu verbinden.`,
     );
   }
   const daten = (await antwort.json()) as { access_token?: string };
@@ -142,8 +141,7 @@ async function anmeldung(
     const app = googleAnwendung();
     if (!app) {
       throw new Error(
-        `Für ${konto.name} liegt ein Google-Zugang vor, aber GOOGLE_CLIENT_ID und ` +
-          `GOOGLE_CLIENT_SECRET fehlen in der Umgebung.`,
+        `Für ${konto.name} liegt ein Google-Zugang vor, aber GOOGLE_CLIENT_ID und GOOGLE_CLIENT_SECRET fehlen in der Umgebung.`,
       );
     }
     return { user: konto.user, accessToken: await freigabe(app, konto.erneuerung) };
@@ -180,47 +178,56 @@ export async function liste(
   opts: { konto?: string; anzahl?: number; nurUngelesen?: boolean } = {},
 ): Promise<Kopf[]> {
   const anzahl = Math.min(Math.max(opts.anzahl ?? 15, 1), 50);
-  const ergebnis: Kopf[] = [];
 
-  for (const konto of kontoFinden(alle, opts.konto)) {
-    const koepfe = await mitVerbindung(konto, async (client) => {
-      const schloss = await client.getMailboxLock("INBOX");
-      try {
-        const box = client.mailbox;
-        const gesamt = typeof box === "object" && box ? box.exists : 0;
-        if (!gesamt) return [];
+  // **Parallel, nicht nacheinander.** Jedes Konto kostet eine Google-Freigabe, einen
+  // TLS-Aufbau, eine Anmeldung und eine Fetch-Runde — hintereinander summiert sich das über
+  // drei Postfächer auf 4,5 s, nebeneinander bleibt es bei 1,8 s (gemessen 2026-09-20). Die
+  // Verbindungen gehen an drei verschiedene Server und stehen sich nicht im Weg; was danach
+  // kommt (Sortieren, Kappen) braucht die Reihenfolge ohnehin nicht.
+  const jeKonto = await Promise.all(
+    kontoFinden(alle, opts.konto).map((konto) =>
+      mitVerbindung(konto, async (client) => {
+        const schloss = await client.getMailboxLock("INBOX");
+        try {
+          const box = client.mailbox;
+          const gesamt = typeof box === "object" && box ? box.exists : 0;
+          if (!gesamt) return [];
 
-        const von = Math.max(1, gesamt - anzahl * 3 + 1);
-        const gesammelt: Kopf[] = [];
-        for await (const nachricht of client.fetch(`${von}:*`, {
-          envelope: true,
-          flags: true,
-          bodyStructure: false,
-          source: false,
-        })) {
-          const ungelesen = !nachricht.flags?.has("\\Seen");
-          if (opts.nurUngelesen && !ungelesen) continue;
-          const umschlag = nachricht.envelope;
-          gesammelt.push({
-            konto: konto.name,
-            uid: nachricht.uid,
-            von: umschlag?.from?.map((a) => a.name || a.address || "").join(", ") || "(unbekannt)",
-            betreff: umschlag?.subject || "(kein Betreff)",
-            am: umschlag?.date ? new Date(umschlag.date).toISOString() : "",
-            ungelesen,
-            anriss: "",
-          });
+          const von = Math.max(1, gesamt - anzahl * 3 + 1);
+          const gesammelt: Kopf[] = [];
+          for await (const nachricht of client.fetch(`${von}:*`, {
+            envelope: true,
+            flags: true,
+            bodyStructure: false,
+            source: false,
+          })) {
+            const ungelesen = !nachricht.flags?.has("\\Seen");
+            if (opts.nurUngelesen && !ungelesen) continue;
+            const umschlag = nachricht.envelope;
+            gesammelt.push({
+              konto: konto.name,
+              uid: nachricht.uid,
+              von:
+                umschlag?.from?.map((a) => a.name || a.address || "").join(", ") || "(unbekannt)",
+              betreff: umschlag?.subject || "(kein Betreff)",
+              am: umschlag?.date ? new Date(umschlag.date).toISOString() : "",
+              ungelesen,
+              anriss: "",
+            });
+          }
+          return gesammelt.reverse().slice(0, anzahl);
+        } finally {
+          schloss.release();
         }
-        return gesammelt.reverse().slice(0, anzahl);
-      } finally {
-        schloss.release();
-      }
-    });
-    ergebnis.push(...koepfe);
-  }
+      }),
+    ),
+  );
 
   // Über alle Konten hinweg nach Zeit sortieren: Jakob hat ein Postfach im Kopf, nicht fünf.
-  return ergebnis.sort((a, b) => b.am.localeCompare(a.am)).slice(0, anzahl);
+  return jeKonto
+    .flat()
+    .sort((a, b) => b.am.localeCompare(a.am))
+    .slice(0, anzahl);
 }
 
 /** Eine Nachricht im Volltext. */
@@ -324,45 +331,133 @@ export async function sende(
 // ---------------------------------------------------------------------------
 
 /**
- * Ein kurzer Zwischenspeicher für Übersichten.
+ * Der Zwischenspeicher für Übersichten — und warum er niemanden warten lässt.
  *
- * Ohne ihn baut jeder Seitenaufruf drei IMAP-Verbindungen neu auf — Anmeldung, Postfach
- * öffnen, Kopfzeilen holen, abmelden, und das dreimal. Das dauerte spürbar lange, und zwar
- * bei **jedem** Öffnen, jedem Neuladen und sogar jedem Wechsel zwischen den Ansichten, weil
- * die Oberfläche beim Einhängen einer Ansicht neu lädt.
+ * Ohne ihn baut jeder Seitenaufruf für jedes Konto eine IMAP-Verbindung neu auf: Google-
+ * Freigabe holen, TLS, Anmelden, Kopfzeilen holen, Abmelden. Das dauert auch parallel noch
+ * rund zwei Sekunden, und zwar bei **jedem** Öffnen und jedem Neuladen.
  *
- * Eine Minute ist bewusst kurz: Post, die vor 40 Sekunden ankam, darf man verpassen; eine
- * Liste, die fünf Minuten alt ist, wäre eine Lüge. Der erste Abruf nach einem Neustart kostet
- * weiterhin seine Sekunden — danach ist die Ansicht sofort da.
+ * Die erste Fassung (2026-09-18) legte das Ergebnis eine Minute lang ab. Das half beim
+ * Klicken und half nicht beim Arbeiten: wer die Seite zwei Minuten später neu lädt — der
+ * Normalfall —, traf immer auf einen kalten Speicher und sah wieder „Lädt …". Jakob am
+ * 2026-09-20: „Ich will, wenn ich die Browser-Seite neu lade, direkt meine Mails sehen."
+ *
+ * Deshalb jetzt **veraltet ausliefern und im Hintergrund erneuern**: Wer fragt, bekommt den
+ * letzten bekannten Stand sofort; ist er älter als `FRISCH_MS`, läuft nebenher ein neuer
+ * Abruf, dessen Ergebnis die nächste Frage bedient. Gewartet wird nur ein einziges Mal —
+ * wenn überhaupt noch nichts bekannt ist.
+ *
+ * Damit dieses eine Mal auch selten ist, hält `haltePostfaecherWarm` den Speicher warm,
+ * solange jemand hinsieht. **Solange jemand hinsieht** ist dabei der Punkt: ein Dauerlauf
+ * über Nacht wären 1.400 IMAP-Runden gegen Postfächer, in die niemand schaut.
  */
-const UEBERSICHT_TTL_MS = Number(process.env.POSTFACH_CACHE_MS ?? 60_000);
+const FRISCH_MS = Number(process.env.POSTFACH_CACHE_MS ?? 60_000);
+/**
+ * Wie alt ein Stand höchstens werden darf, bevor doch wieder gewartet wird.
+ *
+ * Veraltet ausliefern heißt sonst: geht IMAP kaputt, sieht Jakob stundenlang dieselbe Liste
+ * und merkt nichts. Jenseits dieser Grenze wird wieder auf den Abruf gewartet — und wenn der
+ * scheitert, sieht er den Fehler, wie überall sonst (AGENTS.md: nie glätten).
+ */
+const HOECHSTALTER_MS = Number(process.env.POSTFACH_MAX_ALTER_MS ?? 15 * 60_000);
+/** So lange nach der letzten Frage wird noch von selbst nachgesehen. */
+const WARMHALTEN_MS = Number(process.env.POSTFACH_WARM_MS ?? 10 * 60_000);
 
 interface Eintrag {
+  /** Wann der abgelegte Stand entstand. */
   zeit: number;
-  wert: Promise<Kopf[]>;
+  /** Der letzte bekannte Stand. `null`, solange noch nie einer ankam. */
+  wert: Kopf[] | null;
+  /** Ein Abruf, der gerade läuft — damit zwei Ansichten sich einen teilen. */
+  laeuft: Promise<Kopf[]> | null;
 }
 
+type Übersicht = { konto?: string; anzahl?: number; nurUngelesen?: boolean };
+
 const zwischenspeicher = new Map<string, Eintrag>();
+/** Wann zuletzt jemand nach einer Übersicht gefragt hat. */
+let letzteFrage = 0;
 
-/** Wie `liste`, aber mit Zwischenspeicher. Gleiche Anfrage innerhalb der Frist = gleiche Antwort. */
-export function listeGepuffert(
-  alle: Konto[],
-  opts: { konto?: string; anzahl?: number; nurUngelesen?: boolean } = {},
-): Promise<Kopf[]> {
-  const schluessel = JSON.stringify([opts.konto ?? "*", opts.anzahl ?? 15, opts.nurUngelesen ?? false]);
-  const vorhanden = zwischenspeicher.get(schluessel);
-  if (vorhanden && Date.now() - vorhanden.zeit < UEBERSICHT_TTL_MS) return vorhanden.wert;
+function schluesselFuer(opts: Übersicht): string {
+  return JSON.stringify([opts.konto ?? "*", opts.anzahl ?? 15, opts.nurUngelesen ?? false]);
+}
 
-  // Das **Versprechen** wird abgelegt, nicht erst das Ergebnis: rufen zwei Ansichten
-  // gleichzeitig ab (Startseite und Mail-Seite beim Umschalten), teilen sie sich denselben
-  // Abruf, statt zwei parallele IMAP-Runden auszulösen.
-  const wert = liste(alle, opts).catch((fehler) => {
-    // Ein Fehlschlag darf sich nicht für eine Minute einbrennen.
-    zwischenspeicher.delete(schluessel);
-    throw fehler;
-  });
-  zwischenspeicher.set(schluessel, { zeit: Date.now(), wert });
-  return wert;
+/** Startet einen Abruf, wenn nicht schon einer läuft, und gibt ihn zurück. */
+function abrufen(alle: Konto[], opts: Übersicht, eintrag: Eintrag): Promise<Kopf[]> {
+  if (eintrag.laeuft) return eintrag.laeuft;
+  const lauf = liste(alle, opts)
+    .then((koepfe) => {
+      eintrag.wert = koepfe;
+      eintrag.zeit = Date.now();
+      return koepfe;
+    })
+    .finally(() => {
+      eintrag.laeuft = null;
+    });
+  eintrag.laeuft = lauf;
+  return lauf;
+}
+
+/**
+ * Wie `liste`, aber aus dem Zwischenspeicher — und ohne Wartezeit, sobald einmal etwas da ist.
+ */
+export function listeGepuffert(alle: Konto[], opts: Übersicht = {}): Promise<Kopf[]> {
+  letzteFrage = Date.now();
+  const schluessel = schluesselFuer(opts);
+  let eintrag = zwischenspeicher.get(schluessel);
+  if (!eintrag) {
+    eintrag = { zeit: 0, wert: null, laeuft: null };
+    zwischenspeicher.set(schluessel, eintrag);
+  }
+
+  // Noch nie etwas gesehen: dann bleibt nur warten. Ein erfundener leerer Posteingang wäre
+  // schlimmer als zwei Sekunden Geduld — er sähe aus wie „keine Post".
+  if (eintrag.wert === null) return abrufen(alle, opts, eintrag);
+
+  const alter = Date.now() - eintrag.zeit;
+  // So alt, dass niemand mehr dafür geradestehen möchte: dann doch warten — und einen
+  // Fehlschlag auch als Fehlschlag zeigen.
+  if (alter >= HOECHSTALTER_MS) return abrufen(alle, opts, eintrag);
+
+  // Etwas ist bekannt. Ist es alt, wird nebenher erneuert; ausgeliefert wird trotzdem sofort.
+  if (alter >= FRISCH_MS) void abrufen(alle, opts, eintrag).catch(() => undefined);
+  return Promise.resolve(eintrag.wert);
+}
+
+/**
+ * Hält die Übersicht warm, solange jemand hinsieht.
+ *
+ * Der erste Abruf läuft sofort — damit der erste Blick nach einem Neustart des Gateways schon
+ * auf etwas Fertiges trifft. Danach nur noch, wenn innerhalb von `WARMHALTEN_MS` überhaupt
+ * jemand gefragt hat.
+ */
+export function haltePostfaecherWarm(
+  alle: () => Konto[],
+  opts: Übersicht = { anzahl: 30 },
+): { stop(): void } {
+  const einmal = (): void => {
+    const konten = alle();
+    if (konten.length === 0) return;
+    const eintrag = zwischenspeicher.get(schluesselFuer(opts));
+    // Nichts abrufen, in das niemand hineinsieht — außer beim allerersten Mal.
+    if (eintrag && Date.now() - letzteFrage > WARMHALTEN_MS) return;
+    void abrufen(konten, opts, eintrag ?? setzeLeer(schluesselFuer(opts))).catch((fehler) =>
+      console.warn(
+        "[postfach] Warmhalten misslungen:",
+        fehler instanceof Error ? fehler.message : fehler,
+      ),
+    );
+  };
+  einmal();
+  const timer = setInterval(einmal, FRISCH_MS);
+  timer.unref?.();
+  return { stop: () => clearInterval(timer) };
+}
+
+function setzeLeer(schluessel: string): Eintrag {
+  const eintrag: Eintrag = { zeit: 0, wert: null, laeuft: null };
+  zwischenspeicher.set(schluessel, eintrag);
+  return eintrag;
 }
 
 /** Den Zwischenspeicher leeren — nach dem Versand, oder wenn der Nutzer ausdrücklich neu lädt. */

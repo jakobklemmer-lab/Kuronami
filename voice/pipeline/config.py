@@ -200,7 +200,12 @@ def config_from_env(env: Mapping[str, str] | None = None) -> VoiceConfig:
         vad_kind=vad_kind,
         vad_confidence=_decimal(source, "VOICE_VAD_CONFIDENCE", 0.7),
         vad_start_secs=_decimal(source, "VOICE_VAD_START_SECS", 0.2),
-        vad_stop_secs=_decimal(source, "VOICE_VAD_STOP_SECS", 0.2),
+        # 0,2 s galten bis 2026-09-20 und waren zu kurz für einen deutschen Satz: wer mitten
+        # im Befehl Luft holt, beendete damit seine Äußerung, und die Fortsetzung kam als
+        # zweiter Befehl an ("…sieh mal im Postfach" / "…nach"). Im Protokoll dieses Tages
+        # liegen 254 ms zwischen zwei Hälften derselben Bitte. 0,8 s ist auch Pipecats eigene
+        # Vorgabe; die Verzögerung kostet weniger als eine halbe Frage.
+        vad_stop_secs=_decimal(source, "VOICE_VAD_STOP_SECS", 0.8),
         vad_min_volume=_decimal(source, "VOICE_VAD_MIN_VOLUME", 0.6),
         vad_energy_threshold=_decimal(source, "VOICE_VAD_ENERGY_THRESHOLD", 0.02),
         latency_budget_ms=_number(source, "VOICE_LATENCY_BUDGET_MS", DEFAULT_LATENCY_BUDGET_MS),

@@ -35,10 +35,13 @@ body[data-modus="neu"] {
   position: fixed;
   inset: 0;
   z-index: 0;
-  background:
-    linear-gradient(180deg, rgba(6, 10, 14, 0.22) 0%, rgba(6, 10, 14, 0.04) 40%, rgba(6, 10, 14, 0.58) 100%),
-    var(--p-bild, radial-gradient(90vmax 70vmax at 60% 30%, #1a2b36, #0a1116 70%)) center / cover no-repeat,
-    var(--p-grund);
+  background: linear-gradient(
+      180deg,
+      rgba(6, 10, 14, 0.22) 0%,
+      rgba(6, 10, 14, 0.04) 40%,
+      rgba(6, 10, 14, 0.58) 100%
+    ), var(--p-bild, radial-gradient(90vmax 70vmax at 60% 30%, #1a2b36, #0a1116 70%)) center / cover
+    no-repeat, var(--p-grund);
 }
 
 /* Die alte Hülle tritt zurück; der Auslass liegt neben der Leiste. */
@@ -87,10 +90,13 @@ body[data-modus="neu"] #view-outlet {
      `.praesenz` zu einem eigenen Stapelkontext, und ein `mix-blend-mode` auf dem Orb-Video
      sieht nur, was in diesem Kontext liegt. Ohne diesen Hintergrund blendete das Video mit
      Nichts — und sein Schwarz blieb eine schwarze Scheibe vor dem See. */
-  background:
-    linear-gradient(180deg, rgba(6, 10, 14, 0.22) 0%, rgba(6, 10, 14, 0.04) 40%, rgba(6, 10, 14, 0.58) 100%),
-    var(--p-bild, radial-gradient(90vmax 70vmax at 60% 30%, #1a2b36, #0a1116 70%)) center / cover no-repeat,
-    var(--p-grund);
+  background: linear-gradient(
+      180deg,
+      rgba(6, 10, 14, 0.22) 0%,
+      rgba(6, 10, 14, 0.04) 40%,
+      rgba(6, 10, 14, 0.58) 100%
+    ), var(--p-bild, radial-gradient(90vmax 70vmax at 60% 30%, #1a2b36, #0a1116 70%)) center / cover
+    no-repeat, var(--p-grund);
   background-attachment: fixed, fixed, scroll;
 }
 
@@ -201,8 +207,7 @@ body[data-modus="neu"] #view-outlet {
   height: 26px;
   border-radius: 50%;
   border: 1px solid var(--p-glas-rand);
-  background:
-    radial-gradient(circle at 50% 50%, var(--p-akzent) 0 3px, transparent 4px),
+  background: radial-gradient(circle at 50% 50%, var(--p-akzent) 0 3px, transparent 4px),
     rgba(255, 255, 255, 0.03);
   flex: none;
 }
@@ -324,9 +329,7 @@ body[data-modus="neu"] #view-outlet {
      Grau im Videoschwarz hebt so nichts an — bei `screen` lag ein milchiger Schleier im Kreis. */
   mix-blend-mode: lighten;
   transform: scale(var(--orb-scale)) rotate(var(--orb-kipp));
-  filter:
-    brightness(var(--orb-hell))
-    saturate(1.15)
+  filter: brightness(var(--orb-hell)) saturate(1.15)
     drop-shadow(0 0 calc(var(--orb-glow) * 1px) rgba(127, 184, 255, 0.28));
   will-change: transform, filter;
 }
@@ -350,6 +353,76 @@ body[data-modus="neu"] #view-outlet {
   margin: 6px 0 0;
   font-size: 13px;
   color: var(--p-leise);
+}
+
+/* ---- Die Arbeitsleiste: wer gerade im Haus arbeitet ------------------------ */
+
+/*
+  Sie sitzt über der Antwort und ist absichtlich schmaler und leiser: sie ist kein Gespräch,
+  sondern eine Auskunft. Sichtbar ist sie nur, solange jemand arbeitet — und dann auch dann,
+  wenn Kuros Zug längst zu Ende ist. Genau das fehlte: ein Auftrag an den Handelstisch lief
+  am 20.9.2026 knapp zehn Minuten weiter, während die Oberfläche nichts davon zeigte.
+*/
+.p-arbeit {
+  width: min(700px, 100%);
+  text-align: left;
+  background: color-mix(in srgb, var(--p-glas) 70%, transparent);
+  border: 1px solid var(--p-glas-rand);
+  border-radius: 14px;
+  backdrop-filter: blur(14px);
+  padding: 8px 14px;
+  margin-bottom: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.p-arbeit[hidden] {
+  display: none;
+}
+.p-arbeit__zeile {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  font-size: 12.5px;
+  color: var(--p-leise);
+}
+.p-arbeit__punkt {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--p-bernstein, #e0a75e);
+  flex: 0 0 auto;
+  animation: p-arbeit-puls 1.8s ease-in-out infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  .p-arbeit__punkt {
+    animation: none;
+  }
+}
+@keyframes p-arbeit-puls {
+  0%,
+  100% {
+    opacity: 0.35;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+.p-arbeit__wer {
+  color: var(--p-text);
+  letter-spacing: 0.04em;
+  flex: 0 0 auto;
+}
+.p-arbeit__stand {
+  flex: 1 1 auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.p-arbeit__zeit {
+  flex: 0 0 auto;
+  color: var(--p-still, var(--p-leise));
+  font-variant-numeric: tabular-nums;
 }
 
 /* ---- Die Antwort: über der Bubble, linksbündig, bleibt stehen -------------- */
@@ -446,7 +519,8 @@ body[data-modus="neu"] #view-outlet {
   backdrop-filter: blur(18px);
   /* Ruhelage: die Karten liegen im Halbdunkel. Erst wenn Kuro auf eine zeigt, tritt sie vor. */
   opacity: 0.62;
-  transition: opacity var(--p-dauer) var(--p-kurve), border-color var(--p-dauer), transform var(--p-dauer) var(--p-kurve);
+  transition: opacity var(--p-dauer) var(--p-kurve), border-color var(--p-dauer), transform
+    var(--p-dauer) var(--p-kurve);
 }
 .karte:hover,
 .karte:focus-within {
@@ -542,8 +616,12 @@ body[data-modus="neu"] #view-outlet {
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
 }
-.k-zahl.ist-rauf { color: var(--p-rauf); }
-.k-zahl.ist-runter { color: var(--p-runter); }
+.k-zahl.ist-rauf {
+  color: var(--p-rauf);
+}
+.k-zahl.ist-runter {
+  color: var(--p-runter);
+}
 
 .k-system {
   display: grid;

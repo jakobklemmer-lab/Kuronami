@@ -1,14 +1,13 @@
 import { randomUUID } from "node:crypto";
 import express from "express";
-import { postfachVerbindenRouten } from "./postfach-verbinden.js";
 import { BEDIENSTETE, HANDELSTISCH } from "../context/bedienstete.js";
-import { konten, lies, listeGepuffert } from "./postfach.js";
-import { RiskLevelError } from "../policy/risk.js";
 import { originAllowed } from "../runtime/events/bus.js";
+import type { RuntimeEventBus } from "../runtime/events/bus.js";
 import { readEvents } from "../runtime/events/log.js";
 import {
   McpServerConfigInputError,
   type McpServerRecord,
+  RiskLevelError,
   deleteMcpServer,
   listMcpServers,
   upsertMcpServer,
@@ -23,7 +22,6 @@ import type { SlackChannelDeps } from "./channels/slack/channel.js";
 import { isUrlVerification } from "./channels/slack/normalize.js";
 import { handleUpdate } from "./channels/telegram/channel.js";
 import type { TelegramChannelDeps } from "./channels/telegram/channel.js";
-import type { RuntimeEventBus } from "../runtime/events/bus.js";
 import type { VoiceChannel } from "./channels/voice/channel.js";
 import type { WebChannel } from "./channels/web.js";
 import { type GatewayDeps, openAskRoutes, receiveDecision, receiveMessage } from "./core.js";
@@ -51,6 +49,8 @@ import {
   isValidSymbol,
 } from "./integrations/markets.js";
 import { type SystemSampler, formatBytesPerSecond } from "./integrations/system.js";
+import { postfachVerbindenRouten } from "./postfach-verbinden.js";
+import { konten, lies, listeGepuffert } from "./postfach.js";
 import { deriveAskRoutes } from "./routing.js";
 import type { InboundAttachment } from "./types.js";
 
@@ -80,9 +80,8 @@ export interface ServerDeps {
   /** Fehlt sie, gibt es keine Schlüsselverwaltung (S32-Nachtrag) — `.env` bleibt dann nur von
    * Hand editierbar. */
   secrets?: SettingsSecretsDeps;
-  /** Fehlt sie, liest `/integrations/mail` nichts (S16-Nachtrag, 2026-09-16) — dieselbe
-   * n8n-Brücke wie `tools/mail/tools.ts`, hier ohne die Tool-/Policy-/Artefakt-Schicht, für
-   * das Dashboard-Widget der Oberfläche. */
+  /** Die n8n-Brücke, heute nur noch für den Kalender (`/integrations/calendar`). Die Post
+   * läuft seit 2026-09-18 direkt über IMAP (`gateway/postfach.ts`). */
   n8nBridge?: N8nBridge;
   /** Das Langzeitgedächtnis — Quelle für `/integrations/notes` (Nachtrag 2026-09-16: die
    * Startseite zeigt echte Notizen statt eines Mock-Zitats). Fehlt es, antwortet die Route leer. */
@@ -973,6 +972,76 @@ export function createServer(deps: ServerDeps): express.Express {
   });
 
   /**
+   * Das Analysen-Archiv.
+   *
+   * Eine Handelsidee wird einmal vorgetragen und ist dann weg — bei Sprachbedienung restlos.
+   * Vor einem Einstieg mit echtem Geld will man sie aber noch einmal in Ruhe lesen, samt dem,
+   * was die Gegenprüfung eingewandt hat. Geschrieben wird hier nichts: der Ablageort ist
+   * `analysen.ts`, gefüllt wird er, wenn ein Bericht fertig ist.
+   */
+  app.get("/integrations/analysen", async (req, res, next) => {
+    try {
+      const principal = webPrincipal(req, res);
+      if (!principal) return;
+      const grenzeRoh = Number(req.query.grenze);
+      const grenze = Number.isFinite(grenzeRoh) ? Math.min(Math.max(grenzeRoh, 1), 200) : 50;
+      res.json({ analysen: await deps.gateway.agent.analysen.liste(grenze) });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.get("/integrations/analysen/:id", async (req, res, next) => {
+    try {
+      const principal = webPrincipal(req, res);
+      if (!principal) return;
+      const analyse = await deps.gateway.agent.analysen.lies(req.params.id);
+      if (!analyse) {
+        res.status(404).json({ error: "Diese Analyse gibt es nicht." });
+        return;
+      }
+      res.json(analyse);
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.patch("/integrations/analysen/:id", async (req, res, next) => {
+    try {
+      const principal = webPrincipal(req, res);
+      if (!principal) return;
+      const status = req.body?.status;
+      const notiz = req.body?.notiz;
+      if (status !== undefined && !["offen", "gehandelt", "verworfen"].includes(status)) {
+        res.status(400).json({ error: `Unbekannter Status "${status}".` });
+        return;
+      }
+      if (notiz !== undefined && typeof notiz !== "string") {
+        res.status(400).json({ error: "notiz muss Text sein." });
+        return;
+      }
+      const analyse = await deps.gateway.agent.analysen.aendere(req.params.id, {
+        ...(status ? { status } : {}),
+        ...(notiz !== undefined ? { notiz: notiz.slice(0, 4000) } : {}),
+      });
+      if (!analyse) {
+        res.status(404).json({ error: "Diese Analyse gibt es nicht." });
+        return;
+      }
+      res.json(analyse);
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  /** Was die Bediensteten gerade tun — die Oberfläche fragt danach, wenn sie neu aufgeht. */
+  app.get("/integrations/haus", (req, res) => {
+    const principal = webPrincipal(req, res);
+    if (!principal) return;
+    res.json({ laufende: deps.gateway.agent.laufendeAuftraege });
+  });
+
+  /**
    * Der Sprach-Kanal (S30/S31). Drei Routen, dieselbe Form wie beim Web-Kanal: Nachrichten,
    * Entscheidungen, Postfach.
    *
@@ -1012,14 +1081,23 @@ export function createServer(deps: ServerDeps): express.Express {
    * die sonst der ganze Block gewesen wäre. Die Brücke spricht damit den ersten Satz, während
    * der Zug noch Werkzeuge ruft — statt eine Minute zu schweigen und dann alles vorzulesen.
    *
-   * Gefiltert wird nach der Session der Unterhaltung: ein Heartbeat-Lauf im Hintergrund hat
-   * seine eigene, und dessen Text gehört nicht in diesen Strom.
+   * **Gefiltert wird nach dem Zug, nicht nach der Sitzung.** Das war bis 2026-09-20 anders, und
+   * es ging schief, sobald Jakob zweimal kurz hintereinander sprach: Züge stehen im Motor
+   * Schlange (`agent.ts`, `#laufend`), also wartet der zweite Aufruf mit **offenem** Strom,
+   * während der erste noch redet — und bekam dessen Worte. Gesprochen wurden dann zwei
+   * Antworten in einem Satz („…sobald der Bericht da ist.Wie meinen Sie das, Jakob…"), während
+   * die eigene Antwort in einem Strom landete, den längst niemand mehr hörte.
+   *
+   * Die Zuordnung läuft über die `externalId`, die dieser Aufruf selbst vergeben hat: der Motor
+   * sagt seinen Zug mit ihr an (`turn.started`), und ab da ist bekannt, welche `turn_id` diesem
+   * Strom gehört.
    */
   async function respondVoiceTurn(
     req: express.Request,
     res: express.Response,
     principal: NonNullable<ReturnType<typeof voicePrincipal>>,
     voice: VoiceChannel,
+    externalId: string,
     run: () => ReturnType<typeof receiveMessage>,
   ): Promise<void> {
     const bus = deps.bus;
@@ -1031,7 +1109,6 @@ export function createServer(deps: ServerDeps): express.Express {
       return;
     }
 
-    const sessionId = deps.gateway.agent.sessionId ?? "";
     res.status(200);
     res.setHeader("content-type", "text/event-stream");
     res.setHeader("cache-control", "no-cache");
@@ -1040,8 +1117,15 @@ export function createServer(deps: ServerDeps): express.Express {
     const write = (event: string, data: unknown): void => {
       res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
     };
+    // Bis der eigene Zug anfängt, gehört kein einziges Stück in diesen Strom.
+    let meinZug: string | null = null;
     const unsubscribe = bus.subscribe((event) => {
-      if (event.type !== "model.delta" || event.data.session_id !== sessionId) return;
+      if (event.type === "turn.started" && event.data.external_id === externalId) {
+        meinZug = typeof event.data.turn_id === "string" ? event.data.turn_id : null;
+        return;
+      }
+      if (event.type !== "model.delta" || meinZug === null) return;
+      if (event.data.turn_id !== meinZug) return;
       write("delta", { text: event.data.text });
     });
     try {
@@ -1068,7 +1152,11 @@ export function createServer(deps: ServerDeps): express.Express {
         return;
       }
 
-      await respondVoiceTurn(req, res, principal, deps.voice, () =>
+      const externalId =
+        typeof req.body?.externalId === "string" && req.body.externalId.length > 0
+          ? `voice:${req.body.externalId}`
+          : `voice:${randomUUID()}`;
+      await respondVoiceTurn(req, res, principal, deps.voice, externalId, () =>
         receiveMessage(deps.gateway, principal, {
           channel: "voice",
           sender: principal.sender,
@@ -1079,10 +1167,7 @@ export function createServer(deps: ServerDeps): express.Express {
           // in diese Zeile.
           attachments: [],
           receivedAt: new Date(),
-          externalId:
-            typeof req.body?.externalId === "string" && req.body.externalId.length > 0
-              ? `voice:${req.body.externalId}`
-              : `voice:${randomUUID()}`,
+          externalId,
         }),
       );
     } catch (error) {
@@ -1101,17 +1186,18 @@ export function createServer(deps: ServerDeps): express.Express {
         return;
       }
 
-      await respondVoiceTurn(req, res, principal, deps.voice, () =>
+      const externalId =
+        typeof req.body?.externalId === "string" && req.body.externalId.length > 0
+          ? `voice:${req.body.externalId}`
+          : `voice:${randomUUID()}`;
+      await respondVoiceTurn(req, res, principal, deps.voice, externalId, () =>
         receiveDecision(deps.gateway, principal, {
           channel: "voice",
           sender: principal.sender,
           askId,
           choiceId,
           receivedAt: new Date(),
-          externalId:
-            typeof req.body?.externalId === "string" && req.body.externalId.length > 0
-              ? `voice:${req.body.externalId}`
-              : `voice:${randomUUID()}`,
+          externalId,
         }),
       );
     } catch (error) {

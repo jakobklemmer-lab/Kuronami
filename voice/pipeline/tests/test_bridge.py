@@ -12,6 +12,7 @@ import asyncio
 import pytest
 from pipecat.frames.frames import (
     BotStartedSpeakingFrame,
+    BotStoppedSpeakingFrame,
     Frame,
     InputTransportMessageFrame,
     InterruptionFrame,
@@ -23,6 +24,7 @@ from pipecat.frames.frames import (
 )
 from pipecat.tests.utils import SleepFrame, run_test
 
+from voice.pipeline import bridge as bridge_modul
 from voice.pipeline.bridge import KuronamiBridge
 from voice.pipeline.config import config_from_env
 from voice.pipeline.gateway import Approval, ApprovalOption, GatewayError, GatewayTurn
@@ -79,6 +81,15 @@ class FakeGateway:
 
     async def close(self) -> None:
         self.closed = True
+
+
+@pytest.fixture(autouse=True)
+def _kurze_satzpause(monkeypatch):
+    """Die Sammelpause ist im Betrieb eine Viertelsekunde — im Test wäre das nur Wartezeit.
+
+    Der eine Test, dem es auf die Pause selbst ankommt, setzt sie sich selbst wieder hoch.
+    """
+    monkeypatch.setattr(bridge_modul, "_SATZ_PAUSE_SECS", 0.02)
 
 
 def bridge(client) -> KuronamiBridge:
@@ -183,6 +194,33 @@ async def test_die_bruecke_meldet_die_latenz_nicht_selbst() -> None:
     assert of_type(down, "latency") == []
 
 
+async def test_zwei_transkriptstuecke_werden_ein_befehl(monkeypatch) -> None:
+    """Eine Äußerung, die Deepgram zweimal abschließt, bleibt ein Befehl.
+
+    Deepgram beendet ein Segment bei jeder Pause, und Pipecat macht aus jedem Abschluss einen
+    `TranscriptionFrame`. Wer mitten im Satz Luft holt, schickte damit zwei Befehle — am
+    2026-09-20 wurde aus einer Bitte ein Auftrag und ein Rest, auf den Kuro mit „Wie meinen
+    Sie das, Jakob?" antwortete.
+    """
+    monkeypatch.setattr(bridge_modul, "_SATZ_PAUSE_SECS", 0.2)
+    client = FakeGateway()
+    await run_test(
+        bridge(client),
+        frames_to_send=[
+            hello(),
+            VADUserStartedSpeakingFrame(),
+            TranscriptionFrame(text="Sieh mal im Postfach", user_id="u", timestamp="t"),
+            # Die Atempause: das VAD hört noch Stimme, also ist der Satz nicht zu Ende.
+            SleepFrame(sleep=0.1),
+            TranscriptionFrame(text="nach, bitte", user_id="u", timestamp="t"),
+            VADUserStoppedSpeakingFrame(),
+            SleepFrame(sleep=0.6),
+        ],
+        expected_down_frames=None,
+    )
+    assert client.turns == ["Sieh mal im Postfach nach, bitte"]
+
+
 async def test_barge_in_unterbricht_die_laufende_stimme() -> None:
     client = FakeGateway()
     _down, up = await run_test(
@@ -201,7 +239,9 @@ async def test_barge_in_unterbricht_die_laufende_stimme() -> None:
 
 
 async def test_barge_in_verwirft_die_antwort_die_noch_unterwegs_war() -> None:
-    # Das Backend antwortet langsam. Mitten hinein redet der Nutzer.
+    # Die Stimme läuft schon, das Backend hat noch nicht fertig geantwortet — und mitten
+    # hinein redet der Nutzer. Das ist das echte Dazwischenreden: was noch unterwegs war,
+    # will er nicht mehr hören.
     client = FakeGateway(delay=0.3)
     down, _up = await run_test(
         bridge(client),
@@ -210,6 +250,7 @@ async def test_barge_in_verwirft_die_antwort_die_noch_unterwegs_war() -> None:
             VADUserStoppedSpeakingFrame(),
             TranscriptionFrame(text="Lange Frage", user_id="u", timestamp="t"),
             SleepFrame(sleep=0.05),
+            BotStartedSpeakingFrame(),
             VADUserStartedSpeakingFrame(),
             SleepFrame(sleep=0.5),
         ],
@@ -217,6 +258,32 @@ async def test_barge_in_verwirft_die_antwort_die_noch_unterwegs_war() -> None:
     )
     assert client.turns == ["Lange Frage"], "Der Zug ist losgegangen …"
     assert spoken(down) == [], "… aber seine Antwort wird nicht mehr vorgelesen."
+
+
+async def test_atemzug_waehrend_des_denkens_verwirft_den_zug_nicht() -> None:
+    """Eine Pause mitten im Satz kostet keine Antwort.
+
+    Bis 2026-09-20 genügte ein `VADUserStartedSpeakingFrame`, um einen laufenden Zug
+    wegzuwerfen — auch wenn die Stimme gar nicht lief. Im Betrieb heißt das: wer Luft holt,
+    verliert seine Antwort, und die zweite Hälfte seines Satzes geht als eigener Befehl
+    durch. Solange nichts gesprochen wird, gibt es nichts zu unterbrechen.
+    """
+    client = FakeGateway(delay=0.3)
+    down, up = await run_test(
+        bridge(client),
+        frames_to_send=[
+            hello(),
+            VADUserStoppedSpeakingFrame(),
+            TranscriptionFrame(text="Sieh mal im Postfach", user_id="u", timestamp="t"),
+            SleepFrame(sleep=0.05),
+            VADUserStartedSpeakingFrame(),
+            SleepFrame(sleep=0.5),
+        ],
+        expected_down_frames=None,
+    )
+    assert client.turns == ["Sieh mal im Postfach"]
+    assert spoken(down) == ["Alles erledigt."], "Die Antwort wird vorgelesen."
+    assert not any(isinstance(frame, InterruptionFrame) for frame in up)
 
 
 async def test_ohne_laufende_ausgabe_kein_unterbrechen() -> None:
@@ -228,6 +295,87 @@ async def test_ohne_laufende_ausgabe_kein_unterbrechen() -> None:
         expected_down_frames=None,
     )
     assert not any(isinstance(frame, InterruptionFrame) for frame in up)
+
+
+class PostfachGateway(FakeGateway):
+    """Ein Backend, das auch ein Postfach hat — für die Nachträge."""
+
+    def __init__(self, *, nachtraege: list[str] | None = None, **kwargs) -> None:
+        super().__init__(**kwargs)
+        self._nachtraege = list(nachtraege or [])
+        self.outbox_calls = 0
+
+    async def outbox(self) -> tuple[str, ...]:
+        self.outbox_calls += 1
+        texte, self._nachtraege = self._nachtraege, []
+        return tuple(texte)
+
+
+async def test_nachtrag_aus_dem_postfach_wird_vorgetragen(monkeypatch) -> None:
+    """Was ohne Aufruf von hier zugestellt wurde, wird gesprochen.
+
+    Der Bericht eines Bediensteten trifft Minuten nach der Frage ein; Kuro trägt ihn dann von
+    sich aus vor. Dieser Zug gehört zu keinem offenen Aufruf der Sprachschicht — bis
+    2026-09-20 lag seine Antwort deshalb im Postfach und wurde nie gehört.
+    """
+    monkeypatch.setattr(bridge_modul, "_OUTBOX_POLL_SECS", 0.05)
+    client = PostfachGateway(nachtraege=["Zum Postfach: zwei Dinge verdienen einen Blick."])
+    down, _up = await run_test(
+        bridge(client),
+        frames_to_send=[hello(), SleepFrame(sleep=0.3)],
+        expected_down_frames=None,
+    )
+    assert client.outbox_calls >= 1
+    assert spoken(down) == ["Zum Postfach: zwei Dinge verdienen einen Blick."]
+
+
+async def test_postfach_schweigt_solange_ein_zug_laeuft(monkeypatch) -> None:
+    """Der Postfachblick redet nicht in einen laufenden Zug hinein.
+
+    Dessen Antwort kommt über seinen eigenen Strom; zwei Stimmen gleichzeitig wären eine zu
+    viel.
+    """
+    monkeypatch.setattr(bridge_modul, "_OUTBOX_POLL_SECS", 0.05)
+    client = PostfachGateway(delay=0.6, nachtraege=["Ein Nachtrag."])
+    down, _up = await run_test(
+        bridge(client),
+        frames_to_send=[
+            hello(),
+            VADUserStoppedSpeakingFrame(),
+            TranscriptionFrame(text="Lange Frage", user_id="u", timestamp="t"),
+            SleepFrame(sleep=0.3),
+        ],
+        expected_down_frames=None,
+    )
+    assert client.outbox_calls == 0, "Solange der Zug lief, wurde nicht nachgesehen."
+    assert spoken(down) == []
+
+
+async def test_nachtrag_nach_einem_abgebrochenen_zug_wird_trotzdem_gesprochen(monkeypatch) -> None:
+    """Ein Abbruch darf den **nächsten** Nachtrag nicht mitnehmen.
+
+    Genau das ist am 2026-09-20 passiert: ein Zähler für „abgebrochene Antworten" verschluckte
+    den Bericht des Handelstischs, auf den Jakob drei Minuten gewartet hatte. Die abgebrochene
+    Antwort landet gar nicht im Postfach — der Gateway leert es am Ende desselben Aufrufs.
+    """
+    monkeypatch.setattr(bridge_modul, "_OUTBOX_POLL_SECS", 0.05)
+    client = PostfachGateway(delay=0.3, nachtraege=["Der Bericht des Handelstischs ist da."])
+    down, _up = await run_test(
+        bridge(client),
+        frames_to_send=[
+            hello(),
+            VADUserStoppedSpeakingFrame(),
+            TranscriptionFrame(text="Lange Frage", user_id="u", timestamp="t"),
+            SleepFrame(sleep=0.05),
+            BotStartedSpeakingFrame(),
+            VADUserStartedSpeakingFrame(),
+            BotStoppedSpeakingFrame(),
+            VADUserStoppedSpeakingFrame(),
+            SleepFrame(sleep=0.5),
+        ],
+        expected_down_frames=None,
+    )
+    assert spoken(down) == ["Der Bericht des Handelstischs ist da."]
 
 
 async def test_freigabe_wird_vorgelesen_und_gesprochen_beantwortet() -> None:

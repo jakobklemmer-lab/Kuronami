@@ -17,6 +17,7 @@ export type IconName =
   | "calendar"
   | "trading"
   | "research"
+  | "analysen"
   | "files"
   | "system"
   | "settings"
@@ -49,6 +50,9 @@ const PATHS: Record<IconName, string> = {
     '<rect x="3" y="4.5" width="14" height="12" rx="1.5" /><path d="M3 8.5h14" /><path d="M7 3v3M13 3v3" />',
   trading: '<path d="M3.5 13.5 8 9l3 3 5.5-6" /><path d="M13 6h3.5v3.5" />',
   research: '<circle cx="8.5" cy="8.5" r="5" /><path d="m16.5 16.5-4.2-4.2" />',
+  // Analysen: ein abgelegtes Blatt mit einer Kurslinie darauf — Lesestoff, kein Live-Blick.
+  analysen:
+    '<path d="M5 3.5h6.5L15.5 7.4V16a.5.5 0 0 1-.5.5H5a.5.5 0 0 1-.5-.5V4a.5.5 0 0 1 .5-.5Z" /><path d="M11.3 3.7v3.8h3.9" /><path d="m6.8 13.6 2-2.3 1.7 1.5 2.3-3" />',
   files: '<path d="M4 4.5h5l1.5 2H16v9a.5.5 0 0 1-.5.5h-11A.5.5 0 0 1 4 15.5Z" />',
   system:
     '<rect x="4" y="4" width="12" height="12" rx="1.5" /><path d="M8 8h4v4H8Z" /><path d="M8 1.5V4M12 1.5V4M8 16v2.5M12 16v2.5M1.5 8H4M1.5 12H4M16 8h2.5M16 12h2.5" />',
@@ -75,8 +79,7 @@ const PATHS: Record<IconName, string> = {
     '<rect x="4" y="4" width="12" height="12" rx="2.5" /><path d="M10 7.4v5.2M7.4 10h5.2" />',
   terminal:
     '<rect x="3" y="4" width="14" height="12" rx="2.5" /><path d="m6.6 8.4 2.3 1.9-2.3 1.9M11 12.6h3" />',
-  praesenz:
-    '<circle cx="10" cy="10" r="7" /><path d="M6 10.6c1.3-1.4 2.7-1.4 4 0s2.7 1.4 4 0" />',
+  praesenz: '<circle cx="10" cy="10" r="7" /><path d="M6 10.6c1.3-1.4 2.7-1.4 4 0s2.7 1.4 4 0" />',
   focus:
     '<circle cx="10" cy="10" r="6.4" /><circle cx="10" cy="10" r="1.9" fill="currentColor" stroke="none" />',
   monitor:

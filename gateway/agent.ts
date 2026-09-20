@@ -9,8 +9,9 @@ import {
 } from "@anthropic-ai/claude-agent-sdk";
 import { KURO_PERSONA } from "../context/persona.js";
 import { redactText } from "../runtime/redaction/redact.js";
+import { type AnalysenArchiv, createAnalysen } from "./analysen.js";
 import { BUEHNE_TOOLS, createBuehne } from "./buehne.js";
-import { BEAUFTRAGE_TOOL, createHaus } from "./haus.js";
+import { HAUS_TOOLS, createHaus } from "./haus.js";
 import { createSendePostfach } from "./postfach-werkzeuge.js";
 import { konten } from "./postfach.js";
 import type { ChannelRegistry, InboundMessage, Outbound, Sender } from "./types.js";
@@ -60,7 +61,7 @@ const ALLOWED_WITHOUT_ASKING = [
   "WebFetch",
   "Read",
   "Write",
-  BEAUFTRAGE_TOOL,
+  ...HAUS_TOOLS,
   ...BUEHNE_TOOLS,
 ];
 
@@ -129,8 +130,15 @@ export interface AgentDeps {
   /** Modell. Vorgabe: `KURO_MODEL`, sonst die Vorgabe des SDK. */
   model?: string;
   channels: ChannelRegistry;
-  /** Textstücke während der Antwort — die Oberfläche schreibt live mit. */
-  onDelta?(text: string): void;
+  /**
+   * Textstücke während der Antwort — die Oberfläche schreibt live mit.
+   *
+   * `zugId` ist der Grund, warum hier ein zweiter Parameter steht: der Bus trägt die Stücke
+   * **aller** Züge derselben Sitzung, und Züge stehen Schlange (`#laufend`). Ohne die Kennung
+   * kann ein Empfänger nicht unterscheiden, ob das nächste Stück noch zu seiner Antwort gehört
+   * oder schon zur nächsten — und hängt beides aneinander.
+   */
+  onDelta?(text: string, zugId: string): void;
   /** Kosten und Token nach jedem Zug, für die Anzeige in den Einstellungen. */
   onUsage?(usage: ZugKosten): void;
   /**
@@ -140,6 +148,8 @@ export interface AgentDeps {
    * Personal.
    */
   publish?(type: string, data: Record<string, unknown>): void;
+  /** Das Analysen-Archiv. Vorgabe: ein Ordner `analysen/` im Arbeitsbereich. */
+  analysen?: AnalysenArchiv;
 }
 
 export interface ZugKosten {
@@ -157,6 +167,46 @@ export interface AgentOutcome {
   status: "answered" | "failed";
   reason: string;
   delivered: Outbound[];
+}
+
+/**
+ * Wie lange eine gesprochene Nachricht auf ihre Fortsetzung wartet.
+ *
+ * Die Spracherkennung schneidet nach einer Sprechpause (`VOICE_VAD_STOP_SECS`, Vorgabe 0,8 s),
+ * und ein Mensch macht mitten im Satz Pausen. Am 2026-09-20 zerfiel ein einziger Gedanke in
+ * vier Nachrichten — „Also es ist ja irgendwie jetzt schon" / „länger." / „Ja, ich wollte
+ * fragen, wie lang ist ja" —, und Kuro beantwortete jedes Bruchstück einzeln, eines davon mit
+ * „Das hatte ich eben schon gesagt". Kein Mensch redet so mit jemandem, der zuhört.
+ *
+ * Also: kurz sammeln, dann **einen** Zug daraus machen. Kostet eine halbe Sekunde und spart
+ * drei Züge und eine unwirsche Antwort.
+ */
+const BUENDEL_MS = Number(process.env.KURO_BUENDEL_MS ?? 600);
+
+/** Ein Bündel Nachrichten, das noch auf seinen Zug wartet. */
+interface Stapel {
+  nachrichten: InboundMessage[];
+  lauf: Promise<AgentOutcome>;
+}
+
+/**
+ * Mehrere Nachrichten zu einer machen.
+ *
+ * Kennung und Absender bleiben die der **ersten** — an ihr hängt der Ereignisstrom, den der
+ * Sprachkanal schon geöffnet hat, und dort sollen die Wortstücke ankommen.
+ */
+function vereine(nachrichten: InboundMessage[]): InboundMessage {
+  const erste = nachrichten[0];
+  if (nachrichten.length === 1) return erste;
+  return {
+    ...erste,
+    content: nachrichten
+      .map((n) => n.content.trim())
+      .filter((t) => t !== "")
+      .join(" "),
+    attachments: nachrichten.flatMap((n) => n.attachments),
+    receivedAt: nachrichten[nachrichten.length - 1].receivedAt,
+  };
 }
 
 /** Eine offene Rückfrage, die auf die Antwort des Nutzers wartet. */
@@ -179,24 +229,56 @@ export class KuroAgent {
   #laufend: Promise<unknown> = Promise.resolve();
   /** Das Personal, hinter einem Werkzeug. */
   readonly #haus: ReturnType<typeof createHaus>;
+  /** Wohin fertige Analysen gelegt werden, damit Jakob sie vor einem Trade nachlesen kann. */
+  readonly #analysen: AnalysenArchiv;
   /** Die Bühne: womit Kuro Jakob etwas hinstellt. */
   readonly #buehne: ReturnType<typeof createBuehne>;
   /** Wohin ein nachgereichter Bericht geht: dorthin, wo zuletzt jemand geschrieben hat. */
   #letzterSender: Sender | null = null;
+  /** Steht eine abgeschlossene Wortmeldung im Strom, der noch ein Absatz fehlt? */
+  #absatzOffen = false;
+  /** Was noch nicht losgelaufen ist und deshalb noch zu einem Zug zusammenfinden kann. */
+  #stapel: Stapel | null = null;
 
   constructor(deps: AgentDeps) {
     this.#deps = deps;
     this.#workdir = deps.workdir ?? process.env.KURO_WORKDIR?.trim() ?? DEFAULT_WORKDIR;
+    this.#analysen = deps.analysen ?? createAnalysen({ workdir: this.#workdir });
     this.#haus = createHaus({
       // Auch die Protokollzeile läuft durch den Filter: der Auftragstext trägt alles weiter,
       // was Jakob vorher geschrieben hat, und journalctl bewahrt es auf.
-      onArbeitet: (wer, auftrag) =>
-        console.log(`[haus] ${wer} übernimmt: ${redactText(auftrag.slice(0, 90))}`),
-      onFertig: (wer, kosten, dauer) =>
+      //
+      // Und — seit dem 2026-09-20 — **nicht nur** die Protokollzeile. Die Oberfläche hat die
+      // Gegenstelle für diese drei Ereignisse von Anfang an mitgebracht (`view.ts` setzt die
+      // Standzeile, `sphaere.ts` lässt je Bedienstetem einen Boten um den Orb kreisen); nur
+      // gesendet hat sie nie jemand. Die Boten sind nie geflogen, und Kuro konnte auf „wie
+      // weit ist er?" nichts sagen, obwohl der Gateway es wusste.
+      onArbeitet: (wer, auftrag) => {
+        console.log(`[haus] ${wer} übernimmt: ${redactText(auftrag.slice(0, 90))}`);
+        deps.publish?.("haus.arbeitet", { wer, auftrag: redactText(auftrag.slice(0, 200)) });
+      },
+      onFortschritt: (wer, text, wobei) => {
+        console.log(`[haus] ${wer}${wobei ? ` (${wobei})` : ""}: ${text}`);
+        deps.publish?.("haus.fortschritt", { wer, text, ...(wobei ? { wobei } : {}) });
+      },
+      onFertig: (wer, kosten, dauer) => {
         console.log(
           `[haus] ${wer} fertig nach ${(dauer / 1000).toFixed(1)}s, $${kosten.toFixed(4)}`,
-        ),
+        );
+        deps.publish?.("haus.fertig", { wer, kostenUsd: kosten, dauerMs: dauer });
+      },
       onNachgereicht: (wer, bericht) => void this.#trageNach(wer, bericht),
+      onAnalyse: (eintrag) => {
+        void this.#analysen.lege(eintrag).then(
+          (gespeichert) => {
+            if (gespeichert) {
+              console.log(`[analysen] ${eintrag.wer}: ${gespeichert.titel} (${gespeichert.id})`);
+              deps.publish?.("analyse.neu", { id: gespeichert.id, titel: gespeichert.titel });
+            }
+          },
+          (fehler) => console.error("[analysen] nicht gespeichert:", fehler),
+        );
+      },
     });
     this.#buehne = createBuehne({
       publish: (type, data) => deps.publish?.(type, data),
@@ -209,6 +291,26 @@ export class KuroAgent {
 
   get sessionId(): string | null {
     return this.#sessionId;
+  }
+
+  /** Das Archiv der Analysen — die Oberfläche liest daraus. */
+  get analysen(): AnalysenArchiv {
+    return this.#analysen;
+  }
+
+  /** Was die Bediensteten gerade tun. Die Oberfläche zeigt es, wenn kein Zug läuft. */
+  get laufendeAuftraege(): Array<{
+    wer: string;
+    stand: string;
+    begonnen: number;
+    zuarbeit: string[];
+  }> {
+    return this.#haus.laufende().map(({ wer, stand, begonnen, zuarbeit }) => ({
+      wer,
+      stand,
+      begonnen,
+      zuarbeit,
+    }));
   }
 
   /** Steht eine Rückfrage offen? Die Oberfläche zeigt das an, die Kanäle fragen danach. */
@@ -243,7 +345,23 @@ export class KuroAgent {
       };
     }
 
-    const lauf = this.#laufend.then(() => this.#run(message));
+    // Was noch nicht losgelaufen ist, wird gebündelt statt nacheinander abgearbeitet.
+    if (this.#stapel) {
+      this.#stapel.nachrichten.push(message);
+      return this.#stapel.lauf;
+    }
+
+    const stapel: Stapel = { nachrichten: [message], lauf: Promise.resolve() as never };
+    this.#stapel = stapel;
+    const lauf = this.#laufend.then(async () => {
+      // Der Sammelmoment. Nur für die Stimme: ein Tastendruck ist fertig, wenn er abgeschickt
+      // wird, ein Satz nicht.
+      const sammeln = message.channel === "voice" ? BUENDEL_MS : 0;
+      if (sammeln > 0) await new Promise((fertig) => setTimeout(fertig, sammeln).unref?.());
+      if (this.#stapel === stapel) this.#stapel = null;
+      return this.#run(vereine(stapel.nachrichten));
+    });
+    stapel.lauf = lauf;
     this.#laufend = lauf.catch(() => undefined);
     return lauf;
   }
@@ -264,10 +382,7 @@ export class KuroAgent {
       this.#run({
         channel: to.channel,
         sender: to,
-        content:
-          `[Der Bericht von ${wer} ist eingetroffen. Trage ihn Jakob jetzt von dir aus vor — ` +
-          `er hat zwischenzeitlich etwas anderes getan, also knüpfe kurz an den Auftrag an.]\n\n` +
-          bericht,
+        content: `[Der Bericht von ${wer} ist eingetroffen. Trage ihn Jakob jetzt von dir aus vor — er hat zwischenzeitlich etwas anderes getan, also knüpfe kurz an den Auftrag an.]\n\n${bericht}`,
         attachments: [],
         receivedAt: new Date(),
         externalId: `nachtrag_${randomUUID()}`,
@@ -282,6 +397,16 @@ export class KuroAgent {
     this.#letzterSender = origin;
     const geliefert: Outbound[] = [];
     let text = "";
+
+    // Ein Zug hat einen Namen, und er sagt an, wann er anfängt und wann er aufhört.
+    //
+    // Der alte Läufer schrieb `turn.started`/`turn.completed` ins Protokoll; mit dem
+    // Motorwechsel fiel das weg, und niemand bemerkte es, weil die Oberfläche dabei nicht
+    // abstürzt — sie hängt die Worte des neuen Zugs nur an die des alten. Genau das stand am
+    // 2026-09-20 in der Antwortblase: vier Antworten in einem Absatz, ohne Trennung.
+    const zug = this.#zug(message);
+    this.#absatzOffen = false;
+    this.#deps.publish?.("turn.started", zug);
 
     try {
       for await (const nachricht of query({
@@ -301,7 +426,7 @@ export class KuroAgent {
           // dahinter in eigenen Läufen (`haus.ts`) — ihre Werkzeuge stehen nicht in Kuros
           // Katalog, und was sie lesen und denken, landet nicht in seinem Kontext.
           mcpServers: {
-            haus: this.#haus,
+            haus: this.#haus.server,
             buehne: this.#buehne,
             // Der Versand liegt bei Kuro, nicht beim Sekretär — und steht bewusst **nicht**
             // in `ALLOWED_WITHOUT_ASKING`. Er fragt also vor jeder Mail, die hinausgeht.
@@ -315,7 +440,7 @@ export class KuroAgent {
           ...(this.#sessionId ? { resume: this.#sessionId } : {}),
         },
       })) {
-        const stueck = this.#verarbeite(nachricht);
+        const stueck = this.#verarbeite(nachricht, zug);
         // Mit Absatz trennen: Kuro spricht oft zweimal — einmal beim Abschicken eines
         // Auftrags („ich lasse das ansehen"), einmal beim Vortragen des Ergebnisses. Ohne
         // Trenner klebte beides aneinander.
@@ -327,6 +452,7 @@ export class KuroAgent {
         kind: "reply",
         text: `Das ist mir misslungen: ${grund}`,
       };
+      this.#deps.publish?.("turn.completed", { ...zug, status: "failed", reason: grund });
       await this.#zustellen(origin, antwort);
       return {
         sessionId: this.#sessionId ?? "",
@@ -337,6 +463,10 @@ export class KuroAgent {
     }
 
     const antwort: Outbound = { kind: "reply", text: text.trim() || "(keine Antwort)" };
+    // **Vor** der Zustellung: wer den Zug mitliest, soll das Ende kennen, bevor der fertige
+    // Text ankommt. Andersherum stünde einen Wimpernschlag lang die Antwort da, während der
+    // Zug für den Empfänger noch läuft — und das nächste Textstück landete noch in diesem.
+    this.#deps.publish?.("turn.completed", { ...zug, status: "answered", text: antwort.text });
     await this.#zustellen(origin, antwort);
     geliefert.push(antwort);
 
@@ -348,8 +478,30 @@ export class KuroAgent {
     };
   }
 
+  /**
+   * Die Kennung eines Zugs, wie sie auf dem Bus steht.
+   *
+   * `external_id` steht dabei, weil der Sprach-Kanal seinen Zug darüber wiederfindet: er
+   * schickt eine Nachricht und bekommt einen Ereignisstrom, der **alle** Züge der Sitzung
+   * trägt. Die Kennung, die er selbst vergeben hat, ist das Einzige, was er schon kennt,
+   * bevor der Zug beginnt.
+   */
+  #zug(message: InboundMessage): {
+    session_id: string;
+    turn_id: string;
+    external_id: string;
+    channel: string;
+  } {
+    return {
+      session_id: this.#sessionId ?? "",
+      turn_id: `zug_${randomUUID()}`,
+      external_id: message.externalId,
+      channel: message.channel,
+    };
+  }
+
   /** Eine SDK-Nachricht auswerten. Gibt fertigen Antworttext zurück, sonst `null`. */
-  #verarbeite(nachricht: SDKMessage): string | null {
+  #verarbeite(nachricht: SDKMessage, zug: { turn_id: string }): string | null {
     if (nachricht.type === "system" && "session_id" in nachricht) {
       // Die Sitzung merken, sobald sie feststeht — auch bei der allerersten Nachricht,
       // sonst eröffnete die nächste eine zweite statt fortzusetzen.
@@ -371,7 +523,15 @@ export class KuroAgent {
       ).event;
       if (ereignis?.type === "content_block_delta" && ereignis.delta?.type === "text_delta") {
         const stueck = ereignis.delta.text ?? "";
-        if (stueck) this.#deps.onDelta?.(stueck);
+        // Derselbe Absatz wie unten beim fertigen Text — nur muss er hier vorgezogen werden,
+        // weil der Strom die Grenze zwischen zwei Wortmeldungen sonst nicht zeigt. Ohne ihn
+        // stand „…im Blick.Ich lasse das Postfach…" in einer Zeile, und die Sprachschicht
+        // fand keinen Satz mehr zum Sprechen: ihr Satzende verlangt Leerraum nach dem Punkt.
+        if (stueck && this.#absatzOffen) {
+          this.#absatzOffen = false;
+          this.#deps.onDelta?.("\n\n", zug.turn_id);
+        }
+        if (stueck) this.#deps.onDelta?.(stueck, zug.turn_id);
       }
       return null;
     }
@@ -398,6 +558,8 @@ export class KuroAgent {
       for (const block of nachricht.message.content) {
         if (block.type === "text") text += block.text;
       }
+      // Diese Wortmeldung ist zu Ende. Kommt später noch eine, gehört ein Absatz dazwischen.
+      if (text) this.#absatzOffen = true;
       return text || null;
     }
 

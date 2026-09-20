@@ -36,6 +36,8 @@ export interface ApiClientOptions {
 export interface ApiClient {
   get<T>(path: string): Promise<T>;
   post<T>(path: string, body: unknown): Promise<T>;
+  /** Teiländerung an einem vorhandenen Ding — etwa der Status einer abgelegten Analyse. */
+  patch<T>(path: string, body: unknown): Promise<T>;
   delete<T>(path: string): Promise<T>;
 }
 
@@ -85,6 +87,12 @@ export function createApiClient(options: ApiClientOptions): ApiClient {
     post: (path, body) =>
       request(path, {
         method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(body),
+      }),
+    patch: (path, body) =>
+      request(path, {
+        method: "PATCH",
         headers: { "content-type": "application/json" },
         body: JSON.stringify(body),
       }),

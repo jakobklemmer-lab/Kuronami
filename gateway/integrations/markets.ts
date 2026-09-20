@@ -44,6 +44,15 @@ export interface MarketQuote {
   changePct: number;
   /** Schlusskurse des Tages für die Mini-Linie; leer, wenn der Markt heute nicht handelte. */
   spark: number[];
+  /**
+   * 52-Wochen-Spanne, wenn Yahoo sie mitliefert.
+   *
+   * Optional, weil die Kurstafel sie nicht braucht — der Handelstisch schon: „+10 % auf ein
+   * Mehrmonatshoch" und „immer noch 55 % unter dem Jahreshoch" sind dieselbe Bewegung, und
+   * nur die zweite Zahl verrät, ob es eine Erholung im Abwärtstrend ist.
+   */
+  weekHigh52?: number;
+  weekLow52?: number;
 }
 
 export interface MarketChart extends MarketQuote {
@@ -124,6 +133,8 @@ interface YahooChartResponse {
         regularMarketChangePercent?: unknown;
         chartPreviousClose?: unknown;
         previousClose?: unknown;
+        fiftyTwoWeekHigh?: unknown;
+        fiftyTwoWeekLow?: unknown;
       };
       timestamp?: unknown;
       indicators?: {
@@ -212,6 +223,9 @@ export function mapChartResponse(json: unknown, range: string, interval: string)
     candles.push({ time, open, high, low, close });
   }
 
+  const hoch52 = num(meta.fiftyTwoWeekHigh);
+  const tief52 = num(meta.fiftyTwoWeekLow);
+
   return {
     symbol: text(meta.symbol),
     name: text(meta.longName) || text(meta.shortName) || text(meta.symbol),
@@ -221,6 +235,8 @@ export function mapChartResponse(json: unknown, range: string, interval: string)
     change,
     changePct,
     spark: candles.map((candle) => candle.close),
+    ...(hoch52 !== null ? { weekHigh52: hoch52 } : {}),
+    ...(tief52 !== null ? { weekLow52: tief52 } : {}),
     range,
     interval,
     candles,

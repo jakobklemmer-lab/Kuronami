@@ -133,9 +133,8 @@ export const mailView: View = {
 
       if (subtitleEl) {
         const ungelesen = sichtbar.filter((m) => m.unread).length;
-        subtitleEl.textContent =
-          `${sichtbar.length} Nachrichten · ${ungelesen} ungelesen · ` +
-          (nurKonto ? `nur ${nurKonto}` : `${konten.length} Postfächer`);
+        const woher = nurKonto ? `nur ${nurKonto}` : `${konten.length} Postfächer`;
+        subtitleEl.textContent = `${sichtbar.length} Nachrichten · ${ungelesen} ungelesen · ${woher}`;
       }
 
       if (kontenEl) {

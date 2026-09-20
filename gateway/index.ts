@@ -6,6 +6,7 @@ import { startEventNotifyListener } from "../runtime/events/notify.js";
 import { envFilePathFromEnv, readEnvFile, writeEnvFile } from "../runtime/secrets/env-file.js";
 import { buildMemoryRoot, createMemoryStore } from "../tools/memory/store.js";
 import { createN8nBridge } from "../tools/n8n/bridge.js";
+import { KuroAgent } from "./agent.js";
 import { createSlackChannel } from "./channels/slack/channel.js";
 import type { SlackChannelDeps } from "./channels/slack/channel.js";
 import { createSlackClient } from "./channels/slack/client.js";
@@ -14,12 +15,13 @@ import type { TelegramChannelDeps } from "./channels/telegram/channel.js";
 import { createTelegramClient } from "./channels/telegram/client.js";
 import { type VoiceChannel, createVoiceChannel } from "./channels/voice/channel.js";
 import { createWebChannel } from "./channels/web.js";
-import { KuroAgent } from "./agent.js";
 import { type GatewayDeps, redeliverPending } from "./core.js";
 import { configuredChannels, identityFromEnv } from "./identity.js";
 import { createYahooMarkets } from "./integrations/markets.js";
 import { createSystemSampler } from "./integrations/system.js";
+import { haltePostfaecherWarm, konten } from "./postfach.js";
 import { createSystemdRestart } from "./restart.js";
+import { sandkastenLage } from "./sandkasten.js";
 import { createServer } from "./server.js";
 import type { ChannelId, ChannelPort } from "./types.js";
 
@@ -93,16 +95,17 @@ async function main(): Promise<void> {
     channels,
     // Streaming an die Oberfläche: dieselben flüchtigen `model.delta`-Ereignisse wie zuvor,
     // damit die Ansicht ohne Änderung live mitschreibt.
-    onDelta: (text) =>
+    onDelta: (text, turnId) =>
       eventBus.publish({
         type: "model.delta",
         timestamp: new Date().toISOString(),
-        data: { session_id: agent.sessionId ?? "", turn_id: "", text },
+        // `turn_id` stand hier bis 2026-09-20 leer. Wer mitliest, konnte damit nicht sehen,
+        // wo ein Zug aufhört und der nächste anfängt — und hängte alles aneinander.
+        data: { session_id: agent.sessionId ?? "", turn_id: turnId, text },
       }),
     // Kosten pro Zug, sichtbar statt geschätzt. Das war der Anlass für den Wechsel.
     // Ereignisse für die Präsenz-Oberfläche — dieselbe Leitung wie die Textstücke.
-    publish: (type, data) =>
-      eventBus.publish({ type, timestamp: new Date().toISOString(), data }),
+    publish: (type, data) => eventBus.publish({ type, timestamp: new Date().toISOString(), data }),
     onUsage: (u) =>
       console.log(
         `[gateway] Zug: ${(u.dauerMs / 1000).toFixed(1)}s, ${u.zuege} Schritte, ` +
@@ -116,7 +119,6 @@ async function main(): Promise<void> {
   // und Dateikarten (`/integrations/notes`, `/integrations/files`). Vorher kam es aus
   // `buildCatalog`, jetzt direkt — derselbe Bestand, ein Verbraucher weniger.
   const memory = await createMemoryStore({ root: await buildMemoryRoot(undefined) });
-
 
   const gateway: GatewayDeps = { pool, artifactRoot, agent, channels };
 
@@ -180,6 +182,12 @@ async function main(): Promise<void> {
     ? createN8nBridge({ baseUrl: n8nBaseUrl, token: process.env.N8N_WEBHOOK_TOKEN?.trim() })
     : undefined;
 
+  // Die Postfächer warm halten (2026-09-20). Ohne das traf jeder Neuaufbau der Oberfläche auf
+  // einen kalten Speicher und wartete auf drei IMAP-Runden — sichtbar als „Lädt …" über
+  // Sekunden, bei jedem Neuladen. Der erste Abruf läuft hier sofort, damit schon der erste
+  // Blick nach einem Neustart auf etwas Fertiges trifft.
+  const postfachWarm = haltePostfaecherWarm(konten, { anzahl: 30 });
+
   const port = Number(process.env.GATEWAY_PORT ?? 8788);
   const app = createServer({
     gateway,
@@ -212,6 +220,15 @@ async function main(): Promise<void> {
 
   console.log(
     `Nutzer ${identity.userId}, Motor: Claude Code (Agent-SDK), Arbeitsbereich ${agent.workdir}.`,
+  );
+  // Ob das Personal rechnen darf, ist eine Eigenschaft dieses Rechners — und sie gehört in
+  // die Startmeldung, nicht in eine stille Verzweigung. Trägt der Sandkasten nicht, arbeiten
+  // die Bediensteten ohne Bash weiter (siehe `sandkasten.ts`).
+  const lage = sandkastenLage();
+  console.log(
+    lage.ok
+      ? "Sandkasten: trägt — die Bediensteten dürfen rechnen (Bash, kein Netz, keine Schlüssel)."
+      : `Sandkasten: trägt nicht (${lage.grund}) — die Bediensteten bekommen kein Bash.`,
   );
 
   // Was beim letzten Lauf offen blieb und nie hinausging, geht jetzt hinaus. Ohne diesen
@@ -255,6 +272,7 @@ async function main(): Promise<void> {
     stopped = true;
     console.log(`\n[gateway] ${reason} — herunterfahren.`);
     polling?.stop();
+    postfachWarm.stop();
     await polling?.done.catch(() => undefined);
     await events.close().catch(() => undefined);
     await eventNotify.close().catch(() => undefined);

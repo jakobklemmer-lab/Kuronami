@@ -1783,3 +1783,144 @@
   height: 16px;
   accent-color: var(--accent);
 }
+
+/* ---- Analysen: Liste links, Bericht rechts ---------------------------------
+   Zwei Spalten, weil man hier liest und vergleicht: die Liste bleibt stehen,
+   während der Bericht daneben gescrollt wird. Auf schmalen Fenstern rutscht die
+   Liste nach oben und bekommt eine eigene Höhe, statt die Seite zu verdoppeln. */
+
+.analysen {
+  display: grid;
+  grid-template-columns: minmax(240px, 320px) 1fr;
+  gap: var(--gap);
+  flex: 1;
+  min-height: 0;
+}
+@media (max-width: 900px) {
+  .analysen {
+    grid-template-columns: 1fr;
+  }
+  .analysen__liste {
+    max-height: 32vh;
+  }
+}
+.analysen__liste,
+.analysen__blatt {
+  padding: 14px 16px;
+  border-radius: var(--radius);
+  overflow-y: auto;
+  min-height: 0;
+}
+.analysen__eintrag {
+  appearance: none;
+  width: 100%;
+  text-align: left;
+  background: transparent;
+  border: 0;
+  border-radius: 10px;
+  padding: 8px 10px;
+  cursor: pointer;
+  color: inherit;
+  font: inherit;
+}
+.analysen__eintrag:hover,
+.analysen__eintrag:focus-visible {
+  background: var(--bg-hover, rgb(255 255 255 / 6%));
+  outline: none;
+}
+.analysen__eintrag.ist-aktiv {
+  background: var(--bg-hover, rgb(255 255 255 / 9%));
+  box-shadow: inset 2px 0 0 var(--accent, #7fb8ff);
+}
+.analysen__marke {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 1px 7px;
+  border-radius: 999px;
+  border: 1px solid var(--border, rgb(255 255 255 / 18%));
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  color: var(--fg-muted);
+}
+.analysen__marke.ist-gehandelt {
+  color: #8fd6a4;
+  border-color: #8fd6a455;
+}
+.analysen__marke.ist-verworfen {
+  color: var(--fg-muted);
+  opacity: 0.7;
+}
+.analysen__kopf h2 {
+  margin: 0 0 4px;
+  font-size: 17px;
+  font-weight: 500;
+}
+.analysen__auftrag {
+  margin: 12px 0;
+  font-size: 13px;
+  color: var(--fg-muted);
+}
+.analysen__auftrag summary,
+.analysen__zuarbeit summary {
+  cursor: pointer;
+  user-select: none;
+}
+.analysen__bericht {
+  margin: 14px 0 18px;
+  line-height: 1.65;
+}
+.analysen__zuarbeit {
+  border-top: 1px solid var(--border, rgb(255 255 255 / 12%));
+  padding-top: 12px;
+}
+.analysen__zuarbeit h3 {
+  margin: 0 0 8px;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--fg-muted);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+.analysen__zuarbeit details {
+  margin-bottom: 10px;
+}
+.analysen__frage {
+  margin: 6px 0;
+  padding-left: 10px;
+  border-left: 2px solid var(--border, rgb(255 255 255 / 14%));
+  font-size: 12.5px;
+  color: var(--fg-muted);
+}
+.analysen__fuss {
+  border-top: 1px solid var(--border, rgb(255 255 255 / 12%));
+  margin-top: 16px;
+  padding-top: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.analysen__status {
+  display: flex;
+  gap: 8px;
+}
+.analysen__wahl {
+  appearance: none;
+  border: 1px solid var(--border, rgb(255 255 255 / 18%));
+  background: transparent;
+  color: var(--fg-muted);
+  border-radius: 999px;
+  padding: 4px 14px;
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+}
+.analysen__wahl:hover,
+.analysen__wahl:focus-visible {
+  color: var(--fg, inherit);
+  outline: none;
+}
+.analysen__wahl.ist-aktiv {
+  color: var(--fg, inherit);
+  border-color: var(--accent, #7fb8ff);
+  background: color-mix(in srgb, var(--accent, #7fb8ff) 14%, transparent);
+}

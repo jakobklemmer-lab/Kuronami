@@ -19,6 +19,9 @@ export const ROUTE_IDS = [
   "mail",
   "calendar",
   "trading",
+  // Das Analysen-Archiv (2026-09-20): fertige Einschätzungen zum Nachlesen, bevor ein Trade
+  // wirklich losgeht. Eigene Route, damit es ein Lesezeichen sein kann.
+  "analysen",
   "research",
   "files",
   "system",

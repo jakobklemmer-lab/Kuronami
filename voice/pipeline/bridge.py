@@ -8,9 +8,9 @@ folgen drei Dinge, die dieser Prozessor zusätzlich zum Weiterreichen erledigt:
 **1. Unterbrechen (das Fertig-Kriterium von S31).** Ohne LLM-Dienst gibt es auch keinen
 LLM-Aggregator, und der wäre in einer Standard-Pipeline die Stelle, die bei einsetzender
 Nutzerstimme `broadcast_interruption()` auslöst. Also tut es diese Datei: sagt das VAD "der Nutzer
-redet", während die Stimme läuft oder ein Zug in der Luft ist, wird unterbrochen — die Ausgabe des
-Transports fällt sofort weg, und die Antwort, die gerade unterwegs war, wird **nicht mehr
-gesprochen**.
+redet", **während die Stimme läuft**, wird unterbrochen — die Ausgabe des Transports fällt sofort
+weg, und die Antwort, die gerade unterwegs war, wird **nicht mehr gesprochen**. Ein Zug, der noch
+denkt, wird davon nicht angerührt; warum, steht bei `_on_user_started`.
 
 **Was Unterbrechen ausdrücklich nicht heißt: den Lauf abbrechen.** `runner.cancel()` schreibt
 `session.canceled` (S05), und die Session der Sprachschicht ist dieselbe durchgehende Unterhaltung
@@ -23,7 +23,13 @@ vorgelesen.
 zurück. Sie wird vorgelesen, und die nächste Äußerung wird gegen die Optionen abgeglichen
 (`choices.py`) — ohne Modell, ohne Raten. Kein Treffer heißt Nachfragen.
 
-**3. Zustände.** Der Mic-Knopf der Oberfläche kennt sechs Zustände (`ui/mic/state.ts`); diese
+**3. Das Postfach.** Nicht jede Antwort gehört zu einer Frage von hier. Kommt der Bericht eines
+Bediensteten Minuten später an, trägt Kuro ihn von sich aus vor (`agent.ts`, `#trageNach`) — ein
+eigener Zug, zu dem diese Schicht keinen offenen Aufruf hat. Seine Antwort liegt im Postfach des
+Sprach-Kanals, und bis 2026-09-20 blieb sie dort liegen: in der Oberfläche stand sie, zu hören war
+sie nie. `_watch_outbox` sieht deshalb nach, solange nichts läuft.
+
+**4. Zustände.** Der Mic-Knopf der Oberfläche kennt sechs Zustände (`ui/mic/state.ts`); diese
 Brücke bedient vier davon: `listening`, `thinking`, `speaking`, `idle`. `executing` und `complete`
 bleiben aus, und zwar bewusst: hinter einem einzelnen HTTP-Aufruf lässt sich "denkt nach" nicht
 von "ruft gerade ein Werkzeug auf" unterscheiden. Wer das sehen will, sieht es am Ereignisstrom
@@ -35,6 +41,7 @@ from __future__ import annotations
 
 import asyncio
 import hmac
+import os
 import re
 import uuid
 from collections.abc import Awaitable, Callable
@@ -61,6 +68,10 @@ from voice.pipeline.config import VoiceConfig
 from voice.pipeline.gateway import Approval, GatewayClient, GatewayError, GatewayTurn
 from voice.pipeline.latency import LatencyLedger
 
+#: Wie oft im Postfach nachgesehen wird, solange gerade nichts läuft.
+_OUTBOX_POLL_SECS = 4.0
+#: Wie lange nach dem letzten Transkriptstück noch auf eine Fortsetzung gewartet wird.
+_SATZ_PAUSE_SECS = float(os.environ.get("VOICE_UTTERANCE_GAP_SECS") or 0.25)
 #: Satzende, gefolgt von Leerraum — dort darf die Stimme anfangen, bevor der Rest da ist.
 _SENTENCE_END = re.compile(r"(?<=[.!?…:])\s+")
 #: Was vorgelesen keinen Sinn ergibt: Markdown-Auszeichnung, Listenpunkte, Überschriften.
@@ -123,9 +134,14 @@ class KuronamiBridge(FrameProcessor):
 
         self._authenticated = False
         self._bot_speaking = False
+        self._user_speaking = False
         self._turn_seq = 0
         self._turn_task: asyncio.Task[None] | None = None
         self._pending_approval: Approval | None = None
+        self._outbox_task: asyncio.Task[None] | None = None
+        #: Die Stücke der laufenden Äußerung, bis feststeht, dass sie zu Ende ist.
+        self._satz: list[str] = []
+        self._satz_task: asyncio.Task[None] | None = None
 
     # -- Zustand nach außen ---------------------------------------------------------------
 
@@ -187,6 +203,7 @@ class KuronamiBridge(FrameProcessor):
         elif isinstance(frame, VADUserStartedSpeakingFrame):
             await self._on_user_started()
         elif isinstance(frame, VADUserStoppedSpeakingFrame):
+            self._user_speaking = False
             # Der Startpunkt der Messung. Er liegt **vor** dem Transkript, das dem Zug erst
             # seinen Namen gibt — deshalb vorgemerkt und nicht schon gesetzt.
             self._ledger.pre_mark("speech_stopped")
@@ -226,6 +243,7 @@ class KuronamiBridge(FrameProcessor):
                     latency_budget_ms=self._config.latency_budget_ms,
                 )
                 await self._emit_state("idle")
+                self._start_outbox_watch()
             else:
                 logger.warning("Sprachsitzung abgewiesen: VOICE_SESSION_TOKEN stimmt nicht.")
                 await self._emit("error", message="Das Sitzungsgeheimnis stimmt nicht.")
@@ -241,11 +259,22 @@ class KuronamiBridge(FrameProcessor):
     async def _on_user_started(self) -> None:
         if not self._authenticated:
             return
+        self._user_speaking = True
         await self._emit_state("listening")
-        # Der eigentliche Barge-in. Zwei Auslöser, nicht einer: die Stimme läuft noch **oder**
-        # ein Zug ist unterwegs, dessen Antwort gleich gesprochen würde. Ohne den zweiten Fall
-        # redete der Agent los, nachdem der Nutzer längst neu angesetzt hat.
-        if self._bot_speaking or self.turn_in_flight:
+        # Der eigentliche Barge-in: **die Stimme läuft**, und der Nutzer redet dazwischen.
+        #
+        # Hier stand bis 2026-09-20 ein zweiter Auslöser — "oder ein Zug ist unterwegs". Der
+        # war gut gemeint und in der Praxis der Grund, warum gesprochene Befehle nur halb
+        # ankamen: das VAD beendet eine Äußerung nach kurzer Stille, und wer mitten im Satz
+        # Luft holt, fängt danach neu an. Genau das lag am 2026-09-20 im Protokoll — 254 ms
+        # Pause, und der gerade abgeschickte Zug war weggeworfen, während die Fortsetzung als
+        # eigener Befehl durchging ("Wie meinen Sie das, Jakob?"). Dazu kam, dass der Abbruch
+        # ohnehin nichts spart: der Zug läuft im Gateway zu Ende, er wird nur nicht gehört.
+        #
+        # Ein Befehl, der wirklich neu ist, verdrängt den alten weiter — das erledigt `_start`,
+        # sobald ein Transkript vorliegt. Der Unterschied ist, dass dafür jetzt Worte nötig
+        # sind und nicht ein Atemzug.
+        if self._bot_speaking:
             logger.debug("Barge-in: Nutzer redet dazwischen.")
             await self.broadcast_interruption()
             # `broadcast_interruption` erreicht die **anderen** Prozessoren, nicht den Absender.
@@ -267,10 +296,38 @@ class KuronamiBridge(FrameProcessor):
         if not cleaned:
             return
 
+        # **Ein Transkriptstück ist noch kein Befehl.**
+        #
+        # Deepgram schließt ein Segment ab, sobald es eine Pause hört, und Pipecat macht aus
+        # *jedem* dieser Abschlüsse einen `TranscriptionFrame` (`stt.py`: `if is_final: …
+        # push_frame(TranscriptionFrame(...))`). Wer mitten im Satz Luft holt, schickt damit
+        # zwei Befehle statt einem — am 2026-09-20 wurde aus „sieh mal im Postfach nach" ein
+        # Auftrag und ein Rest, auf den Kuro mit „Wie meinen Sie das, Jakob?" antwortete.
+        #
+        # Deshalb wird gesammelt und erst abgeschickt, wenn zweierlei zutrifft: seit dem
+        # letzten Stück ist eine kurze Pause vergangen, **und** das VAD sagt, dass nicht mehr
+        # geredet wird. Das kostet eine Viertelsekunde und spart die halbe Frage.
+        self._satz.append(cleaned)
+        if self._satz_task is not None and not self._satz_task.done():
+            self._satz_task.cancel()
+        self._satz_task = self.create_task(self._satz_abwarten())
+
+    async def _satz_abwarten(self) -> None:
+        """Wartet das Ende der Äußerung ab und schickt sie dann als einen Befehl."""
+        await asyncio.sleep(_SATZ_PAUSE_SECS)
+        # Solange das VAD noch Stimme hört, kommt noch etwas nach.
+        while self._user_speaking:
+            await asyncio.sleep(0.1)
+        teile, self._satz = self._satz, []
+        satz = " ".join(teile).strip()
+        if satz:
+            await self._ausfuehren(satz)
+
+    async def _ausfuehren(self, satz: str) -> None:
         approval = self._pending_approval
         if approval is not None:
             options = [Choice(id=option.id, label=option.label) for option in approval.options]
-            choice = match_choice(cleaned, options)
+            choice = match_choice(satz, options)
             if choice is None:
                 await self._speak(
                     "Das habe ich nicht als Antwort erkannt. "
@@ -281,7 +338,7 @@ class KuronamiBridge(FrameProcessor):
             self._start(self._answer(approval.ask_id, choice))
             return
 
-        self._start(self._turn(cleaned))
+        self._start(self._turn(satz))
 
     # -- Züge -----------------------------------------------------------------------------
 
@@ -375,6 +432,51 @@ class KuronamiBridge(FrameProcessor):
         elif live is None or not live.spoken:
             await self._speak(result.text)
 
+    # -- Das Postfach ---------------------------------------------------------------------
+
+    def _start_outbox_watch(self) -> None:
+        """Sieht nach der Anmeldung nach, ob etwas Unaufgefordertes zugestellt wurde."""
+        if self._outbox_task is not None and not self._outbox_task.done():
+            return
+        if not hasattr(self._client, "outbox"):
+            # Ein Client ohne Postfach (die Fakes der Tests) — dann gibt es nichts zu holen.
+            return
+        self._outbox_task = self.create_task(self._watch_outbox())
+
+    async def _watch_outbox(self) -> None:
+        """Trägt vor, was ohne Aufruf von hier zugestellt wurde.
+
+        Gesprochen wird nur in der Stille: nicht während ein Zug läuft (dessen Antwort kommt
+        über seinen eigenen Strom), nicht während die Stimme schon redet, und nicht, während
+        der Nutzer spricht.
+
+        **Hier stand kurzzeitig ein Zähler für abgebrochene Züge** — und er war falsch. Die
+        Überlegung war, dass ein abgebrochener Zug im Gateway zu Ende läuft und seine Antwort
+        trotzdem ins Fach legt. Das stimmt, aber sie bleibt dort nicht liegen: der Gateway
+        leert das Fach am Ende **desselben** Aufrufs (`respondVoiceTurn`, `voice.drain`), auch
+        wenn niemand mehr zuhört. Der Zähler traf deshalb nie die Antwort, für die er gedacht
+        war, sondern die nächste unschuldige — am 2026-09-20 den Bericht des Handelstischs,
+        auf den Jakob drei Minuten gewartet hatte.
+        """
+        while True:
+            await asyncio.sleep(_OUTBOX_POLL_SECS)
+            if not self._authenticated:
+                continue
+            if self.turn_in_flight or self._bot_speaking or self._user_speaking:
+                continue
+            if self._pending_approval is not None:
+                continue
+            try:
+                texte = await self._client.outbox()  # type: ignore[attr-defined]
+            except asyncio.CancelledError:
+                raise
+            except Exception as error:  # noqa: BLE001 — ein stummes Postfach ist kein Absturz
+                logger.debug(f"Postfach nicht abrufbar: {error}")
+                continue
+            for text in texte:
+                logger.info("Nachtrag aus dem Postfach wird vorgetragen.")
+                await self._speak(text)
+
     async def cleanup(self) -> None:
         """Beim Herunterfahren bleibt kein Zug in der Luft hängen.
 
@@ -386,6 +488,14 @@ class KuronamiBridge(FrameProcessor):
         self._turn_task = None
         if task is not None and not task.done():
             await self.cancel_task(task)
+        satz = self._satz_task
+        self._satz_task = None
+        if satz is not None and not satz.done():
+            await self.cancel_task(satz)
+        watch = self._outbox_task
+        self._outbox_task = None
+        if watch is not None and not watch.done():
+            await self.cancel_task(watch)
         await super().cleanup()
 
     async def _fail(self, message: str) -> None:

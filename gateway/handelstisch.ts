@@ -2,6 +2,8 @@ import { createSdkMcpServer, query, tool } from "@anthropic-ai/claude-agent-sdk"
 import { z } from "zod";
 import { HANDELSTISCH, type HandelstischName, WERKSTATT } from "../context/bedienstete.js";
 import { redactText } from "../runtime/redaction/redact.js";
+import { createKurse } from "./kurse.js";
+import { sandkastenOptionen } from "./sandkasten.js";
 
 /**
  * Der Handelstisch: das Team hinter dem Chefanalysten.
@@ -27,6 +29,10 @@ const BUDGET_JE_FRAGE = Number(process.env.KURO_BUDGET_TISCH_USD ?? 0.75);
 export interface HandelstischDeps {
   onArbeitet?(wer: string, frage: string): void;
   onFertig?(wer: string, kostenUsd: number, dauerMs: number): void;
+  /** Ein Zwischensatz aus dem Lauf eines Spezialisten, während er arbeitet. */
+  onFortschritt?(wer: string, text: string): void;
+  /** Frage und Antwort im Wortlaut — fürs Analysen-Archiv, nicht für die Anzeige. */
+  onAntwort?(wer: string, frage: string, antwort: string): void;
 }
 
 export function createHandelstisch(deps: HandelstischDeps = {}) {
@@ -57,7 +63,9 @@ export function createHandelstisch(deps: HandelstischDeps = {}) {
       deps.onArbeitet?.(wen, frage);
       const start = Date.now();
 
-      let antwort = "";
+      // Wie eine Ebene höher: der letzte Textblock ist die Antwort, alles davor ein
+      // Zwischenstand, der sofort hinausgeht statt am Ende vorn zu kleben.
+      const bloecke: string[] = [];
       let kosten = 0;
 
       try {
@@ -67,7 +75,10 @@ export function createHandelstisch(deps: HandelstischDeps = {}) {
             cwd: WERKSTATT,
             systemPrompt: { type: "custom", prompt: person.prompt },
             model: person.model,
-            ...(person.tools ? { allowedTools: person.tools } : {}),
+            ...sandkastenOptionen(wen, person.tools, person.disallowedTools),
+            // Kursdaten aus erster Hand statt durch ein Zusammenfassungsmodell — der Grund,
+            // warum eine Chartanalyse am 2026-09-20 volle 279 Sekunden brauchte, lag hier.
+            mcpServers: { kurse: createKurse() },
             maxBudgetUsd: BUDGET_JE_FRAGE,
             // Ein Spezialist beantwortet eine Frage; er führt kein Projekt. Die Grenze hält
             // ihn davon ab, sich in eine Recherche zu vertiefen, die niemand bestellt hat.
@@ -76,7 +87,14 @@ export function createHandelstisch(deps: HandelstischDeps = {}) {
         })) {
           if (nachricht.type === "assistant" && nachricht.parent_tool_use_id === null) {
             for (const block of nachricht.message.content) {
-              if (block.type === "text") antwort += block.text;
+              if (block.type === "text" && block.text.trim() !== "") {
+                const vorheriger = bloecke[bloecke.length - 1];
+                if (vorheriger !== undefined) {
+                  const zeile = vorheriger.trim().split("\n")[0]?.trim() ?? "";
+                  if (zeile !== "") deps.onFortschritt?.(wen, redactText(zeile.slice(0, 120)));
+                }
+                bloecke.push(block.text);
+              }
             }
           }
           if (nachricht.type === "result" && nachricht.subtype === "success") {
@@ -93,14 +111,12 @@ export function createHandelstisch(deps: HandelstischDeps = {}) {
       }
 
       deps.onFertig?.(wen, kosten, Date.now() - start);
-      return {
-        content: [
-          {
-            type: "text" as const,
-            text: redactText(antwort.trim()) || `${wen} hat nichts gesagt.`,
-          },
-        ],
-      };
+      const antwort = redactText((bloecke[bloecke.length - 1] ?? "").trim());
+      if (antwort === "") {
+        return { content: [{ type: "text" as const, text: `${wen} hat nichts gesagt.` }] };
+      }
+      deps.onAntwort?.(wen, frage, antwort);
+      return { content: [{ type: "text" as const, text: antwort }] };
     },
     { annotations: { title: "Spezialisten befragen" } },
   );
