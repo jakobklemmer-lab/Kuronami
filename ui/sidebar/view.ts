@@ -24,6 +24,8 @@ const NAV_ITEMS: { route: RouteId; label: string }[] = [
   { route: "mail", label: "Mail" },
   { route: "calendar", label: "Calendar" },
   { route: "trading", label: "Trading" },
+  { route: "analysen", label: "Analysen" },
+  { route: "strategien", label: "Strategien" },
   { route: "research", label: "Research" },
   { route: "files", label: "Files" },
   { route: "settings", label: "Settings" },

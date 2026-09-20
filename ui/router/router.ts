@@ -22,6 +22,9 @@ export const ROUTE_IDS = [
   // Das Analysen-Archiv (2026-09-20): fertige Einschätzungen zum Nachlesen, bevor ein Trade
   // wirklich losgeht. Eigene Route, damit es ein Lesezeichen sein kann.
   "analysen",
+  // Das Strategie-Archiv (2026-09-20): geprüfte Regeln samt Kennzahlen — der Ort, an dem
+  // entschieden wird, was irgendwann von selbst laufen darf.
+  "strategien",
   "research",
   "files",
   "system",

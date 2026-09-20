@@ -2024,3 +2024,73 @@
   font-size: 13px;
   color: #e8a0a0;
 }
+
+/* ---------------------------------------------------------------- Strategien
+   Dieselbe Zweiteilung wie die Analysen (Liste links, Blatt rechts) — hier aber mit den
+   Kennzahlen als Raster: wer eine Strategie freigibt, soll die Zahlen nebeneinander sehen,
+   nicht in einem Fließtext suchen. */
+.strategie__zahlen {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(128px, 1fr));
+  gap: 1px;
+  margin: 14px 0;
+  padding: 0;
+  background: var(--border, rgb(237 240 245 / 9%));
+  border: 1px solid var(--border, rgb(237 240 245 / 9%));
+  border-radius: 10px;
+  overflow: hidden;
+}
+.strategie__zahlen > div {
+  margin: 0;
+  padding: 9px 11px;
+  background: var(--bg, #0b0d11);
+}
+.strategie__zahlen dt {
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  color: var(--fg-muted);
+}
+.strategie__zahlen dd {
+  margin: 2px 0 0;
+  font-size: 15px;
+  font-variant-numeric: tabular-nums;
+}
+.strategie__vorbehalte {
+  margin: 12px 0;
+  padding: 10px 12px;
+  border-radius: 10px;
+  border: 1px solid #e8b35c55;
+  background: rgb(232 179 92 / 8%);
+}
+.strategie__vorbehalte h3 {
+  margin: 0 0 6px;
+  font-size: 12px;
+  font-weight: 500;
+  letter-spacing: 0.04em;
+  color: #e8b35c;
+}
+.strategie__vorbehalte ul {
+  margin: 0;
+  padding-left: 18px;
+  font-size: 13px;
+  line-height: 1.5;
+}
+.strategie__regel,
+.strategie__bericht {
+  margin: 8px 0 0;
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: rgb(0 0 0 / 22%);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  overflow-x: auto;
+}
+.analysen__marke.ist-kandidat {
+  color: #8fd6a4;
+  border-color: #8fd6a455;
+}
+.analysen__marke.ist-entwurf {
+  color: var(--fg-muted);
+}

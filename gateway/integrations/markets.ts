@@ -32,6 +32,11 @@ export interface MarketCandle {
   high: number;
   low: number;
   close: number;
+  /**
+   * Gehandeltes Volumen, wenn die Quelle es liefert. Bei Indizes und Devisen fehlt es
+   * regelmäßig — ein Volumenindikator (OBV) sagt dort nichts und meldet das auch.
+   */
+  volume?: number;
 }
 
 export interface MarketQuote {
@@ -143,6 +148,7 @@ interface YahooChartResponse {
           high?: unknown;
           low?: unknown;
           close?: unknown;
+          volume?: unknown;
         }>;
       };
     }>;
@@ -209,6 +215,7 @@ export function mapChartResponse(json: unknown, range: string, interval: string)
   const highs = Array.isArray(quote.high) ? quote.high : [];
   const lows = Array.isArray(quote.low) ? quote.low : [];
   const closes = Array.isArray(quote.close) ? quote.close : [];
+  const volumes = Array.isArray(quote.volume) ? quote.volume : [];
 
   const candles: MarketCandle[] = [];
   for (let i = 0; i < timestamps.length; i += 1) {
@@ -220,7 +227,8 @@ export function mapChartResponse(json: unknown, range: string, interval: string)
     if (time === null || open === null || high === null || low === null || close === null) {
       continue;
     }
-    candles.push({ time, open, high, low, close });
+    const volume = num(volumes[i]);
+    candles.push({ time, open, high, low, close, ...(volume !== null ? { volume } : {}) });
   }
 
   const hoch52 = num(meta.fiftyTwoWeekHigh);
@@ -255,6 +263,20 @@ export interface YahooMarketsOptions {
 export interface MarketsClient {
   search(query: string, limit?: number): Promise<MarketSearchHit[]>;
   chart(symbol: string, range: ChartRange, interval: ChartInterval): Promise<MarketChart>;
+  /**
+   * Kerzen für einen **festen Zeitraum** (Unix-Sekunden, Ende ausschließlich).
+   *
+   * Der Unterschied zu `chart` ist nicht Bequemlichkeit, sondern die Voraussetzung für einen
+   * ehrlichen Rückblick: „Wie sah es am 1. Juni aus" lässt sich mit `range` nicht fragen, und
+   * eine Antwort, die die Wochen danach enthält, verdirbt jede Auswertung einer damaligen
+   * Einschätzung. Siehe `gateway/labor.ts`.
+   */
+  zeitraum(
+    symbol: string,
+    vonUnix: number,
+    bisUnix: number,
+    interval: ChartInterval,
+  ): Promise<MarketChart>;
   /** Kurse mehrerer Symbole parallel; ein Fehler bei einem Symbol lässt die anderen stehen. */
   quotes(symbols: readonly string[]): Promise<{ quotes: MarketQuote[]; failed: string[] }>;
 }
@@ -300,6 +322,26 @@ export function createYahooMarkets(options: YahooMarketsOptions = {}): MarketsCl
     return mapChartResponse(json, range, interval);
   }
 
+  async function zeitraum(
+    symbol: string,
+    vonUnix: number,
+    bisUnix: number,
+    interval: ChartInterval,
+  ) {
+    if (!isValidSymbol(symbol)) throw new MarketDataError(`Ungültiges Symbol "${symbol}".`);
+    if (!Number.isFinite(vonUnix) || !Number.isFinite(bisUnix) || bisUnix <= vonUnix) {
+      throw new MarketDataError("Der Zeitraum ergibt keinen Sinn: das Ende liegt vor dem Anfang.");
+    }
+    const json = await getJson(
+      `/v8/finance/chart/${encodeURIComponent(symbol)}?period1=${Math.floor(vonUnix)}&period2=${Math.floor(bisUnix)}&interval=${interval}`,
+    );
+    return mapChartResponse(
+      json,
+      `${new Date(vonUnix * 1000).toISOString().slice(0, 10)}…${new Date(bisUnix * 1000).toISOString().slice(0, 10)}`,
+      interval,
+    );
+  }
+
   return {
     async search(query, limit = 8) {
       const trimmed = query.trim();
@@ -310,6 +352,7 @@ export function createYahooMarkets(options: YahooMarketsOptions = {}): MarketsCl
       return mapSearchResponse(json).slice(0, limit);
     },
     chart,
+    zeitraum,
     async quotes(symbols) {
       const results = await Promise.allSettled(symbols.map((symbol) => chart(symbol, "1d", "5m")));
       const quotes: MarketQuote[] = [];

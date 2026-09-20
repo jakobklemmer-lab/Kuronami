@@ -10,9 +10,11 @@ import { redactText } from "../runtime/redaction/redact.js";
 import { crvVermerk } from "./crv.js";
 import { FRAGE_TEAM_TOOL, createHandelstisch } from "./handelstisch.js";
 import { CRV_TOOL, KURSE_TOOLS, createKurse } from "./kurse.js";
+import { createLabor } from "./labor.js";
 import { createLesePostfach } from "./postfach-werkzeuge.js";
 import { konten } from "./postfach.js";
 import { sandkastenOptionen } from "./sandkasten.js";
+import type { StrategienArchiv } from "./strategien.js";
 
 /**
  * Das Gesindehaus: **ein** Werkzeug für Kuro, dahinter das ganze Personal.
@@ -39,6 +41,8 @@ import { sandkastenOptionen } from "./sandkasten.js";
  */
 
 export interface HausDeps {
+  /** Das Strategie-Archiv — der Stratege am Handelstisch legt dort ab. */
+  strategien?: StrategienArchiv;
   /** Damit die Oberfläche anzeigen kann, wer gerade arbeitet. */
   onArbeitet?(wer: string, auftrag: string): void;
   onFertig?(wer: string, kostenUsd: number, dauerMs: number): void;
@@ -327,7 +331,12 @@ async function fuehreAus(
           ? {
               mcpServers: {
                 kurse: createKurse(),
+                // Der Chefanalyst bekommt das Labor **lesend**: Rückblick auf eine alte Idee
+                // und der Blick von damals gehören zu seiner täglichen Arbeit. Ablegen darf
+                // dort nur der Stratege — sonst landen Einfälle im Strategie-Archiv.
+                labor: createLabor({ workdir: WERKSTATT, wer: "boerse" }),
                 tisch: createHandelstisch({
+                  ...(deps.strategien ? { strategien: deps.strategien } : {}),
                   onArbeitet: (wen, frage) => {
                     console.log(`[tisch] ${wen}: ${redactText(frage.slice(0, 80))}`);
                     melde("fängt an", wen);

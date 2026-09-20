@@ -4,7 +4,9 @@ import { HANDELSTISCH, type HandelstischName, WERKSTATT } from "../context/bedie
 import { redactText } from "../runtime/redaction/redact.js";
 import { crvVermerk } from "./crv.js";
 import { CRV_TOOL, createKurse } from "./kurse.js";
+import { createLabor } from "./labor.js";
 import { sandkastenOptionen } from "./sandkasten.js";
+import type { StrategienArchiv } from "./strategien.js";
 
 /**
  * Der Handelstisch: das Team hinter dem Chefanalysten.
@@ -27,7 +29,17 @@ import { sandkastenOptionen } from "./sandkasten.js";
 /** Obergrenze je Spezialist. Enger als beim Gesindehaus: das hier sind Zuarbeiten, keine Aufträge. */
 const BUDGET_JE_FRAGE = Number(process.env.KURO_BUDGET_TISCH_USD ?? 0.75);
 
+/**
+ * Der Stratege ist die Ausnahme. Eine Strategie zu entwickeln heißt: Regel aufstellen, rechnen
+ * lassen, Ergebnis lesen, Regel ändern — ein Dutzend Runden, jede mit einer Kerzentabelle
+ * darin. Mit dem Budget einer Zuarbeit käme er über die erste Variante nicht hinaus, und eine
+ * abgebrochene Prüfung ist schlimmer als keine: sie sieht aus wie ein Ergebnis.
+ */
+const BUDGET_STRATEGE = Number(process.env.KURO_BUDGET_STRATEGE_USD ?? 2.5);
+
 export interface HandelstischDeps {
+  /** Das Strategie-Archiv — ohne es fehlen dem Strategen die Ablage-Werkzeuge. */
+  strategien?: StrategienArchiv;
   onArbeitet?(wer: string, frage: string): void;
   onFertig?(wer: string, kostenUsd: number, dauerMs: number): void;
   /** Ein Zwischensatz aus dem Lauf eines Spezialisten, während er arbeitet. */
@@ -82,11 +94,21 @@ export function createHandelstisch(deps: HandelstischDeps = {}) {
             ...sandkastenOptionen(wen, person.tools, person.disallowedTools),
             // Kursdaten aus erster Hand statt durch ein Zusammenfassungsmodell — der Grund,
             // warum eine Chartanalyse am 2026-09-20 volle 279 Sekunden brauchte, lag hier.
-            mcpServers: { kurse: createKurse() },
-            maxBudgetUsd: BUDGET_JE_FRAGE,
+            mcpServers: {
+              kurse: createKurse(),
+              // Das Labor: Wiedergabe, Rückblick, Backtest, Strategie-Ablage. Es steht nur
+              // hier — Kuros Katalog bleibt frei davon.
+              labor: createLabor({
+                workdir: WERKSTATT,
+                wer: wen,
+                ...(deps.strategien ? { strategien: deps.strategien } : {}),
+              }),
+            },
+            maxBudgetUsd: wen === "stratege" ? BUDGET_STRATEGE : BUDGET_JE_FRAGE,
             // Ein Spezialist beantwortet eine Frage; er führt kein Projekt. Die Grenze hält
-            // ihn davon ab, sich in eine Recherche zu vertiefen, die niemand bestellt hat.
-            maxTurns: 12,
+            // ihn davon ab, sich in eine Recherche zu vertiefen, die niemand bestellt hat —
+            // nur der Stratege braucht Runden, weil Prüfen aus Wiederholen besteht.
+            maxTurns: person.maxTurns ?? 12,
           },
         })) {
           if (nachricht.type === "assistant" && nachricht.parent_tool_use_id === null) {

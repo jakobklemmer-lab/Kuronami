@@ -14,6 +14,7 @@ import { BUEHNE_TOOLS, createBuehne } from "./buehne.js";
 import { HAUS_TOOLS, createHaus } from "./haus.js";
 import { createSendePostfach } from "./postfach-werkzeuge.js";
 import { konten } from "./postfach.js";
+import { type StrategienArchiv, createStrategien } from "./strategien.js";
 import type { ChannelRegistry, InboundMessage, Outbound, Sender } from "./types.js";
 
 /**
@@ -150,6 +151,8 @@ export interface AgentDeps {
   publish?(type: string, data: Record<string, unknown>): void;
   /** Das Analysen-Archiv. Vorgabe: ein Ordner `analysen/` im Arbeitsbereich. */
   analysen?: AnalysenArchiv;
+  /** Das Strategie-Archiv. Vorgabe: ein Ordner `strategien/` im Arbeitsbereich. */
+  strategien?: StrategienArchiv;
 }
 
 export interface ZugKosten {
@@ -231,6 +234,8 @@ export class KuroAgent {
   readonly #haus: ReturnType<typeof createHaus>;
   /** Wohin fertige Analysen gelegt werden, damit Jakob sie vor einem Trade nachlesen kann. */
   readonly #analysen: AnalysenArchiv;
+  /** Wohin geprüfte Strategien gelegt werden — Regeln samt ihrem Backtest. */
+  readonly #strategien: StrategienArchiv;
   /** Die Bühne: womit Kuro Jakob etwas hinstellt. */
   readonly #buehne: ReturnType<typeof createBuehne>;
   /** Wohin ein nachgereichter Bericht geht: dorthin, wo zuletzt jemand geschrieben hat. */
@@ -244,7 +249,9 @@ export class KuroAgent {
     this.#deps = deps;
     this.#workdir = deps.workdir ?? process.env.KURO_WORKDIR?.trim() ?? DEFAULT_WORKDIR;
     this.#analysen = deps.analysen ?? createAnalysen({ workdir: this.#workdir });
+    this.#strategien = deps.strategien ?? createStrategien({ workdir: this.#workdir });
     this.#haus = createHaus({
+      strategien: this.#strategien,
       // Auch die Protokollzeile läuft durch den Filter: der Auftragstext trägt alles weiter,
       // was Jakob vorher geschrieben hat, und journalctl bewahrt es auf.
       //
@@ -296,6 +303,10 @@ export class KuroAgent {
   /** Das Archiv der Analysen — die Oberfläche liest daraus. */
   get analysen(): AnalysenArchiv {
     return this.#analysen;
+  }
+
+  get strategien(): StrategienArchiv {
+    return this.#strategien;
   }
 
   /** Was die Bediensteten gerade tun. Die Oberfläche zeigt es, wenn kein Zug läuft. */

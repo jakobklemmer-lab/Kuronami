@@ -27,6 +27,7 @@ import { filesView } from "./views/files.js";
 import { homeView } from "./views/home.js";
 import { mailView } from "./views/mail.js";
 import { researchView } from "./views/research.js";
+import { strategienView } from "./views/strategien.js";
 import { systemView } from "./views/system.js";
 import { tradingView } from "./views/trading.js";
 import type { View, ViewContext } from "./views/types.js";
@@ -45,6 +46,7 @@ const VIEWS: Record<RouteId, View> = {
   calendar: calendarView,
   trading: tradingView,
   analysen: analysenView,
+  strategien: strategienView,
   research: researchView,
   files: filesView,
   system: systemView,

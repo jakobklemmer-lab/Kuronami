@@ -1078,6 +1078,72 @@ export function createServer(deps: ServerDeps): express.Express {
    * was die Gegenprüfung eingewandt hat. Geschrieben wird hier nichts: der Ablageort ist
    * `analysen.ts`, gefüllt wird er, wenn ein Bericht fertig ist.
    */
+  /**
+   * Die geprüften Strategien (2026-09-20).
+   *
+   * Getrennt von den Analysen, weil es etwas anderes ist: eine Analyse ist eine Einschätzung
+   * zu einem Zeitpunkt, eine Strategie eine Regel mit Kennzahlen. Der Status kommt aus der
+   * Rechnung (`strategien.ts`, `bewerte`) — die Oberfläche darf ihn ändern, weil am Ende
+   * Jakob entscheidet, aber sie erfindet ihn nicht.
+   */
+  app.get("/integrations/strategien", async (req, res, next) => {
+    try {
+      const principal = webPrincipal(req, res);
+      if (!principal) return;
+      const grenzeRoh = Number(req.query.grenze);
+      const grenze = Number.isFinite(grenzeRoh) ? Math.min(Math.max(grenzeRoh, 1), 200) : 50;
+      res.json({ strategien: await deps.gateway.agent.strategien.liste(grenze) });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.get("/integrations/strategien/:id", async (req, res, next) => {
+    try {
+      const principal = webPrincipal(req, res);
+      if (!principal) return;
+      const eintrag = await deps.gateway.agent.strategien.lies(req.params.id);
+      if (!eintrag) {
+        res.status(404).json({ error: "Diese Strategie gibt es nicht." });
+        return;
+      }
+      res.json(eintrag);
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.patch("/integrations/strategien/:id", async (req, res, next) => {
+    try {
+      const principal = webPrincipal(req, res);
+      if (!principal) return;
+      const status = req.body?.status;
+      const notiz = req.body?.notiz;
+      if (
+        status !== undefined &&
+        !["entwurf", "geprueft", "kandidat", "verworfen"].includes(status)
+      ) {
+        res.status(400).json({ error: `Unbekannter Status "${status}".` });
+        return;
+      }
+      if (notiz !== undefined && typeof notiz !== "string") {
+        res.status(400).json({ error: "notiz muss Text sein." });
+        return;
+      }
+      const eintrag = await deps.gateway.agent.strategien.aendere(req.params.id, {
+        ...(status ? { status } : {}),
+        ...(notiz !== undefined ? { notiz: notiz.slice(0, 4000) } : {}),
+      });
+      if (!eintrag) {
+        res.status(404).json({ error: "Diese Strategie gibt es nicht." });
+        return;
+      }
+      res.json(eintrag);
+    } catch (error) {
+      next(error);
+    }
+  });
+
   app.get("/integrations/analysen", async (req, res, next) => {
     try {
       const principal = webPrincipal(req, res);

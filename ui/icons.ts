@@ -18,6 +18,7 @@ export type IconName =
   | "trading"
   | "research"
   | "analysen"
+  | "strategien"
   | "files"
   | "system"
   | "settings"
@@ -53,6 +54,9 @@ const PATHS: Record<IconName, string> = {
   // Analysen: ein abgelegtes Blatt mit einer Kurslinie darauf — Lesestoff, kein Live-Blick.
   analysen:
     '<path d="M5 3.5h6.5L15.5 7.4V16a.5.5 0 0 1-.5.5H5a.5.5 0 0 1-.5-.5V4a.5.5 0 0 1 .5-.5Z" /><path d="M11.3 3.7v3.8h3.9" /><path d="m6.8 13.6 2-2.3 1.7 1.5 2.3-3" />',
+  // Strategien: ein Raster mit einer aufsteigenden Linie — eine Regel, kein Einzelblick.
+  strategien:
+    '<rect x="3" y="3.5" width="14" height="13" rx="1.5" /><path d="M3 8h14M3 12h14M8 3.5v13M13 3.5v13" /><path d="m4.5 14 3-3.5 3 2 5-5.5" />',
   files: '<path d="M4 4.5h5l1.5 2H16v9a.5.5 0 0 1-.5.5h-11A.5.5 0 0 1 4 15.5Z" />',
   system:
     '<rect x="4" y="4" width="12" height="12" rx="1.5" /><path d="M8 8h4v4H8Z" /><path d="M8 1.5V4M12 1.5V4M8 16v2.5M12 16v2.5M1.5 8H4M1.5 12H4M16 8h2.5M16 12h2.5" />',
