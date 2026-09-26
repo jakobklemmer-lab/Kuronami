@@ -42,7 +42,16 @@ export const STATIC_FILES = [
   // Aus demselben Grund: three r170 (MIT) und der Orb, der darauf zeichnet (S47).
   "vendor/three.module.min.mjs",
   "vendor/kuronami-orb.mjs",
+  // Die Welle (2026-09-26): eine zweite, eigenständige Oberfläche unter `/welle/`, neben der
+  // Präsenz statt an ihrer Stelle. Ihre Seite und ihr Stil; die Einzelbilder des Films stehen
+  // unter `STATIC_DIRS`, weil 242 Dateinamen hier niemand pflegen will.
+  "welle/index.html",
+  "welle/welle.css",
+  "welle/raeume.css",
 ] as const;
+
+/** Ordner, die der Bau als Ganzes kopiert — heute nur die Einzelbilder des Films der Welle. */
+export const STATIC_DIRS = ["welle/film"] as const;
 
 const TRANSPILE: ts.TranspileOptions = {
   compilerOptions: {
@@ -91,6 +100,7 @@ const CONTENT_TYPES: Record<string, string> = {
   ".jpeg": "image/jpeg",
   ".woff2": "font/woff2",
   ".mp4": "video/mp4",
+  ".webp": "image/webp",
 };
 
 export function contentTypeFor(filePath: string): string {

@@ -52,9 +52,33 @@ const RELOAD_SNIPPET = `
     </script>
   `;
 
-app.get(["/", "/index.html"], async (_req, res, next) => {
+/**
+ * Jede Seite bekommt das Schnipsel, nicht nur die unter `/`: seit 2026-09-26 steht unter
+ * `/welle/` eine zweite Oberfläche mit eigener `index.html`. Ein Ordnerpfad liefert deren
+ * `index.html`; ohne Schrägstrich am Ende wird umgeleitet, weil die Seite ihre Dateien relativ
+ * lädt (`./welle.css`) und der Browser sie sonst eine Ebene zu hoch suchte.
+ */
+app.get(/(^\/$|\/index\.html$|^\/[a-z-]+\/?$)/, async (req, res, next) => {
   try {
-    const html = await readFile(path.join(UI_ROOT, "index.html"), "utf8");
+    const seite = req.path.endsWith("index.html")
+      ? req.path
+      : `${req.path.replace(/\/?$/, "/")}index.html`;
+    const target = resolveInUi(seite);
+    if (target === null) {
+      res.status(403).type("text/plain").send("Pfad außerhalb von ui/.");
+      return;
+    }
+    try {
+      await stat(target);
+    } catch {
+      next();
+      return;
+    }
+    if (!req.path.endsWith("/") && !req.path.endsWith("index.html")) {
+      res.redirect(302, `${req.path}/`);
+      return;
+    }
+    const html = await readFile(target, "utf8");
     res.type("html").send(html.replace("</body>", `${RELOAD_SNIPPET}</body>`));
   } catch (error) {
     next(error);

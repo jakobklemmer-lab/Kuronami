@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="de">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <title>Kuronami</title>
+    <meta name="color-scheme" content="dark" />
+    <meta name="theme-color" content="#03080b" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="Kuronami" />
+    <link rel="icon" href="../assets/favicon.svg" type="image/svg+xml" />
+    <link rel="apple-touch-icon" href="../assets/apple-touch-icon.png" />
+    <!-- Das erste Bild des Films, bevor irgendein Skript läuft: die Tür und die Welle stehen
+         darauf, bis die Einzelbilder da sind. -->
+    <link rel="preload" href="./film/poster.jpg" as="image" />
+    <!-- Shippori Mincho für Gruß, Titel und die zwei Zeichen 黒波; Hanken Grotesk für alles, was
+         man bedient. Die Fachansichten bringen ihren Grundbau aus der Präsenz mit (views.css),
+         die Welle kleidet ihn neu (raeume.css). -->
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Hanken+Grotesk:wght@300;400;500;600&family=Shippori+Mincho:wght@400;500;700&display=swap" />
+    <link rel="stylesheet" href="../styles/views.css" />
+    <link rel="stylesheet" href="./welle.css" />
+    <link rel="stylesheet" href="./raeume.css" />
+  </head>
+  <body>
+    <!--
+      Die Welle (2026-09-26): eine eigene Oberfläche neben der Präsenz unter `/`. Aller Inhalt
+      kommt aus `start.ts` und `app.ts`; die Tür legt sich bei Bedarf selbst darüber.
+    -->
+    <div id="welle" class="welle"></div>
+    <div class="w-toast" id="w-toast" role="status" aria-live="polite" hidden></div>
+    <script type="module" src="./start.js"></script>
+  </body>
+</html>

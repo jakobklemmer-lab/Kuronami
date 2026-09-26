@@ -1,6 +1,6 @@
-import { copyFile, mkdir, readdir, rm, writeFile } from "node:fs/promises";
+import { copyFile, cp, mkdir, readdir, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
-import { STATIC_FILES, UI_ROOT, transpileFile } from "./serve.js";
+import { STATIC_DIRS, STATIC_FILES, UI_ROOT, transpileFile } from "./serve.js";
 
 /**
  * Der Bau der Oberfläche (S21): `ui/**` nach `ui/dist/`, TypeScript übersetzt, sonst
@@ -49,8 +49,12 @@ async function main(): Promise<void> {
     await copyFile(path.join(UI_ROOT, relative), target);
   }
 
+  for (const relative of STATIC_DIRS) {
+    await cp(path.join(UI_ROOT, relative), path.join(OUT_DIR, relative), { recursive: true });
+  }
+
   console.log(
-    `[ui] ${sources.length} Module übersetzt, ${STATIC_FILES.length} Dateien kopiert → ${path.relative(process.cwd(), OUT_DIR)}`,
+    `[ui] ${sources.length} Module übersetzt, ${STATIC_FILES.length} Dateien und ${STATIC_DIRS.length} Ordner kopiert → ${path.relative(process.cwd(), OUT_DIR)}`,
   );
 }
 

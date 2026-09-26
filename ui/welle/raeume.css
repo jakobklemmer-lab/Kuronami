@@ -1,0 +1,136 @@
+/*
+ * Die Bereiche der Welle — Post, Kalender, Märkte, Analysen, Strategien, Recherche, Dateien,
+ * System, Einstellungen.
+ *
+ * Ihre Ansichten sind dieselben wie in der Präsenz (`ui/views/*.ts`, `ui/settings/view.ts`): die
+ * Welle mountet sie unverändert, damit es für jeden Bereich genau eine Logik gibt. Ihren Grundbau
+ * bringen sie aus `../styles/views.css` mit; hier bekommen sie das Kleid der Welle. Jede Regel ist
+ * auf `.w-raum` begrenzt, damit nichts davon in die Präsenz zurückwirkt, falls views.css dort
+ * einmal dasselbe Dokument teilt.
+ */
+
+/* --------------------------------------------------------------------- */
+/* Kopf jedes Bereichs: der Name als Bild, darunter der Stand             */
+/* --------------------------------------------------------------------- */
+
+.w-raum .detail-view {
+  padding: 0;
+  gap: 26px;
+}
+
+.w-raum .detail-view__head {
+  gap: 0;
+  margin-bottom: 6px;
+}
+
+.w-raum .detail-view__icon {
+  display: none;
+}
+
+.w-raum .detail-view__title {
+  font-family: var(--zeichen);
+  font-weight: 500;
+  font-size: clamp(2.6rem, 5vw, 4.6rem);
+  line-height: 1;
+  letter-spacing: -0.01em;
+  text-shadow: 0 2px 30px rgba(0, 0, 0, 0.5);
+}
+
+.w-raum .detail-view__subtitle {
+  margin-top: 16px;
+  font-size: 15px;
+  color: var(--nebel);
+}
+
+/* --------------------------------------------------------------------- */
+/* Beschriftungen: in ganzen Wörtern statt in gesperrten Versalien        */
+/* --------------------------------------------------------------------- */
+
+/* Die Präsenz setzte Überschriften der Karten, Feldnamen und Tabellenköpfe in gesperrte
+   Großbuchstaben. In der Welle tragen sie ihre Rolle über Größe und Farbe; Versalien bleiben den
+   zwei Zeichen oben links vorbehalten. */
+.w-raum .card__title,
+.w-raum .card__subtitle,
+.w-raum .spend-table th,
+.w-raum .figure dt,
+.w-raum .field__label,
+.w-raum .analysen__zuarbeit h3,
+.w-raum .strategie__zahlen dt,
+.w-raum .strategie__vorbehalte h3,
+.w-raum .strategie__betrieb h3 {
+  text-transform: none;
+  letter-spacing: 0;
+}
+
+.w-raum .card__title {
+  font-size: 15px;
+  font-weight: 500;
+  color: var(--mond);
+}
+
+.w-raum .field__label {
+  font-size: 13.5px;
+  color: var(--nebel);
+}
+
+/* Zahlen in der Schrift der Welle, mit Tabellenziffern. Kennungen (Läufe, Symbole, Befehle)
+   bleiben in der Monospace — dort ist sie Bedeutung, nicht Stil. */
+.w-raum .figure dd {
+  font-family: var(--schrift);
+  font-variant-numeric: tabular-nums;
+  font-weight: 400;
+}
+
+/* --------------------------------------------------------------------- */
+/* Flächen                                                               */
+/* --------------------------------------------------------------------- */
+
+/* Große Flächen mit großem Radius, Zeilen darin ohne — die Hierarchie steckt im Rand. */
+.w-raum .glass {
+  border-radius: var(--rand-l);
+  background: var(--lack);
+}
+
+.w-raum .detail-view__head + .glass,
+.w-raum .settings-content .glass {
+  border-radius: var(--rand-l);
+}
+
+/* Felder und Wahlen: die Wahl gehört Jakob, also trägt der Fokus sein Licht. */
+.w-raum .field__control,
+.w-raum .field__input,
+.w-raum select,
+.w-raum input[type="text"],
+.w-raum input[type="password"],
+.w-raum input[type="search"],
+.w-raum input[type="number"],
+.w-raum textarea {
+  border-radius: var(--rand-s);
+  transition: border-color 0.2s ease;
+}
+
+.w-raum .field__control:focus,
+.w-raum .field__input:focus,
+.w-raum select:focus,
+.w-raum input:focus,
+.w-raum textarea:focus {
+  border-color: rgba(244, 184, 96, 0.6);
+  outline: none;
+}
+
+.w-raum .field__button {
+  border-radius: 999px;
+}
+
+/* Die Einstellungen: der Abschnitt, in dem man ist, trägt die Laterne. */
+.w-raum .settings-view {
+  padding: 0;
+}
+
+.w-raum .settings-nav__link--active {
+  box-shadow: inset 2px 0 0 var(--laterne);
+}
+
+.w-raum__kopf {
+  margin-bottom: 30px;
+}
