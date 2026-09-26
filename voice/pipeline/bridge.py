@@ -70,10 +70,50 @@ from voice.pipeline.latency import LatencyLedger
 
 #: Wie oft im Postfach nachgesehen wird, solange gerade nichts läuft.
 _OUTBOX_POLL_SECS = 4.0
-#: Wie lange nach dem letzten Transkriptstück noch auf eine Fortsetzung gewartet wird.
+#: Wie lange nach einem **abgeschlossenen** Satz noch auf eine Fortsetzung gewartet wird.
 _SATZ_PAUSE_SECS = float(os.environ.get("VOICE_UTTERANCE_GAP_SECS") or 0.25)
+#: Dasselbe, wenn der Satz erkennbar **nicht** zu Ende ist.
+#:
+#: Am 2026-09-21 sagte Jakob "…aber wenn der Paperhandel, also der Paper Trading laufen würde,"
+#: — holte Luft — und Kuro fiel ihm mit "Ja, wenn er liefe?" ins Wort. Jakobs Antwort darauf:
+#: "Koro, Du hast mir da grad irgendwas unterbrochen." Der Grund war Arithmetik: 0,8 s bis das
+#: VAD die Äußerung beendet, 0,25 s Nachlauf, und nach gut einer Sekunde Denkpause galt der
+#: halbe Satz als fertiger Befehl. Am 2026-09-20 zerfiel derselbe Mechanismus einen Satz in
+#: vier Züge ("Also es ist ja irgendwie jetzt schon" / "länger." / …).
+#:
+#: **Gewartet wird nicht pauschal länger, sondern nur beim offenen Satz.** Deepgram liefert
+#: Interpunktion mit; ein Stück, das auf Komma oder auf gar nichts endet, ist eine Ansage, dass
+#: noch etwas kommt. Wer "Wie wird das Wetter?" fragt, wartet weiterhin eine Viertelsekunde.
+_SATZ_PAUSE_OFFEN_SECS = float(os.environ.get("VOICE_UTTERANCE_GAP_OPEN_SECS") or 1.2)
+#: Woran ein **offener** Satz zu erkennen ist: ein Komma, ein Semikolon, ein Gedankenstrich
+#: oder ein Bindewort am Schluss.
+#:
+#: Bewusst nicht „es fehlt ein Satzzeichen": ein gesprochener Befehl endet oft ohne Punkt
+#: ("Sieh mal im Postfach"), und der müsste dann jedes Mal die lange Pause abwarten — Kuro
+#: wäre spürbar träger, und zwar in **jedem** Zug, um einen seltenen Fall zu fangen. Ein
+#: Komma dagegen ist eine Ansage: hier geht es weiter. Genau die stand am 2026-09-21 im
+#: Transkript ("…also der Paper Trading laufen würde,"), und genau die hat niemand gelesen.
+_SATZ_OFFEN = re.compile(
+    r"(?:[,;]|\s[–-]|\b(?:und|aber|oder|weil|dass|wenn|also|sondern|denn|dann)\s*)$",
+    re.IGNORECASE,
+)
 #: Satzende, gefolgt von Leerraum — dort darf die Stimme anfangen, bevor der Rest da ist.
-_SENTENCE_END = re.compile(r"(?<=[.!?…:])\s+")
+#:
+#: **Der Doppelpunkt stand hier bis 2026-09-21 mit drin, und er war ein Fehler.** Kuro leitet
+#: Aufzählungen damit ein ("Dabei läuft mit:", "Wie eng der Takt ist, hängt davon ab:"), und
+#: jedes dieser Stücke ging als **eigener** Auftrag an den Sprachdienst. Im Protokoll dieses
+#: Abends steht eine einzige Antwort als 13 getrennte Aufrufe, der kürzeste 16 Zeichen lang.
+#: Das hört man doppelt: die Sprachmelodie fängt jedes Mal neu an, und ein Anbieter, der die
+#: Sprache aus dem Text errät, hat bei 16 Zeichen nichts, woran er sie erkennen könnte —
+#: genau dort kippte die Aussprache englischer Fachbegriffe.
+_SENTENCE_END = re.compile(r"(?<=[.!?…])\s+")
+#: Kürzer als das wird kein Stück allein gesprochen; es wartet auf das nächste.
+#:
+#: Fängt den Rest, den der Doppelpunkt übrig lässt: Ordnungszahlen ("am 20. September"),
+#: Abkürzungen ("z. B.", "u. a.", "ca.") und Ausrufe. Ein Punkt ist im Deutschen eben nicht
+#: immer ein Satzende, und eine Liste der Ausnahmen wäre nie vollständig — die Länge ist das
+#: Merkmal, das ohne Wörterbuch auskommt.
+_MIN_SATZ_ZEICHEN = 60
 #: Was vorgelesen keinen Sinn ergibt: Markdown-Auszeichnung, Listenpunkte, Überschriften.
 _MARKDOWN_NOISE = re.compile(r"(\*\*|__|`+|^#{1,6}\s+|^\s*[-*]\s+|^\s*\d+\.\s+)", re.MULTILINE)
 
@@ -94,24 +134,36 @@ class LiveSentences:
     def __init__(self, speak: Callable[[str], Awaitable[None]]) -> None:
         self._speak = speak
         self._buffer = ""
+        #: Fertige Sätze, die für sich allein zu kurz zum Sprechen wären.
+        self._offen = ""
         self.spoken = False
+        #: Was tatsächlich zum Sprechen ging. Nach einem Barge-in ist das die Grenze zwischen
+        #: dem, was Jakob gehört hat, und dem, was er nicht gehört hat.
+        self.gesprochen = ""
 
     async def feed(self, text: str) -> None:
         self._buffer += text
         parts = _SENTENCE_END.split(self._buffer)
-        for sentence in parts[:-1]:
-            await self._say(sentence)
-        self._buffer = parts[-1]
+        # Der Rest hinter dem letzten Satzzeichen bleibt liegen — er ist noch nicht fertig.
+        fertig, self._buffer = parts[:-1], parts[-1]
+        for sentence in fertig:
+            self._offen = f"{self._offen} {sentence}".strip() if self._offen else sentence
+            if len(self._offen) >= _MIN_SATZ_ZEICHEN:
+                satz, self._offen = self._offen, ""
+                await self._say(satz)
 
     async def flush(self) -> None:
+        """Zum Schluss geht alles raus — auch das, was für sich zu kurz wäre."""
         rest, self._buffer = self._buffer, ""
-        await self._say(rest)
+        offen, self._offen = self._offen, ""
+        await self._say(f"{offen} {rest}".strip() if offen else rest)
 
     async def _say(self, text: str) -> None:
         cleaned = speakable(text)
         if not cleaned:
             return
         self.spoken = True
+        self.gesprochen = f"{self.gesprochen} {cleaned}".strip() if self.gesprochen else cleaned
         await self._speak(cleaned)
 from voice.pipeline.protocol import server_message
 
@@ -139,6 +191,12 @@ class KuronamiBridge(FrameProcessor):
         self._turn_task: asyncio.Task[None] | None = None
         self._pending_approval: Approval | None = None
         self._outbox_task: asyncio.Task[None] | None = None
+        #: Das zuletzt zum Sprechen gegebene Stück — der Anhaltspunkt, an dem ein Barge-in
+        #: die Antwort zerschnitten hat.
+        self._zuletzt_gesprochen = ""
+        #: Gesetzt, wenn eine Antwort ungehört verfallen ist. Geht als Vermerk in den nächsten
+        #: Zug und wird dabei verbraucht.
+        self._verfallen: str | None = None
         #: Die Stücke der laufenden Äußerung, bis feststeht, dass sie zu Ende ist.
         self._satz: list[str] = []
         self._satz_task: asyncio.Task[None] | None = None
@@ -155,7 +213,17 @@ class KuronamiBridge(FrameProcessor):
 
     @property
     def turn_in_flight(self) -> bool:
-        return self._turn_task is not None and not self._turn_task.done()
+        """Ob gerade ein Zug läuft — **einschließlich der Sekunde, in der noch gesammelt wird.**
+
+        Bis 2026-09-21 zählte nur der abgeschickte Zug. Dazwischen lag aber ein Loch: zwischen
+        dem Ende einer Äußerung und dem Absenden des Befehls wartet die Brücke auf eine
+        mögliche Fortsetzung (`_satz_abwarten`), und in dieser Zeit hielt sich der Postfachblick
+        für berechtigt, einen nachgereichten Bericht vorzutragen. Jakob hat am selben Abend
+        genau das gehört und gesagt: „Koro, Du hast mir da grad irgendwas unterbrochen."
+        """
+        laufend = self._turn_task is not None and not self._turn_task.done()
+        sammelnd = self._satz_task is not None and not self._satz_task.done()
+        return laufend or sammelnd
 
     # -- Nachrichten an den Client --------------------------------------------------------
 
@@ -175,6 +243,7 @@ class KuronamiBridge(FrameProcessor):
         if not cleaned:
             return
         self._ledger.mark("speech_queued")
+        self._zuletzt_gesprochen = cleaned
         await self._emit_state("speaking")
         await self.push_frame(TTSSpeakFrame(text=cleaned), FrameDirection.DOWNSTREAM)
 
@@ -211,6 +280,8 @@ class KuronamiBridge(FrameProcessor):
             self._bot_speaking = True
         elif isinstance(frame, BotStoppedSpeakingFrame):
             self._bot_speaking = False
+            # Zu Ende gesprochen heißt: nichts ist verfallen, es gibt nichts zu vermerken.
+            self._zuletzt_gesprochen = ""
             if not self.turn_in_flight:
                 await self._emit_state("idle")
         elif isinstance(frame, InterruptionFrame):
@@ -314,7 +385,8 @@ class KuronamiBridge(FrameProcessor):
 
     async def _satz_abwarten(self) -> None:
         """Wartet das Ende der Äußerung ab und schickt sie dann als einen Befehl."""
-        await asyncio.sleep(_SATZ_PAUSE_SECS)
+        offen = bool(_SATZ_OFFEN.search(self._satz[-1].strip())) if self._satz else False
+        await asyncio.sleep(_SATZ_PAUSE_OFFEN_SECS if offen else _SATZ_PAUSE_SECS)
         # Solange das VAD noch Stimme hört, kommt noch etwas nach.
         while self._user_speaking:
             await asyncio.sleep(0.1)
@@ -357,13 +429,37 @@ class KuronamiBridge(FrameProcessor):
         self._turn_task = self.create_task(coro)
 
     async def _abandon_turn(self) -> None:
-        """Was nach einem Barge-in passiert: nichts mehr sprechen, nichts mehr abwarten."""
+        """Was nach einem Barge-in passiert: nichts mehr sprechen, nichts mehr abwarten.
+
+        **Und: es wird vermerkt.** Bis 2026-09-21 verfiel der Rest der Antwort ersatzlos,
+        während im Gesprächsverlauf des Motors die *vollständige* Antwort als gesagt stand.
+        Kuro konnte deshalb nicht wissen, was Jakob gehört hatte. Als der ihm an diesem Abend
+        vorhielt, den Bericht des Handelstischs nicht zu Ende vorgelesen zu haben, blieb ihm
+        nur zu raten ("Entschuldigung, das war keine Absicht — ich hatte nur kurz bestätigt…").
+        Der Vermerk unten fährt beim nächsten Zug mit und macht aus dem Raten ein Wissen.
+        """
+        if self._bot_speaking and self._zuletzt_gesprochen:
+            self._verfallen = self._zuletzt_gesprochen
+            self._zuletzt_gesprochen = ""
         self._turn_seq += 1
         task = self._turn_task
         self._turn_task = None
         if task is not None and not task.done():
             task.cancel()
         await self._emit_state("listening")
+
+    def _mit_vermerk(self, text: str) -> str:
+        """Hängt dem Befehl an, was Jakob von der letzten Antwort nicht gehört hat."""
+        verfallen, self._verfallen = self._verfallen, None
+        if not verfallen:
+            return text
+        marke = verfallen[:120] + ("…" if len(verfallen) > 120 else "")
+        return (
+            "[Hinweis der Sprachschicht: Deine vorige Antwort wurde unterbrochen; ab "
+            f"\u201e{marke}\u201c hat Jakob sie nicht mehr gehört. Frage nicht danach und "
+            "wiederhole nichts von selbst — greife den Rest nur auf, wenn er ihn verlangt.]"
+            "\n\n" + text
+        )
 
     async def _turn(self, text: str) -> None:
         mine = self._turn_seq
@@ -374,7 +470,7 @@ class KuronamiBridge(FrameProcessor):
         self._ledger.mark("gateway_sent")
         live, kwargs = self._live(mine)
         try:
-            result = await self._client.turn(text, str(uuid.uuid4()), **kwargs)
+            result = await self._client.turn(self._mit_vermerk(text), str(uuid.uuid4()), **kwargs)
         except asyncio.CancelledError:
             raise
         except GatewayError as error:

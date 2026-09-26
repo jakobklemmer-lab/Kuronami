@@ -33,6 +33,23 @@ interface Kennzahlen {
 
 type Status = "entwurf" | "geprueft" | "kandidat" | "verworfen";
 
+type Uebertragbarkeit = "uebertragbar" | "gemischt" | "einzelfall";
+
+/** Was die Prüfung über viele Märkte ergeben hat. Fehlt, wenn sie nie gerechnet wurde. */
+interface UniversumVermerk {
+  einstufung: Uebertragbarkeit;
+  maerkte: number;
+  gesamtHandel: number;
+  gemeinsamErwartungswertR: number;
+  begruendung: string;
+}
+
+const UEBERTRAGBARKEIT_LABEL: Record<Uebertragbarkeit, string> = {
+  uebertragbar: "übertragbar",
+  gemischt: "gemischt",
+  einzelfall: "Einzelfall",
+};
+
 interface StrategieKopf {
   id: string;
   zeit: string;
@@ -45,6 +62,7 @@ interface StrategieKopf {
   status: Status;
   kennzahlen: Kennzahlen | null;
   warnungen: number;
+  universum?: UniversumVermerk;
 }
 
 interface StrategieEintrag extends StrategieKopf {
@@ -138,6 +156,7 @@ export const strategienView: View = {
                   ${escapeHtml(kurz(k.kennzahlen))}
                   <span class="analysen__marke ist-${escapeHtml(k.status)}">${STATUS_LABEL[k.status]}</span>
                   ${k.warnungen > 0 ? `<span class="analysen__marke ist-geschaetzt">${k.warnungen} Vorbehalt${k.warnungen === 1 ? "" : "e"}</span>` : ""}
+                  ${uebertragbarkeitsMarke(k.symbol, k.universum)}
                 </p>
               </button>
             </li>
@@ -215,6 +234,25 @@ export const strategienView: View = {
         </div>`;
     };
 
+    /**
+     * Die Übertragbarkeit als Marke — **auch wenn sie fehlt**.
+     *
+     * Ein leeres Feld liest sich sonst wie ein bestandener Test. Dieselbe Unterscheidung wie
+     * bei „gerechnet/geschätzt“ im Analysen-Archiv: nicht geprüft ist nicht dasselbe wie
+     * geprüft und in Ordnung.
+     */
+    const uebertragbarkeitsMarke = (symbol: string, u?: UniversumVermerk): string => {
+      if (u === undefined)
+        return '<span class="analysen__marke ist-geschaetzt" title="Die Regel wurde nur an einem Markt gerechnet.">1 Markt</span>';
+      // Beim Einzelfall steht der Markt **im** Text: „Einzelfall" allein sagt noch nicht,
+      // worauf die Regel beschränkt ist, und genau das ist hier die Kennzeichnung.
+      const text =
+        u.einstufung === "einzelfall"
+          ? `nur ${escapeHtml(symbol)}`
+          : `${UEBERTRAGBARKEIT_LABEL[u.einstufung]} · ${u.maerkte} Märkte`;
+      return `<span class="analysen__marke ist-${u.einstufung}" title="${escapeHtml(u.begruendung)}">${text}</span>`;
+    };
+
     const zeichneBlatt = (e: StrategieEintrag): void => {
       if (!blattEl) return;
       blattEl.innerHTML = `
@@ -234,6 +272,31 @@ export const strategienView: View = {
             : '<p class="field__hint">Keine Vorbehalte aus der Rechnung.</p>'
         }
         ${e.kennzahlen ? kennzahlenTabelle(e.kennzahlen) : ""}
+        ${
+          e.universum
+            ? `<div class="strategie__universum ist-${e.universum.einstufung}">
+                 <h3>${
+                   e.universum.einstufung === "einzelfall"
+                     ? `Einzelfall — läuft nur in ${escapeHtml(e.symbol)}`
+                     : `Über ${e.universum.maerkte} Märkte: ${UEBERTRAGBARKEIT_LABEL[e.universum.einstufung]}`
+                 }</h3>
+                 <p>${escapeHtml(e.universum.begruendung)}</p>
+                 ${
+                   e.universum.einstufung === "einzelfall"
+                     ? `<p>Das schließt sie nicht aus — eine Regel darf an ein Produkt gebunden
+                          sein. Sie ist dann aber eine Regel für ${escapeHtml(e.symbol)} und
+                          keine allgemeine, und nur so gehört sie eingesetzt.</p>`
+                     : ""
+                 }
+               </div>`
+            : `<div class="strategie__universum ist-offen">
+                 <h3>Übertragbarkeit nicht gerechnet</h3>
+                 <p>
+                   Diese Zahlen stammen aus genau einem Markt. Ob die Regel ein Mechanismus ist
+                   oder eine Anpassung an diesen einen Verlauf, ist damit offen — nicht beantwortet.
+                 </p>
+               </div>`
+        }
         ${betriebsblock(e)}
         <details class="analysen__auftrag">
           <summary>Die Regel</summary>

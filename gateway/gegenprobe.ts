@@ -13,7 +13,7 @@ import type { MarketCandle } from "./integrations/markets.js";
  *  1. **Andere Zeitfenster** — die Regel über Abschnitte, an denen niemand geschraubt hat.
  *  2. **Andere Märkte** — was am DAX trägt, sollte am S&P nicht zusammenbrechen. Tut es das,
  *     beschreibt die Regel eine Eigenheit dieses einen Verlaufs.
- *  3. **Höhere Kosten** — doppelte Gebühr und doppelter Schlupf. Eine Strategie, die daran
+ *  3. **Höhere Kosten** — doppelte Gebühr und doppelte Slippage. Eine Strategie, die daran
  *     stirbt, lebte nur von der Annahme eines perfekten Brokers.
  *  4. **Die Parameter-Nachbarschaft** — Perioden um ±20 % verschoben. Das ist die schärfste
  *     Probe: eine Regel, die bei SMA 50 trägt und bei SMA 40 und SMA 60 zusammenfällt, ist an
@@ -132,23 +132,86 @@ export function pruefeVariante(
   }
 }
 
+/**
+ * Wie viel vom Erwartungswert des Originals eine Variante mindestens behalten muss, um als
+ * tragfähig zu zählen.
+ *
+ * **Warum das Vorzeichen allein nicht reicht.** Bis 2026-09-21 zählte hier nur, ob der
+ * Erwartungswert positiv blieb. Der prüfer des Handelstischs hat die Lücke an der ersten
+ * ernsthaften Swing-Strategie selbst gefunden und benannt: 0,19 R am Heimatmarkt schrumpften
+ * an drei blind gewählten Märkten auf 0,01 bis 0,04 R — und das Werkzeug stempelte „robust",
+ * weil drei von drei Vorzeichen stimmten. Eine Kante, die auf ein Zwanzigstel zusammenfällt,
+ * ist an ihrem Heimatmarkt angepasst; dass sie dabei knapp über null bleibt, ist kein Beleg,
+ * sondern eine Rundungsfrage. Die Hälfte ist großzügig gewählt — Schwankung soll erlaubt sein,
+ * Verschwinden nicht.
+ */
+export const MINDEST_BEHALTEN = 0.5;
+
+/** Varianten mit weniger Handeln sagen nichts und werden nicht gezählt. */
+export const MINDEST_HANDEL = 10;
+
+/**
+ * Ab welchem Erwartungswert des Originals ein **Anteil davon** überhaupt etwas aussagt.
+ *
+ * Der erste Lauf mit der Anteilsrechnung hat es sofort gezeigt: bei einem Original von 0,01 R
+ * standen in der Spalte „behält" Werte wie 1864 % und −1048 %. Beides ist arithmetisch richtig
+ * und inhaltlich nichts — wer durch eine Zahl nahe null teilt, misst die Rundung des
+ * Kostenmodells, nicht das Überleben einer Kante. Unterhalb dieser Schwelle bleibt es deshalb
+ * bei der schwächeren Aussage (nur das Vorzeichen), und die Spalte sagt ehrlich nichts.
+ *
+ * Die Höhe ist gewählt, nicht hergeleitet: 0,05 R ist etwa ein Viertel dessen, was hier als
+ * normale Kante gilt (+0,2 R je Handel). Darunter ist eine Strategie ohnehin kein Kandidat.
+ */
+export const MINDEST_REFERENZ_R = 0.05;
+
 export interface GegenprobeUrteil {
-  /** Wie viele Varianten mit genug Handeln einen positiven Erwartungswert behalten. */
+  /**
+   * Wie viele Varianten mit genug Handeln tragen: positiver Erwartungswert **und** mindestens
+   * `MINDEST_BEHALTEN` vom Original.
+   */
   tragfaehig: number;
   gepruefte: number;
   anteil: number;
+  /** Woran gemessen wird: der Erwartungswert des Originals am Heimatmarkt. */
+  referenzR?: number;
+  /** Median dessen, was die zählbaren Varianten davon behalten. */
+  behaltenMedian?: number;
   /** Rein rechnerisch: „robust" ab zwei Dritteln, „fragil" darunter. Kein Urteil über die Idee. */
   einstufung: "robust" | "wackelig" | "fragil";
 }
 
-export function urteile(ergebnisse: readonly VarianteErgebnis[]): GegenprobeUrteil {
-  const zaehlbar = ergebnisse.filter((e) => e.anzahl >= 10);
-  const tragfaehig = zaehlbar.filter((e) => e.erwartungswertR > 0).length;
+function median(werte: readonly number[]): number | undefined {
+  if (werte.length === 0) return undefined;
+  const s = [...werte].sort((a, b) => a - b);
+  const mitte = Math.floor(s.length / 2);
+  return s.length % 2 === 1 ? s[mitte] : (s[mitte - 1] + s[mitte]) / 2;
+}
+
+/**
+ * @param referenzR Der Erwartungswert des Originals am Heimatmarkt. Fehlt er oder ist er nicht
+ *   positiv, wird nur das Vorzeichen geprüft — an einer Regel, die schon im Original nichts
+ *   abwirft, ist ein Anteil davon keine Aussage.
+ */
+export function urteile(
+  ergebnisse: readonly VarianteErgebnis[],
+  referenzR?: number,
+): GegenprobeUrteil {
+  const zaehlbar = ergebnisse.filter((e) => e.anzahl >= MINDEST_HANDEL);
+  const referenz =
+    referenzR !== undefined && referenzR >= MINDEST_REFERENZ_R ? referenzR : undefined;
+  const schwelle = referenz === undefined ? 0 : referenz * MINDEST_BEHALTEN;
+  const tragfaehig = zaehlbar.filter(
+    (e) => e.erwartungswertR > 0 && e.erwartungswertR >= schwelle,
+  ).length;
   const anteil = zaehlbar.length > 0 ? tragfaehig / zaehlbar.length : 0;
   return {
     tragfaehig,
     gepruefte: zaehlbar.length,
     anteil,
+    ...(referenz === undefined ? {} : { referenzR: referenz }),
+    ...(referenz === undefined
+      ? {}
+      : { behaltenMedian: median(zaehlbar.map((e) => e.erwartungswertR / referenz)) }),
     einstufung: anteil >= 0.67 ? "robust" : anteil >= 0.5 ? "wackelig" : "fragil",
   };
 }
@@ -161,9 +224,12 @@ export function formatiereGegenprobe(
   const zeilen = [
     `Gegenprobe zu „${name}"`,
     "",
-    "Variante                     Markt      Handel  Treffer  Erwartung  Sharpe  Gesamt",
+    "Variante                     Markt      Handel  Treffer  Erwartung  Sharpe    Gesamt   behält",
   ];
+  const referenz = urteilDavon.referenzR;
   for (const e of ergebnisse) {
+    const behalten =
+      referenz === undefined ? "—" : `${((e.erwartungswertR / referenz) * 100).toFixed(0)} %`;
     zeilen.push(
       [
         e.name.padEnd(28).slice(0, 28),
@@ -172,14 +238,28 @@ export function formatiereGegenprobe(
         `${(e.trefferquote * 100).toFixed(0)} %`.padStart(8),
         `${e.erwartungswertR.toFixed(2)} R`.padStart(10),
         e.sharpe.toFixed(2).padStart(7),
-        `${e.gesamtProzent.toFixed(1)} %`.padStart(8),
+        `${e.gesamtProzent.toFixed(1)} %`.padStart(9),
+        (e.anzahl >= MINDEST_HANDEL ? behalten : "—").padStart(8),
       ].join(" "),
     );
   }
   zeilen.push(
     "",
-    `${urteilDavon.tragfaehig} von ${urteilDavon.gepruefte} auswertbaren Varianten behalten einen positiven Erwartungswert — **${urteilDavon.einstufung}**.`,
+    referenz === undefined
+      ? `${urteilDavon.tragfaehig} von ${urteilDavon.gepruefte} auswertbaren Varianten behalten einen positiven Erwartungswert — **${urteilDavon.einstufung}**.`
+      : `${urteilDavon.tragfaehig} von ${urteilDavon.gepruefte} auswertbaren Varianten tragen — positiv **und** mindestens ${(MINDEST_BEHALTEN * 100).toFixed(0)} % vom Original (${referenz.toFixed(2)} R) — **${urteilDavon.einstufung}**.`,
   );
+  if (urteilDavon.behaltenMedian !== undefined) {
+    zeilen.push(
+      `Im Mittel bleibt von der Kante ${(urteilDavon.behaltenMedian * 100).toFixed(0)} % übrig.`,
+    );
+  } else {
+    zeilen.push(
+      "Gemessen wird hier nur das Vorzeichen: das Original wirft zu wenig ab, als dass ein",
+      "Anteil davon etwas aussagen würde. Das ist die schwächere Aussage — und der Grund dafür",
+      "liegt in der Strategie, nicht in der Prüfung.",
+    );
+  }
   if (urteilDavon.einstufung !== "robust") {
     zeilen.push(
       "Eine Regel, die nur bei genau diesen Zahlen trägt, beschreibt den Zufall dieses Verlaufs",
@@ -188,7 +268,13 @@ export function formatiereGegenprobe(
   }
   zeilen.push(
     "",
-    "Varianten mit weniger als zehn Handeln sind nicht mitgezählt — sie sagen nichts.",
+    `Varianten mit weniger als ${MINDEST_HANDEL} Handeln sind nicht mitgezählt — sie sagen nichts.`,
   );
+  if (referenz !== undefined) {
+    zeilen.push(
+      "Gezählt wird nicht nur das Vorzeichen: eine Variante, die knapp über null landet, während",
+      "das Original ein Vielfaches abwirft, ist kein Beleg für die Regel, sondern gegen sie.",
+    );
+  }
   return zeilen.join("\n");
 }

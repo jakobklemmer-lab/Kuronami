@@ -465,3 +465,176 @@ async def test_backend_fehler_wird_gesagt_nicht_geglaettet() -> None:
     errors = of_type(down, "error")
     assert errors and "nicht erreichbar" in errors[0]["message"]
     assert any("fehlgeschlagen" in text for text in spoken(down))
+
+
+# --- Wie eine Antwort in Stücke zerfällt (2026-09-21) --------------------------------------
+#
+# Der Anlass steht im Protokoll dieses Abends: eine einzige Antwort ging als 13 getrennte
+# Aufrufe an den Sprachdienst, der kürzeste 16 Zeichen lang ("Dabei läuft mit:"). Jakob hörte
+# eine Stimme, die sich alle paar Worte neu sortiert.
+
+
+async def _stuecke(*texte: str, flush: bool = True) -> list[str]:
+    """Füttert `LiveSentences` und gibt zurück, was wirklich zum Sprechen ging."""
+    gesagt: list[str] = []
+
+    async def speak(text: str) -> None:
+        gesagt.append(text)
+
+    live = bridge_modul.LiveSentences(speak)
+    for text in texte:
+        await live.feed(text)
+    if flush:
+        await live.flush()
+    return gesagt
+
+
+async def test_der_doppelpunkt_zerschneidet_die_antwort_nicht_mehr() -> None:
+    gesagt = await _stuecke(
+        "Der Prozess schaltet sich selbst ab, sobald eine von drei Schwellen reißt: "
+        "zwanzig Prozent Rückschlag, sechs Verluste in Folge, oder ein Rückstand auf den "
+        "Backtest. "
+    )
+    assert len(gesagt) == 1, "Ein Satz mit Doppelpunkt ist ein Satz, kein Paar."
+    assert gesagt[0].startswith("Der Prozess schaltet")
+    assert "zwanzig Prozent" in gesagt[0]
+
+
+async def test_kurze_stuecke_warten_auf_das_naechste() -> None:
+    """Ein Anbieter, der die Sprache aus dem Text errät, braucht Text.
+
+    Bei „Dabei läuft mit:" hat er nichts, woran er sie erkennen könnte — und genau dort kippte
+    die Aussprache englischer Fachbegriffe.
+    """
+    gesagt = await _stuecke("Ja. Gut. Sehr wohl. ", flush=False)
+    assert gesagt == [], "Drei Kurzsätze allein lösen noch nichts aus."
+
+    gesagt = await _stuecke(
+        "Ja. Gut. Und bevor überhaupt etwas in den Papierhandel darf, muss der Prüfer es "
+        "gegengerechnet haben. ",
+        flush=False,
+    )
+    assert len(gesagt) == 1
+    assert gesagt[0].startswith("Ja. Gut. Und bevor")
+
+
+async def test_flush_gibt_auch_den_kurzen_rest_heraus() -> None:
+    """Gesammelt wird, um zusammen zu sprechen — nicht, um etwas zu verschlucken."""
+    gesagt = await _stuecke("Sehr wohl.")
+    assert gesagt == ["Sehr wohl."]
+
+
+def test_ein_offener_satz_ist_als_solcher_erkennbar() -> None:
+    offen = bridge_modul._SATZ_OFFEN
+    assert offen.search("aber wenn das Paper Trading laufen würde,")
+    assert offen.search("Ich wollte fragen, ob das geht und")
+    assert not offen.search("Wie wird das Wetter?")
+    assert not offen.search("Sieh im Postfach nach.")
+    # Ein Befehl ohne Satzzeichen ist der Normalfall gesprochener Sprache und darf nicht
+    # jedes Mal die lange Pause auslösen.
+    assert not offen.search("Sieh mal im Postfach")
+
+
+async def test_der_offene_satz_wird_nicht_zum_befehl(monkeypatch) -> None:
+    """Jakobs Fall vom 2026-09-21, 18:58 Uhr.
+
+    Er sagte „…also der Paper Trading laufen würde," — holte Luft — und Kuro fiel ihm mit
+    „Ja, wenn er liefe?" ins Wort. Das Komma stand schon im Transkript; gefehlt hat nur, dass
+    jemand es liest.
+    """
+    monkeypatch.setattr(bridge_modul, "_SATZ_PAUSE_OFFEN_SECS", 0.4)
+    client = FakeGateway()
+    await run_test(
+        bridge(client),
+        frames_to_send=[
+            hello(),
+            VADUserStoppedSpeakingFrame(),
+            TranscriptionFrame(
+                text="aber wenn das Paper Trading laufen würde,", user_id="u", timestamp="t"
+            ),
+            SleepFrame(sleep=0.2),
+            TranscriptionFrame(text="bräuchte das einen Takt?", user_id="u", timestamp="t"),
+            SleepFrame(sleep=0.5),
+        ],
+        expected_down_frames=None,
+    )
+    assert client.turns == ["aber wenn das Paper Trading laufen würde, bräuchte das einen Takt?"]
+
+
+async def test_nach_einem_barge_in_erfaehrt_der_naechste_zug_davon(monkeypatch) -> None:
+    """Der Rest verfällt weiterhin — aber nicht mehr unbemerkt.
+
+    Bis 2026-09-21 stand im Gesprächsverlauf des Motors die vollständige Antwort als gesagt,
+    während Jakob nur den Anfang gehört hatte. Auf seinen Vorhalt konnte Kuro deshalb nur
+    raten.
+    """
+    monkeypatch.setattr(bridge_modul, "_SATZ_PAUSE_SECS", 0.1)
+    client = FakeGateway()
+    await run_test(
+        bridge(client),
+        frames_to_send=[
+            hello(),
+            VADUserStoppedSpeakingFrame(),
+            TranscriptionFrame(text="Wie läuft der Papierhandel?", user_id="u", timestamp="t"),
+            SleepFrame(sleep=0.3),
+            BotStartedSpeakingFrame(),
+            VADUserStartedSpeakingFrame(),
+            SleepFrame(sleep=0.1),
+            VADUserStoppedSpeakingFrame(),
+            TranscriptionFrame(text="Das war abgeschnitten.", user_id="u", timestamp="t"),
+            SleepFrame(sleep=0.4),
+        ],
+        expected_down_frames=None,
+    )
+    assert len(client.turns) == 2
+    vermerk = client.turns[1]
+    assert vermerk.startswith("[Hinweis der Sprachschicht:"), vermerk
+    assert "unterbrochen" in vermerk
+    assert vermerk.endswith("Das war abgeschnitten.")
+
+
+async def test_ohne_barge_in_kein_vermerk(monkeypatch) -> None:
+    """Eine zu Ende gesprochene Antwort hinterlässt keinen Hinweis — sonst stünde er überall."""
+    monkeypatch.setattr(bridge_modul, "_SATZ_PAUSE_SECS", 0.1)
+    client = FakeGateway()
+    await run_test(
+        bridge(client),
+        frames_to_send=[
+            hello(),
+            VADUserStoppedSpeakingFrame(),
+            TranscriptionFrame(text="Erste Frage.", user_id="u", timestamp="t"),
+            SleepFrame(sleep=0.3),
+            BotStartedSpeakingFrame(),
+            BotStoppedSpeakingFrame(),
+            VADUserStoppedSpeakingFrame(),
+            TranscriptionFrame(text="Zweite Frage.", user_id="u", timestamp="t"),
+            SleepFrame(sleep=0.3),
+        ],
+        expected_down_frames=None,
+    )
+    assert client.turns == ["Erste Frage.", "Zweite Frage."]
+
+
+async def test_kein_nachtrag_waehrend_die_bruecke_noch_sammelt(monkeypatch) -> None:
+    """Das Loch zwischen Äußerung und Befehl (2026-09-21).
+
+    Zwischen dem Ende einer Äußerung und dem Absenden wartet die Brücke auf eine Fortsetzung.
+    In dieser Zeit galt kein Zug als unterwegs, und der Postfachblick trug einen nachgereichten
+    Bericht vor — mitten hinein. Jakob: „Koro, Du hast mir da grad irgendwas unterbrochen."
+    """
+    monkeypatch.setattr(bridge_modul, "_OUTBOX_POLL_SECS", 0.02)
+    monkeypatch.setattr(bridge_modul, "_SATZ_PAUSE_OFFEN_SECS", 0.4)
+    client = PostfachGateway(delay=0.05, nachtraege=["Ein Bericht vom Handelstisch."])
+    down, _up = await run_test(
+        bridge(client),
+        frames_to_send=[
+            hello(),
+            VADUserStoppedSpeakingFrame(),
+            # Das Komma sagt: hier kommt noch etwas. Die Brücke wartet — und schweigt.
+            TranscriptionFrame(text="Und wenn das liefe,", user_id="u", timestamp="t"),
+            SleepFrame(sleep=0.2),
+        ],
+        expected_down_frames=None,
+    )
+    assert client.outbox_calls == 0, "Während gesammelt wird, wird nicht nachgesehen."
+    assert spoken(down) == [], "Und schon gar nicht gesprochen."

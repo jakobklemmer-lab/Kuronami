@@ -2095,6 +2095,50 @@
   color: var(--fg-muted);
 }
 
+/* Übertragbarkeit: dieselbe Regel über viele Märkte. Grün nur, wenn es wirklich trägt —
+   „gemischt" ist kein halbes Bestehen, sondern eine offene Frage. */
+.analysen__marke.ist-uebertragbar {
+  color: #8fd6a4;
+  border-color: #8fd6a455;
+}
+.analysen__marke.ist-gemischt {
+  color: #e8b35c;
+  border-color: #e8b35c66;
+}
+.analysen__marke.ist-einzelfall {
+  color: #e08a7a;
+  border-color: #e08a7a66;
+}
+
+.strategie__universum {
+  margin: 12px 0;
+  padding: 10px 12px;
+  border-radius: 10px;
+  border: 1px solid var(--border, rgb(255 255 255 / 12%));
+  background: rgb(255 255 255 / 3%);
+}
+.strategie__universum h3 {
+  margin: 0 0 4px;
+  font-size: 13px;
+  font-weight: 500;
+}
+.strategie__universum p {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--fg-muted);
+}
+.strategie__universum.ist-uebertragbar {
+  border-color: #8fd6a455;
+}
+.strategie__universum.ist-gemischt,
+.strategie__universum.ist-offen {
+  border-color: #e8b35c55;
+}
+.strategie__universum.ist-einzelfall {
+  border-color: #e08a7a55;
+}
+
 /* Der Betrieb einer Strategie: abgesetzt, damit „läuft" und „geprüft" nicht dasselbe aussehen. */
 .strategie__betrieb {
   margin: 12px 0;

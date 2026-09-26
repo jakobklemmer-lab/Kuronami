@@ -1,6 +1,7 @@
 import { mkdir, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { type Kennzahlen, type Strategie, atrAm, pruefeStrategie, signalAm } from "./backtest.js";
+import { imFenster, minuteAus } from "./indikatoren.js";
 import type { MarketCandle, MarketsClient } from "./integrations/markets.js";
 import type { StrategienArchiv } from "./strategien.js";
 
@@ -40,7 +41,7 @@ export interface PapierHandel {
   ausstiegZeit: number;
   einstieg: number;
   ausstieg: number;
-  grund: "stop" | "ziel" | "regel" | "zeit";
+  grund: "stop" | "ziel" | "regel" | "zeit" | "fenster";
   r: number;
   renditeProzent: number;
 }
@@ -249,8 +250,25 @@ export function verarbeite(
         offen.ziel !== null && (long ? kerze.high >= offen.ziel : kerze.low <= offen.ziel);
       let ausstieg: number | null = null;
       let grund: PapierHandel["grund"] | null = null;
-      if (stopTrifft) {
-        ausstieg = offen.stop;
+      // Das Fenster zuerst — dieselbe Reihenfolge wie im Backtest (`backtest.ts`). Eine
+      // Sitzungsstrategie, die im Betrieb über das Fensterende hinaus hält, handelt etwas
+      // anderes als das, was geprüft wurde, und ihre Kennzahlen gelten dann nicht mehr.
+      if (
+        strategie.fenster !== undefined &&
+        strategie.fenster.ausstiegAmEnde !== false &&
+        !imFenster(
+          kerze.time,
+          strategie.zone ?? "UTC",
+          minuteAus(strategie.fenster.von),
+          minuteAus(strategie.fenster.bis),
+        )
+      ) {
+        ausstieg = kerze.open;
+        grund = "fenster";
+      } else if (stopTrifft) {
+        // Dieselbe Annahme wie im Backtest (dort steht die Begründung): eine Lücke über den
+        // Stop hinweg wird zur Eröffnung bedient, nicht zum Wunschkurs.
+        ausstieg = long ? Math.min(offen.stop, kerze.open) : Math.max(offen.stop, kerze.open);
         grund = "stop";
       } else if (zielTrifft && offen.ziel !== null) {
         ausstieg = offen.ziel;
@@ -266,7 +284,15 @@ export function verarbeite(
       if (ausstieg !== null && grund !== null) {
         const risiko = Math.abs(offen.einstieg - offen.stop);
         const brutto = long ? ausstieg - offen.einstieg : offen.einstieg - ausstieg;
-        const kosten = (offen.einstieg + ausstieg) * (gebuehr + schlupf);
+        // **Der Schlupf zählt einmal je Seite, nicht anderthalbmal.** Der Einstiegskurs oben
+        // ist bereits der verschlechterte (`roh * (1 + schlupf)`) — dort steckt der Schlupf der
+        // Einstiegsseite schon drin. Ihn hier noch einmal auf den Einstieg zu rechnen hieß, ihn
+        // doppelt zu bezahlen; bei einem Scalp, dessen Risiko nur ein Zehntelprozent des Kurses
+        // beträgt, war das kein Rundungsfehler, sondern in einem gemessenen Fall 0,21 R je
+        // Handel. Gefunden am 2026-09-21 beim Nachrechnen eines echten Laufs von Hand: Risiko
+        // 77,55, ausgewiesene Kosten 97,53 — davon 16,26 Schlupf, die schon im Einstieg saßen.
+        // Der Ausstiegskurs ist **nicht** verschlechtert, also trägt er beides.
+        const kosten = offen.einstieg * gebuehr + ausstieg * (gebuehr + schlupf);
         const netto = brutto - kosten;
         const r = risiko > 0 ? netto / risiko : 0;
         konto.handel.push({

@@ -14,8 +14,10 @@ import {
   type MarketsClient,
   createYahooMarkets,
 } from "./integrations/markets.js";
+import { type Kerzenquelle, createKerzenquelle, formatiereHerkunft } from "./kerzen.js";
 import { formatiereVerlauf } from "./kurse.js";
 import { PapierFehler, type Papierhandel, papierKennzahlen } from "./papierhandel.js";
+import { type Prognosenbuch, formatiereAkte, formatiereBenotung } from "./prognosen.js";
 import {
   ReplayFehler,
   formatiereKerzen,
@@ -29,7 +31,8 @@ import {
   weiter,
 } from "./replay.js";
 import { formatiereRueckblick, werteIdeeAus } from "./rueckblick.js";
-import type { StrategienArchiv } from "./strategien.js";
+import type { StrategienArchiv, UniversumVermerk } from "./strategien.js";
+import { type MarktKerzen, formatiereUniversum, ueberMaerkte } from "./universum.js";
 
 /**
  * Das Labor des Handelstischs: Vergangenheit ohne Zukunft, Rückblick auf alte Ideen,
@@ -47,6 +50,8 @@ import type { StrategienArchiv } from "./strategien.js";
 
 export interface LaborDeps {
   markets?: MarketsClient;
+  /** Kerzen mit Speicher dahinter. Ohne sie wird eine über `workdir` und `markets` gebaut. */
+  kerzen?: Kerzenquelle;
   /** Wohin die Replay-Tagebücher geschrieben werden. Ohne Pfad wird keins geschrieben. */
   workdir?: string;
   /** Ohne Archiv gibt es die drei Ablage-Werkzeuge nicht. */
@@ -57,6 +62,8 @@ export interface LaborDeps {
   papier?: Papierhandel;
   /** Darf dieser Lauf den Papierhandel **starten**? Lesen darf jeder, der ihn hat. */
   darfStarten?: boolean;
+  /** Das Prognosebuch. Ohne es fehlen die drei Werkzeuge für Einzelideen. */
+  prognosen?: Prognosenbuch;
 }
 
 const TAG = /^\d{4}-\d{2}-\d{2}$/;
@@ -99,12 +106,18 @@ const indikator = z.object({
       "bollinger_unten",
       "bollinger_breite",
       "obv",
+      "vwap",
+      "vwap_oben",
+      "vwap_unten",
     ])
     .describe(
       "Trend: sma, ema, macd, macd_signal, macd_histogramm, adx (mit di_plus/di_minus). " +
         "Momentum: rsi, stoch_k, stoch_d. Volatilität: atr, stdabw, bollinger_oben/mitte/unten/breite. " +
         "Volumen: obv (fehlt bei Indizes und Devisen). Dazu kurs (die Kerze selbst), wert (eine Zahl), " +
-        "hoch/tief (rollendes Hoch/Tief ohne die aktuelle Kerze).",
+        "hoch/tief (rollendes Hoch/Tief ohne die aktuelle Kerze). " +
+        "Sitzung: vwap, vwap_oben, vwap_unten (Bänder über faktor) — je Sitzung neu angesetzt, " +
+        "braucht Volumen UND ein Intervall von 1h oder feiner; auf Tageskerzen wird der Backtest " +
+        "abgewiesen, weil ein VWAP dort nur der typische Kurs eines einzelnen Tages wäre.",
     ),
   periode: z.number().int().positive().max(500).optional(),
   periode2: z
@@ -157,6 +170,32 @@ const strategieSchema = {
   maxKerzen: z.number().int().positive().max(500).optional(),
   gebuehrProzent: z.number().min(0).max(5).optional().describe("Je Seite. Vorgabe 0,1."),
   schlupfProzent: z.number().min(0).max(5).optional().describe("Je Seite. Vorgabe 0,05."),
+  zone: z
+    .string()
+    .min(3)
+    .max(40)
+    .optional()
+    .describe(
+      "Zeitzone der Börse als IANA-Angabe: America/New_York, Europe/Berlin, UTC (Vorgabe). " +
+        "Sie ankert den VWAP und das Zeitfenster. Nimm die Zone der Börse, nicht deine eigene — " +
+        "sonst verschiebt sich das Fenster mit der Sommerzeit.",
+    ),
+  fenster: z
+    .object({
+      von: z.string().describe("Beginn in Ortszeit, HH:MM — z. B. 09:30."),
+      bis: z.string().describe("Ende, ausschließlich. Vor dem Beginn = über Mitternacht."),
+      ausstiegAmEnde: z
+        .boolean()
+        .optional()
+        .describe(
+          "Am Fensterende glattstellen. Vorgabe true. Auf false gesetzt bleibt die Position " +
+            "über Nacht liegen — das ist ein anderes Risiko und gehört begründet.",
+        ),
+    })
+    .optional()
+    .describe(
+      "Nur in diesem Tagesabschnitt wird eingestiegen. Braucht ein Intervall von 1h oder feiner.",
+    ),
 };
 
 function text(inhalt: string, fehler = false) {
@@ -168,6 +207,81 @@ function text(inhalt: string, fehler = false) {
 
 export function createLabor(deps: LaborDeps = {}) {
   const markets = deps.markets ?? createYahooMarkets();
+  const kerzenquelle = deps.kerzen ?? createKerzenquelle({ workdir: deps.workdir, markets });
+
+  /**
+   * Die Übertragbarkeit zur Ablage — **gerechnet und dann behalten**.
+   *
+   * Bis hierher gab es beides schon: `universum` rechnete die schärfste Probe, und das Archiv
+   * hielt die Regel samt Kennzahlen. Nur traf sich das nie. Die Einstufung stand im Gesprächs-
+   * verlauf eines Agenten, und was dort steht, ist am Ende des Laufs weg — im Archiv blieb eine
+   * Strategie mit schönen Zahlen aus genau einem Markt, ohne den Satz, der sie einordnet.
+   *
+   * Fehlt die Angabe, steht das **im Bericht** statt gar nichts: ein leeres Feld liest sich
+   * später wie ein bestandener Test.
+   */
+  async function universumZurAblage(
+    strategie: Strategie,
+    heimat: MarktKerzen,
+    weitere: readonly string[],
+    von: string,
+    bis: string,
+  ): Promise<{ vermerk?: UniversumVermerk; universumBericht: string }> {
+    if (weitere.length === 0) {
+      return {
+        universumBericht: [
+          "**Über Übertragbarkeit ist nichts gerechnet.**",
+          "Diese Zahlen gelten für genau einen Markt und damit für genau einen Verlauf. Ob die",
+          "Regel ein Mechanismus ist oder eine Anpassung an diesen Verlauf, steht hier nicht —",
+          "dafür braucht das Ablegen `weitereMaerkte`.",
+        ].join("\n"),
+      };
+    }
+    // Der Heimatmarkt kommt **mit denselben Kerzen wie der Backtest** herein, nicht frisch aus
+    // dem Speicher: sonst könnte die Zeile im Universum von den Kennzahlen daneben abweichen,
+    // und zwei Zahlen zur selben Regel im selben Eintrag sind schlimmer als eine.
+    const maerkte: MarktKerzen[] = [heimat];
+    const fehlend: string[] = [];
+    for (const symbol of weitere) {
+      if (symbol === heimat.symbol) continue;
+      try {
+        const geholt = await kerzenquelle.hole({
+          symbol,
+          intervall: "1d",
+          vonUnix: unix(von),
+          bisUnix: unix(bis) + 86_400,
+        });
+        if (geholt.kerzen.length === 0) fehlend.push(`${symbol}: keine Kerzen`);
+        else maerkte.push({ symbol, kerzen: geholt.kerzen });
+      } catch (error) {
+        fehlend.push(`${symbol}: ${error instanceof Error ? error.message : error}`);
+      }
+    }
+    const nichtAbrufbar =
+      fehlend.length > 0 ? `\n\nNicht abrufbar:\n  ${fehlend.join("\n  ")}` : "";
+    if (maerkte.length < 2) {
+      return {
+        universumBericht: `**Übertragbarkeit nicht gerechnet** — zu keinem weiteren Markt gab es Kerzen.${nichtAbrufbar}`,
+      };
+    }
+    try {
+      const ergebnis = ueberMaerkte(strategie, maerkte, { intervall: "1d" });
+      return {
+        vermerk: {
+          einstufung: ergebnis.einstufung,
+          maerkte: ergebnis.gerechnet,
+          gesamtHandel: ergebnis.gesamtHandel,
+          gemeinsamErwartungswertR: ergebnis.gemeinsamErwartungswertR,
+          begruendung: ergebnis.begruendung,
+        },
+        universumBericht: formatiereUniversum(ergebnis) + nichtAbrufbar,
+      };
+    } catch (error) {
+      if (error instanceof StrategieFehler)
+        return { universumBericht: `**Übertragbarkeit nicht gerechnet** — ${error.message}` };
+      throw error;
+    }
+  }
 
   const stichtag = tool(
     "stichtag",
@@ -264,41 +378,133 @@ export function createLabor(deps: LaborDeps = {}) {
     { annotations: { title: "Alte Idee gegen den Verlauf prüfen", readOnlyHint: true } },
   );
 
+  const kerzenLaden = tool(
+    "kerzen_laden",
+    [
+      "**Kerzen in den Speicher holen** und nachsehen, was schon da liegt.",
+      "",
+      "Ein Backtest lädt fehlende Ränder von selbst nach — dieses Werkzeug ist für den Fall,",
+      "dass du erst wissen willst, ob eine Historie überhaupt zu haben ist, bevor du eine",
+      "Strategie darauf baust. Es meldet, wie viele Kerzen aus dem Speicher kamen, wie viele",
+      "neu geholt wurden, wie viele der Anbieter inzwischen **anders** sieht, und wo Lücken",
+      "sind.",
+      "",
+      "Krypto über `binance:BTCUSDT` reicht bei 1m bis 2017 zurück. Yahoo gibt Intraday nur",
+      "kurz her: 1m acht Tage, 5m/15m/30m sechzig Tage, 1h zwei Jahre, 1d Jahrzehnte.",
+      "",
+      "Mehrere Jahre Minutenkerzen sind Tausende Abrufe und dauern Minuten. Hol dir erst das,",
+      "was du wirklich prüfen willst.",
+    ].join("\n"),
+    {
+      symbol: z.string().min(1).max(30).describe("z. B. binance:BTCUSDT oder ^GDAXI."),
+      intervall: z.enum(CHART_INTERVALS).default("5m"),
+      von: z.string().regex(TAG).describe("Beginn, YYYY-MM-DD."),
+      bis: z.string().regex(TAG).optional().describe("Ende. Vorgabe: heute."),
+      nurNachsehen: z
+        .boolean()
+        .default(false)
+        .describe("Nur melden, was im Speicher liegt — nichts nachladen."),
+    },
+    async ({ symbol, intervall, von, bis, nurNachsehen }) => {
+      const ende = bis ?? heute();
+      try {
+        const geholt = await kerzenquelle.hole({
+          symbol,
+          intervall: intervall as ChartInterval,
+          vonUnix: unix(von),
+          bisUnix: unix(ende) + 86_400,
+          nurSpeicher: nurNachsehen,
+        });
+        if (geholt.kerzen.length === 0) {
+          const rat = nurNachsehen
+            ? "Im Speicher liegt dazu nichts — lass `nurNachsehen` weg, um zu laden."
+            : "Der Anbieter gibt diesen Zeitraum in diesem Intervall nicht her.";
+          return text(
+            `Keine Kerzen für ${symbol} à ${intervall} zwischen ${von} und ${ende}. ${rat}`,
+            true,
+          );
+        }
+        const erste = geholt.kerzen[0];
+        const letzte = geholt.kerzen[geholt.kerzen.length - 1];
+        return text(
+          [
+            formatiereHerkunft(geholt),
+            `Zeitraum: ${new Date(erste.time * 1000).toISOString().slice(0, 16)} bis ${new Date(
+              letzte.time * 1000,
+            )
+              .toISOString()
+              .slice(0, 16)} (UTC)`,
+            `Volumen: ${geholt.kerzen.some((k) => (k.volume ?? 0) > 0) ? "vorhanden" : "**fehlt** — VWAP und OBV sind damit nicht zu rechnen"}`,
+          ].join("\n"),
+        );
+      } catch (error) {
+        return text(
+          `Kerzen nicht geladen: ${error instanceof Error ? error.message : error}`,
+          true,
+        );
+      }
+    },
+    { annotations: { title: "Kerzen laden", readOnlyHint: false } },
+  );
+
   const backtestTool = tool(
     "backtest",
     [
       "Eine **Strategie** gegen echte Kerzen laufen lassen und ihre Kennzahlen bekommen:",
-      "Nettoergebnis, Handel, Trefferquote, Erwartungswert in R, Profitfaktor, Rückschlag,",
-      "Sharpe, Sortino — dazu Kaufen-und-Liegenlassen als Vergleich.",
+      "Nettoergebnis, Handel, Trefferquote, Erwartungswert in R, Profitfaktor, Drawdown,",
+      "Sharpe, Sortino — dazu Buy-and-Hold als Vergleich.",
       "",
       "Gerechnet wird wie im Strategy Tester bei TradingView: Signal auf der abgeschlossenen",
       "Kerze, Einstieg zur nächsten Eröffnung, und wenn Stop und Ziel in dieselbe Kerze fallen,",
-      "zählt der Stop. Gebühren und Schlupf sind immer dabei.",
+      "zählt der Stop. Gebühren und Slippage sind immer dabei.",
       "",
       "Der Zeitraum wird in zwei Teile berichtet: den, an dem du schraubst, und den, den du",
       "dabei nicht gesehen hast. Trägt der zweite nicht, ist die Strategie an die Vergangenheit",
       "angepasst — das steht dann als Vorbehalt im Ergebnis, und du nennst es im Bericht.",
       "",
       "Eine Strategie ohne Verlustbegrenzung wird abgewiesen.",
+      "",
+      "**Das Intervall entscheidet, worüber du überhaupt eine Aussage machst.** Auf 1d prüfst",
+      "du Handel über Tage bis Wochen, auf 5m Handel über Minuten. Für alles unterhalb der",
+      "Tageskerze über längere Zeiträume brauchst du `binance:`-Symbole — Yahoo gibt Intraday",
+      "nur ein paar Wochen weit her (1m acht Tage, 5m/15m/30m sechzig Tage, 1h zwei Jahre).",
     ].join("\n"),
     {
-      symbol: z.string().min(1).max(20),
+      symbol: z
+        .string()
+        .min(1)
+        .max(30)
+        .describe(
+          "Börsensymbol wie ^GDAXI oder AAPL (Yahoo), oder binance:BTCUSDT für Kryptokerzen " +
+            "mit Minutenhistorie ab 2017.",
+        ),
+      intervall: z
+        .enum(CHART_INTERVALS)
+        .default("1d")
+        .describe("Kerzengröße. 1d ist die Vorgabe; für Sitzungsregeln 1h oder feiner."),
       von: z.string().regex(TAG).describe("Beginn des Zeitraums, YYYY-MM-DD."),
       bis: z.string().regex(TAG).optional().describe("Ende. Vorgabe: heute."),
       ...strategieSchema,
     },
     async (eingabe) => {
-      const { symbol, von, bis, ...rest } = eingabe;
+      const { symbol, von, bis, intervall, ...rest } = eingabe;
       const ende = bis ?? heute();
-      const intervallWahl = "1d";
+      const intervallWahl = intervall as ChartInterval;
       try {
-        const chart = await markets.zeitraum(symbol, unix(von), unix(ende) + 86_400, "1d");
+        const geholt = await kerzenquelle.hole({
+          symbol,
+          intervall: intervallWahl,
+          vonUnix: unix(von),
+          bisUnix: unix(ende) + 86_400,
+        });
         const strategie = rest as unknown as Strategie;
-        const ergebnis = backtest(strategie, chart.candles, {
-          symbol: chart.symbol,
+        const ergebnis = backtest(strategie, geholt.kerzen, {
+          symbol: `${geholt.quelle}:${geholt.symbol}`,
           intervall: intervallWahl,
         });
-        return text(formatiereBacktest(ergebnis));
+        // Die Herkunft steht **unter** dem Ergebnis, nicht daneben: wer die Kennzahlen
+        // abschreibt, soll im selben Atemzug lesen, worauf sie stehen.
+        return text(`${formatiereBacktest(ergebnis)}\n\n${formatiereHerkunft(geholt)}`);
       } catch (error) {
         if (error instanceof StrategieFehler)
           return text(`Nicht gerechnet: ${error.message}`, true);
@@ -309,6 +515,75 @@ export function createLabor(deps: LaborDeps = {}) {
       }
     },
     { annotations: { title: "Strategie backtesten", readOnlyHint: true } },
+  );
+
+  const universum = tool(
+    "universum",
+    [
+      "**Dieselbe Regel über viele Märkte, unverändert.** Die schärfste Probe, die es hier gibt.",
+      "",
+      "Sie trennt zwei Dinge, die im einzelnen Backtest gleich aussehen: einen **Mechanismus**",
+      "(eine Aussage über Verhalten — sollte überall wirken, wo das Verhalten vorkommt) und eine",
+      "**Kurvenanpassung** (eine Aussage über einen Verlauf — trägt nur dort, wo sie gebaut",
+      "wurde). Beide liefern auf ihrem Heimatmarkt schöne Zahlen.",
+      "",
+      "**Ändere nichts je Markt.** Wer nachjustiert, prüft nicht mehr die Regel, sondern seine",
+      "Fähigkeit, Parameter zu finden — und die hat jeder.",
+      "",
+      "Zurück kommt eine Zeile je Markt, ein Konfidenzintervall über **alle** Handel zusammen",
+      "(zwölf Märkte à 25 Handel sind einzeln nichts und zusammen 300) und die gerechnete",
+      "Einstufung: übertragbar, gemischt oder Einzelfall. Ein Markt, der drei Viertel des",
+      "Gewinns stellt, macht daraus einen Einzelfall — auch wenn alle Zahlen gut aussehen.",
+      "",
+      "Nimm Märkte, die du **vorher** festgelegt hast, nicht die, bei denen es geklappt hat.",
+    ].join("\n"),
+    {
+      symbole: z
+        .array(z.string().min(1).max(30))
+        .min(2)
+        .max(12)
+        .describe(
+          'Die Märkte, z. B. ["^GDAXI", "^GSPC", "AAPL", "GC=F"]. Ab drei wird es aussagekräftig.',
+        ),
+      intervall: z.enum(CHART_INTERVALS).default("1d"),
+      von: z.string().regex(TAG).describe("Beginn, YYYY-MM-DD."),
+      bis: z.string().regex(TAG).optional().describe("Ende. Vorgabe: heute."),
+      ...strategieSchema,
+    },
+    async (eingabe) => {
+      const { symbole, intervall, von, bis, ...rest } = eingabe;
+      const ende = bis ?? heute();
+      const strategie = rest as unknown as Strategie;
+      const maerkte: MarktKerzen[] = [];
+      const fehlend: string[] = [];
+      for (const symbol of symbole) {
+        try {
+          const geholt = await kerzenquelle.hole({
+            symbol,
+            intervall: intervall as ChartInterval,
+            vonUnix: unix(von),
+            bisUnix: unix(ende) + 86_400,
+          });
+          if (geholt.kerzen.length === 0) fehlend.push(`${symbol}: keine Kerzen`);
+          else maerkte.push({ symbol, kerzen: geholt.kerzen });
+        } catch (error) {
+          fehlend.push(`${symbol}: ${error instanceof Error ? error.message : error}`);
+        }
+      }
+      if (maerkte.length === 0) {
+        return text(`Zu keinem der Märkte gab es Kerzen.\n${fehlend.join("\n")}`, true);
+      }
+      try {
+        const ergebnis = ueberMaerkte(strategie, maerkte, { intervall });
+        const anhang = fehlend.length > 0 ? `\n\nNicht abrufbar:\n  ${fehlend.join("\n  ")}` : "";
+        return text(formatiereUniversum(ergebnis) + anhang);
+      } catch (error) {
+        if (error instanceof StrategieFehler)
+          return text(`Nicht gerechnet: ${error.message}`, true);
+        throw error;
+      }
+    },
+    { annotations: { title: "Regel über viele Märkte", readOnlyHint: true } },
   );
 
   const replayStart = tool(
@@ -503,6 +778,11 @@ export function createLabor(deps: LaborDeps = {}) {
       "",
       "Zurück kommt eine Tabelle aller Varianten und die rechnerische Einstufung: robust,",
       "wackelig oder fragil. Die Einstufung bestimmst nicht du — du deutest sie.",
+      "",
+      "Gezählt wird dabei nicht nur das Vorzeichen, sondern auch die **Größe**: eine Variante",
+      "trägt nur, wenn sie mindestens die Hälfte vom Erwartungswert des Originals behält. Eine",
+      "Kante, die anderswo auf ein Zwanzigstel zusammenfällt, ist angepasst — auch wenn sie",
+      "knapp positiv bleibt.",
     ].join("\n"),
     {
       id: z
@@ -551,7 +831,9 @@ export function createLabor(deps: LaborDeps = {}) {
         }
       }
 
-      const urteilDavon = urteile(ergebnisse);
+      // Gemessen wird an der ersten Zeile: dem Original am Heimatmarkt. Alles danach ist eine
+      // Bedingung, die der Stratege nicht ausgesucht hat.
+      const urteilDavon = urteile(ergebnisse, ergebnisse[0]?.erwartungswertR);
       return text(formatiereGegenprobe(eintrag.name, ergebnisse, urteilDavon));
     },
     { annotations: { title: "Strategie gegenprüfen", readOnlyHint: true } },
@@ -640,16 +922,29 @@ export function createLabor(deps: LaborDeps = {}) {
           "offenen Vorbehalt. Alles andere ist `geprueft`, `verworfen` oder `entwurf`. Du kannst",
           "den Status nicht selbst setzen — sonst wäre er eine Meinung.",
           "",
+          "**Nenne `weitereMaerkte`.** Die Ablage rechnet dann dieselbe Regel unverändert über",
+          "alle genannten Märkte und legt die Einstufung — übertragbar, gemischt, Einzelfall —",
+          "mit ins Archiv. Ohne sie steht dort sichtbar, dass über Übertragbarkeit nichts",
+          "gerechnet wurde; die Zahlen gelten dann für genau einen Verlauf.",
+          "",
           "Jakob sieht die Ablage in der Oberfläche unter „Strategien“ und entscheidet dort.",
         ].join("\n"),
         {
           symbol: z.string().min(1).max(20),
           von: z.string().regex(TAG),
           bis: z.string().regex(TAG).optional(),
+          weitereMaerkte: z
+            .array(z.string().min(1).max(30))
+            .max(11)
+            .optional()
+            .describe(
+              'Weitere Märkte für die Übertragbarkeit, z. B. ["^GDAXI", "GC=F", "AAPL"]. ' +
+                "Zusammen mit `symbol` ab drei aussagekräftig. Vorher festlegen, nicht danach.",
+            ),
           ...strategieSchema,
         },
         async (eingabe) => {
-          const { symbol, von, bis, ...rest } = eingabe;
+          const { symbol, von, bis, weitereMaerkte, ...rest } = eingabe;
           const ende = bis ?? heute();
           try {
             const chart = await markets.zeitraum(symbol, unix(von), unix(ende) + 86_400, "1d");
@@ -658,6 +953,16 @@ export function createLabor(deps: LaborDeps = {}) {
               symbol: chart.symbol,
               intervall: "1d",
             });
+            // **Die Einstufung wird hier gerechnet, nicht entgegengenommen.** Ein Feld, in das
+            // der Stratege „übertragbar" schreiben könnte, wäre wieder eine Meinung mit
+            // Fachbegriff — dieselbe Falle wie ein geschätztes CRV.
+            const { vermerk, universumBericht } = await universumZurAblage(
+              strategie,
+              { symbol: chart.symbol, kerzen: chart.candles },
+              weitereMaerkte ?? [],
+              von,
+              ende,
+            );
             const kopf = await archiv.lege({
               name: strategie.name,
               wer: deps.wer ?? "handelstisch",
@@ -670,10 +975,11 @@ export function createLabor(deps: LaborDeps = {}) {
               inSample: ergebnis.inSample,
               outOfSample: ergebnis.outOfSample,
               warnungstexte: ergebnis.warnungen,
-              bericht: formatiereBacktest(ergebnis),
+              bericht: `${formatiereBacktest(ergebnis)}\n\n${universumBericht}`,
+              ...(vermerk === undefined ? {} : { universum: vermerk }),
             });
             return text(
-              `Abgelegt als ${kopf.id} — Status **${kopf.status}**.\n\n${formatiereBacktest(ergebnis)}`,
+              `Abgelegt als ${kopf.id} — Status **${kopf.status}**.\n\n${formatiereBacktest(ergebnis)}\n\n${universumBericht}`,
             );
           } catch (error) {
             if (error instanceof StrategieFehler)
@@ -734,6 +1040,118 @@ export function createLabor(deps: LaborDeps = {}) {
     ];
   }
 
+  /**
+   * Das Prognosebuch: Einzelideen, die nachgehalten und benotet werden.
+   *
+   * **Es ist kein Papierhandel und sieht auch nicht so aus.** Der Papierhandel führt eine
+   * geprüfte Regel aus; hier wird eine einzelne Behauptung festgehalten, damit später
+   * nachrechenbar ist, was von ihr eingetreten ist. Wer eine Einzelidee in den Papierhandel
+   * zwingt, verkauft einen Einfall als Verfahren — genau der Fehler, den die Trennung
+   * zwischen `stratege`, `pruefer` und Betrieb verhindern soll.
+   */
+  function prognoseWerkzeuge(buch: Prognosenbuch) {
+    return [
+      tool(
+        "prognose_anlegen",
+        [
+          "Eine Einzelidee als **Prognose** ablegen, damit später nachgerechnet werden kann,",
+          "was von ihr eingetreten ist. Kein Papierhandel, keine Strategie — eine Behauptung",
+          "mit Datum.",
+          "",
+          "Leg jede Idee ab, die du Jakob vorlegst: Auslöser, Stop und Ziel hast du ohnehin",
+          "gerechnet. **Nenne auch das, was du sonst nur in den Fließtext schreibst** — das",
+          "behauptete CRV, die Haltedauer, die Baseline. Genau diese Felder sind die, die sich",
+          "prüfen lassen, ohne auf den Ausgang zu warten; ohne sie bleibt von deiner Idee nur",
+          "die Frage, ob sie Glück hatte.",
+          "",
+          "Verfolgt wird von Code, nicht von dir: eine Grenzorder am Auslöser, Stop schlägt Ziel",
+          "in derselben Kerze, keine Kerze von vor heute.",
+        ].join("\n"),
+        {
+          symbol: z.string().min(1).max(30),
+          richtung: z.enum(["long", "short"]),
+          ausloeser: z.number().positive().describe("Der Einstiegskurs, auf den gewartet wird."),
+          stop: z.number().positive(),
+          ziele: z.array(z.number().positive()).min(1).max(3),
+          fristTage: z
+            .number()
+            .int()
+            .min(1)
+            .max(365)
+            .optional()
+            .describe("In so vielen Tagen soll der Auslöser kommen. Vorgabe 30."),
+          crvBehauptet: z
+            .array(z.number())
+            .max(3)
+            .optional()
+            .describe("Das CRV je Ziel, wie du es genannt hast. Wird nachgerechnet."),
+          haltedauerMedianTage: z.number().positive().optional(),
+          haltedauerSpanneTage: z
+            .tuple([z.number(), z.number()])
+            .optional()
+            .describe("Die mittlere Hälfte in Tagen, z. B. [4, 23]."),
+          baselineBehauptet: z
+            .number()
+            .optional()
+            .describe("Die genannte Trefferquote ohne Einstiegsregel, in Prozent."),
+          baselineFensterTage: z
+            .number()
+            .int()
+            .min(30)
+            .max(3650)
+            .optional()
+            .describe(
+              "Über wie viele Tage du die Baseline genannt hast. Vorgabe 180 — dasselbe " +
+                "Fenster, das `crv` benutzt. Nur setzen, wenn du wirklich anders gerechnet hast.",
+            ),
+          widerlegtWenn: z.string().max(400).optional(),
+          these: z.string().max(600).optional(),
+          analyseId: z.string().max(40).optional(),
+        },
+        async (eingabe) => {
+          try {
+            const p = await buch.lege({ ...eingabe, von: deps.wer ?? "unbekannt" });
+            return text(
+              `Prognose ${p.id} liegt im Buch: ${p.symbol} ${p.richtung}, Auslöser ${p.ausloeser}, Stop ${p.stop}, Ziel ${p.ziele[0]}. Frist ${p.fristTage} Tage. Ab jetzt wird verfolgt — vorher nicht.`,
+            );
+          } catch (error) {
+            return text(`Nicht abgelegt: ${error instanceof Error ? error.message : error}`, true);
+          }
+        },
+        { annotations: { title: "Prognose ablegen" } },
+      ),
+      tool(
+        "prognose_stand",
+        "Was aus den abgelegten Einzelideen geworden ist — je Idee, mit Note je Behauptung. " +
+          "Ohne `id` die letzten zehn.",
+        { id: z.string().max(40).optional() },
+        async ({ id }) => {
+          if (id) {
+            const b = await buch.pruefe(id);
+            return b ? text(formatiereBenotung(b)) : text(`Keine Prognose zu „${id}".`, true);
+          }
+          const alle = await buch.pruefeAlle();
+          if (alle.length === 0) return text("Im Prognosebuch steht noch nichts.");
+          return text(alle.slice(0, 10).map(formatiereBenotung).join("\n\n---\n\n"));
+        },
+        { annotations: { title: "Prognosen ansehen", readOnlyHint: true } },
+      ),
+      tool(
+        "akte",
+        [
+          "Die eigene Akte: nicht wie viel verdient wurde, sondern wie oft die Behauptung",
+          "eingetreten ist — getrennt nach CRV, Auslöser, Stop, Ziel, Haltedauer und Baseline.",
+          "",
+          "**Sieh hier nach, bevor du eine neue Idee vorlegst.** Wer seine Auslöser regelmäßig",
+          "zu weit entfernt setzt, sieht es an einer Zahl und nicht daran, dass Jakob es merkt.",
+        ].join("\n"),
+        { von: z.string().max(30).optional() },
+        async ({ von }) => text(formatiereAkte(await buch.akteVon(von ?? deps.wer ?? "boerse"))),
+        { annotations: { title: "Akte ansehen", readOnlyHint: true } },
+      ),
+    ];
+  }
+
   return createSdkMcpServer({
     name: "labor",
     version: "1",
@@ -746,7 +1164,9 @@ export function createLabor(deps: LaborDeps = {}) {
     tools: [
       stichtag,
       rueckblick,
+      kerzenLaden,
       backtestTool,
+      universum,
       replayStart,
       replayWeiter,
       replayHandeln,
@@ -756,6 +1176,7 @@ export function createLabor(deps: LaborDeps = {}) {
       gegenprobe,
       ...(deps.papier ? papierWerkzeuge(deps.papier) : []),
       ...(deps.strategien ? archivWerkzeuge(deps.strategien) : []),
+      ...(deps.prognosen ? prognoseWerkzeuge(deps.prognosen) : []),
     ],
   });
 }
@@ -764,7 +1185,9 @@ export function createLabor(deps: LaborDeps = {}) {
 export const LABOR_TOOLS = [
   "mcp__labor__stichtag",
   "mcp__labor__rueckblick",
+  "mcp__labor__kerzen_laden",
   "mcp__labor__backtest",
+  "mcp__labor__universum",
   "mcp__labor__gegenprobe",
   "mcp__labor__replay_start",
   "mcp__labor__replay_weiter",
@@ -777,6 +1200,9 @@ export const LABOR_TOOLS = [
   "mcp__labor__strategie_lesen",
   "mcp__labor__papier_stand",
   "mcp__labor__papier_start",
+  "mcp__labor__prognose_anlegen",
+  "mcp__labor__prognose_stand",
+  "mcp__labor__akte",
 ];
 
 /** Was ein Prüfer braucht, der keine Strategien ablegt. */

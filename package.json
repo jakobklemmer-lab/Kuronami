@@ -20,6 +20,7 @@
     "migrate": "tsx --env-file=.env runtime/db/migrate.ts",
     "gateway": "tsx --env-file=.env gateway/index.ts",
     "say": "tsx --env-file=.env gateway/cli.ts",
+    "prognosen": "tsx --env-file=.env gateway/prognosen-cli.ts",
     "passwort": "tsx gateway/passwort.ts",
     "passwort-setzen": "tsx gateway/passwort-setzen-cli.ts"
   },

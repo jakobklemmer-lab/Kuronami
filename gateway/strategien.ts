@@ -1,6 +1,8 @@
 import { mkdir, readFile, readdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import type { Abschnitt, Kennzahlen, Strategie } from "./backtest.js";
+import { nullEingeschlossen } from "./konfidenz.js";
+import type { Uebertragbarkeit } from "./universum.js";
 
 /**
  * Das Strategie-Archiv.
@@ -23,6 +25,28 @@ import type { Abschnitt, Kennzahlen, Strategie } from "./backtest.js";
 
 export type StrategieStatus = "entwurf" | "geprueft" | "kandidat" | "verworfen";
 
+/**
+ * Was die Prüfung über **viele Märkte** ergeben hat, beim Ablegen mitgerechnet.
+ *
+ * Er steht hier und nicht nur im Bericht, weil eine Einstufung, die niemand wiederfindet, keine
+ * Prüfung ist, sondern eine Erinnerung. Vorbild ist `crvGerechnet` im Analysen-Archiv: eine Zahl,
+ * auf die Geld gesetzt werden könnte, gehört ins Archiv und an den Rand — nicht in den Verlauf
+ * eines Gesprächs.
+ *
+ * `undefined` heißt **nicht** „hat nicht getragen", sondern „ist nicht gerechnet worden", und
+ * genau so wird es auch angezeigt.
+ */
+export interface UniversumVermerk {
+  einstufung: Uebertragbarkeit;
+  /** Wie viele Märkte gerechnet werden konnten. */
+  maerkte: number;
+  /** Alle Handel aller Märkte zusammen. */
+  gesamtHandel: number;
+  gemeinsamErwartungswertR: number;
+  /** Der gerechnete Satz dazu, im Wortlaut. */
+  begruendung: string;
+}
+
 export interface StrategieKopf {
   id: string;
   /** ISO-Zeitpunkt der Ablage. */
@@ -37,6 +61,8 @@ export interface StrategieKopf {
   kennzahlen: Kennzahlen | null;
   /** Wie viele Vorbehalte das Prüfergebnis trägt. Null heißt: keiner ist aufgefallen. */
   warnungen: number;
+  /** Siehe `UniversumVermerk`: fehlt, wenn beim Ablegen kein weiterer Markt genannt wurde. */
+  universum?: UniversumVermerk;
 }
 
 export interface StrategieEintrag extends StrategieKopf {
@@ -65,6 +91,7 @@ export interface StrategienArchiv {
     warnungstexte: string[];
     bericht: string;
     status?: StrategieStatus;
+    universum?: UniversumVermerk;
   }): Promise<StrategieKopf>;
   liste(grenze?: number): Promise<StrategieKopf[]>;
   lies(id: string): Promise<StrategieEintrag | null>;
@@ -97,6 +124,7 @@ export function bewerte(
   kennzahlen: Kennzahlen | null,
   outOfSample: Abschnitt | null,
   warnungen: readonly string[],
+  universum?: UniversumVermerk,
 ): StrategieStatus {
   if (kennzahlen === null || kennzahlen.anzahl === 0) return "entwurf";
   if (kennzahlen.anzahl < 30) return "geprueft";
@@ -104,6 +132,25 @@ export function bewerte(
   const draussen = outOfSample?.kennzahlen;
   if (!draussen || draussen.anzahl < 5) return "geprueft";
   if (draussen.erwartungswertR <= 0) return "verworfen";
+  // **Der Erwartungswert muss belegt sein, nicht nur positiv.** Schließt das 95-%-Intervall
+  // die Null ein, war die Stichprobe eben so ausgefallen — das ist keine Kante, auf die Geld
+  // gehört. Das macht `kandidat` deutlich schwerer erreichbar, und genau das ist die Absicht:
+  // eine Strategie mit +0,2 R je Handel braucht über hundert Handel, bevor sich das von Zufall
+  // unterscheiden lässt. Die Zahl steht als `noetigeHandel` im Bericht, damit aus der Hürde
+  // ein Weg wird statt einer Wand.
+  if (kennzahlen.konfidenz !== undefined && nullEingeschlossen(kennzahlen.konfidenz)) {
+    return "geprueft";
+  }
+  // **Ein Einzelfall darf Kandidat werden — er muss nur als einer zu erkennen sein.** Kurz
+  // stand hier eine Sperre: „Einzelfall" hieß, nie `kandidat`. Jakob hat das am 2026-09-21
+  // umgedreht: „Es ist auch okay, wenn eine Strategie nur in einem Produkt läuft, muss dann
+  // halt so gekennzeichnet sein." Das ist auch die ehrlichere Trennung — ob eine Kante nur im
+  // DAX lebt, ist eine **Eigenschaft** der Regel und kein Mangel an ihrer Prüfung. Eine
+  // Sperre hätte genau die Strategien aussortiert, auf die sein eigenes Regelwerk zielt.
+  //
+  // Die Kennzeichnung ist deshalb kein Beiwerk, sondern die Bedingung dafür, dass diese Zeile
+  // so aussehen darf: der Vermerk steht am Kopf des Eintrags, als Marke in der Liste, als
+  // Block im Blatt und im Wortlaut des Berichts — und fehlt er, steht auch das da.
   if (warnungen.length === 0 && kennzahlen.sharpe >= 1) return "kandidat";
   return "geprueft";
 }
@@ -163,9 +210,16 @@ export function createStrategien(deps: StrategienDeps): StrategienArchiv {
         von: eintrag.von,
         bis: eintrag.bis,
         status:
-          eintrag.status ?? bewerte(eintrag.kennzahlen, eintrag.outOfSample, eintrag.warnungstexte),
+          eintrag.status ??
+          bewerte(
+            eintrag.kennzahlen,
+            eintrag.outOfSample,
+            eintrag.warnungstexte,
+            eintrag.universum,
+          ),
         kennzahlen: eintrag.kennzahlen,
         warnungen: eintrag.warnungstexte.length,
+        ...(eintrag.universum === undefined ? {} : { universum: eintrag.universum }),
         strategie: eintrag.strategie,
         inSample: eintrag.inSample,
         outOfSample: eintrag.outOfSample,

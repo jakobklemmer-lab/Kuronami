@@ -355,3 +355,176 @@ export function obv(kerzen: readonly MarketCandle[]): Reihe {
   }
   return raus;
 }
+
+// ---------------------------------------------------------------------------
+// Sitzungszeit — der Anker unter VWAP und Zeitfenster
+// ---------------------------------------------------------------------------
+
+/**
+ * Die Ortszeit einer Kerze.
+ *
+ * Kerzen tragen Unix-Sekunden, und alles, was dieses Haus bisher anzeigte, war UTC. Für einen
+ * Tagesindikator reicht das. Für Scalping nicht: „nur zwischen 09:30 und 11:00" meint die
+ * Eröffnung einer Börse, und die steht im Sommer auf einem anderen UTC-Stempel als im Winter.
+ * Wer das Fenster in UTC setzt, prüft ein halbes Jahr lang ein anderes Fenster als das andere
+ * halbe — und merkt es nie, weil beide Hälften plausibel aussehen.
+ *
+ * Deshalb hier `Intl` mit echter Zeitzone statt einer Stundenrechnung von Hand. Die Formatierer
+ * sind teuer zu bauen und billig zu benutzen, also werden sie behalten.
+ */
+export class ZeitzoneFehler extends Error {}
+
+const formatierer = new Map<string, Intl.DateTimeFormat>();
+
+function formatiererFuer(zone: string): Intl.DateTimeFormat {
+  const vorhanden = formatierer.get(zone);
+  if (vorhanden !== undefined) return vorhanden;
+  let neu: Intl.DateTimeFormat;
+  try {
+    neu = new Intl.DateTimeFormat("en-CA", {
+      timeZone: zone,
+      hourCycle: "h23",
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit",
+    });
+  } catch {
+    throw new ZeitzoneFehler(
+      `Unbekannte Zeitzone "${zone}". Erwartet wird eine IANA-Angabe wie Europe/Berlin.`,
+    );
+  }
+  formatierer.set(zone, neu);
+  return neu;
+}
+
+interface Ortszeit {
+  /** `YYYY-MM-DD` in der Zone — der Tagesanker. */
+  tag: string;
+  /** Minuten seit Mitternacht in der Zone, 0 bis 1439. */
+  minute: number;
+}
+
+const zeitCache = new Map<string, Ortszeit>();
+
+export function ortszeit(unixSekunden: number, zone: string): Ortszeit {
+  const schluessel = `${zone}|${unixSekunden}`;
+  const gemerkt = zeitCache.get(schluessel);
+  if (gemerkt !== undefined) return gemerkt;
+  const teile = formatiererFuer(zone).formatToParts(new Date(unixSekunden * 1000));
+  let jahr = "";
+  let monat = "";
+  let tag = "";
+  let stunde = 0;
+  let minute = 0;
+  for (const teil of teile) {
+    if (teil.type === "year") jahr = teil.value;
+    else if (teil.type === "month") monat = teil.value;
+    else if (teil.type === "day") tag = teil.value;
+    else if (teil.type === "hour") stunde = Number(teil.value);
+    else if (teil.type === "minute") minute = Number(teil.value);
+  }
+  const wert: Ortszeit = { tag: `${jahr}-${monat}-${tag}`, minute: stunde * 60 + minute };
+  // Der Cache ist auf einen Lauf ausgelegt, nicht auf Ewigkeit: eine mehrjährige 5-Minuten-Reihe
+  // hat Hunderttausende Stempel, und ein unbegrenzter Cache wäre dann der Speicherfresser.
+  if (zeitCache.size > 400_000) zeitCache.clear();
+  zeitCache.set(schluessel, wert);
+  return wert;
+}
+
+/** `"09:30"` → 570. Wirft bei allem, was keine Uhrzeit ist. */
+export function minuteAus(uhrzeit: string): number {
+  const treffer = /^([01]\d|2[0-3]):([0-5]\d)$/.exec(uhrzeit.trim());
+  if (treffer === null) {
+    throw new ZeitzoneFehler(`"${uhrzeit}" ist keine Uhrzeit. Erwartet wird HH:MM, z. B. 09:30.`);
+  }
+  return Number(treffer[1]) * 60 + Number(treffer[2]);
+}
+
+/**
+ * Liegt die Kerze im Fenster? Ein Fenster, dessen Ende vor seinem Anfang steht, läuft über
+ * Mitternacht — für Krypto und die asiatische Sitzung ist das der Normalfall, kein Fehler.
+ */
+export function imFenster(
+  unixSekunden: number,
+  zone: string,
+  vonMinute: number,
+  bisMinute: number,
+): boolean {
+  const { minute } = ortszeit(unixSekunden, zone);
+  return vonMinute <= bisMinute
+    ? minute >= vonMinute && minute < bisMinute
+    : minute >= vonMinute || minute < bisMinute;
+}
+
+// ---------------------------------------------------------------------------
+// VWAP
+// ---------------------------------------------------------------------------
+
+/** Trägt die Reihe überhaupt Volumen? Ohne das ist ein VWAP keine Linie, sondern eine Lüge. */
+export function hatVolumen(kerzen: readonly MarketCandle[]): boolean {
+  return kerzen.some((k) => typeof k.volume === "number" && k.volume > 0);
+}
+
+export interface VwapReihen {
+  vwap: Reihe;
+  /** VWAP plus `faktor` volumengewichtete Standardabweichungen. */
+  oben: Reihe;
+  unten: Reihe;
+}
+
+/**
+ * Volumengewichteter Durchschnittskurs, **je Sitzung neu angesetzt**.
+ *
+ * Das Zurücksetzen ist der ganze Indikator. Ein VWAP, der über Wochen durchläuft, ist ein
+ * träger gleitender Durchschnitt mit Volumengewicht und hat mit dem, was ein Daytrader VWAP
+ * nennt, nichts zu tun: der misst, wo der Markt **heute** im Schnitt gehandelt hat, und
+ * gegen diese Linie wird gekauft und verkauft. Der Anker ist deshalb der Sitzungstag in der
+ * Zeitzone der Börse — nicht der UTC-Tag, der mitten in der US-Sitzung umspringt.
+ *
+ * Die Bänder sind die volumengewichtete Standardabweichung um den VWAP, aus denselben
+ * laufenden Summen: E[p²] − E[p]². Damit lässt sich „Rücklauf an den VWAP" von „Abprall am
+ * Band" unterscheiden, ohne einen zweiten Indikator.
+ *
+ * **Ohne Volumen kommt eine Reihe aus `undefined` zurück** — wie beim OBV. Der Aufrufer muss
+ * das prüfen; `backtest.ts` tut es und weist die Strategie ab, statt sie nie auslösen zu
+ * lassen. Eine Regel, die stumm nie feuert, sieht aus wie eine Regel, die nicht funktioniert.
+ */
+export function vwap(kerzen: readonly MarketCandle[], zone = "UTC", faktor = 1): VwapReihen {
+  const leer = (): Reihe => new Array(kerzen.length).fill(undefined);
+  const raus: VwapReihen = { vwap: leer(), oben: leer(), unten: leer() };
+  if (!hatVolumen(kerzen)) return raus;
+
+  let anker = "";
+  let summeV = 0;
+  let summePV = 0;
+  let summePPV = 0;
+  for (let i = 0; i < kerzen.length; i += 1) {
+    const k = kerzen[i];
+    const tag = ortszeit(k.time, zone).tag;
+    if (tag !== anker) {
+      anker = tag;
+      summeV = 0;
+      summePV = 0;
+      summePPV = 0;
+    }
+    const volumen = k.volume ?? 0;
+    // Typischer Kurs statt Schlusskurs: eine 5-Minuten-Kerze ist kein Punkt, und der Schluss
+    // allein überbewertet das Ende des Intervalls.
+    const typisch = (k.high + k.low + k.close) / 3;
+    summeV += volumen;
+    summePV += typisch * volumen;
+    summePPV += typisch * typisch * volumen;
+    // Eine Kerze ohne Volumen am Sitzungsanfang lässt die Summe auf null — dann gibt es noch
+    // keinen Durchschnitt, und `undefined` ist die richtige Auskunft.
+    if (summeV <= 0) continue;
+    const mittel = summePV / summeV;
+    const varianz = Math.max(0, summePPV / summeV - mittel * mittel);
+    const abweichung = Math.sqrt(varianz);
+    raus.vwap[i] = mittel;
+    raus.oben[i] = mittel + faktor * abweichung;
+    raus.unten[i] = mittel - faktor * abweichung;
+  }
+  return raus;
+}

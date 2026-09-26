@@ -7,7 +7,8 @@ Fehler stünde dann nicht in der ersten Zeile, sondern in der Frage, warum niema
 
 Zwei Betriebsarten, und der Unterschied ist keine Feinheit:
 
-* ``live`` — Deepgram für die Erkennung, ElevenLabs für die Stimme. Beide Schlüssel sind Pflicht.
+* ``live`` — Deepgram für die Erkennung, Azure oder ElevenLabs für die Stimme (``VOICE_TTS``).
+  Die Schlüssel des gewählten Anbieters sind Pflicht.
 * ``loopback`` — dieselbe Pipeline, dieselbe Verdrahtung, aber mit lokalen Stand-ins statt der
   beiden Anbieter (``services.py``). Dafür gibt es genau einen Grund: Unterbrechen und Latenz
   (S31) sind Eigenschaften des **Graphen**, nicht der Anbieter, und sie sollen messbar sein, ohne
@@ -24,6 +25,14 @@ from dataclasses import dataclass, field
 from typing import Literal
 
 VoiceMode = Literal["live", "loopback"]
+#: Wer im Live-Betrieb spricht. Seit 2026-09-21 eine Wahl und nicht mehr fest verdrahtet.
+#:
+#: Der Wechsel kam nicht aus Geschmack, sondern aus einer Rechnung: ElevenLabs stellt zwischen
+#: 121.000 Zeichen (11 $) und 600.000 Zeichen (99 $) nichts dazwischen, und Jakob spricht
+#: mehrmals täglich mit Kuro. Azure nimmt 15 $ je Million Zeichen (Neural) bzw. 22 $ (HD) und
+#: hat ein Freikontingent von 500.000 Zeichen im Monat — derselbe Betrieb kostet dort einstellig.
+#: ElevenLabs bleibt als Weg erhalten; der Code soll den Vergleich zulassen, nicht verbieten.
+VoiceTTS = Literal["azure", "elevenlabs"]
 
 #: Die Obergrenze aus dem Fertig-Kriterium von S31. Sie steht hier und nicht als Zahl im
 #: Messskript, damit Budget und Messung dieselbe Quelle haben.
@@ -86,6 +95,21 @@ class VoiceConfig:
     #: auf dem dieselbe Messung später gegen einen echten Anbieter läuft.
     deepgram_base_url: str
     deepgram_language: str
+    #: Das Erkennungsmodell. `multi` als Sprache verlangt `nova-3`.
+    deepgram_model: str
+    #: Begriffe, die Deepgram bevorzugt erkennen soll (Nova-3 „keyterm prompting"), eine
+    #: Liste. Leer = keine Vorgabe.
+    deepgram_keyterms: tuple[str, ...]
+
+    #: Wer die Stimme stellt. Wirkt nur im Live-Betrieb; im Loopback spricht immer der Stand-in.
+    tts_provider: VoiceTTS
+
+    azure_speech_key: str
+    azure_speech_region: str
+    #: Der Stimmname, wie Azure ihn schreibt (``de-DE-FlorianMultilingualNeural``).
+    azure_speech_voice: str
+    #: Die Sprache, in der gesprochen wird. Geht als ``xml:lang`` ins SSML.
+    azure_speech_language: str
 
     elevenlabs_api_key: str
     elevenlabs_voice_id: str
@@ -122,7 +146,12 @@ class VoiceConfig:
     def describe(self) -> str:
         """Eine Zeile für das Prozessprotokoll. Nennt nie einen Schlüssel, nur ob er da ist."""
         stt = "Deepgram" if self.live else "Loopback-STT"
-        tts = "ElevenLabs" if self.live else "Loopback-TTS"
+        if not self.live:
+            tts = "Loopback-TTS"
+        elif self.tts_provider == "azure":
+            tts = f"Azure ({self.azure_speech_voice})"
+        else:
+            tts = "ElevenLabs"
         return (
             f"Modus {self.mode} · VAD {self.vad_kind} · {stt} → Brücke → {tts} · "
             f"ws://{self.host}:{self.port} · Gateway {self.gateway_url} · "
@@ -159,24 +188,33 @@ def config_from_env(env: Mapping[str, str] | None = None) -> VoiceConfig:
             "Nachricht ab (siehe gateway/identity.ts, authenticateVoice)."
         )
 
+    tts_raw = _text(source, "VOICE_TTS", "azure").lower()
+    if tts_raw not in ("azure", "elevenlabs"):
+        raise ConfigError(f"VOICE_TTS kennt nur azure oder elevenlabs, nicht {tts_raw!r}.")
+    tts_provider: VoiceTTS = "azure" if tts_raw == "azure" else "elevenlabs"
+
     deepgram = _text(source, "DEEPGRAM_API_KEY")
+    azure_key = _text(source, "AZURE_SPEECH_KEY")
+    azure_region = _text(source, "AZURE_SPEECH_REGION")
     elevenlabs = _text(source, "ELEVENLABS_API_KEY")
     voice_id = _text(source, "ELEVENLABS_VOICE_ID")
     if mode == "live":
+        # Verlangt wird nur, was der gewählte Anbieter braucht. Beide Schlüsselsätze zu fordern
+        # hieße, den ungenutzten Anbieter zur Startbedingung zu machen — und genau daran wäre
+        # der Wechsel gescheitert, solange das ElevenLabs-Konto noch am Limit klebt.
+        gebraucht: tuple[tuple[str, str], ...] = (
+            (("AZURE_SPEECH_KEY", azure_key), ("AZURE_SPEECH_REGION", azure_region))
+            if tts_provider == "azure"
+            else (("ELEVENLABS_API_KEY", elevenlabs), ("ELEVENLABS_VOICE_ID", voice_id))
+        )
         missing = [
-            name
-            for name, value in (
-                ("DEEPGRAM_API_KEY", deepgram),
-                ("ELEVENLABS_API_KEY", elevenlabs),
-                ("ELEVENLABS_VOICE_ID", voice_id),
-            )
-            if not value
+            name for name, value in (("DEEPGRAM_API_KEY", deepgram), *gebraucht) if not value
         ]
         if missing:
             raise ConfigError(
-                "VOICE_MODE=live verlangt " + ", ".join(missing) + ". Ohne diese Werte gibt es "
-                "keine Erkennung und keine Stimme; für einen Lauf ohne Anbieter ist "
-                "VOICE_MODE=loopback gedacht."
+                "VOICE_MODE=live verlangt bei VOICE_TTS=" + tts_provider + " die Werte "
+                + ", ".join(missing) + ". Ohne sie gibt es keine Erkennung und keine Stimme; "
+                "für einen Lauf ohne Anbieter ist VOICE_MODE=loopback gedacht."
             )
 
     return VoiceConfig(
@@ -190,7 +228,26 @@ def config_from_env(env: Mapping[str, str] | None = None) -> VoiceConfig:
         gateway_timeout_secs=_decimal(source, "VOICE_GATEWAY_TIMEOUT_SECS", 180.0),
         deepgram_api_key=deepgram,
         deepgram_base_url=_text(source, "DEEPGRAM_BASE_URL"),
-        deepgram_language=_text(source, "DEEPGRAM_LANGUAGE", "de"),
+        # **`multi` statt `de`, seit 2026-09-21.** Ein rein deutsches Modell macht aus
+        # „Heartbeat" ein „Hardbeat" und aus „Kuro" ein „Koro" oder „Guro" — alles drei steht
+        # so im Protokoll vom 20./21.09. Jakob spricht über Paper Trading, Backtests und
+        # Tickersymbole; die Erkennung muss innerhalb eines Satzes umschalten können. `multi`
+        # ist Deepgrams Betriebsart dafür und setzt `nova-3` voraus.
+        # Zurück geht es mit DEEPGRAM_LANGUAGE=de und DEEPGRAM_MODEL=nova-2.
+        deepgram_language=_text(source, "DEEPGRAM_LANGUAGE", "multi"),
+        deepgram_model=_text(source, "DEEPGRAM_MODEL", "nova-3"),
+        deepgram_keyterms=_list(source, "DEEPGRAM_KEYTERMS"),
+        tts_provider=tts_provider,
+        azure_speech_key=azure_key,
+        azure_speech_region=azure_region,
+        # Warum ausgerechnet diese Stimme als Vorgabe: sie ist **multilingual**. Die Vorgängerin
+        # war „George", eine englische Premade-Stimme, die deutschen Text las — Jakob hörte am
+        # 2026-09-21 einen britischen Erzähler und sagte, Kuro kenne „plötzlich nicht mehr alle
+        # englischen Begriffe". Eine einsprachig deutsche Stimme dreht denselben Fehler nur um:
+        # Kuro redet über Backtests, Drawdowns und Buy-and-Hold, und die müssen englisch klingen
+        # dürfen, ohne dass der Satz drumherum den Akzent wechselt.
+        azure_speech_voice=_text(source, "AZURE_SPEECH_VOICE", "de-DE-FlorianMultilingualNeural"),
+        azure_speech_language=_text(source, "AZURE_SPEECH_LANGUAGE", "de-DE"),
         elevenlabs_api_key=elevenlabs,
         elevenlabs_voice_id=voice_id,
         elevenlabs_model=_text(source, "ELEVENLABS_MODEL", "eleven_flash_v2_5"),

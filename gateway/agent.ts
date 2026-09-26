@@ -13,9 +13,11 @@ import { type AnalysenArchiv, createAnalysen } from "./analysen.js";
 import { BUEHNE_TOOLS, createBuehne } from "./buehne.js";
 import { HAUS_TOOLS, createHaus } from "./haus.js";
 import { createYahooMarkets } from "./integrations/markets.js";
+import { createKerzenquelle } from "./kerzen.js";
 import { type Papierhandel, createPapierhandel } from "./papierhandel.js";
 import { createSendePostfach } from "./postfach-werkzeuge.js";
 import { konten } from "./postfach.js";
+import { type Prognosenbuch, createPrognosen } from "./prognosen.js";
 import { type StrategienArchiv, createStrategien } from "./strategien.js";
 import type { ChannelRegistry, InboundMessage, Outbound, Sender } from "./types.js";
 
@@ -157,6 +159,8 @@ export interface AgentDeps {
   strategien?: StrategienArchiv;
   /** Der Papierhandel. Vorgabe: ein Ordner `papierhandel/` im Arbeitsbereich, Kurse von Yahoo. */
   papier?: Papierhandel;
+  /** Das Prognosebuch. Vorgabe: ein Ordner `prognosen/` im Arbeitsbereich. */
+  prognosen?: Prognosenbuch;
 }
 
 export interface ZugKosten {
@@ -242,6 +246,7 @@ export class KuroAgent {
   readonly #strategien: StrategienArchiv;
   /** Der Betrieb: geprüfte Regeln gegen den laufenden Markt, mit Buchgeld. */
   readonly #papier: Papierhandel;
+  readonly #prognosen: Prognosenbuch;
   /** Die Bühne: womit Kuro Jakob etwas hinstellt. */
   readonly #buehne: ReturnType<typeof createBuehne>;
   /** Wohin ein nachgereichter Bericht geht: dorthin, wo zuletzt jemand geschrieben hat. */
@@ -269,9 +274,26 @@ export class KuroAgent {
           deps.publish?.("papier.ereignis", { text });
         },
       });
+    // Das Prognosebuch teilt sich den Kerzenspeicher mit dem Labor: dieselben Kerzen, aus
+    // denen der Backtest rechnet, benoten auch die Einzelideen. Zwei Speicher hießen zwei
+    // Wahrheiten über denselben Tag.
+    this.#prognosen =
+      deps.prognosen ??
+      createPrognosen({
+        workdir: this.#workdir,
+        kerzen: async (symbol, vonUnix, bisUnix) => {
+          const quelle = createKerzenquelle({
+            workdir: this.#workdir,
+            markets: createYahooMarkets(),
+          });
+          const geholt = await quelle.hole({ symbol, intervall: "1d", vonUnix, bisUnix });
+          return geholt.kerzen;
+        },
+      });
     this.#haus = createHaus({
       strategien: this.#strategien,
       papier: this.#papier,
+      prognosen: this.#prognosen,
       // Auch die Protokollzeile läuft durch den Filter: der Auftragstext trägt alles weiter,
       // was Jakob vorher geschrieben hat, und journalctl bewahrt es auf.
       //

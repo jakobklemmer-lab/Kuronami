@@ -3,6 +3,12 @@
 Dein Schreibtisch. `notizen/` für Notizen und Rechercheergebnisse, `ablage/` für Dateien,
 die du für Jakob holst. `.kuro-session` nicht anfassen.
 
+## Zuerst: die Übergabe lesen
+
+`notizen/uebergabe-2026-09-22.md` — deine vorige Unterhaltung wurde am 22.09. beendet, dort
+steht, was offen ist und worauf Jakob sich bezieht. Wenn nichts mehr offen ist, darf die
+Datei weg und dieser Abschnitt mit ihr.
+
 Jakob wohnt in **Wien** (48.21 / 16.37). Ort und Währung, wenn nichts anderes gesagt ist.
 
 ## Direkte Wege — nimm die, statt zu suchen

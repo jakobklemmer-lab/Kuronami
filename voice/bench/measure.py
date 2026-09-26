@@ -8,7 +8,7 @@ WebSocket-Transport, derselbe Silero-Rahmen, dieselbe Brücke, dieselbe HTTP-Fah
   ist. So lässt sich zeigen, was das Kriterium behauptet: dass die Denkzeit des Agenten die
   Sprachschicht nicht langsam macht.
 * **Die Anbieter** sind die Stand-ins aus `services.py` — ohne Schlüssel gibt es keinen Deepgram-
-  und keinen ElevenLabs-Aufruf. Was dadurch ungemessen bleibt, sagt der Bericht selbst.
+  und keinen Aufruf des Sprachanbieters. Was dadurch ungemessen bleibt, sagt der Bericht selbst.
 * **Der Sprachdetektor** ist der Energie-Detektor aus `vad.py`, weil Silero synthetischen Ton
   nicht als Stimme annimmt (nachgeprüft, siehe dort). Die Zeitzählung ist identisch.
 
@@ -389,7 +389,7 @@ async def run_bench(runs: int, agent_delay: float) -> dict[str, Any]:
             if config.live
             else [
                 "Deepgram: Laufzeit der Erkennung (Strecke `erkennung` misst hier den Stand-in)",
-                "ElevenLabs: Zeit bis zum ersten Audio-Byte (Strecke `stimme`)",
+                "Azure bzw. ElevenLabs: Zeit bis zum ersten Audio-Byte (Strecke `stimme`)",
                 "Silero: Rechenzeit je 32-ms-Block (der Messstand nutzt den Energie-Detektor)",
             ]
         ),

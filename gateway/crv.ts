@@ -1,3 +1,4 @@
+import { DauerFehler, formatiereHaltedauer, messeHaltedauer } from "./haltedauer.js";
 import type { MarketCandle, MarketChart } from "./integrations/markets.js";
 
 /**
@@ -257,10 +258,17 @@ export function formatiereCrv(ergebnis: CrvErgebnis, umfeld: CrvUmfeld = {}): st
     const tagesspanne = atr(chart.candles);
     if (tagesspanne !== undefined && tagesspanne > 0) {
       const inAtr = ergebnis.risikoJeEinheit / tagesspanne;
+      // Die Benennung folgt dem Intervall. „Tagesspanne" über Fünfminutenkerzen wäre schlicht
+      // falsch — und zwar auf die teure Art: der Leser hielte einen Stop für weit, der eine
+      // Viertelstunde übersteht.
+      const spannenName =
+        chart.interval === "1d" ? "Tagesspanne" : `Spanne je ${chart.interval}-Kerze`;
+      const spannenNameMehrzahl =
+        chart.interval === "1d" ? "Tagesspannen" : `Spannen je ${chart.interval}-Kerze`;
       zeilen.push(
         "",
-        `Durchschnittliche Tagesspanne (ATR 14, ${chart.range}/${chart.interval}): ${zahl(tagesspanne)}`,
-        `Der Stop liegt ${inAtr.toFixed(2)} Tagesspannen vom Einstieg entfernt.${inAtr < 1 ? " Das ist weniger als ein gewöhnlicher Tag — gewöhnliches Rauschen nimmt ihn mit, ohne dass die These falsch war." : ""}`,
+        `Durchschnittliche ${spannenName} (ATR 14, ${chart.range}/${chart.interval}): ${zahl(tagesspanne)}`,
+        `Der Stop liegt ${inAtr.toFixed(2)} ${spannenNameMehrzahl} vom Einstieg entfernt.${inAtr < 1 ? " Das ist weniger als eine gewöhnliche Kerze — gewöhnliches Rauschen nimmt ihn mit, ohne dass die These falsch war." : ""}`,
       );
     } else {
       zeilen.push(
@@ -288,6 +296,30 @@ export function formatiereCrv(ergebnis: CrvErgebnis, umfeld: CrvUmfeld = {}): st
       zeilen.push(
         `52 Wochen: Tief ${zahl(chart.weekLow52)}, Hoch ${zahl(chart.weekHigh52)} — der Kurs steht bei ${prozent(lage)} dieser Spanne.`,
       );
+    }
+  }
+
+  // Die Zeitachse. Ohne sie sind Einstieg, Stop und Ziel drei Kurse ohne Angabe, worauf sich
+  // der Leser einlässt — dieselbe Geometrie ist auf Tageskerzen ein Handel über Wochen und auf
+  // Fünfminutenkerzen einer über eine halbe Stunde. Siehe `haltedauer.ts`.
+  if (chart && ergebnis.ziele.length > 0) {
+    try {
+      const dauer = messeHaltedauer({
+        kerzen: chart.candles,
+        richtung: ergebnis.richtung,
+        einstieg: ergebnis.einstieg,
+        stop: ergebnis.stop,
+        ziel: ergebnis.ziele[0].ziel,
+      });
+      zeilen.push("", formatiereHaltedauer(dauer, chart.interval));
+    } catch (fehler) {
+      // Eine fehlende Haltedauer ist kein Grund, die gerechneten Kennzahlen zurückzuhalten —
+      // aber der Grund wird genannt, statt die Zeile stillschweigend wegzulassen.
+      if (fehler instanceof DauerFehler) {
+        zeilen.push("", `Keine Haltedauer gerechnet: ${fehler.message}`);
+      } else {
+        throw fehler;
+      }
     }
   }
 

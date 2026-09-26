@@ -1,7 +1,8 @@
 """Erkennung und Stimme: die beiden Anbieter (S30) und ihre lokalen Stand-ins.
 
-**Deepgram und ElevenLabs sind hier angebunden**, und zwar an genau einer Stelle — `build_stt`
-und `build_tts`. Wer den Anbieter tauschen will, tauscht diese zwei Funktionen; die Brücke, das
+**Deepgram, Azure und ElevenLabs sind hier angebunden**, und zwar an genau einer Stelle —
+`build_stt` und `build_tts`. Dass der Tausch der Stimme am 2026-09-21 wirklich nur diese Datei
+kostete, war die Probe aufs Exempel: die Brücke, das
 Protokoll und die Messung kennen keinen Anbieternamen.
 
 Die Stand-ins (`LoopbackSTT`, `LoopbackTTS`) sind kein Ersatz für die Anbieter und geben sich auch
@@ -54,7 +55,9 @@ def build_stt(config: VoiceConfig) -> FrameProcessor:
 
     from pipecat.services.deepgram.stt import DeepgramSTTService
 
-    logger.info(f"Erkennung: Deepgram, Sprache {config.deepgram_language}.")
+    logger.info(
+        f"Erkennung: Deepgram {config.deepgram_model}, Sprache {config.deepgram_language}."
+    )
     return DeepgramSTTService(
         api_key=config.deepgram_api_key,
         # Leer heißt Deepgrams eigene Adresse. Gesetzt zeigt sie woanders hin — der Weg, auf dem
@@ -67,18 +70,54 @@ def build_stt(config: VoiceConfig) -> FrameProcessor:
         # neuer Code soll nicht auf einem Weg stehen, der mit 2.0 wegfällt.
         settings=DeepgramSTTService.Settings(
             language=config.deepgram_language,
+            model=config.deepgram_model,
             # Zwischenstände kommen als `InterimTranscriptionFrame` und gehen an den Client —
             # geschrieben wird davon nichts, aber der Nutzer sieht, dass zugehört wird.
             interim_results=True,
+            # Die Satzzeichen sind hier keine Kosmetik: die Brücke liest an ihnen ab, ob eine
+            # Äußerung zu Ende ist, und wartet länger, wenn sie es nicht ist (`_SATZ_FERTIG`).
+            punctuate=True,
+            **({"keyterm": list(config.deepgram_keyterms)} if config.deepgram_keyterms else {}),
         ),
     )
 
 
 def build_tts(config: VoiceConfig) -> FrameProcessor:
-    """Die Stimme. `live` = ElevenLabs, sonst der lokale Stand-in."""
+    """Die Stimme. `live` = Azure oder ElevenLabs (`VOICE_TTS`), sonst der lokale Stand-in."""
     if not config.live:
         return LoopbackTTS(config=config)
+    if config.tts_provider == "azure":
+        return _azure_tts(config)
+    return _elevenlabs_tts(config)
 
+
+def _azure_tts(config: VoiceConfig) -> FrameProcessor:
+    """Azure Speech, seit 2026-09-21 der Regelweg."""
+    from pipecat.services.azure.tts import AzureTTSService
+
+    logger.info(f"Stimme: Azure, {config.azure_speech_voice} ({config.azure_speech_region}).")
+    return AzureTTSService(
+        api_key=config.azure_speech_key,
+        region=config.azure_speech_region,
+        sample_rate=config.audio_out_sample_rate,
+        settings=AzureTTSService.Settings(
+            voice=config.azure_speech_voice,
+            language=config.azure_speech_language,
+            # **`force_locale` bleibt aus, und das ist der Punkt der ganzen Umstellung.**
+            #
+            # Eingeschaltet presst Azure den ganzen Text in die eingestellte Sprache und
+            # schaltet die Umschaltung je Abschnitt ab. Kuro redet aber über Backtests,
+            # Drawdowns und Buy-and-Hold in deutschen Sätzen; genau dieses Gemisch soll die
+            # multilinguale Stimme abschnittsweise richtig aussprechen. Wer hier später ein
+            # `True` einsetzt, weil „die Stimme soll doch deutsch sprechen", holt sich den
+            # Fehler vom 2026-09-21 zurück — nur mit umgekehrtem Vorzeichen.
+            force_locale=False,
+        ),
+    )
+
+
+def _elevenlabs_tts(config: VoiceConfig) -> FrameProcessor:
+    """ElevenLabs — der bisherige Weg, erhalten für den Vergleich."""
     from pipecat.services.elevenlabs.tts import ElevenLabsTTSService
 
     logger.info(f"Stimme: ElevenLabs, Modell {config.elevenlabs_model}.")

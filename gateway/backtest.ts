@@ -1,11 +1,16 @@
 import type { Richtung } from "./crv.js";
+import { DauerFehler, messeHaltedauer } from "./haltedauer.js";
 import {
   type Reihe,
+  ZeitzoneFehler,
   adx,
   atrReihe,
   bollinger,
   ema,
+  hatVolumen,
+  imFenster,
   macd,
+  minuteAus,
   obv,
   rollendesHoch,
   rollendesTief,
@@ -14,8 +19,10 @@ import {
   sma,
   stdabw,
   stochastik,
+  vwap,
 } from "./indikatoren.js";
 import type { MarketCandle } from "./integrations/markets.js";
+import { type Konfidenz, formatiereKonfidenz, konfidenz, nullEingeschlossen } from "./konfidenz.js";
 
 /**
  * Der Backtest: eine Strategie gegen echte Kerzen laufen lassen und **nachrechenbar** sagen,
@@ -64,7 +71,10 @@ export type IndikatorArt =
   | "bollinger_mitte"
   | "bollinger_unten"
   | "bollinger_breite"
-  | "obv";
+  | "obv"
+  | "vwap"
+  | "vwap_oben"
+  | "vwap_unten";
 
 export interface Indikator {
   art: IndikatorArt;
@@ -93,6 +103,27 @@ export interface Bedingung {
   rechts: Indikator;
 }
 
+/**
+ * Der Tagesabschnitt, in dem gehandelt wird.
+ *
+ * Für alles, was feiner ist als eine Tageskerze, ist das keine Feinheit: die Eröffnungsstunde
+ * einer Börse verhält sich anders als der Mittag, und eine Regel, die über den ganzen Tag
+ * gerechnet wird, mischt beide zu einem Durchschnitt, den es so nie gab.
+ */
+export interface Zeitfenster {
+  /** Beginn in Ortszeit der Börse, `HH:MM`. */
+  von: string;
+  /** Ende, **ausschließlich**. Liegt es vor `von`, läuft das Fenster über Mitternacht. */
+  bis: string;
+  /**
+   * Beim Verlassen des Fensters glattstellen. **Vorgabe `true`** — und das ist die ehrliche
+   * Vorgabe: wer nur in der Eröffnungsstunde einsteigt, aber über Nacht liegen bleibt, hat
+   * kein Fenster gehandelt, sondern eine Übernachtposition mit einem Einstiegsfilter. Das
+   * Risiko daraus ist ein ganz anderes, und es stünde in keiner Kennzahl.
+   */
+  ausstiegAmEnde?: boolean;
+}
+
 export interface Strategie {
   name: string;
   richtung: Richtung;
@@ -113,9 +144,21 @@ export interface Strategie {
   /** Je Seite, in Prozent. Vorgabe 0,1 % Gebühr und 0,05 % Schlupf. */
   gebuehrProzent?: number;
   schlupfProzent?: number;
+  /**
+   * Zeitzone der Börse als IANA-Angabe (`America/New_York`, `Europe/Berlin`, `UTC`).
+   * Vorgabe `UTC`. Sie ankert den VWAP und das Zeitfenster.
+   *
+   * **Nicht bequem, sondern notwendig:** „09:30" meint eine Eröffnung, und die steht im Sommer
+   * auf einem anderen UTC-Stempel als im Winter. Wer das Fenster in UTC setzt, prüft ein halbes
+   * Jahr lang ein anderes Fenster als das andere halbe — und sieht es nie, weil beide Hälften
+   * plausibel aussehen.
+   */
+  zone?: string;
+  /** Nur in diesem Tagesabschnitt wird eingestiegen. */
+  fenster?: Zeitfenster;
 }
 
-export type Ausstiegsgrund = "stop" | "ziel" | "regel" | "zeit" | "ende";
+export type Ausstiegsgrund = "stop" | "ziel" | "regel" | "zeit" | "fenster" | "ende";
 
 export interface Handel {
   einstiegZeit: number;
@@ -156,6 +199,11 @@ export interface Kennzahlen {
   groessterVerlustR: number;
   laengsteVerlustserie: number;
   durchschnittKerzen: number;
+  /**
+   * 95-%-Intervall des Erwartungswerts, aus den Handeln gezogen. Fehlt unter zehn Handeln —
+   * dort gäbe es nur eine Scheingenauigkeit. Siehe `konfidenz.ts`.
+   */
+  konfidenz?: Konfidenz;
 }
 
 export interface Abschnitt {
@@ -179,7 +227,7 @@ export interface BacktestErgebnis {
   /** Der Teil, den man dabei nicht gesehen hat. */
   outOfSample: Abschnitt;
   /**
-   * Was derselbe Zeitraum mit Kaufen-und-Liegenlassen gebracht hätte. Die Vergleichszahl, ohne
+   * Was derselbe Zeitraum mit Buy-and-Hold gebracht hätte. Die Vergleichszahl, ohne
    * die jede Strategie gut aussieht: wer in einem Aufwärtsjahr 20 % macht, während der Markt
    * 40 % läuft, hat nichts gewonnen, sondern die Hälfte liegen gelassen.
    */
@@ -187,6 +235,13 @@ export interface BacktestErgebnis {
   /** Was an diesem Ergebnis nicht zu trauen ist. Leer heißt: nichts aufgefallen. */
   warnungen: string[];
   kosten: { gebuehrProzent: number; schlupfProzent: number };
+  /**
+   * Was dieselbe Stop-/Ziel-Geometrie **ohne jede Einstiegsregel** erreicht hätte, gemessen an
+   * derselben Kerzenreihe. Die Messlatte: schlägt die Regel den Zufall, oder liefert nur ihre
+   * Geometrie das Ergebnis? Fehlt, wenn die Strategie kein Ziel hat — dann gibt es nichts
+   * zu vergleichen. Siehe `haltedauer.ts`.
+   */
+  nullpunkt?: { trefferquote: number; erwartungswertR: number };
 }
 
 export class StrategieFehler extends Error {}
@@ -196,7 +251,7 @@ const VORGABE_SCHLUPF = 0.05;
 /** Unter so vielen Handeln ist jede Kennzahl Zufall. */
 export const MINDEST_HANDEL = 30;
 
-function reiheFuer(ind: Indikator, kerzen: readonly MarketCandle[]): Reihe {
+function reiheFuer(ind: Indikator, kerzen: readonly MarketCandle[], zone = "UTC"): Reihe {
   const schluss = schlusskurse(kerzen);
   const periode = ind.periode ?? 14;
   switch (ind.art) {
@@ -246,10 +301,27 @@ function reiheFuer(ind: Indikator, kerzen: readonly MarketCandle[]): Reihe {
       return bollinger(schluss, ind.periode ?? 20, ind.faktor ?? 2).breiteProzent;
     case "obv":
       return obv(kerzen);
+    case "vwap":
+      return vwap(kerzen, zone, ind.faktor ?? 1).vwap;
+    case "vwap_oben":
+      return vwap(kerzen, zone, ind.faktor ?? 1).oben;
+    case "vwap_unten":
+      return vwap(kerzen, zone, ind.faktor ?? 1).unten;
     default:
       throw new StrategieFehler(`Unbekannter Indikator: ${String((ind as Indikator).art)}`);
   }
 }
+
+const VWAP_ARTEN: readonly IndikatorArt[] = ["vwap", "vwap_oben", "vwap_unten"];
+
+/** Kommt irgendwo in den Bedingungen ein VWAP vor? Entscheidet über zwei Abweisungen unten. */
+export function nutztVwap(s: Strategie): boolean {
+  const alle = [...s.einstieg, ...(s.ausstieg ?? [])];
+  return alle.some((b) => VWAP_ARTEN.includes(b.links.art) || VWAP_ARTEN.includes(b.rechts.art));
+}
+
+/** Intervalle, auf denen ein Sitzungsindikator nichts zu suchen hat. */
+const GROB: readonly string[] = ["1d", "1wk", "1mo"];
 
 interface Gerechnet {
   links: Reihe;
@@ -271,6 +343,38 @@ function trifftZu(b: Gerechnet, i: number): boolean {
 }
 
 /**
+ * Darf aus einem Signal auf Kerze `index` ein Einstieg werden?
+ *
+ * Geprüft wird **die Kerze, auf der eingestiegen wird** — also die nächste, denn das Signal
+ * steht auf der abgeschlossenen Kerze und gekauft wird zur folgenden Eröffnung. Ein Signal um
+ * 10:55 bei einem Fenster bis 11:00 würde sonst um 11:00 ausgeführt, also außerhalb dessen, was
+ * geprüft wurde.
+ *
+ * Im Betrieb gibt es die nächste Kerze noch nicht. Ihr Zeitpunkt wird dann aus dem Abstand der
+ * beiden letzten Kerzen fortgeschrieben — exakt bei einer lückenlosen Reihe, und damit fällt
+ * hier dieselbe Entscheidung wie im Backtest. **Das ist der Punkt:** eine Strategie, die im
+ * Betrieb anders bewertet wird als in der Prüfung, macht die Kennzahlen wertlos.
+ */
+export function einstiegErlaubt(
+  strategie: Strategie,
+  kerzen: readonly MarketCandle[],
+  index: number,
+): boolean {
+  const fenster = strategie.fenster;
+  if (fenster === undefined) return true;
+  const naechste = kerzen[index + 1];
+  let zeit: number;
+  if (naechste !== undefined) {
+    zeit = naechste.time;
+  } else if (index >= 1) {
+    zeit = kerzen[index].time + (kerzen[index].time - kerzen[index - 1].time);
+  } else {
+    return false;
+  }
+  return imFenster(zeit, strategie.zone ?? "UTC", minuteAus(fenster.von), minuteAus(fenster.bis));
+}
+
+/**
  * Trifft die Regel auf einer **bestimmten** Kerze zu?
  *
  * Dieselbe Auswertung wie im Backtest, nur für einen einzelnen Zeitpunkt — der Papierhandel
@@ -285,18 +389,22 @@ export function signalAm(
   index: number,
 ): { einstieg: boolean; ausstieg: boolean } {
   if (index < 0 || index >= kerzen.length) return { einstieg: false, ausstieg: false };
+  const zone = strategie.zone ?? "UTC";
   const einstieg = strategie.einstieg.map((b) => ({
-    links: reiheFuer(b.links, kerzen),
-    rechts: reiheFuer(b.rechts, kerzen),
+    links: reiheFuer(b.links, kerzen, zone),
+    rechts: reiheFuer(b.rechts, kerzen, zone),
     vergleich: b.vergleich,
   }));
   const ausstieg = (strategie.ausstieg ?? []).map((b) => ({
-    links: reiheFuer(b.links, kerzen),
-    rechts: reiheFuer(b.rechts, kerzen),
+    links: reiheFuer(b.links, kerzen, zone),
+    rechts: reiheFuer(b.rechts, kerzen, zone),
     vergleich: b.vergleich,
   }));
   return {
-    einstieg: einstieg.length > 0 && einstieg.every((b) => trifftZu(b, index)),
+    einstieg:
+      einstiegErlaubt(strategie, kerzen, index) &&
+      einstieg.length > 0 &&
+      einstieg.every((b) => trifftZu(b, index)),
     ausstieg: ausstieg.length > 0 && ausstieg.some((b) => trifftZu(b, index)),
   };
 }
@@ -326,6 +434,26 @@ export function pruefeStrategie(s: Strategie): void {
   for (const wert of [s.stopAtr, s.stopProzent, s.zielR, s.zielProzent]) {
     if (wert !== undefined && (!Number.isFinite(wert) || wert <= 0)) {
       throw new StrategieFehler("Stop- und Zielangaben sind positive Zahlen.");
+    }
+  }
+  if (s.zone !== undefined || s.fenster !== undefined) {
+    // Zone und Uhrzeiten werden hier einmal durchgerechnet, damit ein Tippfehler beim Anlegen
+    // auffällt und nicht erst mitten in einem Lauf über zwei Millionen Kerzen.
+    try {
+      const zone = s.zone ?? "UTC";
+      imFenster(0, zone, 0, 1);
+      if (s.fenster !== undefined) {
+        const von = minuteAus(s.fenster.von);
+        const bis = minuteAus(s.fenster.bis);
+        if (von === bis) {
+          throw new ZeitzoneFehler(
+            `Das Fenster beginnt und endet um ${s.fenster.von} — es ist null Minuten lang.`,
+          );
+        }
+      }
+    } catch (fehler) {
+      if (fehler instanceof ZeitzoneFehler) throw new StrategieFehler(fehler.message);
+      throw fehler;
     }
   }
 }
@@ -422,6 +550,10 @@ function kennzahlenAus(
     groessterVerlustR: verluste.length > 0 ? Math.min(...verluste) : 0,
     laengsteVerlustserie: laengste,
     durchschnittKerzen: handel.reduce((a, h) => a + h.kerzen, 0) / anzahl,
+    ...(() => {
+      const k = konfidenz(handel.map((h) => h.r));
+      return k === undefined ? {} : { konfidenz: k };
+    })(),
   };
 }
 
@@ -471,21 +603,55 @@ export function backtest(
   }
 
   const intervall = optionen.intervall ?? "1d";
+
+  // **Zwei Abweisungen, die eine ganze Klasse von Scheinbefunden verhindern.**
+  //
+  // Am 2026-09-21 hat der stratege zehn Strategien gebaut, die „VWAP-EMA-Scalp" hießen und auf
+  // Tageskerzen liefen — weil es keine feineren gab. Dabei ist ein sitzungsweiser VWAP auf
+  // Tageskerzen keine Näherung, sondern ein anderer Indikator: er setzt sich bei jeder Kerze
+  // zurück und ist damit nichts als der typische Kurs des Tages. Und ein Fenster von 09:30 bis
+  // 11:00 trifft auf einer Tageskerze entweder immer oder nie zu. Beides ergibt Kennzahlen, die
+  // aussehen wie ein Ergebnis. Lieber kein Ergebnis als eins, das etwas anderes misst als sein
+  // Name sagt.
+  if (GROB.includes(intervall)) {
+    if (strategie.fenster !== undefined) {
+      throw new StrategieFehler(
+        `Ein Zeitfenster (${strategie.fenster.von}–${strategie.fenster.bis}) auf ${intervall}-Kerzen trifft entweder immer oder nie zu. Nimm ein Intervall von 1h oder feiner.`,
+      );
+    }
+    if (nutztVwap(strategie)) {
+      throw new StrategieFehler(
+        `Ein VWAP wird je Sitzung neu angesetzt und ist auf ${intervall}-Kerzen nur der typische Kurs einer einzelnen Kerze — kein VWAP. Nimm ein Intervall von 1h oder feiner.`,
+      );
+    }
+  }
+  if (nutztVwap(strategie) && !hatVolumen(kerzen)) {
+    throw new StrategieFehler(
+      "Diese Kerzen tragen kein Volumen, und ohne Volumen gibt es keinen VWAP. Die Regel würde stumm nie auslösen — das sieht aus wie eine Regel, die nicht funktioniert, ist aber eine, die nichts zu rechnen hat.",
+    );
+  }
+
   const gebuehr = (strategie.gebuehrProzent ?? VORGABE_GEBUEHR) / 100;
   const schlupf = (strategie.schlupfProzent ?? VORGABE_SCHLUPF) / 100;
   const long = strategie.richtung === "long";
 
+  const zone = strategie.zone ?? "UTC";
   const einstieg = strategie.einstieg.map((b) => ({
-    links: reiheFuer(b.links, kerzen),
-    rechts: reiheFuer(b.rechts, kerzen),
+    links: reiheFuer(b.links, kerzen, zone),
+    rechts: reiheFuer(b.rechts, kerzen, zone),
     vergleich: b.vergleich,
   }));
   const ausstieg = (strategie.ausstieg ?? []).map((b) => ({
-    links: reiheFuer(b.links, kerzen),
-    rechts: reiheFuer(b.rechts, kerzen),
+    links: reiheFuer(b.links, kerzen, zone),
+    rechts: reiheFuer(b.rechts, kerzen, zone),
     vergleich: b.vergleich,
   }));
   const atr = atrReihe(kerzen, 14);
+  const fenster = strategie.fenster;
+  const fensterVon = fenster === undefined ? 0 : minuteAus(fenster.von);
+  const fensterBis = fenster === undefined ? 0 : minuteAus(fenster.bis);
+  const imHandelsfenster = (index: number): boolean =>
+    fenster === undefined || imFenster(kerzen[index].time, zone, fensterVon, fensterBis);
 
   const handel: Handel[] = [];
   // Die Kapitalkurve trägt je Kerze einen Stand — auch wenn nichts läuft. Nur so ist die
@@ -511,9 +677,25 @@ export function backtest(
 
       let ausstiegKurs: number | null = null;
       let grund: Ausstiegsgrund | null = null;
-      // Zuerst der Stop: liegen beide in derselben Kerze, zählt er. Siehe Kopfkommentar.
-      if (stopTrifft) {
-        ausstiegKurs = offen.stop;
+      // **Das Fenster kommt zuerst.** Diese Kerze liegt schon draußen; glattgestellt wurde zu
+      // ihrer Eröffnung, also am Ende der letzten Kerze im Fenster. Ihr Hoch und Tief gehören
+      // uns deshalb nicht mehr — wer hier erst Stop und Ziel prüft, lässt eine Position an
+      // einer Bewegung teilnehmen, die sie nicht mehr erlebt hat.
+      if (fenster !== undefined && fenster.ausstiegAmEnde !== false && !imHandelsfenster(i)) {
+        ausstiegKurs = kerze.open;
+        grund = "fenster";
+      } else if (stopTrifft) {
+        // **Eine Lücke über den Stop hinweg wird nicht zum Stopkurs bedient.** Ein Stop ist
+        // eine Bestens-Order: eröffnet die Kerze schon jenseits des Stops, ist der erste
+        // handelbare Kurs die Eröffnung, nicht der Wunschkurs. Wer hier immer den Stop
+        // einsetzt, rechnet sich genau die Verluste klein, die in Wirklichkeit wehtun —
+        // Übernachtlücken, Quartalszahlen, Sonntagnacht bei Krypto. Das ist die eine
+        // Schmeichelei, die eine Strategie tragfähig aussehen lässt, die es nicht ist.
+        //
+        // Beim **Ziel** bleibt es umgekehrt beim Zielkurs: eine Limit-Order würde bei einer
+        // Lücke darüber hinaus besser ausgeführt, und die bessere Annahme ist hier die, die
+        // nicht schmeichelt.
+        ausstiegKurs = long ? Math.min(offen.stop, kerze.open) : Math.max(offen.stop, kerze.open);
         grund = "stop";
       } else if (zielTrifft && offen.ziel !== null) {
         ausstiegKurs = offen.ziel;
@@ -532,7 +714,15 @@ export function backtest(
       if (ausstiegKurs !== null && grund !== null) {
         const risiko = Math.abs(offen.einstieg - offen.stop);
         const brutto = long ? ausstiegKurs - offen.einstieg : offen.einstieg - ausstiegKurs;
-        const kosten = (offen.einstieg + ausstiegKurs) * (gebuehr + schlupf);
+        // **Der Schlupf zählt einmal je Seite, nicht anderthalbmal.** Der Einstiegskurs oben
+        // ist bereits der verschlechterte (`roh * (1 + schlupf)`) — dort steckt der Schlupf der
+        // Einstiegsseite schon drin. Ihn hier noch einmal auf den Einstieg zu rechnen hieß, ihn
+        // doppelt zu bezahlen; bei einem Scalp, dessen Risiko nur ein Zehntelprozent des Kurses
+        // beträgt, war das kein Rundungsfehler, sondern in einem gemessenen Fall 0,21 R je
+        // Handel. Gefunden am 2026-09-21 beim Nachrechnen eines echten Laufs von Hand: Risiko
+        // 77,55, ausgewiesene Kosten 97,53 — davon 16,26 Schlupf, die schon im Einstieg saßen.
+        // Der Ausstiegskurs ist **nicht** verschlechtert, also trägt er beides.
+        const kosten = offen.einstieg * gebuehr + ausstiegKurs * (gebuehr + schlupf);
         const netto = brutto - kosten;
         handel.push({
           einstiegZeit: kerzen[offen.index].time,
@@ -552,7 +742,12 @@ export function backtest(
     }
 
     // Signal auf der abgeschlossenen Kerze, Einstieg zur Eröffnung der nächsten.
-    if (offen === null && i + 1 < kerzen.length && einstieg.every((b) => trifftZu(b, i))) {
+    if (
+      offen === null &&
+      i + 1 < kerzen.length &&
+      einstiegErlaubt(strategie, kerzen, i) &&
+      einstieg.every((b) => trifftZu(b, i))
+    ) {
       const roh = kerzen[i + 1].open;
       const kurs = long ? roh * (1 + schlupf) : roh * (1 - schlupf);
       const spanne = atr[i];
@@ -601,6 +796,8 @@ export function backtest(
     kennzahlen: kennzahlenAus(hinten, kapitalkurve.slice(grenzeIndex), proJahr),
   };
 
+  const nullpunkt = messeNullpunkt(strategie, kerzen, atr);
+
   return {
     strategie: strategie.name,
     symbol: optionen.symbol ?? "",
@@ -614,7 +811,8 @@ export function backtest(
     inSample,
     outOfSample,
     kaufUndHaltenProzent: kaufUndHalten,
-    warnungen: warnungenAus(gesamt, inSample, outOfSample, handel, kaufUndHalten),
+    ...(nullpunkt !== undefined ? { nullpunkt } : {}),
+    warnungen: warnungenAus(gesamt, inSample, outOfSample, handel, kaufUndHalten, nullpunkt),
     kosten: {
       gebuehrProzent: strategie.gebuehrProzent ?? VORGABE_GEBUEHR,
       schlupfProzent: strategie.schlupfProzent ?? VORGABE_SCHLUPF,
@@ -630,12 +828,66 @@ export function backtest(
  * weit setzt, und der erste Ausreißer frisst dann zehn Gewinne. Jede Warnung hier ist eine, die
  * Jakob sonst erst mit echtem Geld bemerkt.
  */
+/**
+ * Die Baseline: dieselbe Geometrie, von jeder Kerze aus, ohne Einstiegsregel.
+ *
+ * Dafür wird aus Stop und Ziel der Strategie ein Beispielhandel am letzten Kurs gebaut und
+ * `messeHaltedauer` über die ganze Reihe gelegt. Kommt nichts heraus — kein Ziel, zu wenige
+ * Kerzen, eine Geometrie, die sich in `maxKerzen` nie auflöst —, fehlt die Baseline einfach.
+ * Eine geschätzte Messlatte wäre schlimmer als keine.
+ */
+function messeNullpunkt(
+  strategie: Strategie,
+  kerzen: readonly MarketCandle[],
+  atr: Reihe,
+): { trefferquote: number; erwartungswertR: number } | undefined {
+  const letzterKurs = kerzen[kerzen.length - 1]?.close;
+  if (letzterKurs === undefined || letzterKurs <= 0) return undefined;
+  const letzterAtr = [...atr].reverse().find((w) => w !== undefined);
+
+  let risiko: number;
+  if (strategie.stopAtr !== undefined) {
+    if (letzterAtr === undefined || letzterAtr <= 0) return undefined;
+    risiko = letzterAtr * strategie.stopAtr;
+  } else if (strategie.stopProzent !== undefined) {
+    risiko = (letzterKurs * strategie.stopProzent) / 100;
+  } else {
+    return undefined;
+  }
+
+  let chance: number;
+  if (strategie.zielR !== undefined) chance = risiko * strategie.zielR;
+  else if (strategie.zielProzent !== undefined)
+    chance = (letzterKurs * strategie.zielProzent) / 100;
+  else return undefined;
+
+  const long = strategie.richtung === "long";
+  try {
+    const gemessen = messeHaltedauer({
+      kerzen,
+      richtung: strategie.richtung,
+      einstieg: letzterKurs,
+      stop: long ? letzterKurs - risiko : letzterKurs + risiko,
+      ziel: long ? letzterKurs + chance : letzterKurs - chance,
+      maxKerzen: strategie.maxKerzen ?? 250,
+    });
+    return {
+      trefferquote: gemessen.nullpunktTrefferquote,
+      erwartungswertR: gemessen.nullpunktErwartungswertR,
+    };
+  } catch (fehler) {
+    if (fehler instanceof DauerFehler) return undefined;
+    throw fehler;
+  }
+}
+
 export function warnungenAus(
   gesamt: Kennzahlen,
   inSample: Abschnitt,
   outOfSample: Abschnitt,
   handel: readonly Handel[],
   kaufUndHaltenProzent?: number,
+  nullpunkt?: { trefferquote: number; erwartungswertR: number },
 ): string[] {
   const warnungen: string[] = [];
   if (gesamt.anzahl === 0) return ["Kein einziger Handel — die Bedingungen trafen nie zu."];
@@ -653,6 +905,17 @@ export function warnungenAus(
     warnungen.push(
       `Der Erwartungswert ist ${gesamt.erwartungswertR.toFixed(2)} R — die Strategie verliert auf Dauer, egal wie die Trefferquote aussieht.`,
     );
+  } else if (gesamt.konfidenz !== undefined && nullEingeschlossen(gesamt.konfidenz)) {
+    // Die Warnung, die am häufigsten fehlen wird — und die am meisten spart. Ein positiver
+    // Erwartungswert, dessen Intervall die Null einschließt, ist keine Kante, sondern eine
+    // Stichprobe, die zufällig so ausgefallen ist.
+    const noetig =
+      gesamt.konfidenz.noetigeHandel !== undefined
+        ? ` Bei dieser Streuung bräuchte es rund ${gesamt.konfidenz.noetigeHandel} Handel, um das zu entscheiden.`
+        : "";
+    warnungen.push(
+      `Der Erwartungswert ist zwar +${gesamt.erwartungswertR.toFixed(2)} R, aber das 95-%-Intervall reicht von ${gesamt.konfidenz.unten.toFixed(2)} bis ${gesamt.konfidenz.oben.toFixed(2)} R — er ist nicht von null zu unterscheiden.${noetig}`,
+    );
   }
   if (outOfSample.kennzahlen.anzahl >= 5) {
     const drinnen = inSample.kennzahlen.erwartungswertR;
@@ -666,6 +929,16 @@ export function warnungenAus(
     warnungen.push(
       "Im ungesehenen Teil liegen zu wenige Handel, um ihn zu beurteilen — der Zeitraum ist zu kurz.",
     );
+  }
+  if (nullpunkt !== undefined && gesamt.anzahl >= 10) {
+    // **Der Vergleich, der die meisten „funktionierenden" Regeln entzaubert.** Wenn dieselbe
+    // Stop-Ziel-Geometrie ohne jede Einstiegsregel schon dasselbe bringt, dann arbeitet nicht
+    // die Regel, sondern die Geometrie — und die ist frei wählbar.
+    if (gesamt.erwartungswertR <= nullpunkt.erwartungswertR) {
+      warnungen.push(
+        `Ohne jede Einstiegsregel bringt dieselbe Stop-Ziel-Geometrie ${nullpunkt.erwartungswertR >= 0 ? "+" : ""}${nullpunkt.erwartungswertR.toFixed(2)} R (Trefferquote ${(nullpunkt.trefferquote * 100).toFixed(0)} %). Die Regel schlägt den Zufall nicht — sie wählt nur, wann die Geometrie läuft.`,
+      );
+    }
   }
   if (gesamt.maxDrawdownProzent > 30) {
     warnungen.push(
@@ -717,6 +990,7 @@ function kennzahlenZeilen(k: Kennzahlen): string {
     `  Erwartungswert ${k.erwartungswertR.toFixed(2)} R · Profitfaktor ${k.profitFaktor === Number.POSITIVE_INFINITY ? "∞" : k.profitFaktor.toFixed(2)} · max. Rückschlag ${prozent(k.maxDrawdownProzent)}`,
     `  Gewinn ⌀ ${k.durchschnittGewinnR.toFixed(2)} R (größter ${k.groessterGewinnR.toFixed(2)} R) · Verlust ⌀ ${k.durchschnittVerlustR.toFixed(2)} R (größter ${k.groessterVerlustR.toFixed(2)} R)`,
     `  Sharpe ${k.sharpe.toFixed(2)} · Sortino ${k.sortino.toFixed(2)} · längste Verlustserie ${k.laengsteVerlustserie} · Haltedauer ⌀ ${k.durchschnittKerzen.toFixed(1)} Kerzen`,
+    ...(k.konfidenz ? [formatiereKonfidenz(k.konfidenz, k.erwartungswertR)] : []),
   ].join("\n");
 }
 
@@ -735,6 +1009,11 @@ export function formatiereBacktest(e: BacktestErgebnis): string {
     "Gesamt:",
     kennzahlenZeilen(e.gesamt),
     `  Kaufen und liegen lassen im selben Zeitraum: ${prozent(e.kaufUndHaltenProzent)}`,
+    ...(e.nullpunkt
+      ? [
+          `  Nullpunkt (dieselbe Geometrie ohne Einstiegsregel): Trefferquote ${prozent(e.nullpunkt.trefferquote * 100)}, ${e.nullpunkt.erwartungswertR >= 0 ? "+" : ""}${e.nullpunkt.erwartungswertR.toFixed(2)} R`,
+        ]
+      : []),
     "",
     `Geschraubt (${e.inSample.von} bis ${e.inSample.bis}):`,
     kennzahlenZeilen(e.inSample.kennzahlen),

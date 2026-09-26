@@ -1,4 +1,4 @@
-pipecat-ai[deepgram,elevenlabs,silero,websocket]==1.10.0
+pipecat-ai[azure,deepgram,elevenlabs,silero,websocket]==1.10.0
 aiohttp==3.13.2
 pytest==8.4.2
 pytest-asyncio==1.2.0

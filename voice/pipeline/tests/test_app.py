@@ -21,12 +21,23 @@ from voice.pipeline.services import LatencyProbe, LoopbackSTT, LoopbackTTS
 
 LIVE_ENV = {
     "VOICE_MODE": "live",
+    "VOICE_TTS": "elevenlabs",
     "VOICE_SESSION_TOKEN": "sitzung",
     "VOICE_BRIDGE_TOKEN": "bruecke",
     "DEEPGRAM_API_KEY": "dg-test",
     "ELEVENLABS_API_KEY": "el-test",
     "ELEVENLABS_VOICE_ID": "stimme-1",
     # Ein freier Port, der nie geöffnet wird — `build_app` bindet nichts.
+    "VOICE_PORT": "8799",
+}
+
+AZURE_ENV = {
+    "VOICE_MODE": "live",
+    "VOICE_SESSION_TOKEN": "sitzung",
+    "VOICE_BRIDGE_TOKEN": "bruecke",
+    "DEEPGRAM_API_KEY": "dg-test",
+    "AZURE_SPEECH_KEY": "az-test",
+    "AZURE_SPEECH_REGION": "westeurope",
     "VOICE_PORT": "8799",
 }
 
@@ -46,6 +57,24 @@ class NoGateway:
 
     async def close(self) -> None:
         return None
+
+
+def test_azure_graph_enthaelt_deepgram_und_azure() -> None:
+    """Der Regelweg seit 2026-09-21 — und der Beleg, dass nur `build_tts` getauscht wurde.
+
+    Geprüft wird der Graph, nicht die Konfiguration: dass ein Schlüssel ankommt, sagt noch
+    nicht, dass die Stimme in der Pipeline steht. Gesprochen wird hier nichts, der
+    Azure-Dienst verbindet sich erst beim ersten Satz.
+    """
+    from pipecat.services.azure.tts import AzureTTSService
+
+    app = build_app(config_from_env(AZURE_ENV), client=NoGateway())
+    kinds = [type(processor) for processor in app.processors]
+
+    assert DeepgramSTTService in kinds, "Die Erkennung bleibt Deepgram."
+    assert AzureTTSService in kinds, "Die Stimme ist Azure."
+    assert ElevenLabsTTSService not in kinds, "Zwei Stimmen in einem Graphen wären eine zu viel."
+    assert VADProcessor in kinds and KuronamiBridge in kinds, "Der Rest bleibt, wie er war."
 
 
 def test_live_graph_enthaelt_deepgram_und_elevenlabs() -> None:

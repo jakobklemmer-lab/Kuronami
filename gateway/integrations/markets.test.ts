@@ -151,6 +151,45 @@ describe("createYahooMarkets", () => {
     expect("candles" in (quotes[0] ?? {})).toBe(false);
   });
 
+  it("schneidet bei zeitraum() die angehängte Kerze der letzten Sitzung ab", async () => {
+    // Nachgebaut aus einer echten Antwort (2026-09-21): Yahoo hängt bei feinen Intervallen
+    // hinter das angefragte Fenster eine Scheinkerze mit dem aktuellen Kurs (O=H=L=C, Volumen 0).
+    const von = 1_700_000_000;
+    const bis = 1_700_086_400;
+    const heute = 1_789_761_600;
+    const client = createYahooMarkets({
+      fetchImpl: async (url) => {
+        expect(url).toContain(`period1=${von}`);
+        expect(url).toContain(`period2=${bis}`);
+        return Response.json({
+          chart: {
+            result: [
+              {
+                meta: { symbol: "AAPL", regularMarketPrice: 336.13, chartPreviousClose: 335 },
+                timestamp: [von, von + 3600, heute],
+                indicators: {
+                  quote: [
+                    {
+                      open: [100, 101, 336.13],
+                      high: [102, 103, 336.13],
+                      low: [99, 100, 336.13],
+                      close: [101, 102, 336.13],
+                      volume: [1000, 1200, 0],
+                    },
+                  ],
+                },
+              },
+            ],
+            error: null,
+          },
+        });
+      },
+    });
+    const chart = await client.zeitraum("AAPL", von, bis, "1h");
+    expect(chart.candles.map((k) => k.time)).toEqual([von, von + 3600]);
+    expect(chart.spark).toEqual([101, 102]);
+  });
+
   it("weist ungültige Symbole ab, bevor eine Anfrage entsteht", async () => {
     const client = createYahooMarkets({
       fetchImpl: async () => {

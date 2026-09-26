@@ -251,6 +251,31 @@ export function mapChartResponse(json: unknown, range: string, interval: string)
   };
 }
 
+/**
+ * Schneidet die Kerzen auf das angefragte Fenster zurück.
+ *
+ * **Das ist keine Vorsichtsmaßnahme, sondern die Antwort auf ein gemessenes Verhalten.** Yahoo
+ * hängt bei feinen Intervallen an *jedes* historische Fenster eine Kerze der **letzten
+ * Sitzung** an — nachgemessen am 2026-09-21: ein 1h-Fenster vom 21.–31.10.2024 kam mit 57
+ * Kerzen zurück, 56 davon aus dem Fenster und die letzte vom 18.09.2026, 20:00, mit
+ * `open = high = low = close = 336,13` und `volume = 0`. Es ist der aktuelle Kurs als
+ * Scheinkerze. Bei `1d` passiert das nicht, deshalb ist es bisher niemandem aufgefallen:
+ * alles, was dieses Haus bisher gerechnet hat, lief auf Tageskerzen.
+ *
+ * Für den Rückblick ist das die schlimmste denkbare Verunreinigung — `labor.ts` verspricht
+ * „die Zukunft ist nicht geladen", und die letzte Kerze wäre der heutige Kurs. Ein Replay
+ * zeigte dem Analysten am Ende von 2024 den Stand von heute, ein Backtest stellte den letzten
+ * Handel zum heutigen Kurs glatt. Beides sähe plausibel aus.
+ *
+ * Das Ende ist ausschließlich: eine Kerze, die genau auf `bisUnix` beginnt, gehört schon in
+ * das folgende Fenster.
+ */
+export function beschneide(chart: MarketChart, vonUnix: number, bisUnix: number): MarketChart {
+  const candles = chart.candles.filter((k) => k.time >= vonUnix && k.time < bisUnix);
+  if (candles.length === chart.candles.length) return chart;
+  return { ...chart, candles, spark: candles.map((k) => k.close) };
+}
+
 // ---------------------------------------------------------------------------
 // Der Client
 // ---------------------------------------------------------------------------
@@ -335,11 +360,12 @@ export function createYahooMarkets(options: YahooMarketsOptions = {}): MarketsCl
     const json = await getJson(
       `/v8/finance/chart/${encodeURIComponent(symbol)}?period1=${Math.floor(vonUnix)}&period2=${Math.floor(bisUnix)}&interval=${interval}`,
     );
-    return mapChartResponse(
+    const chart = mapChartResponse(
       json,
       `${new Date(vonUnix * 1000).toISOString().slice(0, 10)}…${new Date(bisUnix * 1000).toISOString().slice(0, 10)}`,
       interval,
     );
+    return beschneide(chart, vonUnix, bisUnix);
   }
 
   return {

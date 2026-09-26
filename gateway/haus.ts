@@ -9,11 +9,13 @@ import {
 import { redactText } from "../runtime/redaction/redact.js";
 import { crvVermerk } from "./crv.js";
 import { FRAGE_TEAM_TOOL, createHandelstisch } from "./handelstisch.js";
+import { createJournal } from "./journal.js";
 import { CRV_TOOL, KURSE_TOOLS, createKurse } from "./kurse.js";
 import { createLabor } from "./labor.js";
 import type { Papierhandel } from "./papierhandel.js";
 import { createLesePostfach } from "./postfach-werkzeuge.js";
 import { konten } from "./postfach.js";
+import { type Prognosenbuch, formatiereAkte } from "./prognosen.js";
 import { sandkastenOptionen } from "./sandkasten.js";
 import type { StrategienArchiv } from "./strategien.js";
 
@@ -46,6 +48,8 @@ export interface HausDeps {
   strategien?: StrategienArchiv;
   /** Der Papierhandel — der Chefanalyst darf starten, der Tisch darf zusehen. */
   papier?: Papierhandel;
+  /** Das Prognosebuch — der Chefanalyst legt seine Einzelideen darin ab. */
+  prognosen?: Prognosenbuch;
   /** Damit die Oberfläche anzeigen kann, wer gerade arbeitet. */
   onArbeitet?(wer: string, auftrag: string): void;
   onFertig?(wer: string, kostenUsd: number, dauerMs: number): void;
@@ -100,6 +104,10 @@ const GEDULD_MS: Record<string, number> = {
   recherche: Number(process.env.KURO_GEDULD_RECHERCHE_MS ?? 20_000),
   boerse: Number(process.env.KURO_GEDULD_BOERSE_MS ?? 4_000),
   werkstatt: Number(process.env.KURO_GEDULD_WERKSTATT_MS ?? 4_000),
+  // Ein Journaleintrag sind ein paar Aufrufe an Notion, keine Recherche. Hier lohnt das
+  // Warten besonders: Jakob legt den Trade **vor** dem Einstieg an und will im selben Atemzug
+  // hören, dass er steht — und ob eine Regel gerissen ist.
+  journal: Number(process.env.KURO_GEDULD_JOURNAL_MS ?? 25_000),
 };
 
 function geduldFuer(wer: string): number {
@@ -277,6 +285,52 @@ export function createHaus(deps: HausDeps = {}): Haus {
   };
 }
 
+/**
+ * Die eigene Akte, die dem Chefanalysten vor jedem Lauf vorgelegt wird.
+ *
+ * **Warum angehängt und nicht nur als Werkzeug.** `akte` steht in seinem Katalog, und er soll
+ * es auch rufen — aber ein Werkzeug, das man rufen *kann*, ruft man nicht, wenn man gerade eine
+ * schöne Idee hat. Die Zahl, die sagt „deine letzten sechs Auslöser sind zweimal eingetreten",
+ * wirkt nur, wenn sie dasteht, bevor die Idee entsteht. Es ist derselbe Gedanke wie beim
+ * Journal-Blick vor einem Trade: die Einschränkung sichtbar machen, nicht verbieten.
+ *
+ * Solange das Buch leer ist, steht hier nichts. Ein Anhang, der „noch keine Daten" sagt, ist
+ * Kontext ohne Inhalt, und Kuros Haus zahlt ihn bei jedem Auftrag mit.
+ */
+const AKTE_FRISCH_MS = 15 * 60 * 1000;
+let akteZwischen: { text: string; bis: number } | null = null;
+
+async function akteAnhang(buch: Prognosenbuch, wer: string): Promise<string> {
+  if (akteZwischen && akteZwischen.bis > Date.now()) return akteZwischen.text;
+  let text = "";
+  try {
+    // Erst nachsehen, ob überhaupt etwas im Buch steht: `liste` liest ein Verzeichnis,
+    // `pruefeAlle` holt Kerzen. Der Unterschied ist bei jedem Auftrag spürbar.
+    const vorhanden = await buch.liste();
+    if (vorhanden.length > 0) {
+      const a = await buch.akteVon(wer);
+      if (a.prognosen > 0) {
+        text = [
+          "",
+          "",
+          "## Deine Akte — was von deinen bisherigen Ideen eingetreten ist",
+          "",
+          formatiereAkte(a),
+          "",
+          "Das ist keine Beurteilung, sondern deine eigene Bilanz an prüfbaren Aussagen. Eine",
+          "Spalte, die auffällt, gehört in die nächste Idee: wer seine Auslöser zu weit setzt,",
+          "soll sie näher setzen, und wer seine Baseline zu niedrig nennt, soll sie rechnen.",
+          "Mit `prognose_stand` siehst du die einzelnen Fälle.",
+        ].join("\n");
+      }
+    }
+  } catch {
+    // Ein Fehler im Prognosebuch darf keinen Auftrag verhindern. Dann eben ohne Akte.
+  }
+  akteZwischen = { text, bis: Date.now() + AKTE_FRISCH_MS };
+  return text;
+}
+
 /** Ein Bedienstetenlauf, von Anfang bis Bericht. */
 async function fuehreAus(
   wer: string,
@@ -303,6 +357,7 @@ async function fuehreAus(
   let crvGerechnet = false;
 
   const zusatz = ZUSATZ_DOMAENEN[wer];
+  const akte = wer === "boerse" && deps.prognosen ? await akteAnhang(deps.prognosen, wer) : "";
 
   try {
     for await (const nachricht of query({
@@ -310,7 +365,7 @@ async function fuehreAus(
       options: {
         cwd: WERKSTATT,
         // Der Bedienstete bekommt **seinen** Prompt, nicht Kuros. Er ist kein Butler.
-        systemPrompt: { type: "custom", prompt: person.prompt },
+        systemPrompt: { type: "custom", prompt: person.prompt + akte },
         model: person.model,
         abortController: abbruch,
         // Werkzeuge und Sandkasten in einem: `sandkastenOptionen` entscheidet auch, ob dieser
@@ -330,10 +385,18 @@ async function fuehreAus(
         // in Jakobs Post nichts zu suchen; den Handelstisch hat die Börse — Kuro soll die
         // Spezialisten weder kennen noch einzeln beauftragen können.
         ...(wer === "korrespondenz" ? { mcpServers: { postfach: createLesePostfach() } } : {}),
+        // Das Journal hat der Journalführer — schreibend. Kein anderer trägt ein: zwei
+        // Schreiber in derselben Datenbank heißt zwei Zeilen für denselben Trade, und das
+        // fällt erst in der Auswertung auf.
+        ...(wer === "journal" ? { mcpServers: { journal: createJournal() } } : {}),
         ...(wer === "boerse"
           ? {
               mcpServers: {
                 kurse: createKurse(),
+                // Derselbe Server, aber **nur lesend**: der Chefanalyst soll wissen, was offen
+                // ist und was die Regeln sagen, bevor er eine Idee vorlegt. Eintragen soll er
+                // nicht — eine Analyse, die nebenbei Zeilen anlegt, hat niemand bestellt.
+                journal: createJournal({ nurLesen: true }),
                 // Der Chefanalyst bekommt das Labor **lesend**: Rückblick auf eine alte Idee
                 // und der Blick von damals gehören zu seiner täglichen Arbeit. Ablegen darf
                 // dort nur der Stratege — sonst landen Einfälle im Strategie-Archiv.
@@ -341,6 +404,10 @@ async function fuehreAus(
                   workdir: WERKSTATT,
                   wer: "boerse",
                   ...(deps.papier ? { papier: deps.papier, darfStarten: true } : {}),
+                  // Das Prognosebuch steht **beim Chefanalysten**, nicht bei den Spezialisten:
+                  // eine Idee hat einen Absender, und der Absender ist der, der sie Jakob
+                  // vorlegt. Wer zugearbeitet hat, steht im Bericht.
+                  ...(deps.prognosen ? { prognosen: deps.prognosen } : {}),
                 }),
                 tisch: createHandelstisch({
                   ...(deps.strategien ? { strategien: deps.strategien } : {}),
