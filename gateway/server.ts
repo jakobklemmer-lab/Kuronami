@@ -344,7 +344,11 @@ export function createServer(deps: ServerDeps): express.Express {
     const ticket = deps.anmeldung.melde(benutzer, passwort);
     if (ticket === null) {
       deps.anmeldung.bremse.merkeFehlschlag(herkunft);
-      console.log(`[auth] Fehlversuch von ${herkunft}`);
+      // Welcher Teil nicht stimmte, steht **nur** hier im Journal — die Antwort oben bleibt
+      // dieselbe vage Zeile. Ohne diese Unterscheidung ist ein ausgesperrter Bewohner nicht von
+      // einem Fremden zu unterscheiden, der einen Namen rät.
+      const teil = deps.anmeldung.nameGilt(benutzer) ? "Passwort falsch" : "Name unbekannt";
+      console.log(`[auth] Fehlversuch von ${herkunft} (${teil})`);
       res.status(401).json({ error: "Benutzername oder Passwort stimmt nicht." });
       return;
     }

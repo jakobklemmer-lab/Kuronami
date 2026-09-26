@@ -20,7 +20,8 @@
     "migrate": "tsx --env-file=.env runtime/db/migrate.ts",
     "gateway": "tsx --env-file=.env gateway/index.ts",
     "say": "tsx --env-file=.env gateway/cli.ts",
-    "passwort": "tsx gateway/passwort.ts"
+    "passwort": "tsx gateway/passwort.ts",
+    "passwort-setzen": "tsx gateway/passwort-setzen-cli.ts"
   },
   "dependencies": {
     "@anthropic-ai/claude-agent-sdk": "^0.3.274",

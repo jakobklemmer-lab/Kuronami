@@ -183,6 +183,14 @@ export interface Anmeldung {
   benutzer: string;
   /** Prüft Benutzer und Passwort und gibt ein frisches Ticket zurück — oder `null`. */
   melde(benutzer: string, passwort: string, jetzt?: number): string | null;
+  /**
+   * Stimmt allein der Name? **Nur fürs Serverprotokoll.**
+   *
+   * Die Antwort an den Browser bleibt bewusst vage — von außen soll niemand erfahren, welche
+   * Namen es gibt. Im Journal des Betreibers ist der Unterschied dagegen die halbe Diagnose:
+   * ein Vertipper im Namen sieht sonst genau aus wie ein Passwort, das nicht mehr zum Hash passt.
+   */
+  nameGilt(benutzer: string): boolean;
   /** Der Benutzer hinter einem Ticket, sonst `null`. */
   ticketGilt(ticket: string, jetzt?: number): string | null;
   bremse: Bremse;
@@ -199,15 +207,24 @@ export interface AnmeldungDeps {
 
 export function createAnmeldung(deps: AnmeldungDeps): Anmeldung {
   const bremse = deps.bremse ?? createBremse();
+  // Verglichen wird über die **Bytes**, nicht über die Zeichen: `benutzer.length` zählt
+  // UTF-16-Einheiten, `timingSafeEqual` will zwei gleich lange Puffer und wirft sonst. Bei
+  // einem Namen mit Umlaut fielen beide Längen auseinander — aus einer Ablehnung würde ein
+  // Absturz, und aus einem falschen Namen ein Fehler 500 statt 401.
+  function nameGilt(benutzer: string): boolean {
+    const gegeben = Buffer.from(benutzer, "utf8");
+    const erwartet = Buffer.from(deps.benutzer, "utf8");
+    return gegeben.length === erwartet.length && timingSafeEqual(gegeben, erwartet);
+  }
+
   return {
     benutzer: deps.benutzer,
     bremse,
+    nameGilt,
     melde(benutzer, passwort, jetzt = Date.now()) {
       // Erst den Namen, dann das Passwort — beides in konstanter Zeit, damit ein falscher
       // Name nicht schneller abgelehnt wird als ein falsches Passwort.
-      const nameStimmt =
-        benutzer.length === deps.benutzer.length &&
-        timingSafeEqual(Buffer.from(benutzer), Buffer.from(deps.benutzer));
+      const nameStimmt = nameGilt(benutzer);
       const passwortStimmt = pruefePasswort(passwort, deps.hash);
       if (!nameStimmt || !passwortStimmt) return null;
       return baueTicket(deps.benutzer, deps.schluessel, jetzt);

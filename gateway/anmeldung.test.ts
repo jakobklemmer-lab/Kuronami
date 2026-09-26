@@ -134,6 +134,27 @@ describe("createAnmeldung", () => {
     const fremd = baueTicket("jemand", SCHLUESSEL);
     expect(anmeldung.ticketGilt(fremd)).toBeNull();
   });
+
+  it("sagt fürs Journal, ob wenigstens der Name stimmte", () => {
+    expect(anmeldung.nameGilt("jakob")).toBe(true);
+    expect(anmeldung.nameGilt("ggYamiiko")).toBe(false);
+    expect(anmeldung.nameGilt("ggYamiik")).toBe(false);
+    expect(anmeldung.nameGilt("")).toBe(false);
+  });
+
+  it("lehnt einen Namen mit Umlaut ab, statt daran zu zerbrechen", () => {
+    // `"größer".length` zählt sechs Zeichen, die UTF-8-Bytes sind sieben: würde nach Zeichen
+    // verglichen, bekäme `timingSafeEqual` zwei ungleich lange Puffer und würfe — aus einem
+    // falschen Namen würde ein Fehler 500.
+    const mitUmlaut = createAnmeldung({
+      benutzer: "groesser",
+      hash: hashePasswort("richtig-und-lang"),
+      schluessel: SCHLUESSEL,
+    });
+    expect(() => mitUmlaut.nameGilt("größer")).not.toThrow();
+    expect(mitUmlaut.nameGilt("größer")).toBe(false);
+    expect(mitUmlaut.melde("größer", "richtig-und-lang")).toBeNull();
+  });
 });
 
 describe("anmeldungAusUmgebung", () => {

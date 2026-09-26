@@ -1,4 +1,4 @@
-import { melde } from "./anmeldung.js";
+import { holeLage, melde } from "./anmeldung.js";
 
 /**
  * Die Anmeldemaske — die erste Fläche, die jemand sieht, der die Adresse kennt.
@@ -9,6 +9,11 @@ import { melde } from "./anmeldung.js";
  *
  * Die Maske sagt bei einem Fehlversuch nie, welcher Teil falsch war. Das ist nicht Höflichkeit,
  * sondern derselbe Grund wie im Gateway: „Benutzer unbekannt" verrät, welche Namen es gibt.
+ *
+ * **Den Namen trägt die Maske selbst ein** (2026-09-26). Er ist kein Geheimnis: `GET /auth/lage`
+ * nennt ihn jedem, der fragt — die Maske braucht ihn ohnehin, um zu wissen, ob sie kommen soll.
+ * Ihn den Bewohner abtippen zu lassen, verschenkt also nichts und kostet: ein Vertipper im Namen
+ * sieht hinter derselben vagen Fehlerzeile genauso aus wie ein falsches Passwort.
  */
 
 export interface AnmeldeMaskeOptionen {
@@ -52,6 +57,15 @@ export function zeigeAnmeldung(host: HTMLElement, optionen: AnmeldeMaskeOptionen
   const abraeumen = (): void => wurzel.remove();
 
   benutzerEl.focus();
+
+  // Der Name kommt vom Gateway, nicht aus dem Gedächtnis. Getippt wird nur, was geheim ist.
+  // Wer schon im Feld steht, wird nicht überrumpelt: nur ein leeres Feld wird gefüllt, und der
+  // Sprung ins Passwortfeld geschieht nur, solange der Fokus noch unberührt beim Namen steht.
+  void holeLage(optionen.baseUrl, optionen.fetchImpl).then((lage) => {
+    if (lage.benutzer === null || benutzerEl.value !== "") return;
+    benutzerEl.value = lage.benutzer;
+    if (document.activeElement === benutzerEl) passwortEl.focus();
+  });
 
   form.addEventListener("submit", (ereignis) => {
     ereignis.preventDefault();
