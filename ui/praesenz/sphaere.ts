@@ -1,165 +1,162 @@
+import { KuronamiOrb, type OrbState } from "../vendor/kuronami-orb.mjs";
+
 /**
- * Der Orb — Kuronami als Objekt aus Glas, nach Jakobs Bild.
+ * Der Orb — Kuronami als Wesen aus Licht, nach Jakobs Entwurf (S47, 2026-09-26).
  *
- * Der Orb selbst ist kein gezeichnetes Ding mehr, sondern ein **gerendertes**: ein
- * Video-Loop (`/assets/orb.mp4`) einer Glaskugel mit einem Lichtband darin, auf Schwarz
- * erzeugt und per `mix-blend-mode: screen` über den Raum gelegt — das Schwarz wird zum Raum,
- * das Glas bleibt Glas, das Band leuchtet. Bis das Video geladen ist, steht das Standbild.
+ * Gerendert wird er von `ui/vendor/kuronami-orb.mjs`: eine dunkle Glaskugel voller Partikel,
+ * in WebGL, transparent über dem Raum. Diese Datei ist nur die Übersetzung von Kuros Welt in
+ * seine: welcher Zustand welcher ist, und wie aus einem Bediensteten ein Satellit wird.
  *
- * Was Kuro tut, liest man daran, **wie** das Video läuft — nicht an einer zweiten Grafik:
+ *   * **Ruhe**      — atmet langsam, in der Statuszeile steht das Motto.
+ *   * **Zuhören**   — das Mikrofon ist offen. Tippen zeigt der Orb selbst (`bindeEingabe`).
+ *   * **Denken**    — violett, Gedankenströme im Inneren.
+ *   * **Sprechen**  — jedes Wortstück ist ein Impuls.
+ *   * **Arbeiten**  — Kuro benutzt selbst ein Werkzeug; türkis, mit Ringen, das Werkzeug steht
+ *                     in der Statuszeile.
+ *   * **Rückfrage** — Kuro wartet auf eine Antwort; bernstein, er ruft mit Pulsen.
+ *   * **Fehler**    — der Zug ist gescheitert; rot, für ein paar Sekunden.
+ *   * **Offline**   — der Ereignisstrom zum Gateway ist weg; der Orb zieht sich zusammen.
  *
- *   * **Ruhe**     — ruhiges Tempo, gedämpft.
- *   * **Zuhören**  — der Orb atmet: er wird im Sekundentakt eine Spur größer und kleiner.
- *   * **Denken**   — das Band läuft schneller, der Schein wird tiefer, ein leichtes Taumeln.
- *   * **Sprechen** — jedes Wortstück ist ein Lichtstoß: kurz heller, kurz breiterer Schein.
- *   * **Arbeiten** — außen kreisen kleine Boten, einer je Bedienstetem.
- *   * **Fertig**   — ein Ring löst sich vom Glas und verklingt.
+ * Ein Bediensteter, der einen Auftrag übernimmt, löst sich als Satellit aus der Kugel, trägt
+ * seinen Stand am Namensschild und fließt zurück, wenn er fertig ist. Läuft er über Kuros Zug
+ * hinaus, bleibt er sichtbar — der Orb selbst ruht dann, und die Statuszeile sagt, wie viele
+ * im Hintergrund arbeiten.
  *
- * Boten und Ring liegen auf einem durchsichtigen Canvas über dem Video; alles andere sind
- * CSS-Variablen am Host (`--orb-hell`, `--orb-scale`, `--orb-glow`, `--orb-kipp`) und die
- * Abspielgeschwindigkeit. Jede Größe folgt ihrem Ziel träge — Glas ruckt nicht.
+ * **Ohne WebGL2** (three r170 kennt kein WebGL1 mehr; betroffen sind etwa Rechner ohne
+ * Grafikbeschleunigung oder ein WebView, der sie abschaltet) steht auf der Bühne, warum kein Orb
+ * steht — mit der Meldung des Browsers. Einen zweiten, einfacheren Orb gibt es nicht mehr: der
+ * Video-Loop vom 2026-09-18 liegt seit S47 im Archiv (`archiv/alte-oberflaeche`). Der Rest der
+ * Präsenz arbeitet ohne Orb weiter; er ist Anzeige, kein Weg.
  */
 
-export type Zustand = "ruhe" | "zuhoeren" | "denken" | "sprechen" | "arbeiten";
+export type Zustand =
+  | "ruhe"
+  | "zuhoeren"
+  | "denken"
+  | "sprechen"
+  | "arbeiten"
+  | "rueckfrage"
+  | "fehler"
+  | "offline";
 
 export interface Sphaere {
-  setZustand(z: Zustand): void;
+  readonly zustand: Zustand;
+  /** `detail` erscheint in der Statuszeile, solange Kuro arbeitet, nachfragt oder scheitert. */
+  setZustand(z: Zustand, detail?: string): void;
   impuls(staerke?: number): void;
   fertig(): void;
-  setArbeitende(namen: readonly string[]): void;
-  readonly zustand: Zustand;
+  bediensteterBeginnt(wer: string, auftrag?: string): void;
+  bediensteterStand(wer: string, text: string): void;
+  bediensteterFertig(wer: string): void;
+  /** Tippen im Eingabefeld: der Orb hört sichtbar zu, ohne dass sich Kuros Zustand ändert. */
+  bindeEingabe(el: HTMLElement): () => void;
+  beimAntippen(fn: () => void): void;
   destroy(): void;
 }
 
-interface Ziel {
-  tempo: number; // Abspielgeschwindigkeit
-  atmen: number; // 0…1
-  glow: number; // px des Scheins
-  hell: number; // Grundhelligkeit
-  taumel: number; // Grad Kippung
-}
-
-const ZIELE: Readonly<Record<Zustand, Ziel>> = {
-  ruhe: { tempo: 0.85, atmen: 0, glow: 14, hell: 0.96, taumel: 0 },
-  zuhoeren: { tempo: 1.05, atmen: 1, glow: 20, hell: 1.05, taumel: 0 },
-  denken: { tempo: 1.75, atmen: 0, glow: 30, hell: 0.92, taumel: 3 },
-  sprechen: { tempo: 1.2, atmen: 0, glow: 22, hell: 1.02, taumel: 0 },
-  arbeiten: { tempo: 1.0, atmen: 0, glow: 18, hell: 0.98, taumel: 0 },
+export const ORB_ZUSTAND: Readonly<Record<Zustand, OrbState>> = {
+  ruhe: "idle",
+  zuhoeren: "listening",
+  denken: "thinking",
+  sprechen: "speaking",
+  arbeiten: "working",
+  rueckfrage: "attention",
+  fehler: "error",
+  offline: "offline",
 };
 
-const KERN = [223, 242, 255] as const;
-const SCHEIN = [127, 184, 255] as const;
-const GOLDENER_WINKEL = Math.PI * (3 - Math.sqrt(5));
-
-function lerp(a: number, b: number, t: number): number {
-  return a + (b - a) * t;
+/** Die Statuszeile ist eine Zeile. Der volle Text steht dort, wo er gelesen wird — im Panel. */
+export function statuszeile(text: string | undefined, max = 80): string | undefined {
+  if (text === undefined) return undefined;
+  const zeile = text.split("\n").find((z) => z.trim() !== "") ?? "";
+  const knapp = zeile.replace(/\s+/g, " ").trim();
+  return knapp.length > max ? `${knapp.slice(0, max - 1)}…` : knapp;
 }
 
-export interface SphaereOptionen {
-  reducedMotion?: boolean;
-  video?: string;
-  poster?: string;
+export function mountSphaere(host: HTMLElement, motto: string): Sphaere {
+  try {
+    return mountOrb(host, motto);
+  } catch (error) {
+    // Der Orb hängt seine Wurzel an, bevor er den Kontext öffnet; die halbe Hülle muss weg.
+    host.innerHTML = "";
+    host.classList.add("ist-ohne-orb");
+    const meldung = document.createElement("p");
+    meldung.className = "p-orb-fehler";
+    meldung.textContent = `Der Orb braucht WebGL2 und konnte nicht starten: ${
+      error instanceof Error ? error.message : String(error)
+    }`;
+    host.append(meldung);
+    console.error("[praesenz] Der Orb konnte nicht starten.", error);
+    return ohneOrb();
+  }
 }
 
-export function mountSphaere(host: HTMLElement, opts: SphaereOptionen = {}): Sphaere {
-  const ruhig = opts.reducedMotion ?? false;
-  host.innerHTML = `
-    <video class="p-orb__video" autoplay loop muted playsinline preload="auto"
-           poster="${opts.poster ?? "/assets/orb.jpg"}" aria-hidden="true">
-      <source src="${opts.video ?? "/assets/orb.mp4"}" type="video/mp4" />
-    </video>
-    <canvas class="p-orb__overlay" aria-hidden="true"></canvas>
-  `;
-  const videoN = host.querySelector<HTMLVideoElement>("video");
-  const canvasN = host.querySelector<HTMLCanvasElement>("canvas");
-  const ctxN = canvasN?.getContext("2d") ?? null;
-  if (!videoN || !canvasN || !ctxN) throw new Error("Der Orb konnte nicht aufgebaut werden.");
-  // Einmal geprüft, dann fest — TypeScript trägt das Narrowing nicht in die Closures.
-  const video: HTMLVideoElement = videoN;
-  const canvas: HTMLCanvasElement = canvasN;
-  const ctx: CanvasRenderingContext2D = ctxN;
-  // Autoplay kann vom Browser verweigert werden — dann steht das Standbild, und ein Tipp
-  // auf den Orb (der ohnehin das Mikrofon schaltet) startet es.
-  video.play().catch(() => undefined);
-  host.addEventListener("click", () => void video.play().catch(() => undefined), { once: true });
-
+function mountOrb(host: HTMLElement, motto: string): Sphaere {
+  const orb = new KuronamiOrb(host, {
+    tagline: motto,
+    // Die Liste der Arbeitenden steht schon in der Arbeitsleiste über der Antwort, mit
+    // Laufzeit. Am Orb reichen die Satelliten und ihre Namensschilder.
+    agentList: false,
+    // Größer als die Vorgabe (0,34): die Bühne ist breiter als hoch, der Kern soll ungefähr so
+    // groß stehen wie vorher die Glaskugel.
+    size: 0.46,
+  });
   let zustand: Zustand = "ruhe";
-  let ist: Ziel = { ...ZIELE.ruhe };
-  let energie = 0;
-  let arbeitende: string[] = [];
-  let ringe: number[] = [];
-  let laeuft = true;
+  const bedienstete = new Set<string>();
 
-  function zeichneOverlay(jetzt: number): void {
-    const dpr = Math.min(2, globalThis.devicePixelRatio || 1);
-    const rect = canvas.getBoundingClientRect();
-    const w = Math.max(1, Math.round(rect.width * dpr));
-    const h = Math.max(1, Math.round(rect.height * dpr));
-    if (canvas.width !== w || canvas.height !== h) {
-      canvas.width = w;
-      canvas.height = h;
-    }
-    ctx.clearRect(0, 0, w, h);
-    // Das Overlay ist größer als der Orb (160 %); der Orb sitzt in der Mitte mit Radius R.
-    const cx = w / 2;
-    const cy = h / 2;
-    const R = (w / 1.6) * 0.5 * 0.9;
+  return {
+    get zustand() {
+      return zustand;
+    },
+    setZustand(z, detail) {
+      zustand = z;
+      orb.setState(ORB_ZUSTAND[z], { detail: statuszeile(detail) });
+    },
+    impuls(staerke = 0.5) {
+      orb.pulse(staerke);
+    },
+    fertig() {
+      zustand = "ruhe";
+      orb.flash(null, 0.4);
+      orb.pulse(0.5);
+      orb.setState("idle");
+    },
+    bediensteterBeginnt(wer, auftrag) {
+      bedienstete.add(wer);
+      // `type` bestimmt die Farbe (ein fester Hash des Namens) — derselbe Bedienstete trägt
+      // also bei jedem Auftrag dieselbe.
+      orb.addAgent({ id: wer, type: wer, name: wer, description: auftrag ?? "" });
+    },
+    bediensteterStand(wer, text) {
+      // Ein Stand ohne Beginn (die Ansicht ging mitten im Auftrag auf) legt keinen Satelliten
+      // an: den Beginn liefert `/integrations/haus` nach, und ein Satellit, dessen Ende vor dem
+      // Nachladen kam, flösse nie zurück.
+      if (!bedienstete.has(wer)) return;
+      orb.updateAgent(wer, { activity: text });
+    },
+    bediensteterFertig(wer) {
+      bedienstete.delete(wer);
+      orb.completeAgent(wer, { status: "done" });
+    },
+    bindeEingabe(el) {
+      return orb.bindInput(el);
+    },
+    beimAntippen(fn) {
+      orb.addEventListener("orbclick", fn);
+    },
+    destroy() {
+      orb.dispose();
+      // `dispose` gibt Puffer und Shader frei, nicht den Kontext. Ein Browser hält nur eine
+      // Handvoll WebGL-Kontexte offen; wer oft zwischen den Ansichten wechselt, verlöre sonst
+      // irgendwann den ältesten.
+      orb.renderer.forceContextLoss();
+    },
+  };
+}
 
-    if (arbeitende.length > 0) {
-      for (let i = 0; i < arbeitende.length; i++) {
-        const a = (jetzt / 1000) * 0.45 + i * GOLDENER_WINKEL;
-        const bx = cx + Math.cos(a) * R * 1.3;
-        const by = cy + Math.sin(a) * R * 0.42 + R * 0.1;
-        const vorn = Math.sin(a) > 0;
-        const al = vorn ? 0.85 : 0.35;
-        ctx.fillStyle = `rgba(${SCHEIN[0]},${SCHEIN[1]},${SCHEIN[2]},${al * 0.45})`;
-        ctx.beginPath();
-        ctx.arc(bx, by, 5 * dpr, 0, Math.PI * 2);
-        ctx.fill();
-        ctx.fillStyle = `rgba(${KERN[0]},${KERN[1]},${KERN[2]},${al})`;
-        ctx.beginPath();
-        ctx.arc(bx, by, 1.8 * dpr, 0, Math.PI * 2);
-        ctx.fill();
-      }
-    }
-
-    ringe = ringe.filter((start) => jetzt - start < 900);
-    for (const start of ringe) {
-      const t = (jetzt - start) / 900;
-      ctx.strokeStyle = `rgba(${KERN[0]},${KERN[1]},${KERN[2]},${(1 - t) * 0.5})`;
-      ctx.lineWidth = (1.5 - t) * dpr;
-      ctx.beginPath();
-      ctx.arc(cx, cy, R * (1 + t * 0.45), 0, Math.PI * 2);
-      ctx.stroke();
-    }
-  }
-
-  function tick(jetzt: number): void {
-    if (!laeuft) return;
-    const ziel = ZIELE[zustand];
-    const k = ruhig ? 0.03 : 0.06;
-    ist = {
-      tempo: lerp(ist.tempo, ruhig ? 0.5 : ziel.tempo, k),
-      atmen: lerp(ist.atmen, ruhig ? 0 : ziel.atmen, k),
-      glow: lerp(ist.glow, ziel.glow, k),
-      hell: lerp(ist.hell, ziel.hell, k),
-      taumel: lerp(ist.taumel, ruhig ? 0 : ziel.taumel, k),
-    };
-    energie *= ruhig ? 0.8 : 0.9;
-
-    if (Math.abs(video.playbackRate - ist.tempo) > 0.01) video.playbackRate = ist.tempo;
-    const atem = ist.atmen * Math.sin((jetzt / 1000) * Math.PI * 1.15) * 0.022;
-    const kipp = ist.taumel * Math.sin((jetzt / 1000) * 0.7);
-    host.style.setProperty("--orb-scale", (1 + atem + energie * 0.02).toFixed(4));
-    host.style.setProperty("--orb-hell", (ist.hell + energie * 0.35).toFixed(3));
-    host.style.setProperty("--orb-glow", (ist.glow + energie * 18).toFixed(1));
-    host.style.setProperty("--orb-kipp", `${kipp.toFixed(2)}deg`);
-
-    zeichneOverlay(jetzt);
-    requestAnimationFrame(tick);
-  }
-  requestAnimationFrame(tick);
-
+/** Die Präsenz ohne Orb: jeder Aufruf bleibt gültig und bewirkt nichts Sichtbares. */
+function ohneOrb(): Sphaere {
+  let zustand: Zustand = "ruhe";
   return {
     get zustand() {
       return zustand;
@@ -167,19 +164,17 @@ export function mountSphaere(host: HTMLElement, opts: SphaereOptionen = {}): Sph
     setZustand(z) {
       zustand = z;
     },
-    impuls(staerke = 0.5) {
-      energie = Math.min(1.4, energie + 0.25 + Math.max(0, Math.min(1, staerke)) * 0.6);
-    },
+    impuls() {},
     fertig() {
-      ringe.push(performance.now());
       zustand = "ruhe";
     },
-    setArbeitende(namen) {
-      arbeitende = [...namen];
+    bediensteterBeginnt() {},
+    bediensteterStand() {},
+    bediensteterFertig() {},
+    bindeEingabe() {
+      return () => undefined;
     },
-    destroy() {
-      laeuft = false;
-      video.pause();
-    },
+    beimAntippen() {},
+    destroy() {},
   };
 }

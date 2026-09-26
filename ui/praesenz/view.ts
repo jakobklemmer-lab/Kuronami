@@ -9,10 +9,11 @@ import { type Sphaere, type Zustand, mountSphaere } from "./sphaere.js";
 /**
  * Die Präsenz — nach Jakobs Bild.
  *
- * Ein Raum bei Dämmerung, und darin steht Kuronami: eine Glassphäre mit einem Lichtband auf
- * einem Tresen. Oben die Uhr und ein Gruß, rechts drei Karten aus Glas, unten die eine Bubble
- * mit fünf Vorschlägen. Die Leiste links gehört zur Hülle (`huelle.ts`), nicht zu dieser Ansicht. Unter der Sphäre sein Name — und darunter
- * das, was er gerade sagt. In Ruhe steht dort sein Motto; sobald er spricht, spricht er.
+ * Ein Raum bei Dämmerung, und darin schwebt Kuronami: der Orb aus `sphaere.ts`, eine dunkle
+ * Glaskugel voller Licht. Oben die Uhr und ein Gruß, rechts drei Karten aus Glas, unten die eine
+ * Bubble mit fünf Vorschlägen. Die Leiste links gehört zur Hülle (`huelle.ts`), nicht zu dieser
+ * Ansicht. Unter dem Orb sein Name und eine Statuszeile, die der Orb selbst führt: in Ruhe das
+ * Motto, sonst was er gerade tut. Gesprochen wird im Panel über der Bubble.
  *
  * Zwei Dinge aus dem Text-Prompt liegen über dem Bild: die Karten ruhen gedimmt und treten
  * nur hervor, wenn Kuro sie zeigt oder Jakob fragt; und im Fokus bleibt nichts als Sphäre, Uhr
@@ -71,11 +72,11 @@ export const praesenzView: View = {
           <p class="p-datum" data-role="datum"></p>
           <time class="p-uhr" data-role="uhr"></time>
           <p class="p-gruss" data-role="gruss"></p>
-          <button type="button" class="p-sphaere-knopf" data-role="sphaere-knopf" aria-label="Kuro zuhören lassen">
-            <div class="p-orb" data-role="sphaere" role="img" aria-label="Kuronami"></div>
-          </button>
-          <p class="p-name">Kuronami</p>
-          <p class="p-worte">${MOTTO}</p>
+          <!-- Die Bühne des Orbs: viel größer als seine Kugel, weil Schein, Ringe und die
+               Satelliten der Bediensteten um sie herum Platz brauchen. Name und Statuszeile
+               zeichnet der Orb selbst darunter. -->
+          <div class="p-orb-buehne" data-role="sphaere" role="button" tabindex="0"
+               aria-label="Kuro zuhören lassen" aria-pressed="false"></div>
         </main>
 
         <aside class="p-karten">
@@ -142,12 +143,11 @@ export const praesenzView: View = {
     const datumEl = q<HTMLElement>("datum");
     const grussEl = q<HTMLElement>("gruss");
     const micKnopf = q<HTMLButtonElement>("mic");
-    const sphaereKnopf = q<HTMLButtonElement>("sphaere-knopf");
     if (!orbHost || !eingabe || !bubble || !antwortEl || !antwortText || !antwortFrage)
       return () => {};
 
-    const ruhig = globalThis.matchMedia?.("(prefers-reduced-motion: reduce)").matches ?? false;
-    const sphaere: Sphaere = mountSphaere(orbHost, { reducedMotion: ruhig });
+    const sphaere: Sphaere = mountSphaere(orbHost, MOTTO);
+    const eingabeLoesen = sphaere.bindeEingabe(eingabe);
 
     // ------------------------------------------------------------------ Uhr
     const zeigeZeit = (): void => {
@@ -222,26 +222,67 @@ export const praesenzView: View = {
     // ------------------------------------------------------------- Zustand
     let inFlight = false;
     const arbeitende = new Set<string>();
+    // Ein gescheiterter Zug bleibt ein paar Sekunden rot stehen, bevor die nächste Neuberechnung
+    // ihn überschreibt — sonst stünde er nur für die 900 ms bis zum nächsten `zustandNeu`.
+    let fehlerBis = 0;
+    // Offline heißt: der Ereignisstrom zum Gateway steht nicht. Bis zum 2026-09-26 sagte die
+    // Leiste in dem Fall trotzdem „Online".
+    let offline = false;
 
-    const zustandNeu = (hinweis?: Zustand): void => {
+    const zustandNeu = (hinweis?: Zustand, detail?: string): void => {
       if (hinweis) {
-        sphaere.setZustand(hinweis);
+        sphaere.setZustand(hinweis, detail);
         return;
       }
-      if (arbeitende.size > 0) sphaere.setZustand("arbeiten");
-      else if (inFlight) sphaere.setZustand("denken");
+      if (Date.now() < fehlerBis) return;
+      // Arbeitende Bedienstete sind Satelliten, kein Zustand: läuft ein Auftrag über Kuros Zug
+      // hinaus, ruht Kuro selbst, und der Orb sagt, wie viele im Hintergrund arbeiten.
+      if (inFlight) sphaere.setZustand("denken");
+      else if (offline) sphaere.setZustand("offline");
       else if (ctx.mic.state === "listening") sphaere.setZustand("zuhoeren");
       else sphaere.setZustand("ruhe");
       meldeStatus(
-        arbeitende.size > 0
-          ? `Working · ${[...arbeitende].join(", ")}`
-          : inFlight
-            ? "Thinking"
-            : ctx.mic.state === "listening"
-              ? "Listening"
-              : "Online",
+        offline && !inFlight
+          ? "Offline"
+          : arbeitende.size > 0
+            ? `Working · ${[...arbeitende].join(", ")}`
+            : inFlight
+              ? "Thinking"
+              : ctx.mic.state === "listening"
+                ? "Listening"
+                : "Online",
       );
     };
+
+    const zeigeFehler = (text: string): void => {
+      fehlerBis = Date.now() + 4000;
+      sphaere.setZustand("fehler", text);
+      globalThis.setTimeout(() => zustandNeu(), 4050);
+    };
+
+    // Erst nach einer Schonfrist offline: beim Öffnen ist der Strom für einen Moment noch nicht
+    // verbunden (`bus.connect()` läuft nach dem ersten Aufbau), und ein Orb, der dabei jedes Mal
+    // kurz erlischt, meldete einen Ausfall, den es nicht gibt.
+    let offlineTimer: ReturnType<typeof setTimeout> | null = null;
+    const busStatus = (status: string): void => {
+      if (status === "open") {
+        if (offlineTimer !== null) globalThis.clearTimeout(offlineTimer);
+        offlineTimer = null;
+        if (offline) {
+          offline = false;
+          zustandNeu();
+        }
+        return;
+      }
+      if (offline || offlineTimer !== null) return;
+      offlineTimer = globalThis.setTimeout(() => {
+        offlineTimer = null;
+        offline = true;
+        zustandNeu();
+      }, 4000);
+    };
+    const statusAbo = ctx.bus.onStatus(busStatus);
+    busStatus(ctx.bus.status);
 
     /**
      * Die Antwort steht im Panel über der Bubble — linksbündig, lesbar, bleibt stehen.
@@ -346,13 +387,14 @@ export const praesenzView: View = {
           const offen = p.pending?.[0];
           if (offen && !antwortEl.classList.contains("ist-frage")) {
             zeigeAntwort(offen.question, { rueckfrage: true });
-            zustandNeu("zuhoeren");
+            zustandNeu("rueckfrage");
           }
         } catch {
           // kein Grund für Aufregung
         }
       }, 1500);
 
+      let gescheitert: string | null = null;
       try {
         const antwort = await ctx.api.post<MessageResponse>("/channels/web/messages", {
           content: text,
@@ -360,13 +402,18 @@ export const praesenzView: View = {
         const reply = antwort.delivered?.find((d) => d.kind === "reply")?.text;
         if (reply) zeigeAntwort(reply);
       } catch (error) {
-        zeigeAntwort(error instanceof Error ? error.message : String(error));
+        gescheitert = error instanceof Error ? error.message : String(error);
+        zeigeAntwort(gescheitert);
       } finally {
         globalThis.clearInterval(pendingTimer);
         setStand("");
         inFlight = false;
-        sphaere.fertig();
-        globalThis.setTimeout(() => zustandNeu(), 900);
+        if (gescheitert !== null) {
+          zeigeFehler(gescheitert);
+        } else {
+          sphaere.fertig();
+          globalThis.setTimeout(() => zustandNeu(), 900);
+        }
       }
     };
 
@@ -381,12 +428,6 @@ export const praesenzView: View = {
       }
     });
     eingabe.addEventListener("input", wachsen);
-    eingabe.addEventListener("focus", () => {
-      if (!inFlight && arbeitende.size === 0) sphaere.setZustand("zuhoeren");
-    });
-    eingabe.addEventListener("blur", () => {
-      if (!inFlight) zustandNeu();
-    });
 
     for (const knopf of container.querySelectorAll<HTMLButtonElement>(".p-chip")) {
       knopf.addEventListener("click", () => {
@@ -411,10 +452,17 @@ export const praesenzView: View = {
       else ctx.mic.toggleListening();
     };
     micKnopf?.addEventListener("click", zuhoerenUmschalten);
-    sphaereKnopf?.addEventListener("click", zuhoerenUmschalten);
+    // Ein Tipp auf die Kugel (nicht aufs Ziehen, das dreht sie) schaltet das Mikrofon — wie
+    // Enter oder Leertaste auf der Bühne, damit es auch ohne Maus geht.
+    sphaere.beimAntippen(zuhoerenUmschalten);
+    orbHost.addEventListener("keydown", (e) => {
+      if (e.key !== "Enter" && e.key !== " ") return;
+      e.preventDefault();
+      zuhoerenUmschalten();
+    });
     const micAbo = ctx.mic.subscribe((state) => {
       micKnopf?.classList.toggle("ist-an", state === "listening");
-      sphaereKnopf?.setAttribute("aria-pressed", String(state === "listening"));
+      orbHost.setAttribute("aria-pressed", String(state === "listening"));
       if (!inFlight) zustandNeu();
     });
 
@@ -491,7 +539,9 @@ export const praesenzView: View = {
         return;
       }
       if (message.type === "kuro.werkzeug" && typeof data.name === "string") {
-        if (!antwortText.textContent) setStand(WERKZEUG_STAND[data.name] ?? "Arbeitet …");
+        const stand = WERKZEUG_STAND[data.name] ?? "Arbeitet …";
+        if (!antwortText.textContent) setStand(stand);
+        zustandNeu("arbeiten", stand);
         return;
       }
       if (message.type === "haus.arbeitet" && typeof data.wer === "string") {
@@ -499,7 +549,10 @@ export const praesenzView: View = {
         arbeitende.add(data.wer);
         arbeit.set(data.wer, { seit: Date.now(), stand: "übernimmt" });
         zeichneArbeit();
-        sphaere.setArbeitende([...arbeitende]);
+        sphaere.bediensteterBeginnt(
+          data.wer,
+          typeof data.auftrag === "string" ? data.auftrag : undefined,
+        );
         zustandNeu();
         return;
       }
@@ -512,6 +565,7 @@ export const praesenzView: View = {
           stand: wobei ? `${wobei} — ${text}` : text,
         });
         zeichneArbeit();
+        sphaere.bediensteterStand(data.wer, wobei ? `${wobei} — ${text}` : text);
         if (!antwortText.textContent) setStand(`${data.wer}: ${text}`);
         return;
       }
@@ -519,7 +573,7 @@ export const praesenzView: View = {
         arbeitende.delete(data.wer);
         arbeit.delete(data.wer);
         zeichneArbeit();
-        sphaere.setArbeitende([...arbeitende]);
+        sphaere.bediensteterFertig(data.wer);
         zustandNeu();
         return;
       }
@@ -573,10 +627,11 @@ export const praesenzView: View = {
         for (const l of laufende) {
           arbeit.set(l.wer, { seit: l.begonnen, stand: l.stand });
           arbeitende.add(l.wer);
+          sphaere.bediensteterBeginnt(l.wer);
+          sphaere.bediensteterStand(l.wer, l.stand);
         }
         if (laufende.length > 0) {
           zeichneArbeit();
-          sphaere.setArbeitende([...arbeitende]);
           zustandNeu();
         }
       })
@@ -590,9 +645,12 @@ export const praesenzView: View = {
       globalThis.clearInterval(kartenTimer);
       globalThis.clearInterval(outboxTimer);
       globalThis.clearInterval(arbeitUhr);
+      if (offlineTimer !== null) globalThis.clearTimeout(offlineTimer);
       alleZurueck();
       micAbo();
       busAbo();
+      statusAbo();
+      eingabeLoesen();
       sphaere.destroy();
     };
   },

@@ -27,14 +27,21 @@ export const STATIC_FILES = [
   "styles/theme.css",
   "styles/layout.css",
   "styles/views.css",
+  "styles/praesenz.css",
+  "styles/anmeldung.css",
+  "assets/favicon.svg",
   "assets/lake.jpg",
   "assets/praesenz.jpg",
-  "assets/orb.jpg",
-  "assets/orb.mp4",
+  "assets/night.jpg",
+  "assets/night-sm.jpg",
+  "assets/night.mp4",
   // Gepinnt wie alles hier (siehe docker-compose.yml): TradingView Lightweight Charts, Apache
   // 2.0, als vorgebautes ESM-Standalone-Modul. Kein npm-Import — der Browser lädt `ui/**`
   // ohne Bundler (siehe oben), und ein bloßer Paketname wäre kein gültiger Browser-Import.
   "vendor/lightweight-charts.standalone.production.mjs",
+  // Aus demselben Grund: three r170 (MIT) und der Orb, der darauf zeichnet (S47).
+  "vendor/three.module.min.mjs",
+  "vendor/kuronami-orb.mjs",
 ] as const;
 
 const TRANSPILE: ts.TranspileOptions = {

@@ -89,7 +89,7 @@ function main(): void {
       saveToken("");
       zeigeAnmeldung(document.body, {
         baseUrl: backend.http,
-        grund: "Die Sitzung ist abgelaufen. Bitte noch einmal anmelden.",
+        grund: "Your session has expired. Please unlock again.",
         onAngemeldet: (token) => {
           saveToken(token);
           anmeldungOffen = false;
