@@ -1,5 +1,6 @@
 import { ApiError } from "../api/client.js";
 import { icon } from "../icons.js";
+import { oberflaecheZiel } from "../oberflaeche.js";
 import { SETTINGS_SECTION_IDS, type SettingsSectionId } from "../router/router.js";
 import { loadToken, saveToken } from "../settings.js";
 import { PALETTE_APPLIED_EVENT, leitePaletteAusDemRaum } from "../theme/background.js";
@@ -59,6 +60,15 @@ function renderAppearance(settings: KuronamiSettings): string {
   return `
     <section class="settings-section" aria-labelledby="section-appearance-title">
       <h2 class="settings-section__title" id="section-appearance-title">Erscheinungsbild</h2>
+
+      <div class="field">
+        <label class="field__label" for="setting-oberflaeche">Oberfläche</label>
+        <select class="field__control" id="setting-oberflaeche" data-role="oberflaeche">
+          <option value="standard" ${settings.appearance.oberflaeche === "standard" ? "selected" : ""}>Standard</option>
+          <option value="modern" ${settings.appearance.oberflaeche === "modern" ? "selected" : ""}>Modern</option>
+        </select>
+        <p class="field__hint">Standard ist die Präsenz mit Leiste und Karten, Modern die Welle mit dem Film. Der Wechsel lädt die Seite neu.</p>
+      </div>
 
       <div class="field">
         <label class="field__label" for="setting-theme">Theme</label>
@@ -445,6 +455,14 @@ export const settingsView: View = {
       const value = (event.target as HTMLInputElement).value;
       const next = updateSettingsSection("appearance", { accentOverride: value });
       settingsBus.emit(next);
+    });
+
+    container.querySelector('[data-role="oberflaeche"]')?.addEventListener("change", (event) => {
+      const value = (event.target as HTMLSelectElement).value === "modern" ? "modern" : "standard";
+      const next = updateSettingsSection("appearance", { oberflaeche: value });
+      settingsBus.emit(next);
+      const ziel = oberflaecheZiel(globalThis.location.pathname, globalThis.location.hash, value);
+      if (ziel) globalThis.location.href = ziel;
     });
 
     container.querySelector('[data-role="density"]')?.addEventListener("change", (event) => {

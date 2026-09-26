@@ -4,6 +4,7 @@ import { zeigeAnmeldung } from "./auth/view.js";
 import { resolveBackendOrigin } from "./backend-origin.js";
 import { createEventBus } from "./events/bus.js";
 import { createMicStateStore } from "./mic/state.js";
+import { oberflaecheZiel } from "./oberflaeche.js";
 import { mountHuelle } from "./praesenz/huelle.js";
 import { praesenzView } from "./praesenz/view.js";
 import {
@@ -194,6 +195,16 @@ function main(): void {
  * ein. Ein halber Zustand wäre das Schlimmste von beidem: eine Maske, die nichts schützt.
  */
 async function start(): Promise<void> {
+  // Ist in den Einstellungen „Modern" gewählt, gilt die Welle (`ui/welle/`).
+  const ziel = oberflaecheZiel(
+    globalThis.location.pathname,
+    globalThis.location.hash,
+    loadSettings().appearance.oberflaeche,
+  );
+  if (ziel) {
+    globalThis.location.replace(ziel);
+    return;
+  }
   const params = new URLSearchParams(globalThis.location.search);
   const hostname = globalThis.location.hostname || "localhost";
   const backend = resolveBackendOrigin(

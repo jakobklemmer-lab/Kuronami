@@ -3,6 +3,7 @@ import { holeLage } from "../auth/anmeldung.js";
 import { resolveBackendOrigin } from "../backend-origin.js";
 import { createEventBus } from "../events/bus.js";
 import { createMicStateStore } from "../mic/state.js";
+import { oberflaecheZiel } from "../oberflaeche.js";
 import { loadToken, saveToken } from "../settings.js";
 import { loadSettings } from "../settings/store.js";
 import { createVoiceController } from "../voice/controller.js";
@@ -122,6 +123,16 @@ function starteWelle(backend: ReturnType<typeof resolveBackendOrigin>): void {
 }
 
 async function start(): Promise<void> {
+  // Ist in den Einstellungen „Standard" gewählt, gilt die Präsenz unter `/`.
+  const ziel = oberflaecheZiel(
+    globalThis.location.pathname,
+    globalThis.location.hash,
+    loadSettings().appearance.oberflaeche,
+  );
+  if (ziel) {
+    globalThis.location.replace(ziel);
+    return;
+  }
   const params = new URLSearchParams(globalThis.location.search);
   const backend = resolveBackendOrigin(
     globalThis.location.hostname || "localhost",

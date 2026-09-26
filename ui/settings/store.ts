@@ -14,6 +14,8 @@
  * Feld) bekommt die Vorgabe, statt `undefined` durchzureichen oder das ganze Objekt zu verwerfen.
  */
 
+import type { Oberflaeche } from "../oberflaeche.js";
+
 export type ThemeMode = "dark" | "system";
 export type Density = "comfortable" | "compact";
 
@@ -23,6 +25,8 @@ export interface AppearanceSettings {
    * Akzent (`ui/theme/palette.ts`). `null` heißt: dem Raum folgen. */
   accentOverride: string | null;
   density: Density;
+  /** Welche Oberfläche gilt: die Präsenz („standard") oder die Welle („modern"), `ui/oberflaeche.ts`. */
+  oberflaeche: Oberflaeche;
 }
 
 export interface ModelSettings {
@@ -95,6 +99,7 @@ export const DEFAULT_SETTINGS: KuronamiSettings = {
     theme: "dark",
     accentOverride: null,
     density: "comfortable",
+    oberflaeche: "standard",
   },
   models: {
     routineModel: null,
@@ -158,6 +163,7 @@ export function normalizeSettings(raw: unknown): KuronamiSettings {
     DEFAULT_SETTINGS.appearance,
     candidate.appearance,
   ) as AppearanceSettings & { background?: unknown };
+  if (appearance.oberflaeche !== "modern") appearance.oberflaeche = "standard";
   return {
     appearance,
     models: mergeSection(DEFAULT_SETTINGS.models, candidate.models),

@@ -9,7 +9,12 @@ import {
   hashFor,
   parseHash,
 } from "../router/router.js";
-import { type KuronamiSettings, loadSettings, settingsBus } from "../settings/store.js";
+import {
+  type KuronamiSettings,
+  loadSettings,
+  settingsBus,
+  updateSettingsSection,
+} from "../settings/store.js";
 import { settingsView } from "../settings/view.js";
 import { analysenView } from "../views/analysen.js";
 import { calendarView } from "../views/calendar.js";
@@ -435,10 +440,11 @@ export function mountWelle(opt: WelleOptionen): void {
     },
     {
       id: "aktion:praesenz",
-      titel: "Zur Präsenz wechseln",
+      titel: "Oberfläche: Standard",
       art: "aktion" as const,
       stichworte: ["alte", "oberfläche", "präsenz", "zurück"],
       tu: () => {
+        updateSettingsSection("appearance", { oberflaeche: "standard" });
         globalThis.location.href = `../${globalThis.location.hash}`;
       },
     },
