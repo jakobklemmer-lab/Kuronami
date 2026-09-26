@@ -30,6 +30,7 @@ export const STATIC_FILES = [
   "styles/praesenz.css",
   "styles/anmeldung.css",
   "assets/favicon.svg",
+  "assets/apple-touch-icon.png",
   "assets/praesenz.jpg",
   "assets/night.jpg",
   "assets/night-sm.jpg",

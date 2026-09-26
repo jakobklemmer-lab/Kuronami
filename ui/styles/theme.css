@@ -93,6 +93,18 @@
   display: none !important;
 }
 
+/* Safari auf dem iPhone zoomt beim Antippen jedes Eingabefelds hinein, dessen Schrift kleiner
+ * als 16 px ist — und zoomt danach nicht zurück. Auf Geräten ohne feinen Zeiger deshalb nie
+ * darunter; `!important`, weil die Felder ihre Größe sonst über spezifischere Klassen setzen
+ * (Bubble, Anmeldung, Einstellungen). */
+@media (pointer: coarse) {
+  input,
+  select,
+  textarea {
+    font-size: max(16px, 1em) !important;
+  }
+}
+
 html,
 body {
   height: 100%;

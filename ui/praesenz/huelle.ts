@@ -12,6 +12,10 @@ import type { RouteId } from "../router/router.js";
  * den Zustand des Hauses. Den setzt die Präsenz-Ansicht über ein `kuro:status`-Ereignis auf
  * `document` — ein Ereignis statt eines Imports, damit Hülle und Ansicht einander nicht kennen
  * müssen.
+ *
+ * **Auf dem Telefon** (S47) ist die Leiste eine Schublade hinter dem Knopf oben links. Bis dahin
+ * war sie dort einfach ausgeblendet — ohne Ersatz, man kam aus der Präsenz nur über die Adresse
+ * hinaus. Ein Tipp auf einen Eintrag, auf den Schleier daneben oder Escape schließt sie wieder.
  */
 
 const NAV: Array<{ route: RouteId; label: string; ikon: Parameters<typeof icon>[0] }> = [
@@ -42,7 +46,15 @@ export interface Huelle {
 export function mountHuelle(root: HTMLElement): Huelle {
   root.innerHTML = `
     <div class="p-raum" aria-hidden="true"></div>
-    <aside class="p-nav">
+    <button type="button" class="p-nav-knopf" aria-label="Menü öffnen" aria-controls="p-nav"
+            aria-expanded="false">
+      <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor"
+           stroke-width="1.6" stroke-linecap="round" aria-hidden="true">
+        <path d="M4.5 7.5h15M4.5 12h15M4.5 16.5h9" />
+      </svg>
+    </button>
+    <div class="p-nav-schleier" hidden></div>
+    <aside class="p-nav" id="p-nav">
       <a class="p-nav__marke" href="#/praesenz">
         <span class="p-nav__kanji">黒</span><span class="p-nav__wort">Kuronami</span>
       </a>
@@ -73,14 +85,51 @@ export function mountHuelle(root: HTMLElement): Huelle {
   };
   document.addEventListener(STATUS_EVENT, aufStatus);
 
+  // Die Schublade. Auf breiten Fenstern ist der Knopf unsichtbar und `ist-offen` ohne Wirkung —
+  // die Regeln dafür stehen nur in der schmalen Fassung von `praesenz.css`.
+  const knopf = root.querySelector<HTMLButtonElement>(".p-nav-knopf");
+  const nav = root.querySelector<HTMLElement>(".p-nav");
+  const schleier = root.querySelector<HTMLElement>(".p-nav-schleier");
+  let offen = false;
+  const setzeOffen = (an: boolean): void => {
+    if (!knopf || !nav || !schleier || an === offen) return;
+    offen = an;
+    nav.classList.toggle("ist-offen", an);
+    schleier.hidden = !an;
+    knopf.setAttribute("aria-expanded", String(an));
+    knopf.setAttribute("aria-label", an ? "Menü schließen" : "Menü öffnen");
+    if (an) {
+      nav
+        .querySelector<HTMLElement>(".p-nav__link.ist-aktiv, .p-nav__link")
+        ?.focus({ preventScroll: true });
+    } else if (nav.contains(document.activeElement)) {
+      knopf.focus({ preventScroll: true });
+    }
+  };
+  knopf?.addEventListener("click", () => setzeOffen(!offen));
+  schleier?.addEventListener("click", () => setzeOffen(false));
+  // Auch ein Tipp auf die schon offene Ansicht schließt — dann gibt es keinen Routenwechsel.
+  nav?.addEventListener("click", (e) => {
+    if (e.target instanceof Element && e.target.closest("a")) setzeOffen(false);
+  });
+  const aufTaste = (e: KeyboardEvent): void => {
+    if (e.key === "Escape") setzeOffen(false);
+  };
+  document.addEventListener("keydown", aufTaste);
+
   return {
     setActive(route) {
       for (const link of root.querySelectorAll<HTMLElement>(".p-nav__link")) {
-        link.classList.toggle("ist-aktiv", link.dataset.route === route);
+        const aktiv = link.dataset.route === route;
+        link.classList.toggle("ist-aktiv", aktiv);
+        if (aktiv) link.setAttribute("aria-current", "page");
+        else link.removeAttribute("aria-current");
       }
+      setzeOffen(false);
     },
     destroy() {
       document.removeEventListener(STATUS_EVENT, aufStatus);
+      document.removeEventListener("keydown", aufTaste);
       root.innerHTML = "";
     },
   };

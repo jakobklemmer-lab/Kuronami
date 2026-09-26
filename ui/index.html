@@ -4,7 +4,16 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
     <title>Kuronami</title>
+    <meta name="color-scheme" content="dark" />
+    <!-- Safari färbt Statusleiste und Werkzeugleiste danach ein. Vom Home-Bildschirm aus läuft
+         die Seite ohne Browserleisten; der Inhalt geht dann bis unter die Statusleiste, und die
+         Abstände dafür kommen aus `env(safe-area-inset-*)`. -->
+    <meta name="theme-color" content="#0a1116" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="Kuronami" />
     <link rel="icon" href="./assets/favicon.svg" type="image/svg+xml" />
+    <link rel="apple-touch-icon" href="./assets/apple-touch-icon.png" />
     <link rel="stylesheet" href="./styles/theme.css" />
     <link rel="stylesheet" href="./styles/layout.css" />
     <link rel="stylesheet" href="./styles/views.css" />

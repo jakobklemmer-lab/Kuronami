@@ -17,8 +17,9 @@
 #view-outlet {
   position: relative;
   z-index: 1;
+  /* Die Höhe der festen Hülle, nicht `100vh`: in Safari auf dem iPhone ist `100vh` die Höhe
+     ohne Adressleiste, und das Ende jeder Ansicht läge darunter. */
   height: 100%;
-  min-height: 100vh;
   overflow-y: auto;
   margin-left: var(--p-nav);
   padding: 28px 32px 28px 8px;
@@ -34,7 +35,7 @@
 .toast {
   position: fixed;
   left: 50%;
-  bottom: 40px;
+  bottom: calc(40px + env(safe-area-inset-bottom));
   transform: translateX(-50%);
   z-index: 50;
   max-width: min(440px, calc(100vw - 48px));

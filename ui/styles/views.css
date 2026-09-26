@@ -990,7 +990,6 @@
 /* --------------------------------------------------------------------- */
 
 @media (max-width: 860px) {
-  .cockpit,
   .detail-view,
   .settings-view {
     padding: 22px 16px;
@@ -1029,6 +1028,18 @@
     flex: none;
     flex-direction: row;
     overflow-x: auto;
+    scrollbar-width: none;
+    /* Die Abschnitte laufen als Zeile zum Wischen bis an den Rand, statt dort abgeschnitten
+       stehen zu bleiben und zweizeilig umzubrechen („Der / Haushalt"). */
+    margin: 0 -16px;
+    padding: 0 16px;
+  }
+  .settings-nav::-webkit-scrollbar {
+    display: none;
+  }
+  .settings-nav__link {
+    flex: none;
+    white-space: nowrap;
   }
 }
 

@@ -779,42 +779,167 @@ body[data-focus="on"] .p-orb-buehne .ko-caption {
     justify-content: center;
   }
 }
+/* ---- Telefon (S47) ------------------------------------------------------------
+   Gebaut für das iPhone 18 Pro Max (440 × 956 CSS-Pixel, Safari), gilt aber für jedes schmale
+   Fenster. Drei Dinge, die vorher fehlten: eine Navigation (die Leiste war hier einfach weg),
+   die Eingabe gleich unter dem Orb statt hinter allen Karten, und Abstand zu Dynamic Island und
+   Home-Indikator — `viewport-fit=cover` legt die Seite bis unter beide. */
+
+/* Menüknopf und Schleier gibt es nur auf dem Telefon. */
+.p-nav-knopf,
+.p-nav-schleier {
+  display: none;
+}
+
 @media (max-width: 760px) {
   .praesenz {
     left: 0;
-    grid-template-columns: 1fr;
+    /* `minmax(0, …)`, nicht `1fr`: dessen Minimum ist die Mindestbreite des Inhalts, und die
+       Vorschläge in einer Zeile sind gut 900 px breit — die Spalte wuchs mit, und Bubble und
+       Karten ragten rechts aus dem Bild. */
+    grid-template-columns: minmax(0, 1fr);
     grid-template-areas:
       "wetter"
       "mitte"
-      "karten"
-      "fuss";
+      "fuss"
+      "karten";
     /* Jede Zeile so hoch wie ihr Inhalt, die Spalte scrollt. Mit den Zeilen der breiten
        Fassung (`auto 1fr auto`) — und ebenso mit `auto`, weil Mitte und Karten
        `min-height: 0` tragen — teilten sich die Zeilen die Fensterhöhe, und die Karten lagen
        über Uhr und Orb (bis 2026-09-26). */
     grid-template-rows: repeat(4, max-content);
-    padding: 16px;
+    padding: calc(env(safe-area-inset-top) + 10px) 16px calc(env(safe-area-inset-bottom) + 20px);
     gap: 12px;
     overflow-y: auto;
-  }
-  .p-nav {
-    display: none;
+    overscroll-behavior: contain;
   }
   #view-outlet {
     margin-left: 0;
-    padding: 16px;
+    /* Oben Platz für den Menüknopf, der über jeder Ansicht liegt. */
+    padding: calc(env(safe-area-inset-top) + 48px) 0 calc(env(safe-area-inset-bottom) + 16px);
+    overscroll-behavior: contain;
   }
-  .p-karten {
-    overflow: visible;
+
+  /* Der Menüknopf: oben links, in der Zeile des Wetters, groß genug für einen Daumen. */
+  .p-nav-knopf {
+    display: grid;
+    place-items: center;
+    position: fixed;
+    z-index: 4;
+    top: calc(env(safe-area-inset-top) + 10px);
+    left: 14px;
+    width: 44px;
+    height: 44px;
+    padding: 0;
+    border-radius: 50%;
+    border: 1px solid var(--p-glas-rand);
+    background: var(--p-glas);
+    color: var(--p-text);
+    -webkit-backdrop-filter: blur(16px);
+    backdrop-filter: blur(16px);
+    -webkit-tap-highlight-color: transparent;
+    cursor: pointer;
+  }
+  .p-nav-knopf:focus-visible {
+    outline: 1px solid var(--p-glas-rand-aktiv);
+    outline-offset: 3px;
+  }
+  .p-nav-schleier:not([hidden]) {
+    display: block;
+    position: fixed;
+    inset: 0;
+    z-index: 5;
+    background: rgba(3, 6, 9, 0.46);
+  }
+
+  /* Die Leiste als Schublade. `visibility` hält sie geschlossen aus der Tab-Reihenfolge; der
+     Wechsel kommt erst, wenn sie ganz draußen ist. */
+  .p-nav {
+    z-index: 6;
+    width: min(300px, 84vw);
+    padding: calc(env(safe-area-inset-top) + 22px) 0 calc(env(safe-area-inset-bottom) + 18px) 28px;
+    background: rgba(9, 15, 20, 0.9);
+    border-right: 1px solid var(--p-glas-rand);
+    -webkit-backdrop-filter: blur(24px);
+    backdrop-filter: blur(24px);
+    overflow-y: auto;
+    transform: translateX(-102%);
+    visibility: hidden;
+    transition: transform 280ms var(--p-kurve), visibility 0s linear 280ms;
+  }
+  .p-nav.ist-offen {
+    transform: none;
+    visibility: visible;
+    transition: transform 280ms var(--p-kurve);
+  }
+  /* In der Schublade stehen die Wörter wieder, die die schmale Leiste (≤ 1080 px) versteckt. */
+  .p-nav__wort,
+  .p-nav__label {
+    display: inline;
+  }
+  .p-nav__status span:last-child {
+    display: inline;
+  }
+  .p-nav__marke {
+    justify-content: flex-start;
+    margin-bottom: 28px;
+  }
+  .p-nav__link {
+    padding: 12px 14px;
+    font-size: 16px;
+  }
+  .p-nav__unten {
+    padding-bottom: 18px;
+  }
+
+  .p-wetter {
+    justify-content: end;
+  }
+  .p-mitte {
     padding-top: 0;
   }
-  .p-wetter {
-    justify-content: start;
-  }
-  /* Eine Spalte, die scrollt: dort gibt es keinen Rest, den die Bühne füllen könnte. */
+  /* Eine Spalte, die scrollt: dort gibt es keinen Rest, den die Bühne füllen könnte. So hoch,
+     dass Uhr, Orb und Eingabe zusammen auf den ersten Bildschirm passen. */
   .p-orb-buehne {
     flex: none;
-    height: min(60vh, 480px);
+    height: min(42vh, 400px);
+    min-height: 260px;
+    margin-top: 4px;
+  }
+
+  .p-fuss {
+    gap: 12px;
+  }
+  .p-bubble__mic,
+  .p-bubble__senden {
+    width: 44px;
+    height: 44px;
+  }
+  /* Die Vorschläge als eine Zeile zum Wischen statt drei umbrochener Reihen. */
+  .p-chips {
+    flex-wrap: nowrap;
+    justify-content: flex-start;
+    width: calc(100% + 32px);
+    margin: 0 -16px;
+    padding: 0 16px 2px;
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+  .p-chips::-webkit-scrollbar {
+    display: none;
+  }
+  .p-chip {
+    flex: none;
+    padding: 9px 14px;
+  }
+  /* Den Fokus-Modus gibt es hier nicht: auf dem Telefon ist ohnehin nur eine Sache zu sehen. */
+  .p-fokus {
+    display: none;
+  }
+
+  .p-karten {
+    overflow: visible;
+    padding-top: 4px;
   }
 }
 
