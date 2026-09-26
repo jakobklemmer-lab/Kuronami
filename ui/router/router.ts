@@ -7,15 +7,14 @@
  * eine Änderung an der Ausliefer-Infrastruktur, nur um dieselbe `index.html` für jeden Pfad
  * zurückzugeben. Der Hash-Teil ist dagegen rein client-seitig: derselbe Server, dieselbe Datei,
  * und trotzdem eine direkt aufrufbare, merk- und teilbare Adresse (`http://localhost:3001/#/mail`
- * lässt sich eintippen, per Lesezeichen sichern und — wichtig für `detach.ts` — per
- * `window.open` in einem zweiten Fenster laden, das beim Laden genau diese Ansicht zeigt.
+ * lässt sich eintippen und per Lesezeichen sichern.
  */
 
 export const ROUTE_IDS = [
-  // Die Präsenz (2026-09-18): Kuro als Gegenüber statt als Dashboard. Eine eigene Route,
-  // damit sie ein Lesezeichen sein kann und `main.ts` die Hülle daran umschaltet.
+  // Die Präsenz (2026-09-18): Kuro als Gegenüber statt als Dashboard — seit S47 die einzige
+  // Startseite. Das alte Dashboard (`home`) liegt mit der klassischen Hülle im Archiv; ein
+  // Lesezeichen darauf landet über die Vorgabe hier.
   "praesenz",
-  "home",
   "mail",
   "calendar",
   "trading",
@@ -63,7 +62,7 @@ export interface ParsedRoute {
   section?: SettingsSectionId;
 }
 
-export const DEFAULT_ROUTE: RouteId = "home";
+export const DEFAULT_ROUTE: RouteId = "praesenz";
 export const DEFAULT_SETTINGS_SECTION: SettingsSectionId = "appearance";
 
 /** Liest `location.hash` (mit oder ohne führendes `#`) in eine typisierte Route. Erkennt keine

@@ -1,10 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
-  BAND_MIN_ALPHA,
   CARD_BASE_ALPHA,
   CARD_MAX_ALPHA,
   type RGB,
-  SCRIM_COLOR,
   blend,
   clampSaturation,
   contrastRatio,
@@ -41,6 +39,9 @@ function parseRgbaToken(token: string): { color: RGB; alpha: number } {
     alpha: parts[3] as number,
   };
 }
+
+/** Eine sehr dunkle, deckende Ebene — der typische Fall für `minimalOverlayAlpha`. */
+const DUNKLE_EBENE: RGB = { r: 3, g: 5, b: 11 };
 
 describe("rgbToHsl/hslToRgb", () => {
   it("rundet Schwarz, Weiss und reine Farbtoene korrekt", () => {
@@ -181,17 +182,15 @@ describe("derivePalette", () => {
     expect(contrastRatio(fgRgb, effectiveBg)).toBeGreaterThanOrEqual(4.5);
   });
 
-  it("laesst ein dunkles Bild sichtbar — Karte und Baender bleiben nahe an der Grundvorgabe", () => {
-    // Ein Bild wie `lake.jpg`: durchgehend dunkel, nur ein schwacher Lichtschein.
+  it("laesst ein dunkles Bild sichtbar — die Karte bleibt bei der Grundvorgabe", () => {
+    // Ein Bild wie der Raum der Präsenz: durchgehend dunkel, nur ein schwacher Lichtschein.
     const darkImage: RGB[] = [
       ...Array.from({ length: 60 }, () => ({ r: 12, g: 16, b: 28 })),
       { r: 96, g: 108, b: 132 },
     ];
     const tokens = derivePalette(darkImage);
     const { alpha: panelAlpha } = parseRgbaToken(tokens["--bg-panel"] as string);
-    const { alpha: topAlpha } = parseRgbaToken(tokens["--scrim-top"] as string);
     expect(panelAlpha).toBeCloseTo(CARD_BASE_ALPHA, 5);
-    expect(topAlpha).toBeCloseTo(BAND_MIN_ALPHA, 5);
   });
 
   it("hebt die Kartendeckkraft nur bei einem hellen Bild an", () => {
@@ -204,14 +203,11 @@ describe("derivePalette", () => {
     expect(brightAlpha).toBeLessThanOrEqual(CARD_MAX_ALPHA);
   });
 
-  it("misst das obere Band getrennt, wenn es uebergeben wird", () => {
-    const wholeImage: RGB[] = Array.from({ length: 40 }, () => ({ r: 240, g: 240, b: 240 }));
-    const darkTop: RGB[] = Array.from({ length: 20 }, () => ({ r: 8, g: 10, b: 18 }));
-    const ohneBand = derivePalette(wholeImage);
-    const mitBand = derivePalette(wholeImage, { topBandPixels: darkTop });
-    expect(parseRgbaToken(mitBand["--scrim-top"] as string).alpha).toBeLessThan(
-      parseRgbaToken(ohneBand["--scrim-top"] as string).alpha,
-    );
+  it("rechnet keine Tokens mehr fuer die archivierte Hülle", () => {
+    const tokens = derivePalette(Array.from({ length: 20 }, () => ({ r: 30, g: 40, b: 60 })));
+    expect(tokens).not.toHaveProperty("--bg-sidebar");
+    expect(tokens).not.toHaveProperty("--scrim-top");
+    expect(tokens).not.toHaveProperty("--scrim-bottom");
   });
 
   it("bleibt dunkel (niedrige Helligkeit von --bg), auch bei einem hellen Quellbild", () => {
@@ -225,31 +221,31 @@ describe("minimalOverlayAlpha", () => {
   const FG: RGB = { r: 237, g: 240, b: 245 };
 
   it("verlangt ueber einem dunklen Hintergrund keine Abdunklung ueber die Untergrenze hinaus", () => {
-    const alpha = minimalOverlayAlpha(SCRIM_COLOR, { r: 10, g: 14, b: 24 }, FG, 4.5, 0.12, 0.62);
+    const alpha = minimalOverlayAlpha(DUNKLE_EBENE, { r: 10, g: 14, b: 24 }, FG, 4.5, 0.12, 0.62);
     expect(alpha).toBeCloseTo(0.12, 5);
   });
 
   it("verlangt ueber einem hellen Hintergrund mehr Deckkraft", () => {
-    const alpha = minimalOverlayAlpha(SCRIM_COLOR, WHITE, FG, 4.5, 0.12, 0.95);
+    const alpha = minimalOverlayAlpha(DUNKLE_EBENE, WHITE, FG, 4.5, 0.12, 0.95);
     expect(alpha).toBeGreaterThan(0.12);
-    expect(contrastRatio(FG, blend(SCRIM_COLOR, alpha, WHITE))).toBeGreaterThanOrEqual(4.5);
+    expect(contrastRatio(FG, blend(DUNKLE_EBENE, alpha, WHITE))).toBeGreaterThanOrEqual(4.5);
   });
 
   it("liefert das Ergebnis, das die Schwelle tatsaechlich erreicht (nicht knapp darunter)", () => {
     for (const backdrop of [WHITE, MID_GRAY, { r: 200, g: 120, b: 60 }] as RGB[]) {
-      const alpha = minimalOverlayAlpha(SCRIM_COLOR, backdrop, FG, 4.5, 0, 1);
-      expect(contrastRatio(FG, blend(SCRIM_COLOR, alpha, backdrop))).toBeGreaterThanOrEqual(4.5);
+      const alpha = minimalOverlayAlpha(DUNKLE_EBENE, backdrop, FG, 4.5, 0, 1);
+      expect(contrastRatio(FG, blend(DUNKLE_EBENE, alpha, backdrop))).toBeGreaterThanOrEqual(4.5);
     }
   });
 
   it("ist monoton: ein hellerer Hintergrund verlangt nie weniger Deckkraft", () => {
-    const dunkel = minimalOverlayAlpha(SCRIM_COLOR, { r: 40, g: 40, b: 40 }, FG, 4.5, 0, 1);
-    const hell = minimalOverlayAlpha(SCRIM_COLOR, { r: 220, g: 220, b: 220 }, FG, 4.5, 0, 1);
+    const dunkel = minimalOverlayAlpha(DUNKLE_EBENE, { r: 40, g: 40, b: 40 }, FG, 4.5, 0, 1);
+    const hell = minimalOverlayAlpha(DUNKLE_EBENE, { r: 220, g: 220, b: 220 }, FG, 4.5, 0, 1);
     expect(hell).toBeGreaterThanOrEqual(dunkel);
   });
 
   it("bleibt bei einer unerreichbaren Schwelle an der Obergrenze stehen, statt zu haengen", () => {
-    const alpha = minimalOverlayAlpha(SCRIM_COLOR, WHITE, FG, 21, 0.1, 0.4);
+    const alpha = minimalOverlayAlpha(DUNKLE_EBENE, WHITE, FG, 21, 0.1, 0.4);
     expect(alpha).toBe(0.4);
   });
 });

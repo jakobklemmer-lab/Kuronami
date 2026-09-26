@@ -5,10 +5,8 @@ import type { RouteId } from "../router/router.js";
  * Die Hülle der neuen Oberfläche: der Raum als Grund und die Leiste links.
  *
  * Sie umgibt **jede** Ansicht — Kuro in der Mitte („Home"), aber genauso Mail, Kalender,
- * Märkte, Recherche, System und Einstellungen. Das alte Dashboard hat keinen Platz mehr in der
- * Navigation; es ist nur noch über einen Schalter in den Einstellungen erreichbar (Jakob:
- * „nicht als eigener Tab"). `ui/main.ts` entscheidet anhand von `klassischModus()`, welche
- * Hülle steht.
+ * Märkte, Recherche, Dateien, System und Einstellungen. Seit S47 ist sie die einzige Hülle; die
+ * klassische mit Seitenleiste und Dashboard liegt im Archiv (`archiv/alte-oberflaeche`).
  *
  * Die Leiste kennt keine Ansicht; sie bekommt gesagt, welche Route aktiv ist, und zeigt unten
  * den Zustand des Hauses. Den setzt die Präsenz-Ansicht über ein `kuro:status`-Ereignis auf
@@ -24,30 +22,12 @@ const NAV: Array<{ route: RouteId; label: string; ikon: Parameters<typeof icon>[
   { route: "analysen", label: "Analysen", ikon: "analysen" },
   { route: "strategien", label: "Strategien", ikon: "strategien" },
   { route: "research", label: "Research", ikon: "research" },
+  // Artefakte und Gedächtnisnotizen. Bis S47 nur aus der alten Seitenleiste zu erreichen.
+  { route: "files", label: "Files", ikon: "files" },
   { route: "system", label: "System", ikon: "system" },
 ];
 
 export const STATUS_EVENT = "kuro:status";
-
-/** Der Schlüssel, unter dem der Nutzer die alte Oberfläche wählt. */
-export const KLASSISCH_KEY = "kuronami.klassisch";
-
-export function klassischModus(): boolean {
-  try {
-    return globalThis.localStorage?.getItem(KLASSISCH_KEY) === "1";
-  } catch {
-    return false;
-  }
-}
-
-export function setzeKlassischModus(an: boolean): void {
-  try {
-    if (an) globalThis.localStorage?.setItem(KLASSISCH_KEY, "1");
-    else globalThis.localStorage?.removeItem(KLASSISCH_KEY);
-  } catch {
-    // Ohne Speicher gilt die Vorgabe: die neue Oberfläche.
-  }
-}
 
 /** Die Ansicht meldet, was Kuro gerade tut — die Leiste zeigt es unten. */
 export function meldeStatus(text: string): void {

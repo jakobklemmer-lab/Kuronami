@@ -17,16 +17,11 @@
 export type ThemeMode = "dark" | "system";
 export type Density = "comfortable" | "compact";
 
-export type BackgroundChoice =
-  | { kind: "builtin"; id: "lake" | "void" }
-  | { kind: "custom"; dataUrl: string; label: string };
-
 export interface AppearanceSettings {
   theme: ThemeMode;
-  /** Von Hand gewählter Akzent, falls gesetzt — überschreibt den aus dem Hintergrund
-   * abgeleiteten Akzent (`ui/theme/palette.ts`). `null` heißt: dem Hintergrund folgen. */
+  /** Von Hand gewählter Akzent, falls gesetzt — überschreibt den aus dem Raum abgeleiteten
+   * Akzent (`ui/theme/palette.ts`). `null` heißt: dem Raum folgen. */
   accentOverride: string | null;
-  background: BackgroundChoice;
   density: Density;
 }
 
@@ -99,7 +94,6 @@ export const DEFAULT_SETTINGS: KuronamiSettings = {
   appearance: {
     theme: "dark",
     accentOverride: null,
-    background: { kind: "builtin", id: "lake" },
     density: "comfortable",
   },
   models: {
@@ -157,8 +151,15 @@ function mergeSection<T extends object>(defaults: T, stored: unknown): T {
  * fremdem JSON — jedes fehlende oder falsch geformte Feld fällt auf `DEFAULT_SETTINGS` zurück. */
 export function normalizeSettings(raw: unknown): KuronamiSettings {
   const candidate = typeof raw === "object" && raw !== null ? (raw as Record<string, unknown>) : {};
+  // Die Hintergrundwahl gehörte zur klassischen Hülle (bis S47). Ein gespeicherter Stand trägt
+  // sie noch — als eigenes Bild eine Data-URL von einigen hundert Kilobyte —, und
+  // `mergeSection` reichte sie bei jedem Speichern weiter. Hier fällt sie weg.
+  const { background: _archiviert, ...appearance } = mergeSection(
+    DEFAULT_SETTINGS.appearance,
+    candidate.appearance,
+  ) as AppearanceSettings & { background?: unknown };
   return {
-    appearance: mergeSection(DEFAULT_SETTINGS.appearance, candidate.appearance),
+    appearance,
     models: mergeSection(DEFAULT_SETTINGS.models, candidate.models),
     approvals: mergeSection(DEFAULT_SETTINGS.approvals, candidate.approvals),
     memory: mergeSection(DEFAULT_SETTINGS.memory, candidate.memory),

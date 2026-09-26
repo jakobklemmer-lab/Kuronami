@@ -30,7 +30,6 @@ export const STATIC_FILES = [
   "styles/praesenz.css",
   "styles/anmeldung.css",
   "assets/favicon.svg",
-  "assets/lake.jpg",
   "assets/praesenz.jpg",
   "assets/night.jpg",
   "assets/night-sm.jpg",

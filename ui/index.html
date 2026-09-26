@@ -10,32 +10,25 @@
     <link rel="stylesheet" href="./styles/views.css" />
     <link rel="stylesheet" href="./styles/praesenz.css" />
     <link rel="stylesheet" href="./styles/anmeldung.css" />
-    <!-- Nur die Präsenz nutzt diese Schrift; das Dashboard bleibt bei der Systemschrift. -->
+    <!-- Die Schrift der Hülle (Manrope) und das Kanji der Leiste; die Anmeldemaske bringt ihre
+         eigene Schriftliste mit (`styles/anmeldung.css`). -->
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Manrope:wght@200;300;400;500&family=Zen+Kaku+Gothic+New:wght@400&display=swap" />
   </head>
   <body>
     <!--
-      Nur die Hülle: Szene (das Foto), Seitenleiste, Ansichts-Auslass, Eingabezeile und Toast.
-      Aller Inhalt kommt aus `ui/main.ts` über die Ansichten in `ui/views/`.
-
-      Die Anordnung folgt der Bildvorlage `dashboard_beispiel.png` (vom Nutzer als verbindlich
-      erklärt): sichtbares Hintergrundfoto, dunkle Glaskarten darüber, Mic-Pille unten in der
-      Seitenleiste.
+      Nur die Hülle: Raum und Leiste (`ui/praesenz/huelle.ts`), der Auslass für genau eine
+      Ansicht und der Toast. Aller Inhalt kommt aus `ui/main.ts` über die Ansichten; die
+      Anmeldemaske legt sich bei Bedarf selbst darüber (`ui/auth/view.ts`).
     -->
 
-    <div class="scene" id="scene" aria-hidden="true"></div>
-    <!-- Die neue Hülle (Raum + Leiste, ui/praesenz/huelle.ts). Leer, wenn der Nutzer das
-         klassische Dashboard gewählt hat. -->
     <div id="huelle"></div>
 
     <div class="app-shell">
-      <aside class="sidebar" id="sidebar" data-collapsed="false"></aside>
       <main id="view-outlet" aria-live="polite"></main>
     </div>
 
-    <div id="composer-host"></div>
     <div class="toast" id="toast" role="status" hidden></div>
 
     <script type="module" src="./main.js"></script>

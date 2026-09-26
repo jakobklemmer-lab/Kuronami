@@ -23,11 +23,8 @@ export type IconName =
   | "system"
   | "settings"
   | "bell"
-  | "chevron"
   | "mic"
-  | "collapse"
   | "close"
-  | "upload"
   | "refresh"
   | "artifact"
   | "check"
@@ -38,7 +35,6 @@ export type IconName =
   | "terminal"
   | "focus"
   | "praesenz"
-  | "monitor"
   | "dumbbell"
   | "utensils"
   | "book"
@@ -63,13 +59,8 @@ const PATHS: Record<IconName, string> = {
   settings:
     '<circle cx="10" cy="10" r="2.6" /><path d="M10 3.3v2M10 14.7v2M16.7 10h-2M5.3 10h-2M15 5l-1.4 1.4M6.4 13.6 5 15M15 15l-1.4-1.4M6.4 6.4 5 5" />',
   bell: '<path d="M6 8.5a4 4 0 1 1 8 0c0 3 1 4.2 1 4.2H5s1-1.2 1-4.2Z" /><path d="M8.3 15a1.8 1.8 0 0 0 3.4 0" />',
-  chevron: '<path d="m7.5 4.5 6 5.5-6 5.5" />',
   mic: '<rect x="7.5" y="3" width="5" height="8.5" rx="2.5" /><path d="M5 10a5 5 0 0 0 10 0" /><path d="M10 15v2.5M7 17.5h6" />',
-  collapse:
-    '<rect x="3" y="4" width="14" height="12" rx="1.5" /><path d="M8.5 4v12" /><path d="m6 8-1.5 2L6 12" />',
   close: '<path d="m5 5 10 10M15 5 5 15" />',
-  upload:
-    '<path d="M10 13.5V4.5M6.5 8 10 4.5 13.5 8" /><path d="M4 14.5v1a1 1 0 0 0 1 1h10a1 1 0 0 0 1-1v-1" />',
   refresh:
     '<path d="M4.5 10a5.5 5.5 0 0 1 9.6-3.6M15.5 10a5.5 5.5 0 0 1-9.6 3.6" /><path d="M14 3.5v3h-3M6 16.5v-3h3" />',
   artifact:
@@ -86,8 +77,6 @@ const PATHS: Record<IconName, string> = {
   praesenz: '<circle cx="10" cy="10" r="7" /><path d="M6 10.6c1.3-1.4 2.7-1.4 4 0s2.7 1.4 4 0" />',
   focus:
     '<circle cx="10" cy="10" r="6.4" /><circle cx="10" cy="10" r="1.9" fill="currentColor" stroke="none" />',
-  monitor:
-    '<rect x="3" y="4.5" width="14" height="9.6" rx="1.8" /><path d="M7.6 17h4.8M10 14.1V17" />',
   dumbbell: '<path d="M4 8.2v3.6M6.4 6.4v7.2M13.6 6.4v7.2M16 8.2v3.6M6.4 10h7.2" />',
   utensils:
     '<path d="M6 3v4.4M4.3 3v3.1a1.7 1.7 0 0 0 3.4 0V3M6 8.6V17" /><path d="M13.6 3c-1.1 1.3-1.7 3-1.7 4.8 0 1.5.6 2.4 1.7 2.6V17" />',

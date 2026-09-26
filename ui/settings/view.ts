@@ -1,15 +1,8 @@
 import { ApiError } from "../api/client.js";
 import { icon } from "../icons.js";
-import { klassischModus, setzeKlassischModus } from "../praesenz/huelle.js";
 import { SETTINGS_SECTION_IDS, type SettingsSectionId } from "../router/router.js";
 import { loadToken, saveToken } from "../settings.js";
-import {
-  BUILTIN_BACKGROUNDS,
-  PALETTE_APPLIED_EVENT,
-  applyBackground,
-  readImageFile,
-  resizeImageDataUrl,
-} from "../theme/background.js";
+import { PALETTE_APPLIED_EVENT, leitePaletteAusDemRaum } from "../theme/background.js";
 import { APP_VERSION } from "../version.js";
 import { escapeHtml } from "../views/html.js";
 import type { View, ViewContext } from "../views/types.js";
@@ -63,33 +56,9 @@ function currentAccent(): string {
 }
 
 function renderAppearance(settings: KuronamiSettings): string {
-  const bg = settings.appearance.background;
-  const isBuiltin = (id: "lake" | "void") => bg.kind === "builtin" && bg.id === id;
   return `
     <section class="settings-section" aria-labelledby="section-appearance-title">
       <h2 class="settings-section__title" id="section-appearance-title">Erscheinungsbild</h2>
-
-      <div class="field">
-        <span class="field__label">Hintergrund</span>
-        <div class="background-choices">
-          <button type="button" class="background-choice${isBuiltin("lake") ? " background-choice--active" : ""}" data-bg="lake">
-            <span class="background-choice__swatch background-choice__swatch--lake"></span>
-            ${BUILTIN_BACKGROUNDS.lake.label}
-          </button>
-          <button type="button" class="background-choice${isBuiltin("void") ? " background-choice--active" : ""}" data-bg="void">
-            <span class="background-choice__swatch background-choice__swatch--void"></span>
-            ${BUILTIN_BACKGROUNDS.void.label}
-          </button>
-          <label class="background-choice background-choice--upload">
-            ${icon("upload", { className: "background-choice__upload-icon" })}
-            Eigenes Bild
-            <input type="file" accept="image/*" data-role="background-upload" hidden />
-          </label>
-        </div>
-        <p class="field__hint" data-role="background-status">${
-          bg.kind === "custom" ? `Eigenes Bild aktiv: ${bg.label}` : ""
-        }</p>
-      </div>
 
       <div class="field">
         <label class="field__label" for="setting-theme">Theme</label>
@@ -104,9 +73,9 @@ function renderAppearance(settings: KuronamiSettings): string {
         <div class="accent-row">
           <input type="color" class="field__control field__control--color" id="setting-accent" data-role="accent"
             value="${settings.appearance.accentOverride ?? currentAccent()}" />
-          <button type="button" class="field__reset" data-role="accent-reset">Vom Hintergrund ableiten</button>
+          <button type="button" class="field__reset" data-role="accent-reset">Aus dem Raum ableiten</button>
         </div>
-        <p class="field__hint">${settings.appearance.accentOverride ? "Von Hand gesetzt." : "Wird aus dem Hintergrundbild abgeleitet (Sättigung gedeckelt, Kontrast geprüft)."}</p>
+        <p class="field__hint">${settings.appearance.accentOverride ? "Von Hand gesetzt." : "Wird aus dem Bild des Raums abgeleitet (Sättigung gedeckelt, Kontrast geprüft)."}</p>
       </div>
 
       <div class="field">
@@ -115,16 +84,6 @@ function renderAppearance(settings: KuronamiSettings): string {
           <option value="comfortable" ${settings.appearance.density === "comfortable" ? "selected" : ""}>Komfortabel</option>
           <option value="compact" ${settings.appearance.density === "compact" ? "selected" : ""}>Kompakt</option>
         </select>
-      </div>
-      <div class="field">
-        <span class="field__label">Oberfläche</span>
-        <label class="field__toggle">
-          <input type="checkbox" data-role="klassisch" ${klassischModus() ? "checked" : ""} />
-          <span>Klassisches Dashboard verwenden</span>
-        </label>
-        <p class="field__hint">Die neue Oberfläche — Kuro als Gegenüber, Raum und Leiste — ist die
-        Vorgabe. Das alte Dashboard ist nur noch über diesen Schalter erreichbar; die Seite lädt
-        nach dem Umschalten neu.</p>
       </div>
     </section>
   `;
@@ -428,14 +387,6 @@ export const settingsView: View = {
     // Der Haushalts-Abschnitt und die Postfachliste holen ihren Inhalt vom Gateway. Beide
     // fragen dieselbe Route; sie steht nur in zwei Abschnitten, also lädt je nach geöffnetem
     // Abschnitt höchstens einer davon.
-    container
-      .querySelector<HTMLInputElement>('[data-role="klassisch"]')
-      ?.addEventListener("change", (e) => {
-        setzeKlassischModus((e.target as HTMLInputElement).checked);
-        globalThis.location.hash = "";
-        globalThis.location.reload();
-      });
-
     const haushaltEl = container.querySelector<HTMLElement>('[data-role="haushalt"]');
     const postfaecherEl = container.querySelector<HTMLElement>('[data-role="postfaecher"]');
     if (haushaltEl || postfaecherEl) {
@@ -470,15 +421,6 @@ export const settingsView: View = {
     container.querySelector('[data-role="content"]')?.addEventListener("click", (event) => {
       const target = event.target as HTMLElement;
 
-      const bgButton = target.closest<HTMLElement>("[data-bg]");
-      if (bgButton) {
-        const id = bgButton.dataset.bg as "lake" | "void";
-        const next = updateSettingsSection("appearance", { background: { kind: "builtin", id } });
-        settingsBus.emit(next);
-        ctx.navigate("settings", "appearance");
-        return;
-      }
-
       if (target.dataset.role === "accent-reset") {
         const next = updateSettingsSection("appearance", { accentOverride: null });
         settingsBus.emit(next);
@@ -491,23 +433,6 @@ export const settingsView: View = {
         return;
       }
     });
-
-    container
-      .querySelector('[data-role="background-upload"]')
-      ?.addEventListener("change", (event) => {
-        const input = event.target as HTMLInputElement;
-        const file = input.files?.[0];
-        if (!file) return;
-        void (async () => {
-          const raw = await readImageFile(file);
-          const resized = await resizeImageDataUrl(raw);
-          const next = updateSettingsSection("appearance", {
-            background: { kind: "custom", dataUrl: resized, label: file.name },
-          });
-          settingsBus.emit(next);
-          ctx.navigate("settings", "appearance");
-        })();
-      });
 
     container.querySelector('[data-role="theme"]')?.addEventListener("change", (event) => {
       const value = (event.target as HTMLSelectElement)
@@ -864,12 +789,9 @@ export const settingsView: View = {
 
 /** Wendet die Erscheinungsbild-Einstellungen auf die Hülle an — beim Start und bei jeder
  * Änderung (`settingsBus`). Von `ui/main.ts` aufgerufen, nicht von dieser Ansicht selbst: die
- * Hülle (Szene, Dichte) liegt ausserhalb jeder gerouteten Ansicht. */
-export async function applyAppearance(
-  settings: KuronamiSettings,
-  sceneEl: HTMLElement,
-): Promise<void> {
-  await applyBackground(settings.appearance.background, sceneEl);
+ * Farben und die Dichte gelten für jede Ansicht, nicht nur für diese. */
+export async function applyAppearance(settings: KuronamiSettings): Promise<void> {
+  await leitePaletteAusDemRaum();
   if (settings.appearance.accentOverride) {
     document.documentElement.style.setProperty("--accent", settings.appearance.accentOverride);
   }

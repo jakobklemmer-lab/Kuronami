@@ -9,8 +9,13 @@
  * 1. Saettigung gedeckelt (`clampSaturation`) — nie Neontoene.
  * 2. Kontrast der Textfarbe gegen die tatsaechliche Hintergrundflaeche geprueft und bei Bedarf
  *    korrigiert (`ensureContrast`), mindestens 4,5:1 (WCAG-Formel, `contrastRatio`).
- * 3. Eine deckende Ebene hinter Inhaltsflaechen (`SCRIM_COLOR`/`SCRIM_ALPHA`) — der Massstab, an
- *    dem Schritt 2 tatsaechlich prueft, ist die Flaeche *nach* diesem Scrim, nicht das rohe Foto.
+ * 3. Die Deckkraft der Glaskarten nur so hoch wie noetig (`minimalOverlayAlpha`) — der Massstab,
+ *    an dem Schritt 2 tatsaechlich prueft, ist die Flaeche *nach* dieser Ebene, nicht das rohe
+ *    Foto.
+ *
+ * Bis S47 rechnete sie ausserdem Deckkraefte fuer die Seitenleiste und fuer zwei Baender ueber
+ * dem Foto der klassischen Hülle (`--bg-sidebar`, `--scrim-top`, `--scrim-bottom`). Mit der Hülle
+ * sind sie ins Archiv gegangen (`archiv/alte-oberflaeche`).
  */
 
 export interface RGB {
@@ -250,15 +255,7 @@ export interface DerivePaletteOptions {
   /** Mindest-Kontrastverhaeltnis fuer Text gegen die tatsaechliche Flaeche — Schritt 2.
    * Vorgabe 4.5 (WCAG AA fuer Fliesstext). */
   minContrast?: number;
-  /** Pixel aus dem oberen Bildband, wo die Kopfzeile (Uhr, Datum, Wetter) direkt auf dem Foto
-   * steht. Fehlt es, gilt das ganze Bild — konservativer, aber unnoetig dunkel. */
-  topBandPixels?: readonly RGB[];
-  /** Dasselbe fuer das untere Band (Fusszeile). */
-  bottomBandPixels?: readonly RGB[];
 }
-
-/** Die Farbe jeder deckenden Ebene — sehr dunkel, unabhaengig vom Bild. */
-export const SCRIM_COLOR: RGB = { r: 3, g: 5, b: 11 };
 
 /**
  * Die Grunddeckkraft einer Glaskarte. Das ist der **Wunschwert** der Gestaltung (die Vorlage
@@ -267,15 +264,6 @@ export const SCRIM_COLOR: RGB = { r: 3, g: 5, b: 11 };
  */
 export const CARD_BASE_ALPHA = 0.56;
 export const CARD_MAX_ALPHA = 0.94;
-
-/** Dasselbe fuer die Seitenleiste. In der Vorlage schimmern Berg und Wasser deutlich durch sie
- * hindurch — sie ist also eher durchsichtiger als eine Karte, nicht deckender. */
-export const SIDEBAR_BASE_ALPHA = 0.5;
-
-/** Die Baender oben/unten duerfen hoechstens so dunkel werden — darueber hinaus wuerde aus dem
- * Foto eine schwarze Flaeche, und genau das war der Fehler der ersten Fassung. */
-export const BAND_MIN_ALPHA = 0.12;
-export const BAND_MAX_ALPHA = 0.62;
 
 const BASE_FG: RGB = { r: 237, g: 240, b: 245 };
 
@@ -352,46 +340,8 @@ export function derivePalette(
     CARD_BASE_ALPHA,
     CARD_MAX_ALPHA,
   );
-  const sidebarAlpha = Math.max(
-    SIDEBAR_BASE_ALPHA,
-    minimalOverlayAlpha(
-      bgDeep,
-      brightest,
-      BASE_FG,
-      minContrast,
-      SIDEBAR_BASE_ALPHA,
-      CARD_MAX_ALPHA,
-    ),
-  );
 
-  // Baender oben/unten: dort steht Text (Uhr, Datum, Wetter, Fusszeile) direkt auf dem Foto.
-  // Gemessen wird, wenn moeglich, genau das Band — nicht das ganze Bild, sonst dunkelt ein
-  // heller Fleck in der Bildmitte die Kopfzeile ohne Not ab.
-  const topBrightest = options.topBandPixels?.length
-    ? deriveDominantColors(options.topBandPixels).brightest
-    : brightest;
-  const bottomBrightest = options.bottomBandPixels?.length
-    ? deriveDominantColors(options.bottomBandPixels).brightest
-    : brightest;
-  const topAlpha = minimalOverlayAlpha(
-    SCRIM_COLOR,
-    topBrightest,
-    BASE_FG,
-    minContrast,
-    BAND_MIN_ALPHA,
-    BAND_MAX_ALPHA,
-  );
-  const bottomAlpha = minimalOverlayAlpha(
-    SCRIM_COLOR,
-    bottomBrightest,
-    BASE_FG,
-    minContrast,
-    BAND_MIN_ALPHA,
-    BAND_MAX_ALPHA,
-  );
-
-  // Die Schriftfarbe selbst wird zusaetzlich gegen die Kartenflaeche geprueft — die Baender
-  // decken den Text auf dem Foto ab, die Karten den Text darin.
+  // Die Schriftfarbe selbst wird zusaetzlich gegen die Kartenflaeche geprueft.
   const fg = ensureContrast(BASE_FG, blend(surface, cardAlpha, brightest), minContrast);
 
   return {
@@ -399,14 +349,11 @@ export function derivePalette(
     "--bg-deep": toHex(bgDeep),
     "--bg-panel": toRgba(surface, cardAlpha),
     "--bg-panel-solid": toHex(bgPanelSolid),
-    "--bg-sidebar": toRgba(bgDeep, sidebarAlpha),
     "--fg": toHex(fg),
     "--fg-muted": toRgba(fg, 0.62),
     "--fg-faint": toRgba(fg, 0.4),
     "--accent": toHex(accent),
     "--accent-strong": toRgba(accent, 0.35),
     "--border": toRgba(fg, 0.09),
-    "--scrim-top": toRgba(SCRIM_COLOR, topAlpha),
-    "--scrim-bottom": toRgba(SCRIM_COLOR, bottomAlpha),
   };
 }

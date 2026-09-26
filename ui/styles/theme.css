@@ -10,12 +10,12 @@
  *
  * Die Kontrastgarantie bleibt davon unberuehrt, sie wird nur anders eingeloest: statt einer
  * festen, alles zudeckenden Ebene rechnet `ui/theme/palette.ts` zur Laufzeit die **kleinste**
- * Deckkraft aus, die Karten und Kopfzeilen-Baender brauchen, damit Text 4,5:1 erreicht
- * (`minimalOverlayAlpha`). Ein dunkles Bild wie `lake.jpg` bekommt deshalb fast keine
- * Abdunklung, ein grelles genau so viel wie noetig.
+ * Deckkraft aus, die Karten brauchen, damit Text 4,5:1 erreicht (`minimalOverlayAlpha`). Ein
+ * dunkles Bild wie der Raum der Präsenz bekommt deshalb fast keine Abdunklung, ein grelles genau
+ * so viel wie noetig.
  *
  * Jeder Farbwert hier ist nur die Vorgabe fuer den ersten Frame — danach schreibt die Ableitung
- * aus dem Hintergrundbild dieselben Custom Properties neu.
+ * aus dem Bild des Raums dieselben Custom Properties neu (`ui/theme/background.ts`).
  */
 
 :root {
@@ -23,20 +23,6 @@
   --bg-deep: #04060c;
   --bg-panel: rgba(11, 16, 27, 0.56);
   --bg-panel-solid: #141a2b;
-  --bg-sidebar: rgba(6, 9, 16, 0.5);
-
-  /* Die beiden Baender, die Kopf- und Fusszeile lesbar halten, ohne das Foto zuzudecken. */
-  --scrim-top: rgba(3, 5, 11, 0.2);
-  --scrim-bottom: rgba(3, 5, 11, 0.2);
-
-  /*
-   * Absolut ab Dokumentwurzel, nicht relativ. Ein `url()` in einer Custom Property loest der
-   * Browser gegen das Stylesheet auf, das die Variable **einsetzt** (hier `styles/layout.css`),
-   * nicht gegen das, das sie deklariert — aus `./assets/…` wurde dadurch `/styles/assets/…` und
-   * das Foto fehlte komplett. `ui/theme/background.ts` setzt zur Laufzeit ebenfalls eine
-   * aufgeloeste, absolute Adresse.
-   */
-  --scene-image: url("/assets/lake.jpg");
 
   --fg: #edf0f5;
   --fg-muted: rgba(237, 240, 245, 0.62);
@@ -68,8 +54,6 @@
 
   --glass-blur: 22px;
 
-  --sidebar-width: 232px;
-  --sidebar-width-collapsed: 68px;
   --radius: 14px;
   --radius-sm: 10px;
 
@@ -79,7 +63,6 @@
   --page-x: 28px;
 
   /* Typstufen, an der Vorlage abgenommen. */
-  --text-clock: 76px;
   --text-2xl: 30px;
   --text-xl: 21px;
   --text-lg: 16px;
@@ -92,8 +75,6 @@
   --font-mono: "JetBrains Mono", "Cascadia Mono", ui-monospace, "SF Mono", monospace;
 
   --motion-fast: 140ms;
-  --motion-medium: 320ms;
-  --motion-slow: 2600ms;
   --ease-standard: cubic-bezier(0.2, 0.8, 0.2, 1);
 
   color-scheme: dark;
@@ -102,7 +83,6 @@
 [data-density="compact"] {
   --gap: 14px;
   --pad: 14px;
-  --text-clock: 58px;
 }
 
 * {
@@ -173,12 +153,6 @@ select {
   backdrop-filter: blur(var(--glass-blur));
   -webkit-backdrop-filter: blur(var(--glass-blur));
   box-shadow: var(--shadow-card);
-}
-
-/* Kopfzeilen-Text steht direkt auf dem Foto. Ein schmaler, dunkler Saum haelt ihn auch ueber
- * einer helleren Bildstelle lesbar — das Gegenteil eines Glows, kein Farbschein. */
-.on-photo {
-  text-shadow: 0 1px 12px rgba(3, 5, 11, 0.75);
 }
 
 .run-status {

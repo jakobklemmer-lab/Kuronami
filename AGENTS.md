@@ -8,6 +8,22 @@ ersetzt, am 20.09. ist sein Code aus dem Baum geflogen (Archiv: `git checkout
 archiv/eigener-motor`). `docs/ARCHITEKTUR.md` beschreibt in weiten Teilen diesen alten Aufbau
 und ist damit **Historie, keine Anleitung** — verbindlich ist, was hier steht.
 
+Am 26.09. (S47) ist die klassische Oberfläche denselben Weg gegangen — Seitenleiste, Dashboard,
+Video-Orb, alte Anmeldemaske (Archiv: `git checkout archiv/alte-oberflaeche`).
+
+## Die Oberfläche hat eine Hülle
+
+Raum und Leiste (`ui/praesenz/huelle.ts`) umgeben jede Ansicht; eine zweite Hülle, einen
+Umschalter oder einen Rückfall auf die alte gibt es nicht. Eine neue Ansicht bekommt eine Route
+**und** einen Eintrag in der Leiste — eine Ansicht, die nur per Adresse erreichbar ist, ist ein
+halber Weg.
+
+Was im selben Dokument über der Oberfläche liegt (die Anmeldemaske), trägt ein eigenes
+Klassenpräfix (`an-`) und eigene `@keyframes`-Namen; globale Namen stoßen früher oder später
+zusammen. Der Orb (`ui/vendor/kuronami-orb.mjs`, bis auf den three-Import unverändert) und three
+liegen unter `ui/vendor/` — die Anbindung an Kuros Ereignisse gehört nach
+`ui/praesenz/sphaere.ts`.
+
 ## Der Motor ist das Agent-SDK
 
 `gateway/agent.ts` fährt jeden Zug über `query()` aus `@anthropic-ai/claude-agent-sdk`.

@@ -46,6 +46,17 @@ describe("normalizeSettings", () => {
     expect(result.models).toEqual(DEFAULT_SETTINGS.models);
   });
 
+  it("lässt die archivierte Hintergrundwahl fallen, samt eigenem Bild", () => {
+    const result = normalizeSettings({
+      appearance: {
+        density: "compact",
+        background: { kind: "custom", dataUrl: `data:image/jpeg;base64,${"A".repeat(4096)}` },
+      },
+    });
+    expect(result.appearance).not.toHaveProperty("background");
+    expect(result.appearance.density).toBe("compact");
+  });
+
   it("behält eine leere Beobachtungsliste und wirft Fremdes aus ihr heraus", () => {
     expect(normalizeSettings({ markets: { watchlist: [] } }).markets.watchlist).toEqual([]);
     expect(

@@ -17,6 +17,11 @@ describe("parseHash", () => {
     expect(parseHash("#/erfunden")).toEqual({ view: DEFAULT_ROUTE });
   });
 
+  it("führt ein Lesezeichen auf das archivierte Dashboard in die Präsenz", () => {
+    expect(DEFAULT_ROUTE).toBe("praesenz");
+    expect(parseHash("#/home")).toEqual({ view: "praesenz" });
+  });
+
   it("liest den Einstellungs-Abschnitt mit", () => {
     expect(parseHash("#/settings/haushalt")).toEqual({ view: "settings", section: "haushalt" });
   });
@@ -48,7 +53,7 @@ describe("hashFor", () => {
 
   it("ist die Umkehrung von parseHash für jede Route", () => {
     for (const view of [
-      "home",
+      "praesenz",
       "mail",
       "calendar",
       "trading",

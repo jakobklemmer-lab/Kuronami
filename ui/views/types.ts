@@ -18,16 +18,12 @@ export interface ViewContext {
   bus: EventBusClient;
   mic: MicStateStore;
   navigate(route: RouteId, section?: SettingsSectionId): void;
-  detach(route: RouteId, section?: SettingsSectionId): void;
-  /** Öffnet die Eingabezeile für einen neuen Auftrag (`ui/compose.ts`) — schickt echt an
-   * `POST /channels/web/messages`. */
-  compose(): void;
-  /** Fokus-Modus an/aus: blendet Seitenleiste und Karten aus, die Uhr bleibt. */
+  /** Fokus-Modus an/aus: blendet Leiste und Karten aus, Uhr, Orb und Bubble bleiben. */
   toggleFocus(): void;
   /** Nur gesetzt, wenn `view === "settings"`. */
   section?: SettingsSectionId;
-  /** Die Sprachsitzung, wenn es eine gibt — die Präsenz startet sie mit einem Tipp auf das
-   * Wasser. Fehlt sie, schaltet die Ansicht nur den Mic-Zustand um. */
+  /** Die Sprachsitzung, wenn es eine gibt — die Präsenz startet sie mit einem Tipp auf den
+   * Orb. Fehlt sie, schaltet die Ansicht nur den Mic-Zustand um. */
   voice?: { toggle(): void };
 }
 
