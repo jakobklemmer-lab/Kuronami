@@ -31,3 +31,5 @@ venv/
 /workspace/.kuro-session
 /workspace/.claude/
 /workspace/analysen/
+# Das Verbrauchsbuch (`gateway/verbrauch.ts`): eine Zeile je Lauf, wächst mit jedem Zug.
+/workspace/verbrauch/

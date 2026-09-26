@@ -18,6 +18,7 @@ import { konten } from "./postfach.js";
 import { type Prognosenbuch, formatiereAkte } from "./prognosen.js";
 import { sandkastenOptionen } from "./sandkasten.js";
 import type { StrategienArchiv } from "./strategien.js";
+import { type Posten, ausErgebnis } from "./verbrauch.js";
 
 /**
  * Das Gesindehaus: **ein** Werkzeug für Kuro, dahinter das ganze Personal.
@@ -53,6 +54,13 @@ export interface HausDeps {
   /** Damit die Oberfläche anzeigen kann, wer gerade arbeitet. */
   onArbeitet?(wer: string, auftrag: string): void;
   onFertig?(wer: string, kostenUsd: number, dauerMs: number): void;
+  /**
+   * Was ein Lauf an Token verbraucht hat — für das Verbrauchsbuch (`verbrauch.ts`). Kommt je
+   * Bedienstetenlauf und je Spezialist am Handelstisch, auch wenn der Lauf gescheitert ist:
+   * verbraucht hat er trotzdem. Kuros eigener Zug steht **nicht** darin, und umgekehrt stehen
+   * diese Läufe nicht in Kuros Zug — sie laufen in eigenen Sitzungen.
+   */
+  onVerbrauch?(posten: Posten): void;
   /**
    * Ein Zwischenstand, während der Auftrag läuft.
    *
@@ -353,6 +361,17 @@ async function fuehreAus(
   const bloecke: string[] = [];
   const beitraege: Array<{ wer: string; frage: string; antwort: string }> = [];
   let kosten = 0;
+  /** Die Schlussmeldung des SDK, sobald sie da ist — ein abgebrochener Lauf hat keine. */
+  let verbraucht: ReturnType<typeof ausErgebnis> | null = null;
+  const bucheVerbrauch = (): void => {
+    if (!verbraucht) return;
+    deps.onVerbrauch?.({
+      zeit: new Date().toISOString(),
+      wer,
+      ...verbraucht,
+      dauerMs: Date.now() - start,
+    });
+  };
   /** Wurde das Chance-Risiko-Verhältnis in diesem Lauf gerechnet oder nur behauptet? */
   let crvGerechnet = false;
 
@@ -424,6 +443,7 @@ async function fuehreAus(
                     melde("ist fertig", wen);
                   },
                   onAntwort: (wen, frage, antwort) => beitraege.push({ wer: wen, frage, antwort }),
+                  onVerbrauch: (posten) => deps.onVerbrauch?.({ ...posten, unter: wer }),
                 }),
               },
             }
@@ -442,11 +462,13 @@ async function fuehreAus(
           }
         }
       }
-      if (nachricht.type === "result" && nachricht.subtype === "success") {
-        kosten = nachricht.total_cost_usd;
+      if (nachricht.type === "result") {
+        if (nachricht.subtype === "success") kosten = nachricht.total_cost_usd;
+        verbraucht = ausErgebnis(nachricht);
       }
     }
   } catch (error) {
+    bucheVerbrauch();
     // `onFertig` gehört auch hierher: die Oberfläche nimmt den Bediensteten erst auf dieses
     // Ereignis hin wieder aus der Arbeitsleiste. Ohne das bliebe ein abgebrochener oder
     // gescheiterter Auftrag dort für immer stehen und zählte weiter hoch.
@@ -461,6 +483,7 @@ async function fuehreAus(
   }
 
   const dauerMs = Date.now() - start;
+  bucheVerbrauch();
   deps.onFertig?.(wer, kosten, dauerMs);
 
   // Der Filter aus `runtime/redaction` — beim Motorwechsel war er ausgefallen und wird hier

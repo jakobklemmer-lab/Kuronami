@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  bildIndex,
   bildpaar,
   deckung,
   fahrdauer,
@@ -26,6 +27,14 @@ describe("bildpaar", () => {
     expect(bildpaar(-3, 10).a).toBe(0);
     expect(bildpaar(7, 10).a).toBe(9);
     expect(bildpaar(0.4, 1)).toEqual({ a: 0, b: 0, t: 0 });
+  });
+});
+
+describe("bildIndex", () => {
+  it("nimmt das nächste Bild und bleibt im Film", () => {
+    expect(bildIndex(0.18, 121)).toBe(22);
+    expect(bildIndex(1, 121)).toBe(120);
+    expect(bildIndex(-1, 121)).toBe(0);
   });
 });
 
@@ -59,18 +68,29 @@ describe("naechstesGeladenes", () => {
 });
 
 describe("Fahrt", () => {
-  it("fährt sanft an und kommt genau an", () => {
+  it("fährt weich an und kommt genau an, ohne Ruck an beiden Enden", () => {
     expect(sanft(0)).toBe(0);
     expect(sanft(1)).toBe(1);
-    expect(sanft(0.1)).toBeLessThan(0.1);
-    expect(sanft(0.5)).toBeCloseTo(0.5);
+    expect(sanft(0.5)).toBe(0.5);
+    // Symmetrisch: der Ausklang spiegelt den Anklang.
+    expect(sanft(0.9)).toBeCloseTo(1 - sanft(0.1), 10);
+  });
+
+  it("kommt schneller in Fahrt als der verworfene erste Wurf (kubisch statt quadratisch)", () => {
+    const alteKubik = (t: number) => (t < 0.5 ? 4 * t ** 3 : 1 - (-2 * t + 2) ** 3 / 2);
+    expect(sanft(0.1)).toBeGreaterThan(alteKubik(0.1) * 5);
+  });
+
+  it("springt nicht wie ein reiner Ausklang — kein Sprung auf Höchsttempo im ersten Bild", () => {
+    const reinerAusklang = (t: number) => 1 - (1 - t) ** 4;
+    expect(sanft(0.05)).toBeLessThan(reinerAusklang(0.05) / 2);
   });
 
   it("braucht für kurze Wege weniger Zeit als für den ganzen", () => {
     expect(fahrdauer(0, 0.1)).toBeLessThan(fahrdauer(0, 1));
     expect(fahrdauer(1, 0)).toBe(fahrdauer(0, 1));
-    expect(fahrdauer(0.3, 0.3)).toBe(700);
-    expect(fahrdauer(0, 1)).toBe(2300);
+    expect(fahrdauer(0.3, 0.3)).toBe(550);
+    expect(fahrdauer(0, 1)).toBe(1250);
   });
 });
 

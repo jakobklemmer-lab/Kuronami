@@ -6,7 +6,8 @@ import type { Zustand } from "../praesenz/sphaere.js";
  * Die Welle hat zwei Stimmen, und jede trägt ihr eigenes Licht: **Jakob** das warme der
  * Laterne, **Kuro** das kühle des Orbs. Kuros Licht ist nicht fest; es nimmt die Farbe an, die
  * der Orb gerade trägt — violett beim Denken, türkis beim Arbeiten, bernstein bei einer
- * Rückfrage. Dieselbe Farbe färbt den Film, den Punkt in der Leiste und den Rand der Eingabe.
+ * Rückfrage. Dieselbe Farbe trägt der Punkt in der Leiste und der Rand der Eingabe; den Film
+ * streift sie nur.
  * Wer hinsieht, weiß ohne ein Wort, was Kuro gerade tut.
  *
  * Die Farben sind die Halo-Farben des Orbs (`ui/vendor/kuronami-orb.mjs`, `STATES[…].glow`),
@@ -24,16 +25,20 @@ export const ZUSTAND_FARBE: Readonly<Record<Zustand, string>> = {
   offline: "#46506a",
 };
 
-/** Wie stark Kuros Licht den Film färbt. In Ruhe kaum, bei einer Rückfrage deutlich. */
+/**
+ * Wie stark Kuros Licht den Film färbt — nur ein Hauch. Bis zum 2026-09-26 tauchte ein
+ * Gedanke Kuros den ganzen Raum in Violett (bis 0,5); damit bewegte sich die Fläche, die still
+ * sein soll, und der Orb verlor die Aufmerksamkeit an seine Umgebung. Der Zustand gehört an Kuro.
+ */
 export const ZUSTAND_TON: Readonly<Record<Zustand, number>> = {
-  ruhe: 0.12,
-  zuhoeren: 0.28,
-  denken: 0.4,
-  sprechen: 0.3,
-  arbeiten: 0.36,
-  rueckfrage: 0.42,
-  fehler: 0.5,
-  offline: 0.05,
+  ruhe: 0.08,
+  zuhoeren: 0.12,
+  denken: 0.14,
+  sprechen: 0.12,
+  arbeiten: 0.14,
+  rueckfrage: 0.18,
+  fehler: 0.22,
+  offline: 0.04,
 };
 
 export const ZUSTAND_SATZ: Readonly<Record<Zustand, string>> = {

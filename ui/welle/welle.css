@@ -370,7 +370,8 @@ code {
   background: var(--laterne-hell);
   box-shadow: 0 0 10px 2px rgba(244, 184, 96, 0.8), 0 0 26px 6px rgba(244, 184, 96, 0.3);
   transform: translateX(var(--x, 0));
-  transition: transform 1.3s var(--gleiten), opacity 0.4s ease;
+  /* Kurz: das Licht zeigt, wo man ist — es reist nicht mehr mit einer Kamera mit. */
+  transition: transform 0.35s var(--gleiten), opacity 0.3s ease;
   opacity: 0;
   pointer-events: none;
 }
@@ -541,21 +542,37 @@ code {
   z-index: 10;
 }
 
+/*
+ * Ein Bereich blendet ein und aus — ohne Unschärfe und ohne Weg. Seit dem 2026-09-26: vorher
+ * kam jede Seite 0,7 s lang verschwommen von unten, während dahinter die Kamera fuhr.
+ *
+ * Die Blende läuft **nicht** über `--gleiten`: die Kurve ist für kurze, kleine Wechsel (Knöpfe,
+ * Menü) gebaut und schießt bei 60 ms von 300 ms schon auf zwei Drittel Deckkraft — für eine
+ * ganze Seite sah das aus wie ein Ruck ins Bild, nicht wie ein Blenden, und stand quer zur
+ * Kamera, die zur gleichen Zeit gleichmäßig weiterfährt. Jakob: „die zucken irgendwie rein."
+ * `ease` verteilt die Deckkraft gleichmäßiger über die ganzen 300 ms.
+ */
 .w-seite {
-  transition: opacity 0.55s var(--gleiten), transform 0.7s var(--gleiten), filter 0.55s
-    var(--gleiten);
+  transition: opacity 0.3s ease;
 }
 
 .w-seite.ist-kommend {
   opacity: 0;
-  transform: translateY(16px);
-  filter: blur(8px);
 }
 
 .w-seite.ist-gehend {
   opacity: 0;
-  filter: blur(6px);
-  transition-duration: 0.18s;
+  transition-duration: 0.12s;
+}
+
+/* Der neue Bereich entsteht schon, während der alte ausblendet — unsichtbar und ohne dessen
+   Platz zu verschieben. Erst wenn er bereit ist, tritt er in den Fluss (`app.ts`, `bereit.ts`). */
+.w-seite.ist-wartend {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  pointer-events: none;
 }
 
 /* ===================================================================== */
@@ -675,8 +692,6 @@ code {
   height: 38px;
   margin-left: 2px;
   background: linear-gradient(to bottom, var(--laterne), transparent);
-  transform-origin: top;
-  animation: w-rinnen 2.4s var(--gleiten) infinite;
 }
 
 .k-weiter:hover {
@@ -685,21 +700,6 @@ code {
 
 .ist-unten .k-weiter {
   opacity: 0;
-}
-
-@keyframes w-rinnen {
-  0% {
-    transform: scaleY(0);
-    opacity: 1;
-  }
-  60% {
-    transform: scaleY(1);
-    opacity: 1;
-  }
-  100% {
-    transform: scaleY(1);
-    opacity: 0;
-  }
 }
 
 /* ===================================================================== */
@@ -1780,11 +1780,6 @@ a.t-tafel__titel:hover {
   padding: 0;
   display: grid;
   gap: 2px;
-}
-
-.w-menue li {
-  animation: w-heben 0.5s var(--gleiten) backwards;
-  animation-delay: calc(var(--i) * 30ms);
 }
 
 .w-menue a {

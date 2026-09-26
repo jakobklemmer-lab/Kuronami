@@ -13,8 +13,6 @@ import {
   upsertMcpServer,
 } from "../runtime/mcp/config-store.js";
 import { readSecretStatus, upsertSecrets } from "../runtime/secrets/env-file.js";
-import { DEFAULT_SPEND_DAYS, listDailySpend } from "../runtime/session/costs.js";
-import { getRunDetail, listRuns } from "../runtime/session/runs.js";
 import type { MemoryStore } from "../tools/memory/store.js";
 import type { N8nBridge } from "../tools/n8n/bridge.js";
 import { type Anmeldung, SITZUNG_GUELTIG_MS } from "./anmeldung.js";
@@ -499,54 +497,75 @@ export function createServer(deps: ServerDeps): express.Express {
   });
 
   /**
-   * Die Runs-Übersicht (S22): alle Sessions des Systems, gefaltet aus dem Protokoll
-   * (`runtime/session/runs.ts`) — anders als `/channels/web/pending` nicht nur die
-   * Unterhaltung des Aufrufers, sondern auch Hintergrundläufe (Heartbeat, delegierte
-   * Arbeiter). Hinter demselben Bearer-Token wie jeder andere Lesepfad dieses Randes: die
-   * Zeilen tragen Kanal, Werkzeugnamen und Artefakt-Zusammenfassungen, dieselbe
-   * Vertraulichkeit wie `/channels/web/pending`.
-   */
-  app.get("/runs", async (req, res, next) => {
-    try {
-      const principal = webPrincipal(req, res);
-      if (!principal) return;
-      const { runs, metrics } = await listRuns(deps.gateway.pool);
-      res.json({ runs, metrics });
-    } catch (error) {
-      next(error);
-    }
-  });
-
-  /**
-   * Tagesausgaben je Agent (S28, `runtime/session/costs.ts`). Hinter demselben Bearer-Token wie
-   * `/runs`: die Zeilen nennen Agentennamen und Verbrauch, also dieselbe Vertraulichkeit.
+   * Kuro als Orchestrator (2026-09-26) — was die System-Seite zeigt, seit die Kosten weg sind.
    *
-   * `?days=` begrenzt das Fenster; ein unlesbarer Wert fällt auf die Vorgabe zurück, statt eine
-   * 400 für eine Anzeige zu werfen, die auch mit der Vorgabe brauchbar ist.
+   * Ersetzt `/runs`, `/runs/:id` und `/costs`. Die drei falteten das Ereignisprotokoll des alten
+   * Motors, in das seit dem 18.09. niemand mehr schreibt; sie zeigten Sitzungen vom 17.09. als
+   * „läuft" und sieben Tage lang „$0,00". Jetzt: wer im Haus arbeitet, mit welchem Modell, wie
+   * viele Token Kuro und das Personal heute und in der Woche verbraucht haben, wie voll Kuros
+   * Kontext ist und wie alt seine Unterhaltung.
+   *
+   * Die Abo-Grenzen stehen in einer eigenen Route (`/integrations/abo`): sie brauchen eine
+   * Abfrage beim Anbieter, die zwei Sekunden dauert, und der Rest der Seite soll darauf nicht
+   * warten.
    */
-  app.get("/costs", async (req, res, next) => {
+  app.get("/integrations/orchestrator", async (req, res, next) => {
     try {
       const principal = webPrincipal(req, res);
       if (!principal) return;
-      const requested = Number.parseInt(String(req.query.days ?? ""), 10);
-      const days = Number.isFinite(requested) && requested > 0 ? requested : DEFAULT_SPEND_DAYS;
-      res.json(await listDailySpend(deps.gateway.pool, days));
+      const agent = deps.gateway.agent;
+      const [verbrauch, sitzung] = await Promise.all([
+        agent.verbrauch.uebersicht(),
+        agent.sitzungsLage(),
+      ]);
+      // Nach einem Neustart kennt der Prozess Kuros Kontext erst nach dem ersten Zug; bis dahin
+      // steht er im letzten Posten des Buchs.
+      const kontextTokens = agent.kontext ?? verbrauch.kuro?.kontext ?? null;
+      const laufend = new Map(agent.laufendeAuftraege.map((a) => [a.wer, a]));
+      const arbeitet = (name: string) => {
+        const a = laufend.get(name);
+        return a
+          ? { seit: new Date(a.begonnen).toISOString(), stand: a.stand, zuarbeit: a.zuarbeit }
+          : null;
+      };
+      res.json({
+        kuro: {
+          modell: process.env.KURO_MODEL?.trim() || "(Vorgabe des SDK)",
+          abrechnung: process.env.ANTHROPIC_API_KEY?.trim() ? "api" : "abo",
+          sitzung,
+          kontext:
+            kontextTokens === null
+              ? null
+              : { tokens: kontextTokens, fenster: verbrauch.kuro?.fenster ?? null },
+          grenzmeldung: agent.grenzmeldung,
+          rueckfrage: agent.offeneFrage
+            ? { askId: agent.offeneFrage.askId, frage: agent.offeneFrage.frage }
+            : null,
+        },
+        personal: Object.entries(BEDIENSTETE).map(([name, p]) => ({
+          name,
+          modell: p.model ?? "(geerbt)",
+          beschreibung: p.description,
+          arbeitet: arbeitet(name),
+        })),
+        handelstisch: Object.entries(HANDELSTISCH).map(([name, p]) => ({
+          name,
+          modell: p.model ?? "(geerbt)",
+          beschreibung: p.description,
+        })),
+        verbrauch,
+      });
     } catch (error) {
       next(error);
     }
   });
 
-  /** Der Schritt-für-Schritt-Verlauf eines einzelnen Runs, samt aufgelöster Artefakte. */
-  app.get("/runs/:id", async (req, res, next) => {
+  /** Die Fenster des Abos (`gateway/abo.ts`) — eine Minute gehalten, siehe dort. */
+  app.get("/integrations/abo", async (req, res, next) => {
     try {
       const principal = webPrincipal(req, res);
       if (!principal) return;
-      const detail = await getRunDetail(deps.gateway.pool, req.params.id);
-      if (!detail) {
-        res.status(404).json({ error: `Run ${req.params.id} ist unbekannt.` });
-        return;
-      }
-      res.json(detail);
+      res.json(await deps.gateway.agent.abo.lies());
     } catch (error) {
       next(error);
     }

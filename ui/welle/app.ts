@@ -27,13 +27,14 @@ import { systemView } from "../views/system.js";
 import { tradingView } from "../views/trading.js";
 import type { View, ViewContext } from "../views/types.js";
 import { type Befehl, FRAGE_ID, rangiere } from "./befehle.js";
+import { verfolge } from "./bereit.js";
 import { mountFaden } from "./faden.js";
 import { scrollFortschritt } from "./film-rechnung.js";
 import { type Film, mountFilm } from "./film.js";
 import { werName } from "./form.js";
 import type { Gespraech } from "./gespraech.js";
 import { kuroAnsicht } from "./kuro.js";
-import { STATIONEN, WEG, stationFuer } from "./stationen.js";
+import { FILM_BILDER, SCHARFE_BILDER, STATIONEN, WEG, stationFuer } from "./stationen.js";
 import { ZUSTAND_FARBE, ZUSTAND_SATZ, ZUSTAND_TON, laufzeit } from "./zustand.js";
 
 /**
@@ -48,11 +49,15 @@ import { ZUSTAND_FARBE, ZUSTAND_SATZ, ZUSTAND_TON, laufzeit } from "./zustand.js
  * Drei Gedanken tragen sie:
  *
  * * **Jeder Bereich ist ein Ort.** Der Film zeigt eine Fahrt aus Kuros Raum hinaus auf die
- *   Terrasse; jeder Bereich liegt irgendwo auf diesem Weg (`stationen.ts`), und ein Wechsel ist
- *   eine Kamerafahrt dorthin. Die Leiste oben ist derselbe Weg, und ihr Licht fährt mit.
+ *   Terrasse; jeder Bereich liegt irgendwo auf diesem Weg (`stationen.ts`), und ein Wechsel
+ *   blendet dorthin über. Die Leiste oben ist derselbe Weg.
+ * * **Nur Kuro lebt.** Seit dem 2026-09-26 steht der Raum still — keine Kamerafahrt, keine
+ *   Maus, die das Bild verschiebt, kein flimmerndes Korn. Was sich bewegt, ist Kuro: der Orb,
+ *   seine Worte, der Punkt oben. Jakob wollte „den Fokus mehr auf Kuro" — gemeint war die
+ *   Aufmerksamkeit, nicht die Mitte der Seite; die Anordnung blieb.
  * * **Zwei Stimmen, zwei Lichter.** Jakob spricht mit dem warmen Licht der Laterne, Kuro mit dem
- *   kühlen seines Zustands — und das färbt die ganze Welle: den Film, den Punkt oben, den Rand
- *   der Eingabe (`zustand.ts`).
+ *   kühlen seines Zustands: am Orb, am Punkt oben, am Rand der Eingabe (`zustand.ts`). Den Film
+ *   färbt es nur noch leicht.
  * * **Kuro ist überall einen Satz entfernt.** Die Eingabe steht in jedem Bereich unten; eine
  *   Antwort, die kommt, während man in den Märkten ist, erscheint dort in einem Blatt darüber.
  *   ⌘K öffnet ein Feld für alles, und was darin kein Befehl ist, geht an Kuro.
@@ -89,7 +94,7 @@ const STICHWORTE: Partial<Record<RouteId, string[]>> = {
   strategien: ["backtest", "regeln"],
   research: ["research", "suche", "funde"],
   files: ["artefakte", "notizen", "gedächtnis"],
-  system: ["läufe", "freigaben", "kosten", "server", "rechner"],
+  system: ["orchestrator", "limits", "abo", "token", "verbrauch", "personal", "läufe", "freigaben"],
   settings: ["settings", "optionen"],
 };
 
@@ -161,8 +166,8 @@ export function mountWelle(opt: WelleOptionen): void {
     <nav class="w-menue" id="w-menue" data-role="menue-blatt" hidden aria-label="Bereiche">
       <ol>
         ${STATIONEN.map(
-          (s, i) =>
-            `<li style="--i:${i}"><a data-route="${s.route}" href="#/${s.route}">${escapeHtml(s.name)}</a></li>`,
+          (s) =>
+            `<li><a data-route="${s.route}" href="#/${s.route}">${escapeHtml(s.name)}</a></li>`,
         ).join("")}
       </ol>
     </nav>
@@ -230,13 +235,23 @@ export function mountWelle(opt: WelleOptionen): void {
   // Große Bilder nur dort, wo man sie sieht: ein breites Fenster an einem Rechner. Auf dem
   // Telefon schneidet das Hochformat ohnehin drei Viertel der Breite weg.
   const grob = globalThis.matchMedia?.("(pointer: coarse)").matches ?? false;
-  const breit = globalThis.innerWidth * (globalThis.devicePixelRatio || 1) >= 1700;
+  const dpr = globalThis.devicePixelRatio || 1;
+  const breit = globalThis.innerWidth * dpr >= 1700;
+  // Wie breit das Bild auf dem Schirm wirklich wird: im Querformat so breit wie das Fenster, auf
+  // einem Hochformat so breit, wie die Höhe es verlangt (das Bild füllt die Fläche, 16:9).
+  const bildBreite = Math.max(globalThis.innerWidth, (globalThis.innerHeight * 16) / 9) * dpr;
   const film: Film = mountFilm(canvas, {
     ordner: grob || !breit ? "./film/sd/" : "./film/hd/",
-    anzahl: 121,
+    anzahl: FILM_BILDER,
     bildB: 16,
     bildH: 9,
     start: stationFuer(start.view).ort,
+    // Im Stand ein scharfes Bild: 4K ab gut 2400 Pixeln Breite (UWQHD, 4K, Retina), sonst 1920.
+    // Das Telefon bekommt nie 4K — Safari hielte die entpackten Bilder nicht.
+    scharf: {
+      ordner: !grob && bildBreite > 2400 ? "./film/scharf/4k/" : "./film/scharf/2k/",
+      bilder: SCHARFE_BILDER,
+    },
   });
   film.setzeDunkel(start.view === "praesenz" ? DUNKEL_KURO : DUNKEL_RAUM);
 
@@ -270,7 +285,7 @@ export function mountWelle(opt: WelleOptionen): void {
     haus.innerHTML = `
       <p class="w-haus__satz">${escapeHtml(ZUSTAND_SATZ[gespraech.zustand])}${gespraech.detail ? `: ${escapeHtml(gespraech.detail)}` : "."}</p>
       ${zeilen ? `<ul class="w-haus__liste">${zeilen}</ul>` : `<p class="w-haus__leer">Kein Bediensteter hat gerade einen Auftrag.</p>`}
-      <a class="w-haus__link" href="#/system">Alle Läufe im System</a>`;
+      <a class="w-haus__link" href="#/system">Abo, Verbrauch und Personal</a>`;
   };
   const oeffneHaus = (an: boolean): void => {
     haus.hidden = !an;
@@ -574,6 +589,8 @@ export function mountWelle(opt: WelleOptionen): void {
 
   const kuro = kuroAnsicht({ api, gespraech, eingabe, zuhoeren });
   let aufraeumen: (() => void) | null = null;
+  /** Bereiche, die gerade ausblenden oder übersprungen wurden — aufgeräumt, wenn sie verschwinden. */
+  const gehend: Array<() => void> = [];
   let kuroScroll = 0;
   let wechsel = 0;
 
@@ -621,65 +638,83 @@ export function mountWelle(opt: WelleOptionen): void {
 
     const station = stationFuer(ziel.view);
     film.setzeDunkel(ziel.view === "praesenz" ? DUNKEL_KURO : DUNKEL_RAUM);
+    // Die Kamera fährt mit dem Klick los, nicht erst, wenn der alte Bereich ausgeblendet ist —
+    // sonst hinkt sie dem Inhalt hinterher.
+    film.fahre(station.ort);
 
     const nr = ++wechsel;
-    const baue = (): void => {
-      if (nr !== wechsel) return;
-      aufraeumen?.();
-      aufraeumen = null;
-      buehne.innerHTML = "";
-      const huelle = document.createElement("div");
-      huelle.className =
-        ziel.view === "praesenz" ? "w-seite w-seite--kuro" : `w-seite w-raum w-raum--${ziel.view}`;
-      huelle.classList.add("ist-kommend");
-      buehne.append(huelle);
-      if (ziel.view === "praesenz") {
-        aufraeumen = kuro.mount(huelle, ctx());
-        globalThis.scrollTo({ top: kuroScroll, behavior: "instant" });
-        film.fahre(
-          scrollFortschritt(
-            globalThis.scrollY,
-            document.documentElement.scrollHeight,
-            globalThis.innerHeight,
-          ),
-        );
+    // Der alte Bereich blendet aus, während der neue schon unsichtbar entsteht und lädt. Gezeigt
+    // wird er erst, wenn beides fertig ist: die Ausblende und seine ersten Antworten (`bereit.ts`).
+    // Vorher blendete er leer ein und füllte sich sichtbar — Karten und Tabellen sprangen mitten in
+    // der Blende auf ihre Größe. Innerhalb der Einstellungen (anderer Abschnitt) gibt es keinen
+    // Abschied, nur der Inhalt wechselt.
+    const alt = buehne.firstElementChild;
+    const abschied = alt !== null && vorher !== ziel.view;
+    // Aufgeräumt wird ein Bereich erst, wenn er wirklich verschwindet: mehrere Ansichten leeren
+    // dabei ihre Listen, und das sähe man sonst mitten in der Ausblende.
+    if (aufraeumen) gehend.push(aufraeumen);
+    aufraeumen = null;
+    if (abschied) {
+      alt.classList.add("ist-gehend");
+    } else {
+      buehne.replaceChildren();
+      for (const weg of gehend.splice(0)) weg();
+    }
+
+    const huelle = document.createElement("div");
+    huelle.className =
+      ziel.view === "praesenz" ? "w-seite w-seite--kuro" : `w-seite w-raum w-raum--${ziel.view}`;
+    huelle.classList.add("ist-kommend");
+    if (abschied) huelle.classList.add("ist-wartend");
+    buehne.append(huelle);
+
+    let bereit: Promise<void> = Promise.resolve();
+    if (ziel.view === "praesenz") {
+      aufraeumen = kuro.mount(huelle, ctx());
+    } else {
+      const inhalt = document.createElement("div");
+      inhalt.className = "w-raum__inhalt";
+      huelle.append(inhalt);
+      const verfolgt = verfolge(api);
+      aufraeumen = RAEUME[ziel.view].mount(inhalt, { ...ctx(ziel.section), api: verfolgt.api });
+      bereit = verfolgt.bereit();
+      // Die Ansichten tragen ihre Namen aus der Präsenz („Mail", „Trading"). In der Welle heißt
+      // jeder Bereich so, wie der Weg oben ihn nennt — ein Ort, ein Name.
+      const titel = inhalt.querySelector<HTMLElement>(".detail-view__title");
+      if (titel) {
+        titel.textContent = station.name;
       } else {
-        const inhalt = document.createElement("div");
-        inhalt.className = "w-raum__inhalt";
-        huelle.append(inhalt);
-        aufraeumen = RAEUME[ziel.view].mount(inhalt, ctx(ziel.section));
-        // Die Ansichten tragen ihre Namen aus der Präsenz („Mail", „Trading"). In der Welle heißt
-        // jeder Bereich so, wie der Weg oben ihn nennt — ein Ort, ein Name.
-        const titel = inhalt.querySelector<HTMLElement>(".detail-view__title");
-        if (titel) {
-          titel.textContent = station.name;
-        } else {
-          // Die Einstellungen haben keinen eigenen Kopf; in der Welle bekommen sie denselben.
-          const kopf = document.createElement("header");
-          kopf.className = "detail-view__head w-raum__kopf";
-          kopf.innerHTML = `<div><h1 class="detail-view__title">${escapeHtml(station.name)}</h1></div>`;
-          inhalt.prepend(kopf);
-        }
-        globalThis.scrollTo({ top: 0, behavior: "instant" });
-        film.fahre(station.ort);
+        // Die Einstellungen haben keinen eigenen Kopf; in der Welle bekommen sie denselben.
+        const kopf = document.createElement("header");
+        kopf.className = "detail-view__head w-raum__kopf";
+        kopf.innerHTML = `<div><h1 class="detail-view__title">${escapeHtml(station.name)}</h1></div>`;
+        inhalt.prepend(kopf);
       }
+    }
+
+    const ausgeblendet = abschied
+      ? new Promise<void>((los) => globalThis.setTimeout(los, 120))
+      : Promise.resolve();
+    void Promise.all([bereit, ausgeblendet]).then(() => {
+      // Inzwischen woanders hingeklickt: dieser Bereich kommt nicht mehr dran. Seine Hülle räumt
+      // der nächste Wechsel mit ab.
+      if (nr !== wechsel) return;
+      for (const kind of [...buehne.children]) if (kind !== huelle) kind.remove();
+      for (const weg of gehend.splice(0)) weg();
+      huelle.classList.remove("ist-wartend");
+      globalThis.scrollTo({
+        top: ziel.view === "praesenz" ? kuroScroll : 0,
+        behavior: "instant",
+      });
       beimScrollen();
       requestAnimationFrame(() =>
         requestAnimationFrame(() => huelle.classList.remove("ist-kommend")),
       );
-    };
-
-    // Innerhalb der Einstellungen (anderer Abschnitt) kein Abschied — nur der Inhalt wechselt.
-    const alt = buehne.firstElementChild;
-    if (alt && vorher !== ziel.view) {
-      alt.classList.add("ist-gehend");
-      globalThis.setTimeout(baue, 180);
-    } else {
-      baue();
-    }
+    });
   };
 
-  // Scrollen auf Kuros Seite fährt den Film hinaus; in den Bereichen steht er an ihrem Ort.
+  // Scrollen bewegt den Film nicht — er steht an seinem Ort. Auf Kuros Seite tritt er nur
+  // zurück, je weiter man zu „Dein Tag" hinunterkommt, damit die Zeilen tragen.
   let scrollPlan = 0;
   const beimScrollen = (): void => {
     scrollPlan = 0;
@@ -693,9 +728,7 @@ export function mountWelle(opt: WelleOptionen): void {
       document.documentElement.scrollHeight,
       globalThis.innerHeight,
     );
-    film.folge(p);
-    // Draußen bei „Dein Tag" tritt der Film etwas zurück, damit die Zeilen tragen.
-    film.setzeDunkel(DUNKEL_KURO + p * 0.3);
+    film.setzeDunkel(DUNKEL_KURO + p * 0.45);
   };
   globalThis.addEventListener(
     "scroll",

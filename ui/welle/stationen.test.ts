@@ -1,6 +1,8 @@
+import { existsSync } from "node:fs";
+import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { ROUTE_IDS } from "../router/router.js";
-import { STATIONEN, WEG, stationFuer } from "./stationen.js";
+import { FILM_BILDER, SCHARFE_BILDER, STATIONEN, WEG, stationFuer } from "./stationen.js";
 
 describe("Stationen der Welle", () => {
   it("gibt jeder Route genau einen Ort", () => {
@@ -18,5 +20,20 @@ describe("Stationen der Welle", () => {
   it("stellt die Einstellungen nicht in den Weg", () => {
     expect(WEG.map((s) => s.route)).not.toContain("settings");
     expect(WEG[0].route).toBe("praesenz");
+  });
+
+  it("hat für jede Station ein scharfes Bild, in beiden Größen", () => {
+    expect(SCHARFE_BILDER).toHaveLength(STATIONEN.length);
+    for (const i of SCHARFE_BILDER) {
+      expect(i).toBeGreaterThanOrEqual(0);
+      expect(i).toBeLessThan(FILM_BILDER);
+      const name = `f${String(i + 1).padStart(3, "0")}.webp`;
+      for (const groesse of ["2k", "4k"]) {
+        expect(
+          existsSync(path.join(__dirname, "film", "scharf", groesse, name)),
+          `${groesse}/${name}`,
+        ).toBe(true);
+      }
+    }
   });
 });

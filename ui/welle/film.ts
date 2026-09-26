@@ -1,5 +1,6 @@
 import {
   begrenze,
+  bildIndex,
   bildpaar,
   deckung,
   fahrdauer,
@@ -17,15 +18,18 @@ import {
  * schwimmenden Laternen. Hier liegt er als 121 Einzelbilder (jedes zweite der 24 fps), in zwei
  * Größen: `film/sd/` mit 1280 px für Telefone und kleine Fenster, `film/hd/` mit 1920 px.
  *
- * Der Film läuft nie von selbst. Er steht an einer Stelle — dem Ort des offenen Bereichs
- * (`stationen.ts`) oder, in „Dein Tag", dem Scrollstand — und fährt nur, wenn Jakob etwas tut.
+ * **Der Film bewegt sich nur beim Wechsel des Bereichs.** Dann fährt die Kamera an den Ort des
+ * neuen Bereichs (`stationen.ts`); sonst steht das Bild. Bis zum 2026-09-26 folgte die Kamera
+ * außerdem der Maus, zog Ringe hinter ihr her, das Korn flimmerte mit 24 Bildern je Sekunde, und
+ * Scrollen fuhr den Film hinaus. Jakob: „bewegt sich fast schon zu viel … für den Sinn und Zweck
+ * einfach too much." Das ist weg. Die Fahrt beim Wechsel blieb — eine Überblendung an ihrer
+ * Stelle war „sehr sehr unflüssig", und Jakob wollte sie ausdrücklich behalten. Im Stand bewegt
+ * sich so vor allem einer: Kuro.
  *
- * Gezeichnet wird in WebGL, weil ein Shader drei Dinge in einem Zug kann, die eine
- * Leinwand in 2D nur mit mehreren Durchgängen schafft: zwei Nachbarbilder mischen (flüssig auch
- * zwischen den Bildern), **Kuros Licht** in den Film legen (die Farbe seines Zustands,
- * `zustand.ts`) und ein feines Filmkorn. Dazu folgt die Kamera ein wenig der Maus, und wo sie
- * sich bewegt, laufen schwache Ringe übers Bild. Ohne WebGL zeichnet eine 2D-Leinwand dasselbe
- * ohne Korn und Ringe.
+ * Gezeichnet wird in WebGL, weil ein Shader drei Dinge in einem Zug kann: zwei Nachbarbilder
+ * mischen (flüssig auch zwischen den Bildern), **Kuros Licht** schwach in den Film legen (die
+ * Farbe seines Zustands, `zustand.ts`) und ein feines, stehendes Filmkorn. Ohne WebGL zeichnet
+ * eine 2D-Leinwand dasselbe ohne Korn.
  */
 
 export interface FilmOptionen {
@@ -37,11 +41,18 @@ export interface FilmOptionen {
   bildH: number;
   /** Wo der Film beim Öffnen steht, 0 bis 1. */
   start?: number;
+  /**
+   * Schärfere Fassungen der Bilder, an denen der Film stillsteht (die Orte der Bereiche).
+   *
+   * Die Fahrt läuft über die leichten Bilder — in der Bewegung sieht niemand ihre Unschärfe, und
+   * 121 große Bilder hielte kein Speicher entpackt vor. Steht der Film, tritt die scharfe Fassung
+   * an ihre Stelle. Anlass: auf Jakobs UWQHD-Schirm (3440 px breit) wurden die 1920er-Bilder fast
+   * aufs Doppelte gestreckt und waren „sehr unscharf".
+   */
+  scharf?: { ordner: string; bilder: readonly number[] };
 }
 
 export interface Film {
-  /** Folgt einem Wert weich nach — für den Scrollstand, der sich laufend ändert. */
-  folge(ort: number): void;
   /** Fährt in einem Zug an einen Ort — für den Wechsel des Bereichs. */
   fahre(ort: number): void;
   /** Kuros Licht: Farbe als `#rrggbb` und wie stark sie den Film färbt. */
@@ -50,6 +61,9 @@ export interface Film {
   setzeDunkel(wert: number): void;
   destroy(): void;
 }
+
+/** Wie lange die scharfe Fassung beim Ankommen über das leichte Bild blendet. */
+const SCHAERFE_MS = 250;
 
 const ECKEN = new Float32Array([-1, -1, 1, -1, -1, 1, -1, 1, 1, -1, 1, 1]);
 
@@ -71,10 +85,7 @@ uniform vec2 uVersatz;
 uniform vec3 uTon;
 uniform float uTonKraft;
 uniform float uDunkel;
-uniform float uZeit;
 uniform float uKorn;
-uniform vec2 uMaus;
-uniform float uRinge;
 uniform vec2 uAufloesung;
 varying vec2 vUv;
 
@@ -84,13 +95,6 @@ float zufall(vec2 p) {
 
 void main() {
   vec2 uv = (vUv - 0.5) * uSicht + 0.5 + uVersatz;
-
-  // Ringe um die Maus, wie ein Tropfen auf dem Wasser. Sie klingen mit der Entfernung und mit
-  // der Zeit seit der letzten Bewegung ab (uRinge).
-  vec2 d = (vUv - uMaus) * vec2(uAufloesung.x / uAufloesung.y, 1.0);
-  float r = length(d);
-  float ring = sin(r * 42.0 - uZeit * 3.0) * exp(-r * 7.0) * uRinge;
-  uv += (d / max(r, 0.0001)) * ring * 0.0035;
 
   vec3 farbe = mix(texture2D(uA, uv).rgb, texture2D(uB, uv).rgb, uMisch);
 
@@ -104,7 +108,8 @@ void main() {
   farbe *= mix(0.5, 1.0, vignette);
   farbe *= 1.0 - uDunkel;
 
-  float korn = zufall(vUv * uAufloesung + fract(uZeit * 7.13)) - 0.5;
+  // Das Korn steht: es gibt dem Bild Stoff, flimmert aber nicht.
+  float korn = zufall(vUv * uAufloesung) - 0.5;
   farbe += korn * uKorn;
 
   gl_FragColor = vec4(farbe, 1.0);
@@ -143,10 +148,7 @@ interface Bildzustand {
   ton: [number, number, number];
   tonKraft: number;
   dunkel: number;
-  zeit: number;
   korn: number;
-  maus: [number, number];
-  ringe: number;
   aufloesung: [number, number];
 }
 
@@ -157,7 +159,22 @@ export function mountFilm(canvas: HTMLCanvasElement, opt: FilmOptionen): Film {
   const bilder: Array<HTMLImageElement | null> = new Array(n).fill(null);
   const geladen: boolean[] = new Array(n).fill(false);
 
-  let ort = begrenze(opt.start ?? 0);
+  const scharfeBilder = new Map<number, HTMLImageElement>();
+  const scharfDa = new Set(opt.scharf?.bilder ?? []);
+  /**
+   * Ein Ort mit scharfer Fassung wird genau auf sein Bild gelegt. Sonst stünde der Film zwischen
+   * zwei Bildern, und beim Tausch gegen das scharfe rückte die Kamera um einen Bruchteil.
+   */
+  const aufBild = (wert: number): number => {
+    const i = bildIndex(wert, n);
+    return scharfDa.has(i) ? i / (n - 1) : begrenze(wert);
+  };
+
+  /** Seit wann die scharfe Fassung des Standbilds einblendet (Bildzeit), oder `null`. */
+  let scharfSeit: number | null = null;
+  let letzteSchaerfe = 0;
+
+  let ort = aufBild(opt.start ?? 0);
   let ziel = ort;
   let fahrt: { von: number; nach: number; beginn: number; dauer: number } | null = null;
   let ton: [number, number, number] = hexZuRgb("#6d90ff");
@@ -166,9 +183,6 @@ export function mountFilm(canvas: HTMLCanvasElement, opt: FilmOptionen): Film {
   let tonKraftZiel = 0.1;
   let dunkel = 0;
   let dunkelZiel = 0;
-  let maus: [number, number] = [0.5, 0.5];
-  let mausZiel: [number, number] = [0.5, 0.5];
-  let ringe = 0;
   let neuZeichnen = true;
   let weg = false;
 
@@ -211,9 +225,32 @@ export function mountFilm(canvas: HTMLCanvasElement, opt: FilmOptionen): Film {
   };
   for (let k = 0; k < 6; k++) ladeNaechstes();
 
+  // Die scharfen Fassungen, eine nach der anderen, die des Startorts zuerst. Scheitert eine, bleibt
+  // an diesem Ort die leichte stehen — unschärfer, aber da.
+  const scharfeReihe = [...scharfDa].sort(
+    (x, y) => Math.abs(x - bildIndex(ort, n)) - Math.abs(y - bildIndex(ort, n)),
+  );
+  const ladeScharf = (k: number): void => {
+    const i = scharfeReihe[k];
+    if (weg || i === undefined || !opt.scharf) return;
+    const bild = new Image();
+    bild.decoding = "async";
+    bild.src = `${opt.scharf.ordner}f${String(i + 1).padStart(3, "0")}.webp`;
+    bild
+      .decode()
+      .then(() => {
+        if (weg) return;
+        scharfeBilder.set(i, bild);
+        neuZeichnen = true;
+      })
+      .catch((error: unknown) => console.error(`[welle] Scharfes Bild ${bild.src} fehlt:`, error))
+      .finally(() => ladeScharf(k + 1));
+  };
+  ladeScharf(0);
+
   // ---------------------------------------------------------------- Größe
   const passeAn = (): void => {
-    const dpr = Math.min(globalThis.devicePixelRatio || 1, 1.5);
+    const dpr = Math.min(globalThis.devicePixelRatio || 1, 2);
     const b = Math.max(1, Math.round(canvas.clientWidth * dpr));
     const h = Math.max(1, Math.round(canvas.clientHeight * dpr));
     if (canvas.width !== b || canvas.height !== h) {
@@ -227,17 +264,8 @@ export function mountFilm(canvas: HTMLCanvasElement, opt: FilmOptionen): Film {
   beobachter.observe(canvas);
   passeAn();
 
-  // ---------------------------------------------------------------- Maus
-  const beiZeiger = (e: PointerEvent): void => {
-    if (ruhig || e.pointerType === "touch") return;
-    mausZiel = [e.clientX / globalThis.innerWidth, 1 - e.clientY / globalThis.innerHeight];
-    ringe = Math.min(1, ringe + 0.08);
-  };
-  globalThis.addEventListener("pointermove", beiZeiger, { passive: true });
-
   // ---------------------------------------------------------------- Schleife
   let letzte = performance.now();
-  let letztesKorn = 0;
   let schleife = 0;
   const tick = (t: number): void => {
     schleife = requestAnimationFrame(tick);
@@ -270,65 +298,67 @@ export function mountFilm(canvas: HTMLCanvasElement, opt: FilmOptionen): Film {
     ];
     if (tonKraft + dunkel + ton[0] + ton[1] + ton[2] !== vorher) bewegt = true;
 
-    const mx = naehere(maus[0], mausZiel[0], dt, 2);
-    const my = naehere(maus[1], mausZiel[1], dt, 2);
-    if (mx !== maus[0] || my !== maus[1]) bewegt = true;
-    maus = [mx, my];
-    if (ringe > 0) {
-      ringe = ringe < 0.002 ? 0 : ringe * Math.exp(-dt * 1.4);
-      bewegt = true;
-    }
-
-    // Das Korn läuft mit 24 Bildern je Sekunde wie auf Film — aber nur am Rechner: auf dem
-    // Telefon hielte es die Grafik dauernd wach und kostete Akku für ein Detail.
-    const korn = !ruhig && !grob && t - letztesKorn > 1000 / 24;
-    if (korn) letztesKorn = t;
-    if (!bewegt && !korn) return;
-
+    // Im Stand, genau auf einem Bild mit scharfer Fassung, blendet diese in einer Viertelsekunde
+    // über das leichte Bild. Ein harter Tausch sah beim Ankommen aus wie ein Nachfokussieren.
     const paar = bildpaar(ort, n);
-    const ia = naechstesGeladenes(paar.a, geladen);
-    const ib = naechstesGeladenes(paar.b, geladen);
+    const scharf = !fahrt && ort === ziel && paar.t === 0 ? scharfeBilder.get(paar.a) : undefined;
+    if (!scharf) scharfSeit = null;
+    else scharfSeit ??= t;
+    const schaerfe = scharf && scharfSeit !== null ? begrenze((t - scharfSeit) / SCHAERFE_MS) : 0;
+    // Auch der letzte Schritt (ganz scharf) muss noch gezeichnet werden.
+    if (schaerfe !== letzteSchaerfe) bewegt = true;
+    letzteSchaerfe = schaerfe;
+
+    // Nichts hat sich geändert: nichts zeichnen. Ein stehender Film kostet so keine Grafik.
+    if (!bewegt) return;
+
+    // Die Kennung der scharfen Fassung liegt hinter denen der leichten Bilder, damit der Zeichner
+    // die beiden nicht verwechselt.
+    const leichtA = naechstesGeladenes(paar.a, geladen);
+    const leichtB = naechstesGeladenes(paar.b, geladen);
+    let ia: number | null;
+    let ib: number | null;
+    let misch: number;
+    if (scharf && (schaerfe >= 1 || leichtA === null)) {
+      ia = ib = n + paar.a;
+      misch = 0;
+    } else if (scharf) {
+      ia = leichtA;
+      ib = n + paar.a;
+      misch = schaerfe;
+    } else {
+      ia = leichtA;
+      ib = leichtB;
+      misch = paar.t;
+    }
     if (ia === null || ib === null) return;
-    const a = bilder[ia];
-    const b = bilder[ib];
+    const a = ia >= n ? scharf : bilder[ia];
+    const b = ib >= n ? scharf : bilder[ib];
     if (!a || !b) return;
 
-    // Ein wenig Rand um das Bild, damit die Kamera der Maus folgen kann, ohne dass eine Kante
-    // ins Bild rutscht.
     const [sx, sy] = deckung(canvas.width, canvas.height, opt.bildB, opt.bildH);
-    const sicht: [number, number] = [sx / 1.05, sy / 1.05];
-    const versatz: [number, number] = [
-      (maus[0] - 0.5) * (1 - sicht[0]) * 0.7,
-      (maus[1] - 0.5) * (1 - sicht[1]) * 0.7,
-    ];
+    const sicht: [number, number] = [sx, sy];
+    const versatz: [number, number] = [0, 0];
     zeichner.zeichne({
       a,
       b,
       ia,
       ib,
-      misch: ia === ib ? 0 : paar.t,
+      misch: ia === ib ? 0 : misch,
       sicht,
       versatz,
       ton,
       tonKraft,
       dunkel,
-      zeit: t / 1000,
-      korn: ruhig || grob ? 0.02 : 0.035,
-      maus,
-      ringe,
+      korn: grob ? 0.02 : 0.03,
       aufloesung: [canvas.width, canvas.height],
     });
   };
   schleife = requestAnimationFrame(tick);
 
   return {
-    folge(wert) {
-      fahrt = null;
-      ziel = begrenze(wert);
-      if (ruhig) ort = ziel;
-    },
     fahre(wert) {
-      const nach = begrenze(wert);
+      const nach = aufBild(wert);
       if (ruhig || Math.abs(nach - ort) < 1e-4) {
         fahrt = null;
         ort = nach;
@@ -349,7 +379,6 @@ export function mountFilm(canvas: HTMLCanvasElement, opt: FilmOptionen): Film {
       weg = true;
       cancelAnimationFrame(schleife);
       beobachter.disconnect();
-      globalThis.removeEventListener("pointermove", beiZeiger);
       zeichner.destroy();
     },
   };
@@ -410,10 +439,7 @@ function webglZeichner(canvas: HTMLCanvasElement): Zeichner | null {
     ton: u("uTon"),
     tonKraft: u("uTonKraft"),
     dunkel: u("uDunkel"),
-    zeit: u("uZeit"),
     korn: u("uKorn"),
-    maus: u("uMaus"),
-    ringe: u("uRinge"),
     aufloesung: u("uAufloesung"),
   };
   gl.uniform1i(orte.a, 0);
@@ -458,10 +484,7 @@ function webglZeichner(canvas: HTMLCanvasElement): Zeichner | null {
       gl.uniform3f(orte.ton, z.ton[0], z.ton[1], z.ton[2]);
       gl.uniform1f(orte.tonKraft, z.tonKraft);
       gl.uniform1f(orte.dunkel, z.dunkel);
-      gl.uniform1f(orte.zeit, z.zeit);
       gl.uniform1f(orte.korn, z.korn);
-      gl.uniform2f(orte.maus, z.maus[0], z.maus[1]);
-      gl.uniform1f(orte.ringe, z.ringe);
       gl.uniform2f(orte.aufloesung, z.aufloesung[0], z.aufloesung[1]);
       gl.drawArrays(gl.TRIANGLES, 0, 6);
     },
@@ -475,7 +498,7 @@ function webglZeichner(canvas: HTMLCanvasElement): Zeichner | null {
 }
 
 // ---------------------------------------------------------------------------
-// 2D — ohne WebGL dasselbe Bild, ohne Korn und Ringe
+// 2D — ohne WebGL dasselbe Bild, ohne Korn
 // ---------------------------------------------------------------------------
 
 function leinwandZeichner(canvas: HTMLCanvasElement): Zeichner {

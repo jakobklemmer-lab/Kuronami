@@ -1,14 +1,17 @@
 import { randomUUID } from "node:crypto";
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { mkdir, open, readFile, stat, writeFile } from "node:fs/promises";
+import { homedir } from "node:os";
 import path from "node:path";
 import {
   type CanUseTool,
   type PermissionResult,
   type SDKMessage,
+  type SDKRateLimitInfo,
   query,
 } from "@anthropic-ai/claude-agent-sdk";
 import { KURO_PERSONA } from "../context/persona.js";
 import { redactText } from "../runtime/redaction/redact.js";
+import { type AboGrenzen, createAboGrenzen } from "./abo.js";
 import { type AnalysenArchiv, createAnalysen } from "./analysen.js";
 import { BUEHNE_TOOLS, createBuehne } from "./buehne.js";
 import { HAUS_TOOLS, createHaus } from "./haus.js";
@@ -20,6 +23,7 @@ import { konten } from "./postfach.js";
 import { type Prognosenbuch, createPrognosen } from "./prognosen.js";
 import { type StrategienArchiv, createStrategien } from "./strategien.js";
 import type { ChannelRegistry, InboundMessage, Outbound, Sender } from "./types.js";
+import { type Posten, type Verbrauchsbuch, ausErgebnis, createVerbrauch } from "./verbrauch.js";
 
 /**
  * Der Motor: Claude Code als Bibliothek, hinter derselben Kanalgrenze wie zuvor.
@@ -161,6 +165,8 @@ export interface AgentDeps {
   papier?: Papierhandel;
   /** Das Prognosebuch. Vorgabe: ein Ordner `prognosen/` im Arbeitsbereich. */
   prognosen?: Prognosenbuch;
+  /** Das Verbrauchsbuch. Vorgabe: ein Ordner `verbrauch/` im Arbeitsbereich. */
+  verbrauch?: Verbrauchsbuch;
 }
 
 export interface ZugKosten {
@@ -255,11 +261,24 @@ export class KuroAgent {
   #absatzOffen = false;
   /** Was noch nicht losgelaufen ist und deshalb noch zu einem Zug zusammenfinden kann. */
   #stapel: Stapel | null = null;
+  /** Wer im Haus wie viele Token verbraucht — Kuro, das Personal, der Handelstisch. */
+  readonly #verbrauch: Verbrauchsbuch;
+  /** Die Fenster des Abos, über das alle Läufe gehen. */
+  readonly #abo: AboGrenzen;
+  /**
+   * Wie groß der Prompt beim letzten eigenen Modellaufruf war — so voll ist Kuros Kontext.
+   * Aus der Schlussmeldung lässt sich das nicht ablesen: sie summiert alle Aufrufe des Zugs.
+   */
+  #kontext: number | null = null;
+  /** Die jüngste Grenzmeldung des Anbieters aus einem Zug, falls eine kam. */
+  #grenze: (SDKRateLimitInfo & { um: string }) | null = null;
 
   constructor(deps: AgentDeps) {
     this.#deps = deps;
     this.#workdir = deps.workdir ?? process.env.KURO_WORKDIR?.trim() ?? DEFAULT_WORKDIR;
     this.#analysen = deps.analysen ?? createAnalysen({ workdir: this.#workdir });
+    this.#verbrauch = deps.verbrauch ?? createVerbrauch({ workdir: this.#workdir });
+    this.#abo = createAboGrenzen({ cwd: this.#workdir });
     this.#strategien = deps.strategien ?? createStrategien({ workdir: this.#workdir });
     this.#papier =
       deps.papier ??
@@ -317,6 +336,7 @@ export class KuroAgent {
         deps.publish?.("haus.fertig", { wer, kostenUsd: kosten, dauerMs: dauer });
       },
       onNachgereicht: (wer, bericht) => void this.#trageNach(wer, bericht),
+      onVerbrauch: (posten) => this.#bucheVerbrauch(posten),
       onAnalyse: (eintrag) => {
         void this.#analysen.lege(eintrag).then(
           (gespeichert) => {
@@ -353,6 +373,45 @@ export class KuroAgent {
 
   get papier(): Papierhandel {
     return this.#papier;
+  }
+
+  /** Das Verbrauchsbuch — die System-Seite liest daraus. */
+  get verbrauch(): Verbrauchsbuch {
+    return this.#verbrauch;
+  }
+
+  get abo(): AboGrenzen {
+    return this.#abo;
+  }
+
+  /**
+   * Wie es um Kuros Unterhaltung steht: seit wann sie läuft und wie groß ihr Verlauf ist.
+   *
+   * Das gehört auf die System-Seite, weil es schon einmal schiefging: am 22.09. lief Kuro noch
+   * in der Sitzung vom 18.09. (2,6 MB), und vier Tage Gesprächsgeschichte schlugen jede
+   * Änderung am Systemprompt. Wer sieht, wie alt und wie groß die Sitzung ist, erkennt das,
+   * bevor Kuro einen Bediensteten verleugnet.
+   */
+  async sitzungsLage(): Promise<{ id: string; seit: string | null; groesseBytes: number } | null> {
+    const id = this.#sessionId;
+    if (!id) return null;
+    const datei = path.join(verlaufsOrdner(this.#workdir), `${id}.jsonl`);
+    try {
+      const [info, seit] = await Promise.all([stat(datei), ersterZeitpunkt(datei)]);
+      return { id, seit, groesseBytes: info.size };
+    } catch {
+      return { id, seit: null, groesseBytes: 0 };
+    }
+  }
+
+  /** Wie voll Kuros Kontext beim letzten eigenen Modellaufruf war, seit dem Start dieses Prozesses. */
+  get kontext(): number | null {
+    return this.#kontext;
+  }
+
+  /** Die letzte Grenzmeldung des Anbieters: ob Kuro gerade bremsen muss. */
+  get grenzmeldung(): (SDKRateLimitInfo & { um: string }) | null {
+    return this.#grenze;
   }
 
   /** Was die Bediensteten gerade tun. Die Oberfläche zeigt es, wenn kein Zug läuft. */
@@ -558,7 +617,7 @@ export class KuroAgent {
   }
 
   /** Eine SDK-Nachricht auswerten. Gibt fertigen Antworttext zurück, sonst `null`. */
-  #verarbeite(nachricht: SDKMessage, zug: { turn_id: string }): string | null {
+  #verarbeite(nachricht: SDKMessage, zug: { turn_id: string; channel: string }): string | null {
     if (nachricht.type === "system" && "session_id" in nachricht) {
       // Die Sitzung merken, sobald sie feststeht — auch bei der allerersten Nachricht,
       // sonst eröffnete die nächste eine zweite statt fortzusetzen.
@@ -603,6 +662,15 @@ export class KuroAgent {
             this.#deps.publish?.("kuro.werkzeug", { name: block.name });
           }
         }
+        // Alles, was dieser Aufruf gelesen hat — frisch, aus dem Cache oder neu hineingelegt —
+        // ist der Kontext, den Kuro gerade mit sich trägt.
+        const u = nachricht.message.usage;
+        if (u) {
+          this.#kontext =
+            (u.input_tokens ?? 0) +
+            (u.cache_read_input_tokens ?? 0) +
+            (u.cache_creation_input_tokens ?? 0);
+        }
       }
       // **Nur der Butler spricht.** Nachrichten aus einer Bedienstetenunterhaltung tragen
       // `parent_tool_use_id`; ihr Text ist ein interner Bericht an Kuro und nicht für Jakob
@@ -620,7 +688,20 @@ export class KuroAgent {
       return text || null;
     }
 
+    if (nachricht.type === "rate_limit_event") {
+      this.#grenze = { ...nachricht.rate_limit_info, um: new Date().toISOString() };
+      return null;
+    }
+
     if (nachricht.type === "result") {
+      this.#bucheVerbrauch({
+        zeit: new Date().toISOString(),
+        wer: "kuro",
+        ...ausErgebnis(nachricht),
+        dauerMs: nachricht.duration_ms,
+        kanal: zug.channel,
+        ...(this.#kontext !== null ? { kontext: this.#kontext } : {}),
+      });
       if (nachricht.subtype === "success") {
         const u = nachricht.usage;
         this.#deps.onUsage?.({
@@ -637,6 +718,14 @@ export class KuroAgent {
     }
 
     return null;
+  }
+
+  /** Eine Zeile ins Verbrauchsbuch. Scheitert das Schreiben, geht der Zug trotzdem weiter. */
+  #bucheVerbrauch(posten: Posten): void {
+    void this.#verbrauch
+      .buche(posten)
+      .catch((fehler) => console.error("[verbrauch] nicht gebucht:", fehler));
+    this.#deps.publish?.("verbrauch.gebucht", { wer: posten.wer });
   }
 
   /**
@@ -713,6 +802,28 @@ function beschreibe(toolName: string, input: Record<string, unknown>): string {
 }
 
 const SITZUNGSDATEI = ".kuro-session";
+
+/**
+ * Wo Claude Code die Verläufe eines Arbeitsverzeichnisses ablegt: `~/.claude/projects/` und
+ * darunter der Pfad mit Bindestrichen statt Schrägstrichen (`-opt-kuronami-workspace`).
+ */
+function verlaufsOrdner(workdir: string): string {
+  const basis = process.env.CLAUDE_CONFIG_DIR?.trim() || path.join(homedir(), ".claude");
+  return path.join(basis, "projects", path.resolve(workdir).replace(/[^a-zA-Z0-9]/g, "-"));
+}
+
+/** Der erste Zeitstempel eines Verlaufs — gelesen werden nur die ersten Kilobyte. */
+async function ersterZeitpunkt(datei: string): Promise<string | null> {
+  const h = await open(datei, "r");
+  try {
+    const puffer = Buffer.alloc(8192);
+    const { bytesRead } = await h.read(puffer, 0, puffer.length, 0);
+    const treffer = /"timestamp":"([^"]+)"/.exec(puffer.subarray(0, bytesRead).toString("utf8"));
+    return treffer?.[1] ?? null;
+  } finally {
+    await h.close();
+  }
+}
 
 async function leseSitzung(workdir: string): Promise<string | null> {
   try {

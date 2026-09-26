@@ -1,5 +1,6 @@
 import type { IconName } from "../icons.js";
 import type { RouteId } from "../router/router.js";
+import { bildIndex } from "./film-rechnung.js";
 
 /**
  * Die Orte der Welle.
@@ -36,6 +37,18 @@ export const STATIONEN: readonly Station[] = [
   { route: "system", name: "System", ikon: "system", ort: 0.84 },
   { route: "settings", name: "Einstellungen", ikon: "settings", ort: 1 },
 ];
+
+/** Wie viele Bilder der Film hat (`ui/welle/film/sd|hd/`). */
+export const FILM_BILDER = 121;
+
+/**
+ * Die Bilder, an denen der Film stillsteht — je Station eines. Nur für sie liegen scharfe
+ * Fassungen in `film/scharf/2k|4k/`; wer eine Station hinzufügt oder verschiebt, muss dort das
+ * passende Bild erzeugen (Befehl in `progress.md`, S49). `stationen.test.ts` prüft, dass es da ist.
+ */
+export const SCHARFE_BILDER: readonly number[] = STATIONEN.map((s) =>
+  bildIndex(s.ort, FILM_BILDER),
+);
 
 /** Die Station einer Route. Jede `RouteId` hat genau eine — sonst wäre sie ein halber Weg. */
 export function stationFuer(route: RouteId): Station {

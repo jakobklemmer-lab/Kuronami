@@ -8,6 +8,7 @@ import { createLabor } from "./labor.js";
 import type { Papierhandel } from "./papierhandel.js";
 import { sandkastenOptionen } from "./sandkasten.js";
 import type { StrategienArchiv } from "./strategien.js";
+import { type Posten, ausErgebnis } from "./verbrauch.js";
 
 /**
  * Der Handelstisch: das Team hinter dem Chefanalysten.
@@ -48,6 +49,8 @@ export interface HandelstischDeps {
   papier?: Papierhandel;
   onArbeitet?(wer: string, frage: string): void;
   onFertig?(wer: string, kostenUsd: number, dauerMs: number): void;
+  /** Was ein Spezialist verbraucht hat — das Gesindehaus trägt ein, in wessen Auftrag. */
+  onVerbrauch?(posten: Posten): void;
   /** Ein Zwischensatz aus dem Lauf eines Spezialisten, während er arbeitet. */
   onFortschritt?(wer: string, text: string): void;
   /** Frage und Antwort im Wortlaut — fürs Analysen-Archiv, nicht für die Anzeige. */
@@ -86,6 +89,17 @@ export function createHandelstisch(deps: HandelstischDeps = {}) {
       // Zwischenstand, der sofort hinausgeht statt am Ende vorn zu kleben.
       const bloecke: string[] = [];
       let kosten = 0;
+      let verbraucht: ReturnType<typeof ausErgebnis> | null = null;
+      const bucheVerbrauch = (): void => {
+        if (verbraucht) {
+          deps.onVerbrauch?.({
+            zeit: new Date().toISOString(),
+            wer: wen,
+            ...verbraucht,
+            dauerMs: Date.now() - start,
+          });
+        }
+      };
       // Hat dieser Lauf wirklich gerechnet? Siehe `crv.ts` — eine behauptete Kennzahl ohne
       // Rechnung bekommt ihr Etikett, statt als Befund durchzugehen.
       let crvGerechnet = false;
@@ -131,11 +145,13 @@ export function createHandelstisch(deps: HandelstischDeps = {}) {
               }
             }
           }
-          if (nachricht.type === "result" && nachricht.subtype === "success") {
-            kosten = nachricht.total_cost_usd;
+          if (nachricht.type === "result") {
+            if (nachricht.subtype === "success") kosten = nachricht.total_cost_usd;
+            verbraucht = ausErgebnis(nachricht);
           }
         }
       } catch (error) {
+        bucheVerbrauch();
         const grund = error instanceof Error ? error.message : String(error);
         return {
           content: [
@@ -144,6 +160,7 @@ export function createHandelstisch(deps: HandelstischDeps = {}) {
         };
       }
 
+      bucheVerbrauch();
       deps.onFertig?.(wen, kosten, Date.now() - start);
       const antwort = crvVermerk(
         redactText((bloecke[bloecke.length - 1] ?? "").trim()),

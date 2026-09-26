@@ -20,6 +20,11 @@ export function begrenze(wert: number, min = 0, max = 1): number {
   return Math.min(max, Math.max(min, wert));
 }
 
+/** Das Bild, das einer Stelle am nächsten liegt. */
+export function bildIndex(fortschritt: number, anzahl: number): number {
+  return Math.round(begrenze(fortschritt) * Math.max(0, anzahl - 1));
+}
+
 /** Welche zwei Bilder an einer Stelle des Films liegen, und wie weit dazwischen. */
 export function bildpaar(fortschritt: number, anzahl: number): Bildpaar {
   if (anzahl <= 1) return { a: 0, b: 0, t: 0 };
@@ -62,15 +67,31 @@ export function naechstesGeladenes(ziel: number, geladen: readonly boolean[]): n
   return null;
 }
 
-/** Weich an beiden Enden — eine Kamera fährt an und bremst, sie springt nicht. */
+/**
+ * Wie die Kamera fährt: weich an, weich ab — aber schneller als der erste Wurf.
+ *
+ * Zwei Fehlschläge, bevor diese Kurve stand. Erst `sanft` als doppelte Kubik (ease-in-out dritten
+ * Grades): bei einem Fünftel der Zeit drei Promille des Wegs — Jakob: „es ist sehr delayed".
+ * Als Gegenzug ein reiner Ausklang (ease-out, vierte Potenz, sofortige Höchstgeschwindigkeit ab
+ * dem ersten Bild): jetzt lag die ganze Bewegung im ersten Fünftel der Zeit — Jakob: „fühlt sich
+ * jetzt etwas hektisch an". Diese Fassung ist wieder ein Ein- und Ausklang (stetige
+ * Geschwindigkeit null an beiden Enden, kein Ruck), nur eine Potenz niedriger als der erste Wurf
+ * (quadratisch statt kubisch): bei einem Fünftel der Zeit schon ein Zehntel des Wegs, keine
+ * Standzeit, aber auch kein Sprung.
+ */
 export function sanft(t: number): number {
   const x = begrenze(t);
-  return x < 0.5 ? 4 * x * x * x : 1 - (-2 * x + 2) ** 3 / 2;
+  return x * x * (3 - 2 * x);
 }
 
-/** Wie lange eine Fahrt dauert: kurze Wege kurz, der ganze Weg gut zwei Sekunden. */
+/**
+ * Wie lange eine Fahrt dauert: kurze Wege gut eine halbe Sekunde, der ganze Weg gut 1,3 Sekunden.
+ * Vorher 0,7 bis 2,3 Sekunden (zu lang, „delayed"), dann kurz 0,45 bis 1,2 s mit der reinen
+ * Ausklang-Kurve (zusammen mit ihr „hektisch"). Mit der weicheren Kurve oben trägt etwas mehr
+ * Zeit wieder ruhiger.
+ */
 export function fahrdauer(von: number, nach: number): number {
-  return Math.round(begrenze(700 + Math.abs(nach - von) * 1600, 700, 2300));
+  return Math.round(begrenze(550 + Math.abs(nach - von) * 700, 550, 1300));
 }
 
 /**
