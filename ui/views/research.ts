@@ -4,12 +4,19 @@ import { formatRelativeTime } from "./format.js";
 import { escapeHtml } from "./html.js";
 import type { View, ViewContext } from "./types.js";
 
+/** Das Werkzeug in Worten statt als Kennung („web.search"). */
+function werkzeugName(tool: string): string {
+  if (tool === "web.search" || tool === "WebSearch") return "Websuche";
+  if (tool === "web.fetch" || tool === "WebFetch") return "Seite gelesen";
+  return tool;
+}
+
 /** Was der Assistent im Netz gefunden und abgelegt hat — die `web.*`-Artefakte aus
  * `kuronami.artifacts` (Nachtrag 2026-09-16: echt über `GET /integrations/research`). */
 export const researchView: View = {
   mount(container, ctx: ViewContext) {
     container.innerHTML = `
-      <div class="detail-view">
+      <div class="detail-view detail-view--schmal">
         <header class="detail-view__head">
           ${icon("research", { className: "detail-view__icon" })}
           <div>
@@ -37,8 +44,13 @@ export const researchView: View = {
         }
         if (!listEl) return;
         if (data.findings.length === 0) {
-          listEl.innerHTML =
-            '<li class="field__hint">Noch keine Recherche abgelegt. Sobald der Assistent im Netz sucht oder eine Seite holt, erscheint das Ergebnis hier.</li>';
+          listEl.innerHTML = `
+            <li class="leere">
+              ${icon("research", { className: "leere__ikon" })}
+              <p class="leere__satz">Noch keine Recherche abgelegt.</p>
+              <p class="leere__grund">Sobald Kuro im Netz sucht oder eine Seite liest, steht das Ergebnis hier.
+              Sagen Sie ihm einfach, was Sie wissen wollen.</p>
+            </li>`;
           return;
         }
         listEl.innerHTML = data.findings
@@ -49,7 +61,7 @@ export const researchView: View = {
                   <p class="detail-list__title">${escapeHtml(finding.summary)}</p>
                   <span class="detail-list__meta">${escapeHtml(formatRelativeTime(finding.savedAt))}</span>
                 </div>
-                <p class="detail-list__body">${escapeHtml(finding.tool)} · ${escapeHtml(finding.artifactUri)}</p>
+                <p class="detail-list__body" title="${escapeHtml(finding.artifactUri)}">${escapeHtml(werkzeugName(finding.tool))}</p>
               </li>
             `,
           )

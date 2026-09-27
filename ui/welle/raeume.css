@@ -129,3 +129,27 @@
 .w-raum__kopf {
   margin-bottom: 30px;
 }
+
+/* Eine Entscheidung in den Archiven (gehandelt, verworfen, Kandidat …) ist Jakobs Wahl und trägt
+   sein Licht, wie jede andere Wahl in der Welle. */
+.w-raum .analysen__wahl.ist-aktiv {
+  color: var(--laterne-zeile);
+  background: rgba(244, 184, 96, 0.18);
+}
+
+/* --------------------------------------------------------------------- */
+/* Märkte: ein Arbeitsplatz (2026-09-27)                                  */
+/* --------------------------------------------------------------------- */
+
+/* Der Chart braucht Breite, wie bei TradingView; die anderen Bereiche bleiben bei ihrer
+   Lesebreite. Die Höhe rechnet mit dem Befehlsfeld unten, das über der Seite liegt. */
+.w-raum:has(.markt) {
+  max-width: 2280px;
+}
+.w-raum .markt {
+  --markt-hoehe: clamp(520px, calc(100svh - 360px), 1180px);
+}
+.w-raum .markt__menue,
+.w-raum .markt__suche {
+  border-radius: var(--rand-m, 14px);
+}

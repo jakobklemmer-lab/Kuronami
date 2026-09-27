@@ -6,8 +6,8 @@
  * Kuros Licht ist die Farbe seines Zustands (`--kuro`, gesetzt aus `zustand.ts`): es färbt den
  * Film, den Punkt oben, den Rand der Eingabe, die Linie neben seinen Antworten.
  *
- * Gesetzt in Shippori Mincho für alles, was als Bild stehen soll (Gruß, Titel, 黒波), und Hanken
- * Grotesk für alles, was man bedient. Zahlen tragen Tabellenziffern.
+ * Gesetzt in Shippori Mincho für alles, was als Bild stehen soll (Gruß, Titel, 黒波), und Figtree
+ * für alles, was man bedient und liest. Zahlen tragen Tabellenziffern.
  *
  * Die Fachansichten kommen mit ihrem Grundbau aus der Präsenz (`../styles/views.css`); ihre
  * Farben und Maße bekommen sie hier über dieselben Tokens, ihr neues Kleid in `raeume.css`.
@@ -30,7 +30,7 @@
   --lack: rgba(4, 11, 14, 0.58);
   --lack-dicht: rgba(4, 11, 14, 0.86);
 
-  --schrift: "Hanken Grotesk", "Helvetica Neue", system-ui, sans-serif;
+  --schrift: "Figtree", "Helvetica Neue", system-ui, sans-serif;
   --zeichen: "Shippori Mincho", "Hiragino Mincho ProN", "Yu Mincho", Georgia, serif;
 
   --rand-s: 8px;
@@ -75,6 +75,11 @@
   --text-2xs: 11.5px;
   --font-ui: var(--schrift);
   --font-mono: "JetBrains Mono", ui-monospace, "SF Mono", monospace;
+  --seite-max: 1280px;
+  --seite-schmal: 940px;
+  /* Unter der Leiste oben bleibt stehen, was haftet (die Postliste, die Archive). */
+  --haft-oben: calc(var(--kopf-h) + env(safe-area-inset-top) + 16px);
+  --haft-unten: 130px;
   --motion-fast: 160ms;
   --ease-standard: var(--gleiten);
 

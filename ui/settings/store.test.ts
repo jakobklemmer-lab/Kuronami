@@ -57,6 +57,24 @@ describe("normalizeSettings", () => {
     expect(result.appearance.density).toBe("compact");
   });
 
+  it("wirft eine Sprachadresse, die keine ist, samt Geheimnis weg (Browser-Autofill)", () => {
+    const eingesetzt = normalizeSettings({
+      speech: { endpoint: "jakob", sessionToken: "das-passwort" },
+    });
+    expect(eingesetzt.speech.endpoint).toBeNull();
+    expect(eingesetzt.speech.sessionToken).toBeNull();
+
+    const eigene = normalizeSettings({
+      speech: { endpoint: " wss://voice.example.org ", sessionToken: "s3" },
+    });
+    expect(eigene.speech.endpoint).toBe("wss://voice.example.org");
+    expect(eigene.speech.sessionToken).toBe("s3");
+
+    const leer = normalizeSettings({ speech: { endpoint: "", sessionToken: "s3" } });
+    expect(leer.speech.endpoint).toBeNull();
+    expect(leer.speech.sessionToken).toBe("s3");
+  });
+
   it("behält eine leere Beobachtungsliste und wirft Fremdes aus ihr heraus", () => {
     expect(normalizeSettings({ markets: { watchlist: [] } }).markets.watchlist).toEqual([]);
     expect(

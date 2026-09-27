@@ -7,6 +7,7 @@ import { envFilePathFromEnv, readEnvFile, writeEnvFile } from "../runtime/secret
 import { buildMemoryRoot, createMemoryStore } from "../tools/memory/store.js";
 import { createN8nBridge } from "../tools/n8n/bridge.js";
 import { KuroAgent } from "./agent.js";
+import { alarmText, createAlarme, starteAlarmTakt } from "./alarme.js";
 import { SITZUNG_GUELTIG_MS, anmeldungAusUmgebung } from "./anmeldung.js";
 import { createSlackChannel } from "./channels/slack/channel.js";
 import type { SlackChannelDeps } from "./channels/slack/channel.js";
@@ -16,15 +17,19 @@ import type { TelegramChannelDeps } from "./channels/telegram/channel.js";
 import { createTelegramClient } from "./channels/telegram/client.js";
 import { type VoiceChannel, createVoiceChannel } from "./channels/voice/channel.js";
 import { createWebChannel } from "./channels/web.js";
+import { createChartdaten } from "./chartdaten.js";
 import { type GatewayDeps, redeliverPending } from "./core.js";
+import { ARCHIV_FENSTER, istArchivZeit } from "./gespraeche.js";
 import { configuredChannels, identityFromEnv } from "./identity.js";
 import { createYahooMarkets } from "./integrations/markets.js";
 import { createSystemSampler } from "./integrations/system.js";
+import { createKerzenquelle } from "./kerzen.js";
 import { haltePostfaecherWarm, konten } from "./postfach.js";
 import { createSystemdRestart } from "./restart.js";
 import { sandkastenLage } from "./sandkasten.js";
 import { createServer } from "./server.js";
 import type { ChannelId, ChannelPort } from "./types.js";
+import { createZeichnungen } from "./zeichnungen.js";
 
 /**
  * Der Gateway-Prozess (S16).
@@ -189,6 +194,24 @@ async function main(): Promise<void> {
   // Blick nach einem Neustart auf etwas Fertiges trifft.
   const postfachWarm = haltePostfaecherWarm(konten, { anzahl: 30 });
 
+  // Der Chart der Märkte (2026-09-27). Ein Marktdaten-Client für Kurstafel, Chart und
+  // Alarmtakt, damit sie sich den Speicher der Kerzen und die Grenzen bei Yahoo teilen.
+  const markets = createYahooMarkets();
+  const alarme = createAlarme({ workdir: agent.workdir });
+  const alarmTakt = starteAlarmTakt({
+    alarme,
+    markets,
+    melde: (alarm) => {
+      const text = alarmText(alarm);
+      console.log(`[alarme] ${text}`);
+      eventBus.publish({
+        type: "alarm.ausgeloest",
+        timestamp: new Date().toISOString(),
+        data: { ...alarm, text },
+      });
+    },
+  });
+
   const port = Number(process.env.GATEWAY_PORT ?? 8788);
   // Die Anmeldung der Oberfläche. Fehlt sie in der `.env`, bleibt es beim Betreiber-Token —
   // dann steht die Oberfläche jedem offen, der den Token hat, und die Startmeldung sagt das.
@@ -210,7 +233,11 @@ async function main(): Promise<void> {
     secrets,
     n8nBridge,
     memory,
-    markets: createYahooMarkets(),
+    markets,
+    chartdaten: createChartdaten({ markets }),
+    zeichnungen: createZeichnungen({ workdir: agent.workdir }),
+    alarme,
+    kerzenquelle: createKerzenquelle({ workdir: agent.workdir, markets }),
     system: createSystemSampler(),
     restart: createSystemdRestart(),
     bus: eventBus,
@@ -283,6 +310,65 @@ async function main(): Promise<void> {
     `Papierhandel: Takt alle ${Math.round(papierTaktMs / 60_000)} min — geprüfte Regeln gegen den laufenden Markt, mit Buchgeld.`,
   );
 
+  /**
+   * Der Takt der Lernschleife (`lehren.ts`): aufgelöste Prognosen nachbetrachten.
+   *
+   * Stündlich wie der Papierhandel — eine Prognose löst sich an einer Tageskerze auf, öfter
+   * nachzusehen fände nichts. Ein Takt, der nichts Fälliges findet, ruft kein Modell; er liest
+   * nur das Buch und die Kerzen aus dem Speicher.
+   */
+  const lehrenTaktMs = Number(process.env.KURO_LEHREN_TAKT_MS ?? 3_600_000);
+  const lehrenTick = async (): Promise<void> => {
+    try {
+      const neue = await agent.lehren.nachbetrachte();
+      for (const l of neue) {
+        console.log(`[lehren] Vorschlag von ${l.an} zu ${l.quelle.symbol} (${l.art}): ${l.text}`);
+        eventBus.publish({
+          type: "lehre.neu",
+          timestamp: new Date().toISOString(),
+          data: { id: l.id, an: l.an, art: l.art, text: l.text },
+        });
+      }
+    } catch (fehler) {
+      console.error("[lehren] Takt fehlgeschlagen:", fehler);
+    }
+  };
+  const lehrenUhr = setInterval(() => void lehrenTick(), lehrenTaktMs);
+  lehrenUhr.unref();
+  setTimeout(() => void lehrenTick(), 60_000).unref();
+  console.log(
+    `Lernschleife: Takt alle ${Math.round(lehrenTaktMs / 60_000)} min — aufgelöste Prognosen werden nachbetrachtet, Lehren gelten erst nach Freigabe.`,
+  );
+
+  /**
+   * Das Gesprächsarchiv (`gespraeche.ts`): nachts zwischen drei und sechs wird Kuros Gespräch
+   * nach Tagen abgelegt, und das nächste beginnt mit einer Übergabe. Alle Viertelstunde
+   * nachsehen, damit ein gescheiterter Versuch im selben Fenster wiederholt wird.
+   * `KURO_ARCHIV=aus` schaltet es ab.
+   */
+  const archivTick = async (): Promise<void> => {
+    if (process.env.KURO_ARCHIV?.trim() === "aus") return;
+    try {
+      const lage = await agent.sitzungsLage();
+      if (!lage?.seit || lage.groesseBytes === 0 || !istArchivZeit(new Date(), lage.seit)) return;
+      const r = await agent.archiviereGespraech("nachts");
+      console.log(
+        r.status === "archiviert"
+          ? `[gespraeche] archiviert: ${r.ergebnis.tage.join(", ")} (${r.ergebnis.nachrichten} Nachrichten), neues Gespräch mit Übergabe.`
+          : `[gespraeche] verschoben: ${r.grund}`,
+      );
+    } catch (fehler) {
+      console.error("[gespraeche] Archivieren gescheitert, Kuro bleibt im Gespräch:", fehler);
+    }
+  };
+  const archivUhr = setInterval(() => void archivTick(), 15 * 60_000);
+  archivUhr.unref();
+  console.log(
+    process.env.KURO_ARCHIV?.trim() === "aus"
+      ? "Gesprächsarchiv: abgeschaltet (KURO_ARCHIV=aus)."
+      : `Gesprächsarchiv: nachts zwischen ${ARCHIV_FENSTER[0]} und ${ARCHIV_FENSTER[1]} Uhr (Wien), nach Tagen in ablage/gespraeche/.`,
+  );
+
   const polling =
     telegram && process.env.TELEGRAM_MODE?.trim() !== "webhook"
       ? startTelegramPolling(telegram, {
@@ -312,6 +398,7 @@ async function main(): Promise<void> {
     console.log(`\n[gateway] ${reason} — herunterfahren.`);
     polling?.stop();
     postfachWarm.stop();
+    alarmTakt.stop();
     clearInterval(papierUhr);
     await polling?.done.catch(() => undefined);
     await events.close().catch(() => undefined);

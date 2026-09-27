@@ -58,6 +58,22 @@ export interface MarketQuote {
    */
   weekHigh52?: number;
   weekLow52?: number;
+  /** Yahoos `instrumentType`: INDEX, EQUITY, ETF, CRYPTOCURRENCY, CURRENCY, FUTURE, … */
+  typ?: string;
+  /** Die Zeitzone des Handelsplatzes, z. B. `Europe/Berlin`. */
+  zeitzone?: string;
+  /** Die reguläre Sitzung des laufenden oder letzten Handelstags, Unix-Sekunden. */
+  sitzung?: { start: number; ende: number };
+  /** Zeitpunkt des letzten Kurses, Unix-Sekunden. */
+  kursZeit?: number;
+  /** Tageshoch, -tief und -volumen der laufenden oder letzten Sitzung. */
+  tagHoch?: number;
+  tagTief?: number;
+  tagVolumen?: number;
+  /** Der Vortagesschluss — nicht der Schluss vor dem Zeitraum, siehe `mapChartResponse`. */
+  vortag?: number;
+  /** Nachkommastellen, mit denen der Handelsplatz notiert (Devisen 4–5, Aktien 2). */
+  stellen?: number;
 }
 
 export interface MarketChart extends MarketQuote {
@@ -140,6 +156,15 @@ interface YahooChartResponse {
         previousClose?: unknown;
         fiftyTwoWeekHigh?: unknown;
         fiftyTwoWeekLow?: unknown;
+        instrumentType?: unknown;
+        exchangeTimezoneName?: unknown;
+        regularMarketTime?: unknown;
+        regularMarketDayHigh?: unknown;
+        regularMarketDayLow?: unknown;
+        regularMarketVolume?: unknown;
+        priceHint?: unknown;
+        dataGranularity?: unknown;
+        currentTradingPeriod?: { regular?: { start?: unknown; end?: unknown } };
       };
       timestamp?: unknown;
       indicators?: {
@@ -201,14 +226,11 @@ export function mapChartResponse(json: unknown, range: string, interval: string)
   if (price === null) {
     throw new MarketDataError("Yahoo Finance: kein Kurs in der Antwort.");
   }
-  const previousClose = num(meta.chartPreviousClose) ?? num(meta.previousClose);
-  const changePct =
-    num(meta.regularMarketChangePercent) ??
-    (previousClose !== null && previousClose !== 0
-      ? ((price - previousClose) / previousClose) * 100
-      : 0);
-  const change = previousClose !== null ? price - previousClose : (price * changePct) / 100;
-
+  // **Der Vortag ist nicht `chartPreviousClose`.** Das ist der Schluss vor dem *Zeitraum* —
+  // bei einem Tagesfenster derselbe Wert, bei `period1=0` der DAX von 1987 (1.005,19): die
+  // Oberfläche zeigte über „Max" eine Veränderung von +24.403 Punkten neben +0,56 %.
+  // Gemessen am 2026-09-27. Deshalb zuerst `previousClose`, dann der Rückschluss aus der
+  // Tagesveränderung in Prozent, und `chartPreviousClose` nur, wenn es nichts anderes gibt.
   const timestamps = Array.isArray(result.timestamp) ? result.timestamp : [];
   const quote = result.indicators?.quote?.[0] ?? {};
   const opens = Array.isArray(quote.open) ? quote.open : [];
@@ -233,6 +255,54 @@ export function mapChartResponse(json: unknown, range: string, interval: string)
 
   const hoch52 = num(meta.fiftyTwoWeekHigh);
   const tief52 = num(meta.fiftyTwoWeekLow);
+  const regulaer = meta.currentTradingPeriod?.regular;
+  const sitzungStart = num(regulaer?.start);
+  const sitzungEnde = num(regulaer?.end);
+
+  // Bei Tageskerzen steht der Vortag in der Reihe selbst: der Schluss der letzten Kerze vor
+  // der laufenden Sitzung. Genauer als der Rückschluss aus der Prozentzahl, die Yahoo auf drei
+  // Stellen rundet (DAX: +142,00 statt +142,11).
+  let vortagKerze: number | null = null;
+  if (interval === "1d" && sitzungStart !== null) {
+    for (let i = candles.length - 1; i >= 0; i -= 1) {
+      if (candles[i].time < sitzungStart) {
+        if (candles[i].time > sitzungStart - 7 * 86_400) vortagKerze = candles[i].close;
+        break;
+      }
+    }
+  }
+  const pct = num(meta.regularMarketChangePercent);
+  const vortag =
+    num(meta.previousClose) ??
+    vortagKerze ??
+    (pct !== null && pct !== -100 ? price / (1 + pct / 100) : num(meta.chartPreviousClose));
+  const changePct =
+    pct ?? (vortag !== null && vortag !== 0 ? ((price - vortag) / vortag) * 100 : 0);
+  const change = vortag !== null ? price - vortag : (price * changePct) / 100;
+  const optional = {
+    ...(text(meta.instrumentType) ? { typ: text(meta.instrumentType) } : {}),
+    ...(text(meta.exchangeTimezoneName) ? { zeitzone: text(meta.exchangeTimezoneName) } : {}),
+    ...(sitzungStart !== null && sitzungEnde !== null
+      ? { sitzung: { start: sitzungStart, ende: sitzungEnde } }
+      : {}),
+    ...(num(meta.regularMarketTime) !== null
+      ? { kursZeit: num(meta.regularMarketTime) as number }
+      : {}),
+    ...(num(meta.regularMarketDayHigh) !== null
+      ? { tagHoch: num(meta.regularMarketDayHigh) as number }
+      : {}),
+    ...(num(meta.regularMarketDayLow) !== null
+      ? { tagTief: num(meta.regularMarketDayLow) as number }
+      : {}),
+    ...(num(meta.regularMarketVolume)
+      ? { tagVolumen: num(meta.regularMarketVolume) as number }
+      : {}),
+    ...(vortag !== null ? { vortag } : {}),
+    ...(num(meta.priceHint) !== null ? { stellen: num(meta.priceHint) as number } : {}),
+  };
+  // Was Yahoo wirklich geliefert hat. Bei `range=max` sind das Quartalskerzen, egal was
+  // angefragt war — und das Etikett soll sagen, was in der Tabelle steht.
+  const geliefert = text(meta.dataGranularity);
 
   return {
     symbol: text(meta.symbol),
@@ -245,8 +315,9 @@ export function mapChartResponse(json: unknown, range: string, interval: string)
     spark: candles.map((candle) => candle.close),
     ...(hoch52 !== null ? { weekHigh52: hoch52 } : {}),
     ...(tief52 !== null ? { weekLow52: tief52 } : {}),
+    ...optional,
     range,
-    interval,
+    interval: geliefert || interval,
     candles,
   };
 }
@@ -341,8 +412,13 @@ export function createYahooMarkets(options: YahooMarketsOptions = {}): MarketsCl
 
   async function chart(symbol: string, range: ChartRange, interval: ChartInterval) {
     if (!isValidSymbol(symbol)) throw new MarketDataError(`Ungültiges Symbol "${symbol}".`);
+    // `range=max` liefert bei Yahoo **Quartalskerzen**, gleich welches Intervall angefragt
+    // ist (gemessen am 2026-09-27: DAX 157 Kerzen, `dataGranularity: 3mo`, auch bei 1d und
+    // 1wk). Dieselbe Historie in der angefragten Größe gibt es über `period1=0`.
+    const fenster =
+      range === "max" ? `period1=0&period2=${Math.floor(Date.now() / 1000)}` : `range=${range}`;
     const json = await getJson(
-      `/v8/finance/chart/${encodeURIComponent(symbol)}?range=${range}&interval=${interval}`,
+      `/v8/finance/chart/${encodeURIComponent(symbol)}?${fenster}&interval=${interval}`,
     );
     return mapChartResponse(json, range, interval);
   }

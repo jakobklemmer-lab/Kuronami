@@ -158,8 +158,8 @@ describe("formatiereCrv", () => {
   it("schreibt das CRV je Ziel und sagt, dass gerechnet wurde", () => {
     const text = formatiereCrv(idee);
 
-    expect(text).toContain("0.86:1");
-    expect(text).toContain("1.71:1");
+    expect(text).toContain("0,86:1");
+    expect(text).toContain("1,71:1");
     expect(text).toContain("Gerechnet, nicht geschätzt");
   });
 
@@ -168,14 +168,14 @@ describe("formatiereCrv", () => {
     const text = formatiereCrv(idee, { chart: chart(108, kerzen(new Array(20).fill(108), 10)) });
 
     expect(text).toContain("ATR 14");
-    expect(text).toContain("0.70 Tagesspannen");
+    expect(text).toContain("0,70 Tagesspannen");
     expect(text).toContain("gewöhnliches Rauschen nimmt ihn mit");
   });
 
   it("schweigt über das Rauschen, wenn der Stop weiter liegt als ein Tag", () => {
     const text = formatiereCrv(idee, { chart: chart(108, kerzen(new Array(20).fill(108), 2)) });
 
-    expect(text).toContain("3.50 Tagesspannen");
+    expect(text).toContain("3,50 Tagesspannen");
     expect(text).not.toContain("gewöhnliches Rauschen");
   });
 

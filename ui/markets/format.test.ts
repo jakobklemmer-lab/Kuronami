@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  anzeigeName,
   describeQuoteType,
   formatChange,
   formatPercent,
@@ -37,5 +38,18 @@ describe("describeQuoteType", () => {
     expect(describeQuoteType("CRYPTOCURRENCY")).toBe("Krypto");
     expect(describeQuoteType("WARRANT")).toBe("Warrant");
     expect(describeQuoteType("")).toBe("");
+  });
+});
+
+describe("anzeigeName", () => {
+  it("nennt gängige Werte beim Namen statt beim Kürzel", () => {
+    expect(anzeigeName("^GDAXI", "DAX P")).toBe("DAX");
+    expect(anzeigeName("btc-usd", "Bitcoin USD")).toBe("Bitcoin");
+  });
+
+  it("behält sonst Yahoos Namen, ohne angehängte Währung", () => {
+    expect(anzeigeName("ADA-EUR", "Cardano EUR")).toBe("Cardano");
+    expect(anzeigeName("SAP.DE", "SAP SE")).toBe("SAP SE");
+    expect(anzeigeName("XYZ", "")).toBe("XYZ");
   });
 });

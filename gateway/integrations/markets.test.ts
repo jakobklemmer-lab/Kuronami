@@ -38,6 +38,63 @@ const chartJson = {
   },
 };
 
+describe("mapChartResponse über lange Fenster", () => {
+  // Nachgebaut aus der echten Antwort vom 2026-09-27 (DAX, period1=0, 1d).
+  const lang = {
+    chart: {
+      result: [
+        {
+          meta: {
+            symbol: "^GDAXI",
+            regularMarketPrice: 25408.64,
+            regularMarketChangePercent: 0.562,
+            chartPreviousClose: 1005.19,
+            dataGranularity: "3mo",
+            instrumentType: "INDEX",
+            exchangeTimezoneName: "Europe/Berlin",
+            priceHint: 2,
+            currentTradingPeriod: { regular: { start: 1790319600, end: 1790350200 } },
+          },
+          timestamp: [],
+          indicators: { quote: [{}] },
+        },
+      ],
+      error: null,
+    },
+  };
+
+  it("nimmt für die Veränderung den Vortag, nicht den Schluss vor dem Fenster", () => {
+    const chart = mapChartResponse(lang, "max", "1d");
+    expect(chart.changePct).toBeCloseTo(0.562);
+    expect(chart.change).toBeCloseTo(142.0, 0);
+    expect(chart.vortag).toBeCloseTo(25266.65, 1);
+  });
+
+  it("liest den Vortag bei Tageskerzen aus der Reihe, vor der laufenden Sitzung", () => {
+    const start = 1790319600;
+    const json = structuredClone(lang);
+    const r = json.chart.result[0] as unknown as Record<string, unknown>;
+    r.timestamp = [start - 2 * 86400, start - 86400, start];
+    r.indicators = {
+      quote: [
+        { open: [1, 1, 1], high: [1, 1, 1], low: [1, 1, 1], close: [25100, 25266.53, 25408.64] },
+      ],
+    };
+    const chart = mapChartResponse(json, "max", "1d");
+    expect(chart.vortag).toBe(25266.53);
+    expect(chart.change).toBeCloseTo(142.11, 2);
+  });
+
+  it("beschriftet mit dem, was geliefert wurde, und reicht die Marktangaben durch", () => {
+    const chart = mapChartResponse(lang, "max", "1d");
+    expect(chart.interval).toBe("3mo");
+    expect(chart.typ).toBe("INDEX");
+    expect(chart.zeitzone).toBe("Europe/Berlin");
+    expect(chart.sitzung).toEqual({ start: 1790319600, ende: 1790350200 });
+    expect(chart.stellen).toBe(2);
+  });
+});
+
 describe("isValidSymbol", () => {
   it("lässt Yahoo-Formen durch und weist Fremdes ab", () => {
     for (const ok of ["AAPL", "SAP.DE", "BTC-USD", "^GDAXI", "EURUSD=X", "ES=F"]) {
@@ -188,6 +245,21 @@ describe("createYahooMarkets", () => {
     const chart = await client.zeitraum("AAPL", von, bis, "1h");
     expect(chart.candles.map((k) => k.time)).toEqual([von, von + 3600]);
     expect(chart.spark).toEqual([101, 102]);
+  });
+
+  it("fragt max über period1=0 an, weil range=max Quartalskerzen liefert", async () => {
+    const urls: string[] = [];
+    const client = createYahooMarkets({
+      fetchImpl: async (url) => {
+        urls.push(url);
+        return Response.json(chartJson);
+      },
+    });
+    await client.chart("AAPL", "max", "1wk");
+    await client.chart("AAPL", "5y", "1wk");
+    expect(urls[0]).toContain("period1=0&period2=");
+    expect(urls[0]).not.toContain("range=");
+    expect(urls[1]).toContain("range=5y");
   });
 
   it("weist ungültige Symbole ab, bevor eine Anfrage entsteht", async () => {

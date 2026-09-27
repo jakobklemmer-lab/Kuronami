@@ -47,6 +47,23 @@ export interface UniversumVermerk {
   begruendung: string;
 }
 
+/**
+ * Das Urteil der letzten Gegenprobe des Prüfers (`gegenprobe.ts`), seit 2026-09-27 am Eintrag.
+ * Vorher ging es nur als Text an den Prüfer zurück — und woraus niemand lesen kann, daraus lernt
+ * auch der Stratege nichts (`lehren.ts`).
+ */
+export interface GegenprobeVermerk {
+  am: string;
+  einstufung: "robust" | "wackelig" | "fragil";
+  tragfaehig: number;
+  gepruefte: number;
+  behaltenMedian?: number;
+  /** Die weiteren Märkte, falls welche mitgerechnet wurden. */
+  maerkte: string[];
+  /** Die Tabelle aller Varianten, wie der Prüfer sie gelesen hat. */
+  tabelle: string;
+}
+
 export interface StrategieKopf {
   id: string;
   /** ISO-Zeitpunkt der Ablage. */
@@ -63,6 +80,8 @@ export interface StrategieKopf {
   warnungen: number;
   /** Siehe `UniversumVermerk`: fehlt, wenn beim Ablegen kein weiterer Markt genannt wurde. */
   universum?: UniversumVermerk;
+  /** Die letzte Gegenprobe; fehlt, solange keine lief. */
+  gegenprobe?: GegenprobeVermerk;
 }
 
 export interface StrategieEintrag extends StrategieKopf {
@@ -97,7 +116,7 @@ export interface StrategienArchiv {
   lies(id: string): Promise<StrategieEintrag | null>;
   aendere(
     id: string,
-    felder: { status?: StrategieStatus; notiz?: string },
+    felder: { status?: StrategieStatus; notiz?: string; gegenprobe?: GegenprobeVermerk },
   ): Promise<StrategieEintrag | null>;
 }
 
@@ -255,6 +274,7 @@ export function createStrategien(deps: StrategienDeps): StrategienArchiv {
         ...alt,
         ...(felder.status ? { status: felder.status } : {}),
         ...(felder.notiz !== undefined ? { notiz: felder.notiz } : {}),
+        ...(felder.gegenprobe ? { gegenprobe: felder.gegenprobe } : {}),
       };
       await writeFile(path.join(ordner, datei), `${JSON.stringify(neu, null, 2)}\n`, "utf8");
       return neu;

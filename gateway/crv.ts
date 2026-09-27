@@ -199,14 +199,27 @@ export function atr(candles: readonly MarketCandle[], periode = 14): number | un
   return letzte.reduce((a, b) => a + b, 0) / periode;
 }
 
+/**
+ * Deutsche Zahlen, wie überall bei Jakob („25.408,64", nicht „25408.64"). Bis 2026-09-27 stand
+ * hier `toFixed` — und wer die Zeilen wörtlich in einen Bericht übernahm, wie es gedacht ist,
+ * schrieb englische Dezimalpunkte hinein. In den Märkten stand die Rechnung so neben lauter
+ * deutschen Zahlen.
+ */
+function deutsch(wert: number, stellen: number, gruppieren = true): string {
+  return wert.toLocaleString("de-DE", {
+    minimumFractionDigits: stellen,
+    maximumFractionDigits: stellen,
+    useGrouping: gruppieren,
+  });
+}
+
 function zahl(wert: number): string {
   const betrag = Math.abs(wert);
-  const stellen = betrag >= 1000 ? 2 : betrag >= 1 ? 3 : 6;
-  return wert.toFixed(stellen);
+  return deutsch(wert, betrag >= 1000 ? 2 : betrag >= 1 ? 3 : 6);
 }
 
 function prozent(wert: number): string {
-  return `${wert.toFixed(2)} %`;
+  return `${deutsch(wert, 2)} %`;
 }
 
 export interface CrvUmfeld {
@@ -240,7 +253,7 @@ export function formatiereCrv(ergebnis: CrvErgebnis, umfeld: CrvUmfeld = {}): st
         zahl(z.ziel),
         zahl(z.chance),
         prozent(z.abstandProzent),
-        `${z.crv.toFixed(2)}:1`,
+        `${deutsch(z.crv, 2)}:1`,
         prozent(z.breakevenTrefferquote * 100),
       ].join("  "),
     );
@@ -250,7 +263,7 @@ export function formatiereCrv(ergebnis: CrvErgebnis, umfeld: CrvUmfeld = {}): st
     const erstes = ergebnis.ziele[0];
     zeilen.push(
       "",
-      `Auf das erste Ziel gerechnet: ${erstes.crv.toFixed(2)}:1. Dieser Handel trägt ab einer Trefferquote von ${prozent(erstes.breakevenTrefferquote * 100)} — darunter verliert er auf Dauer Geld, auch wenn er einzeln aufgeht.`,
+      `Auf das erste Ziel gerechnet: ${deutsch(erstes.crv, 2)}:1. Dieser Handel trägt ab einer Trefferquote von ${prozent(erstes.breakevenTrefferquote * 100)} — darunter verliert er auf Dauer Geld, auch wenn er einzeln aufgeht.`,
     );
   }
 
@@ -268,7 +281,7 @@ export function formatiereCrv(ergebnis: CrvErgebnis, umfeld: CrvUmfeld = {}): st
       zeilen.push(
         "",
         `Durchschnittliche ${spannenName} (ATR 14, ${chart.range}/${chart.interval}): ${zahl(tagesspanne)}`,
-        `Der Stop liegt ${inAtr.toFixed(2)} ${spannenNameMehrzahl} vom Einstieg entfernt.${inAtr < 1 ? " Das ist weniger als eine gewöhnliche Kerze — gewöhnliches Rauschen nimmt ihn mit, ohne dass die These falsch war." : ""}`,
+        `Der Stop liegt ${deutsch(inAtr, 2)} ${spannenNameMehrzahl} vom Einstieg entfernt.${inAtr < 1 ? " Das ist weniger als eine gewöhnliche Kerze — gewöhnliches Rauschen nimmt ihn mit, ohne dass die These falsch war." : ""}`,
       );
     } else {
       zeilen.push(

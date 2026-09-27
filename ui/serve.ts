@@ -38,7 +38,9 @@ export const STATIC_FILES = [
   // Gepinnt wie alles hier (siehe docker-compose.yml): TradingView Lightweight Charts, Apache
   // 2.0, als vorgebautes ESM-Standalone-Modul. Kein npm-Import — der Browser lädt `ui/**`
   // ohne Bundler (siehe oben), und ein bloßer Paketname wäre kein gültiger Browser-Import.
-  "vendor/lightweight-charts.standalone.production.mjs",
+  // Seit dem Umbau der Märkte (2026-09-27) v5.2.1: Unterfenster für RSI/MACD und die
+  // Zeichen-Schnittstelle, auf der die Stifte sitzen.
+  "vendor/lightweight-charts-5.standalone.production.mjs",
   // Aus demselben Grund: three r170 (MIT) und der Orb, der darauf zeichnet (S47).
   "vendor/three.module.min.mjs",
   "vendor/kuronami-orb.mjs",

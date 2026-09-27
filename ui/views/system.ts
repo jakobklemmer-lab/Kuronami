@@ -320,6 +320,40 @@ function kuroHtml(o: Orchestrator, jetzt: Date): string {
   return `<dl class="system-fakten">${zeilen.join("")}</dl>${kontext}${meldung}`;
 }
 
+/** Was `/integrations/gespraeche` liefert — nur, was die Karte braucht. */
+export interface ArchivStand {
+  lage: { seit: string | null; groesseBytes: number } | null;
+  tage: { tag: string; nachrichten: number; themen?: string }[];
+  fenster: [number, number];
+  aus: boolean;
+}
+
+/**
+ * Das Gesprächsarchiv unter Kuros Karte (2026-09-27): wann das Gespräch abgelegt wird, was schon
+ * liegt, und ein Knopf, es jetzt zu tun. Kuro liest den Wortlaut selbst (`im_archiv_suchen`); hier
+ * steht, dass es ihn gibt.
+ */
+export function archivHtml(a: ArchivStand, arbeitet: boolean): string {
+  const wann = a.aus
+    ? "abgeschaltet (KURO_ARCHIV=aus)"
+    : `nachts zwischen ${a.fenster[0]} und ${a.fenster[1]} Uhr, mit Übergabe an das nächste`;
+  const letzter = a.tage[0];
+  const abgelegt =
+    a.tage.length === 0
+      ? "noch nichts"
+      : `${a.tage.length} ${a.tage.length === 1 ? "Tag" : "Tage"}, zuletzt ${new Date(`${letzter?.tag}T12:00:00`).toLocaleDateString("de-DE", { day: "numeric", month: "short" })}`;
+  return `
+    <dl class="system-fakten">
+      <div class="system-fakt"><dt>Archiviert wird</dt><dd>${escapeHtml(wann)}</dd></div>
+      <div class="system-fakt"><dt>Im Archiv</dt><dd>${escapeHtml(abgelegt)}</dd></div>
+    </dl>
+    ${
+      a.lage?.seit
+        ? `<button type="button" class="system-archiv__knopf" data-role="archivieren" ${arbeitet ? "disabled" : ""}>${arbeitet ? "Kuro schreibt die Übergabe …" : "Gespräch jetzt archivieren"}</button>`
+        : ""
+    }`;
+}
+
 function zeile(opt: {
   name: string;
   rolle: string;
@@ -513,6 +547,7 @@ export const systemView: View = {
               <h2 class="card__title" id="system-kuro-titel">Kuro</h2>
             </header>
             <div data-role="kuro"><p class="card__hint">Lädt …</p></div>
+            <div class="system-archiv" data-role="archiv"></div>
           </section>
 
           <section class="card glass card--personal" aria-labelledby="system-personal-titel">
@@ -544,6 +579,7 @@ export const systemView: View = {
     const aboEl = q<HTMLElement>("abo");
     const aboStand = q<HTMLElement>("abo-stand");
     const kuroEl = q<HTMLElement>("kuro");
+    const archivEl = q<HTMLElement>("archiv");
     const personalEl = q<HTMLElement>("personal");
     const seitEl = q<HTMLElement>("seit");
     const laeufeEl = q<HTMLElement>("laeufe");
@@ -590,6 +626,50 @@ export const systemView: View = {
         personalEl.innerHTML = text;
       }
     }
+
+    let archiv: ArchivStand | null = null;
+    let archiviert = false;
+    let archivMeldung = "";
+    const zeichneArchiv = (): void => {
+      if (!archiv || weg) return;
+      archivEl.innerHTML = `${archivHtml(archiv, archiviert)}${archivMeldung ? `<p class="card__hint">${escapeHtml(archivMeldung)}</p>` : ""}`;
+    };
+    async function ladeArchiv(): Promise<void> {
+      try {
+        archiv = await ctx.api.get<ArchivStand>("/integrations/gespraeche");
+        zeichneArchiv();
+      } catch {
+        // Ohne Archivstand fehlt nur diese Zeile.
+      }
+    }
+    archivEl.addEventListener("click", (e) => {
+      if (!(e.target as HTMLElement).closest('[data-role="archivieren"]') || archiviert) return;
+      archiviert = true;
+      archivMeldung = "";
+      zeichneArchiv();
+      void ctx.api
+        .post<{
+          status: string;
+          grund?: string;
+          ergebnis?: { tage: string[]; nachrichten: number };
+        }>("/integrations/gespraeche/archivieren", {})
+        .then(
+          (r) => {
+            archivMeldung =
+              r.status === "archiviert"
+                ? `Abgelegt: ${r.ergebnis?.tage.length ?? 0} Tage, ${r.ergebnis?.nachrichten ?? 0} Nachrichten. Kuro beginnt mit der Übergabe neu.`
+                : (r.grund ?? "Nichts zu archivieren.");
+          },
+          (err) => {
+            archivMeldung = `Nicht archiviert: ${describeApiError(err)} — Kuro bleibt im Gespräch.`;
+          },
+        )
+        .finally(() => {
+          archiviert = false;
+          void ladeArchiv();
+          void ladeOrchestrator();
+        });
+    });
 
     async function ladeAbo(): Promise<void> {
       try {
@@ -661,6 +741,7 @@ export const systemView: View = {
     const abmelden = ctx.bus.onMessage((message: BusMessage) => {
       if (message.type === "bus.connected" || message.type === "model.delta") return;
       if (message.type === "turn.completed") void ladeAbo();
+      if (message.type === "gespraech.archiviert") void ladeArchiv();
       baldNeu();
     });
     // Die Laufzeiten („arbeitet seit 3 Min.") und die Abo-Fenster altern auch ohne Ereignis.
@@ -672,6 +753,7 @@ export const systemView: View = {
     void ladeOrchestrator();
     void ladeAbo();
     void ladeRueckfragen();
+    void ladeArchiv();
 
     return () => {
       weg = true;

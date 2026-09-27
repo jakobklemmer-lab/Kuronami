@@ -60,3 +60,49 @@ export function recallSelectedSymbol(): string | null {
     return null;
   }
 }
+
+/**
+ * „Im Chart zeigen" aus den Strategien und Analysen (2026-09-27): welcher Wert und was von
+ * Kuros Arbeit darauf eingeblendet werden soll. Wie das Symbol oben eine Absicht für den
+ * nächsten Aufbau der Märkte, die dabei verbraucht wird.
+ */
+export interface ChartAbsicht {
+  symbol: string;
+  strategie?: string;
+  prognose?: string;
+}
+
+const ABSICHT_KEY = "kuronami.trading.absicht";
+
+export function merkeChartAbsicht(absicht: ChartAbsicht): void {
+  try {
+    globalThis.sessionStorage?.setItem(ABSICHT_KEY, JSON.stringify(absicht));
+    globalThis.sessionStorage?.setItem(SELECTED_KEY, absicht.symbol);
+  } catch {
+    // Ohne Sitzungsspeicher öffnen die Märkte eben ohne Einblendung.
+  }
+}
+
+export function holeChartAbsicht(): ChartAbsicht | null {
+  try {
+    const roh = globalThis.sessionStorage?.getItem(ABSICHT_KEY);
+    if (!roh) return null;
+    globalThis.sessionStorage?.removeItem(ABSICHT_KEY);
+    const a = JSON.parse(roh) as Partial<ChartAbsicht>;
+    return typeof a.symbol === "string" ? (a as ChartAbsicht) : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Welches Yahoo-Symbol der Chart für ein Symbol aus dem Labor zeigt. `binance:BTCUSDT` gibt es
+ * bei Yahoo nicht; der nächste Wert ist `BTC-USD` — ein anderer Handelsplatz, deshalb sagt die
+ * Ansicht dazu, dass die Handel auf Binance-Kerzen gerechnet sind.
+ */
+export function chartSymbolFuer(symbol: string): { symbol: string; anderePlattform: boolean } {
+  const ohne = symbol.replace(/^yahoo:/i, "");
+  const binance = /^binance:([A-Z0-9]+?)(USDT|USDC|BUSD|USD)$/i.exec(ohne);
+  if (binance) return { symbol: `${binance[1]?.toUpperCase()}-USD`, anderePlattform: true };
+  return { symbol: ohne.toUpperCase(), anderePlattform: false };
+}

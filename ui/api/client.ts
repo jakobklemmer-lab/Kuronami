@@ -45,6 +45,8 @@ export interface ApiClient {
   post<T>(path: string, body: unknown): Promise<T>;
   /** Teiländerung an einem vorhandenen Ding — etwa der Status einer abgelegten Analyse. */
   patch<T>(path: string, body: unknown): Promise<T>;
+  /** Ein Ding als Ganzes ersetzen — etwa alle Zeichnungen eines Werts im Chart. */
+  put<T>(path: string, body: unknown): Promise<T>;
   delete<T>(path: string): Promise<T>;
 }
 
@@ -101,6 +103,12 @@ export function createApiClient(options: ApiClientOptions): ApiClient {
     patch: (path, body) =>
       request(path, {
         method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(body),
+      }),
+    put: (path, body) =>
+      request(path, {
+        method: "PUT",
         headers: { "content-type": "application/json" },
         body: JSON.stringify(body),
       }),

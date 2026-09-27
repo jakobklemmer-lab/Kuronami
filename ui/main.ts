@@ -3,6 +3,7 @@ import { holeLage } from "./auth/anmeldung.js";
 import { zeigeAnmeldung } from "./auth/view.js";
 import { resolveBackendOrigin } from "./backend-origin.js";
 import { createEventBus } from "./events/bus.js";
+import { meldeAlarme } from "./markets/alarm-melden.js";
 import { createMicStateStore } from "./mic/state.js";
 import { oberflaecheZiel } from "./oberflaeche.js";
 import { mountHuelle } from "./praesenz/huelle.js";
@@ -72,6 +73,7 @@ function main(): void {
   const isSecure = globalThis.location.protocol === "https:";
   const backend = resolveBackendOrigin(hostname, isSecure, params.get("events"));
   const bus = createEventBus({ url: backend.ws });
+  meldeAlarme(bus, (text) => toast.show(text));
   // Läuft eine Sitzung ab oder wird der Betreiber-Token gewechselt, antwortet jeder Aufruf mit
   // 401. Statt jede Ansicht einzeln „nicht berechtigt" zeigen zu lassen, kommt die Maske
   // zurück — einmal, nicht einmal je Karte.
@@ -138,6 +140,7 @@ function main(): void {
   const voice = createVoiceController({
     mic,
     url: () => loadSettings().speech.endpoint ?? backend.voiceWs,
+    sprechtaste: () => loadSettings().speech.sprechtaste,
     token: () => loadSettings().speech.sessionToken ?? voiceSessionToken,
     notify: (message) => toast.show(message),
     onTranscript: (text, final) => {
@@ -163,6 +166,11 @@ function main(): void {
     const parsed = parseHash(globalThis.location.hash);
     cleanupCurrentView?.();
     outletEl.innerHTML = "";
+    // Jede Ansicht fängt oben an — vorher begann die nächste so weit unten, wie die letzte
+    // gescrollt war.
+    outletEl.scrollTop = 0;
+    // Außerhalb von Kuros Raum tritt der Raum zurück (`praesenz.css`).
+    document.body.dataset.route = parsed.view;
     huelle.setActive(parsed.view);
     const ctx: ViewContext = {
       api,

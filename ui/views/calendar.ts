@@ -20,7 +20,7 @@ function describeCalendarError(error: unknown): string {
 export const calendarView: View = {
   mount(container, ctx: ViewContext) {
     container.innerHTML = `
-      <div class="detail-view">
+      <div class="detail-view detail-view--schmal">
         <header class="detail-view__head">
           ${icon("calendar", { className: "detail-view__icon" })}
           <div>
@@ -42,10 +42,13 @@ export const calendarView: View = {
       .then((data) => {
         if (!listEl) return;
         if (!data.connected) {
-          if (subtitleEl) subtitleEl.textContent = "Kein Kalender verbunden";
-          listEl.innerHTML = `<li class="field__hint">Kein Kalender verbunden.${
-            data.reason ? `<br><small>${escapeHtml(data.reason)}</small>` : ""
-          }</li>`;
+          if (subtitleEl) subtitleEl.textContent = "Noch kein Kalender verbunden";
+          listEl.innerHTML = `
+            <li class="leere">
+              ${icon("calendar", { className: "leere__ikon" })}
+              <p class="leere__satz">Hier stehen Ihre Termine, sobald ein Kalender verbunden ist.</p>
+              ${data.reason ? `<p class="leere__grund">${escapeHtml(data.reason)}</p>` : ""}
+            </li>`;
           return;
         }
         if (subtitleEl) {
@@ -53,22 +56,25 @@ export const calendarView: View = {
             data.events.length === 1 ? "1 Termin heute" : `${data.events.length} Termine heute`;
         }
         if (data.events.length === 0) {
-          listEl.innerHTML = '<li class="field__hint">Heute steht nichts im Kalender.</li>';
+          listEl.innerHTML = `
+            <li class="leere">
+              ${icon("calendar", { className: "leere__ikon" })}
+              <p class="leere__satz">Heute steht nichts im Kalender.</p>
+            </li>`;
           return;
         }
         listEl.innerHTML = data.events
           .map(
             (event) => `
               <li>
-                <div class="detail-list__row">
-                  ${icon("calendar")}
-                  <div>
+                <div class="detail-list__row termin">
+                  <span class="termin__zeit">${
+                    event.allDay ? "ganztägig" : escapeHtml(formatClockTime(event.startsAt))
+                  }</span>
+                  <div class="detail-list__text">
                     <p class="detail-list__title">${escapeHtml(event.title)}</p>
                     ${event.location ? `<p class="detail-list__body">${escapeHtml(event.location)}</p>` : ""}
                   </div>
-                  <span class="detail-list__meta" style="margin-left:auto">${
-                    event.allDay ? "ganztägig" : escapeHtml(formatClockTime(event.startsAt))
-                  }</span>
                 </div>
               </li>
             `,

@@ -3,11 +3,14 @@
 Dein Schreibtisch. `notizen/` für Notizen und Rechercheergebnisse, `ablage/` für Dateien,
 die du für Jakob holst. `.kuro-session` nicht anfassen.
 
-## Zuerst: die Übergabe lesen
+## Frühere Gespräche
 
-`notizen/uebergabe-2026-09-22.md` — deine vorige Unterhaltung wurde am 22.09. beendet, dort
-steht, was offen ist und worauf Jakob sich bezieht. Wenn nichts mehr offen ist, darf die
-Datei weg und dieser Abschnitt mit ihr.
+Deine Gespräche mit Jakob werden nachts archiviert; danach beginnst du frisch, und die
+Übergabe steht in deinem Prompt. Der Wortlaut liegt nach Tagen in `ablage/gespraeche/`
+(`INDEX.md` zeigt, worum es an welchem Tag ging). Bezieht Jakob sich auf etwas, das du nicht
+kennst: erst `im_archiv_suchen`, dann Read auf die genannte Datei — ihn fragen, was ihr schon
+besprochen habt, ist das Letzte. `notizen/uebergabe.md` und das Archiv schreibt der Gateway,
+nicht du.
 
 Jakob wohnt in **Wien** (48.21 / 16.37). Ort und Währung, wenn nichts anderes gesagt ist.
 

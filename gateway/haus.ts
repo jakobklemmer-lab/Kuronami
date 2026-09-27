@@ -7,11 +7,13 @@ import {
   ZUSATZ_DOMAENEN,
 } from "../context/bedienstete.js";
 import { redactText } from "../runtime/redaction/redact.js";
+import { nurEigeneServer } from "./abschottung.js";
 import { crvVermerk } from "./crv.js";
 import { FRAGE_TEAM_TOOL, createHandelstisch } from "./handelstisch.js";
 import { createJournal } from "./journal.js";
 import { CRV_TOOL, KURSE_TOOLS, createKurse } from "./kurse.js";
 import { createLabor } from "./labor.js";
+import type { Lehrbuch } from "./lehren.js";
 import type { Papierhandel } from "./papierhandel.js";
 import { createLesePostfach } from "./postfach-werkzeuge.js";
 import { konten } from "./postfach.js";
@@ -51,6 +53,8 @@ export interface HausDeps {
   papier?: Papierhandel;
   /** Das Prognosebuch — der Chefanalyst legt seine Einzelideen darin ab. */
   prognosen?: Prognosenbuch;
+  /** Die freigegebenen Lehren — sie stehen im Prompt des Chefanalysten (`lehren.ts`). */
+  lehren?: Lehrbuch;
   /** Damit die Oberfläche anzeigen kann, wer gerade arbeitet. */
   onArbeitet?(wer: string, auftrag: string): void;
   onFertig?(wer: string, kostenUsd: number, dauerMs: number): void;
@@ -377,6 +381,9 @@ async function fuehreAus(
 
   const zusatz = ZUSATZ_DOMAENEN[wer];
   const akte = wer === "boerse" && deps.prognosen ? await akteAnhang(deps.prognosen, wer) : "";
+  // Die Lehren **nicht** im Zwischenspeicher der Akte: eine Freigabe soll schon im nächsten
+  // Auftrag gelten, nicht erst in einer Viertelstunde. Sie zu lesen kostet ein Verzeichnis.
+  const lehren = wer === "boerse" && deps.lehren ? await deps.lehren.anhang(wer) : "";
 
   try {
     for await (const nachricht of query({
@@ -384,9 +391,10 @@ async function fuehreAus(
       options: {
         cwd: WERKSTATT,
         // Der Bedienstete bekommt **seinen** Prompt, nicht Kuros. Er ist kein Butler.
-        systemPrompt: { type: "custom", prompt: person.prompt + akte },
+        systemPrompt: { type: "custom", prompt: person.prompt + akte + lehren },
         model: person.model,
         abortController: abbruch,
+        ...nurEigeneServer(),
         // Werkzeuge und Sandkasten in einem: `sandkastenOptionen` entscheidet auch, ob dieser
         // Lauf Bash bekommt — trägt der Sandkasten auf diesem Rechner nicht, fliegt es aus dem
         // Katalog, statt ungeschützt als root zu laufen. Siehe `sandkasten.ts`.
@@ -411,7 +419,7 @@ async function fuehreAus(
         ...(wer === "boerse"
           ? {
               mcpServers: {
-                kurse: createKurse(),
+                kurse: createKurse({ werkstatt: WERKSTATT }),
                 // Derselbe Server, aber **nur lesend**: der Chefanalyst soll wissen, was offen
                 // ist und was die Regeln sagen, bevor er eine Idee vorlegt. Eintragen soll er
                 // nicht — eine Analyse, die nebenbei Zeilen anlegt, hat niemand bestellt.
@@ -430,6 +438,7 @@ async function fuehreAus(
                 }),
                 tisch: createHandelstisch({
                   ...(deps.strategien ? { strategien: deps.strategien } : {}),
+                  ...(deps.lehren ? { lehren: deps.lehren } : {}),
                   ...(deps.papier ? { papier: deps.papier } : {}),
                   onArbeitet: (wen, frage) => {
                     console.log(`[tisch] ${wen}: ${redactText(frage.slice(0, 80))}`);

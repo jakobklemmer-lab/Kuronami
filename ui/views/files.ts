@@ -11,13 +11,19 @@ function formatSize(bytes: number | null): string {
   return `${bytes} B`;
 }
 
-/** Dateien und Notizen — der Bereich, auf den der Pfeil der „Quick Notes"-Karte zeigt. Seit dem
- * 2026-09-16 echt: Artefakte aus `kuronami.artifacts` (`GET /integrations/files`) und die Notizen
- * des Langzeitgedächtnisses (`GET /integrations/notes`). */
+/**
+ * Dateien und Notizen.
+ *
+ * Bis 2026-09-26 zwei Glasflächen ohne Überschrift untereinander: oben „zuletzt geändert", wo
+ * Gedächtnisnotizen und Artefakte gemischt mit ihren vollen Pfaden standen
+ * (`artifact://sess_19eee6da-…/artifact_00d45f17-…`), unten dieselben Notizen noch einmal mit
+ * Auszug. Jetzt zwei benannte Abschnitte: die **Notizen** aus dem Gedächtnis mit ihrem Auszug,
+ * und die **Ablage** — nur die Artefakte, mit Größe. Der Pfad steht im Tooltip, nicht im Bild.
+ */
 export const filesView: View = {
   mount(container, ctx: ViewContext) {
     container.innerHTML = `
-      <div class="detail-view">
+      <div class="detail-view detail-view--schmal">
         <header class="detail-view__head">
           ${icon("files", { className: "detail-view__icon" })}
           <div>
@@ -25,42 +31,56 @@ export const filesView: View = {
             <p class="detail-view__subtitle" data-role="subtitle">Lädt …</p>
           </div>
         </header>
-        <section class="detail-panel glass">
-          <ul class="detail-list" data-role="files"></ul>
+        <section class="ablage">
+          <h2 class="ablage__titel">Notizen <span data-role="notes-zahl"></span></h2>
+          <p class="ablage__unter">Was Kuro sich gemerkt hat.</p>
+          <div class="detail-panel glass"><ul class="detail-list" data-role="notes"></ul></div>
         </section>
-        <section class="detail-panel glass">
-          <ul class="detail-list" data-role="notes"></ul>
+        <section class="ablage">
+          <h2 class="ablage__titel">Ablage <span data-role="files-zahl"></span></h2>
+          <p class="ablage__unter">Was Kuro und das Personal bei der Arbeit abgelegt haben.</p>
+          <div class="detail-panel glass"><ul class="detail-list" data-role="files"></ul></div>
         </section>
       </div>
     `;
 
     const filesEl = container.querySelector<HTMLElement>('[data-role="files"]');
     const notesEl = container.querySelector<HTMLElement>('[data-role="notes"]');
+    const filesZahlEl = container.querySelector<HTMLElement>('[data-role="files-zahl"]');
+    const notesZahlEl = container.querySelector<HTMLElement>('[data-role="notes-zahl"]');
     const subtitleEl = container.querySelector<HTMLElement>('[data-role="subtitle"]');
+    let notizen: number | null = null;
+    let artefakte: number | null = null;
+    const untertitel = (): void => {
+      if (!subtitleEl || notizen === null || artefakte === null) return;
+      subtitleEl.textContent = `${notizen} Notiz${notizen === 1 ? "" : "en"} und ${artefakte} abgelegte Datei${artefakte === 1 ? "" : "en"}`;
+    };
 
     void ctx.api
       .get<FilesData>("/integrations/files")
       .then((data) => {
-        if (subtitleEl) subtitleEl.textContent = `${data.files.length} zuletzt geändert`;
+        // Notizen stehen oben mit ihrem Auszug; hier nur, was keine Notiz ist.
+        const liste = data.files.filter((entry) => entry.kind !== "note");
+        artefakte = liste.length;
+        untertitel();
+        if (filesZahlEl) filesZahlEl.textContent = String(liste.length);
         if (!filesEl) return;
-        if (data.files.length === 0) {
+        if (liste.length === 0) {
           filesEl.innerHTML =
-            '<li class="field__hint">Noch keine Dateien. Artefakte des Assistenten und Notizen landen hier.</li>';
+            '<li class="detail-list__leer">Noch nichts abgelegt. Ergebnisse, die Kuro oder das Personal speichern, erscheinen hier.</li>';
           return;
         }
-        filesEl.innerHTML = data.files
+        filesEl.innerHTML = liste
           .map(
             (entry) => `
-              <li>
+              <li title="${escapeHtml(entry.path)}">
                 <div class="detail-list__row">
-                  ${icon(entry.kind === "note" ? "book" : "artifact")}
-                  <div>
+                  ${icon("artifact")}
+                  <div class="detail-list__text">
                     <p class="detail-list__title">${escapeHtml(entry.name)}</p>
-                    <p class="detail-list__body">${escapeHtml(entry.path)}${
-                      entry.sizeBytes !== null ? ` · ${formatSize(entry.sizeBytes)}` : ""
-                    }</p>
+                    ${entry.sizeBytes !== null ? `<p class="detail-list__body">${formatSize(entry.sizeBytes)}</p>` : ""}
                   </div>
-                  <span class="detail-list__meta" style="margin-left:auto">${escapeHtml(formatRelativeTime(entry.modifiedAt))}</span>
+                  <span class="detail-list__meta">${escapeHtml(formatRelativeTime(entry.modifiedAt))}</span>
                 </div>
               </li>
             `,
@@ -68,17 +88,23 @@ export const filesView: View = {
           .join("");
       })
       .catch((error) => {
-        if (subtitleEl) {
-          subtitleEl.textContent = error instanceof Error ? error.message : String(error);
+        if (filesEl) {
+          filesEl.innerHTML = `<li class="detail-list__leer">${escapeHtml(
+            error instanceof Error ? error.message : String(error),
+          )}</li>`;
         }
       });
 
     void ctx.api
       .get<NotesData>("/integrations/notes")
       .then((data) => {
+        notizen = data.notes.length;
+        untertitel();
+        if (notesZahlEl) notesZahlEl.textContent = String(data.notes.length);
         if (!notesEl) return;
         if (data.notes.length === 0) {
-          notesEl.innerHTML = '<li class="field__hint">Noch keine Notizen im Gedächtnis.</li>';
+          notesEl.innerHTML =
+            '<li class="detail-list__leer">Noch keine Notizen im Gedächtnis.</li>';
           return;
         }
         notesEl.innerHTML = data.notes
@@ -89,7 +115,7 @@ export const filesView: View = {
                   <p class="detail-list__title">${escapeHtml(note.title)}</p>
                   <span class="detail-list__meta">${escapeHtml(formatRelativeTime(note.updatedAt))}</span>
                 </div>
-                <p class="detail-list__body">${escapeHtml(note.excerpt)}</p>
+                ${note.excerpt ? `<p class="detail-list__body detail-list__auszug">${escapeHtml(note.excerpt)}</p>` : ""}
               </li>
             `,
           )
@@ -97,7 +123,7 @@ export const filesView: View = {
       })
       .catch((error) => {
         if (notesEl) {
-          notesEl.innerHTML = `<li class="field__hint">${escapeHtml(
+          notesEl.innerHTML = `<li class="detail-list__leer">${escapeHtml(
             error instanceof Error ? error.message : String(error),
           )}</li>`;
         }

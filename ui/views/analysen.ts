@@ -1,6 +1,8 @@
 import { icon } from "../icons.js";
-import { formatRelativeTime } from "./format.js";
+import { merkeChartAbsicht } from "../markets/watchlist.js";
+import { gruppiereNachTag } from "./format.js";
 import { escapeHtml } from "./html.js";
+import { mountLehren } from "./lehren.js";
 import { renderMarkdown } from "./markdown.js";
 import type { View, ViewContext } from "./types.js";
 
@@ -68,7 +70,7 @@ function ohneDoppelteUeberschrift(bericht: string, titel: string): string {
 export const analysenView: View = {
   mount(container, ctx: ViewContext) {
     container.innerHTML = `
-      <div class="detail-view">
+      <div class="detail-view detail-view--archiv">
         <header class="detail-view__head">
           ${icon("analysen", { className: "detail-view__icon" })}
           <div>
@@ -76,12 +78,11 @@ export const analysenView: View = {
             <p class="detail-view__subtitle" data-role="subtitle">Lädt …</p>
           </div>
         </header>
+        <section class="lehren" aria-label="Lehren des Handelstischs" data-role="lehren"></section>
         <div class="analysen">
-          <section class="analysen__liste glass">
-            <ul class="detail-list" data-role="liste"></ul>
-          </section>
+          <section class="analysen__liste glass" aria-label="Analysen" data-role="liste"></section>
           <section class="analysen__blatt glass" data-role="blatt">
-            <p class="field__hint">Links eine Analyse wählen.</p>
+            <p class="analysen__leer">Links eine Analyse wählen.</p>
           </section>
         </div>
       </div>
@@ -98,33 +99,39 @@ export const analysenView: View = {
       if (!listeEl) return;
       if (koepfe.length === 0) {
         listeEl.innerHTML =
-          '<li class="field__hint">Noch nichts abgelegt. Sobald der Handelstisch oder die Recherche einen Bericht liefert, steht er hier.</li>';
+          '<p class="analysen__leer">Noch nichts abgelegt. Sobald der Handelstisch oder die Recherche einen Bericht liefert, steht er hier.</p>';
         return;
       }
-      listeEl.innerHTML = koepfe
+      const uhrzeit = (iso: string): string =>
+        new Date(iso).toLocaleTimeString("de-DE", { hour: "2-digit", minute: "2-digit" });
+      listeEl.innerHTML = gruppiereNachTag(koepfe, (k) => k.zeit)
         .map(
-          (k) => `
-            <li>
-              <button class="analysen__eintrag${k.id === offen ? " ist-aktiv" : ""}" data-id="${escapeHtml(k.id)}">
-                <div class="detail-list__head">
-                  <p class="detail-list__title">${escapeHtml(k.titel)}</p>
-                  <span class="detail-list__meta">${escapeHtml(formatRelativeTime(k.zeit))}</span>
-                </div>
-                <p class="detail-list__body">
-                  ${escapeHtml(k.wer)}${k.zuarbeit.length > 0 ? ` · ${escapeHtml(k.zuarbeit.join(", "))}` : ""}
-                  ${k.hatIdee ? '<span class="analysen__marke">Idee</span>' : ""}
-                  ${
-                    k.crvGerechnet === undefined
-                      ? ""
-                      : k.crvGerechnet
-                        ? '<span class="analysen__marke ist-gerechnet" title="Das Chance-Risiko-Verhältnis wurde gerechnet, nicht geschätzt.">CRV gerechnet</span>'
-                        : '<span class="analysen__marke ist-geschaetzt" title="Der Bericht nennt ein Chance-Risiko-Verhältnis, ohne es zu rechnen.">CRV geschätzt</span>'
-                  }
-                  ${k.status !== "offen" ? `<span class="analysen__marke ist-${escapeHtml(k.status)}">${escapeHtml(STATUS_LABEL[k.status])}</span>` : ""}
-                </p>
-              </button>
-            </li>
-          `,
+          (g) => `
+            <h3 class="analysen__gruppe">${escapeHtml(g.titel)}</h3>
+            <ul class="analysen__eintraege">
+              ${g.eintraege
+                .map(
+                  (k) => `
+                    <li>
+                      <button class="analysen__eintrag${k.id === offen ? " ist-aktiv" : ""}" data-id="${escapeHtml(k.id)}"
+                              aria-pressed="${k.id === offen}">
+                        <span class="analysen__titel">${escapeHtml(k.titel)}</span>
+                        <span class="analysen__unter">
+                          <span>${escapeHtml(uhrzeit(k.zeit))}${k.zuarbeit.length > 0 ? ` · mit ${escapeHtml(k.zuarbeit.join(", "))}` : ""}</span>
+                          ${
+                            k.crvGerechnet === undefined
+                              ? ""
+                              : k.crvGerechnet
+                                ? '<span class="analysen__marke ist-gerechnet" title="Das Chance-Risiko-Verhältnis wurde gerechnet, nicht geschätzt.">CRV gerechnet</span>'
+                                : '<span class="analysen__marke ist-geschaetzt" title="Der Bericht nennt ein Chance-Risiko-Verhältnis, ohne es zu rechnen.">CRV geschätzt</span>'
+                          }
+                          ${k.status !== "offen" ? `<span class="analysen__marke ist-${escapeHtml(k.status)}">${escapeHtml(STATUS_LABEL[k.status])}</span>` : ""}
+                        </span>
+                      </button>
+                    </li>`,
+                )
+                .join("")}
+            </ul>`,
         )
         .join("");
     };
@@ -133,14 +140,17 @@ export const analysenView: View = {
       if (!blattEl) return;
       blattEl.innerHTML = `
         <header class="analysen__kopf">
+          ${a.hatIdee ? '<span class="analysen__status-marke ist-idee">Handelbare Idee</span>' : ""}
           <h2>${escapeHtml(a.titel)}</h2>
-          <p class="detail-list__meta">
-            ${escapeHtml(a.wer)} · ${escapeHtml(new Date(a.zeit).toLocaleString("de-AT"))} ·
-            ${escapeHtml(dauer(a.dauerMs))}${a.zuarbeit.length > 0 ? ` · zugearbeitet: ${escapeHtml(a.zuarbeit.join(", "))}` : ""}
+          <p class="analysen__meta">
+            ${escapeHtml(new Date(a.zeit).toLocaleString("de-DE", { weekday: "long", day: "numeric", month: "long", hour: "2-digit", minute: "2-digit" }))}
+            · von ${escapeHtml(a.wer)}${a.zuarbeit.length > 0 ? ` mit ${escapeHtml(a.zuarbeit.join(", "))}` : ""}
+            · ${escapeHtml(dauer(a.dauerMs))}
           </p>
+          <div class="analysen__chart" data-role="chart-bezug"></div>
         </header>
-        <details class="analysen__auftrag">
-          <summary>Auftrag</summary>
+        <details class="analysen__mehr analysen__auftrag">
+          <summary>Der Auftrag</summary>
           <p>${escapeHtml(a.auftrag)}</p>
         </details>
         <article class="analysen__bericht markdown">${renderMarkdown(ohneDoppelteUeberschrift(a.bericht, a.titel))}</article>
@@ -151,7 +161,7 @@ export const analysenView: View = {
                  ${a.beitraege
                    .map(
                      (b) => `
-                       <details>
+                       <details class="analysen__mehr">
                          <summary>${escapeHtml(b.wer)}</summary>
                          <p class="analysen__frage">${escapeHtml(b.frage)}</p>
                          <div class="markdown">${renderMarkdown(b.antwort)}</div>
@@ -163,11 +173,12 @@ export const analysenView: View = {
             : ""
         }
         <footer class="analysen__fuss">
+          <h3>Ihre Entscheidung</h3>
           <div class="analysen__status" role="group" aria-label="Status">
             ${(["offen", "gehandelt", "verworfen"] as const)
               .map(
                 (s) =>
-                  `<button class="analysen__wahl${a.status === s ? " ist-aktiv" : ""}" data-status="${s}">${STATUS_LABEL[s]}</button>`,
+                  `<button class="analysen__wahl${a.status === s ? " ist-aktiv" : ""}" data-status="${s}" aria-pressed="${a.status === s}">${STATUS_LABEL[s]}</button>`,
               )
               .join("")}
           </div>
@@ -204,6 +215,7 @@ export const analysenView: View = {
           if (!status) return;
           for (const anderer of blattEl.querySelectorAll(".analysen__wahl")) {
             anderer.classList.toggle("ist-aktiv", anderer === knopf);
+            anderer.setAttribute("aria-pressed", String(anderer === knopf));
           }
           a.status = status as Analyse["status"];
           sichere({ status });
@@ -222,18 +234,58 @@ export const analysenView: View = {
       });
     };
 
+    /**
+     * „Im Chart zeigen" (2026-09-27): nur, wenn der Lauf dieser Analyse etwas mit Symbol
+     * abgelegt hat — eine Idee, eine Strategie — oder der Titel ein eindeutiges Kürzel trägt.
+     * Geraten wird nicht; ohne Bezug gibt es den Knopf nicht.
+     */
+    const zeigeChartBezug = async (id: string): Promise<void> => {
+      try {
+        const bezug = await ctx.api.get<{
+          symbol: string | null;
+          prognosen: string[];
+          strategien: string[];
+        }>(`/integrations/analysen/${encodeURIComponent(id)}/bezug`);
+        const ziel = blattEl?.querySelector<HTMLElement>('[data-role="chart-bezug"]');
+        if (verworfen || offen !== id || !ziel || !bezug.symbol) return;
+        const was = [
+          bezug.prognosen.length > 0
+            ? `${bezug.prognosen.length === 1 ? "die Idee" : `${bezug.prognosen.length} Ideen`}`
+            : "",
+          bezug.strategien.length > 0
+            ? `${bezug.strategien.length === 1 ? "die Strategie" : `${bezug.strategien.length} Strategien`}`
+            : "",
+        ].filter(Boolean);
+        ziel.innerHTML = `<button type="button" class="analysen__chart-knopf">${icon("trading")} Im Chart zeigen</button>
+          <span class="analysen__chart-was">${escapeHtml(bezug.symbol)}${was.length > 0 ? ` · ${escapeHtml(was.join(" und "))} darauf` : ""}</span>`;
+        ziel.querySelector("button")?.addEventListener("click", () => {
+          merkeChartAbsicht({
+            symbol: bezug.symbol as string,
+            ...(bezug.strategien[0] ? { strategie: bezug.strategien[0] } : {}),
+            ...(bezug.prognosen[0] ? { prognose: bezug.prognosen[0] } : {}),
+          });
+          ctx.navigate("trading");
+        });
+      } catch {
+        // Kein Bezug abrufbar — dann eben kein Knopf.
+      }
+    };
+
     const oeffne = (id: string): void => {
       offen = id;
       zeichneListe();
-      if (blattEl) blattEl.innerHTML = '<p class="field__hint">Lädt …</p>';
+      if (blattEl) blattEl.innerHTML = '<p class="analysen__leer">Lädt …</p>';
       void ctx.api
         .get<Analyse>(`/integrations/analysen/${id}`)
         .then((a) => {
-          if (!verworfen && offen === id) zeichneBlatt(a);
+          if (!verworfen && offen === id) {
+            zeichneBlatt(a);
+            void zeigeChartBezug(a.id);
+          }
         })
         .catch((fehler) => {
           if (blattEl) {
-            blattEl.innerHTML = `<p class="field__hint">${escapeHtml(
+            blattEl.innerHTML = `<p class="analysen__leer">${escapeHtml(
               fehler instanceof Error ? fehler.message : String(fehler),
             )}</p>`;
           }
@@ -259,8 +311,17 @@ export const analysenView: View = {
                 : `${koepfe.length} abgelegt, davon ${ideen} mit handelbarer Idee`;
           }
           zeichneListe();
-          // Beim Aufschlagen gleich die jüngste zeigen — man kommt hierher, um zu lesen.
-          if (offen === null && koepfe.length > 0) oeffne(koepfe[0].id);
+          // Beim Aufschlagen gleich die jüngste zeigen — man kommt hierher, um zu lesen. Kommt
+          // man aus den Märkten, die dort gewählte.
+          let gewuenscht: string | null = null;
+          try {
+            gewuenscht = globalThis.sessionStorage?.getItem("kuronami.analysen.oeffne") ?? null;
+            globalThis.sessionStorage?.removeItem("kuronami.analysen.oeffne");
+          } catch {
+            gewuenscht = null;
+          }
+          if (gewuenscht && koepfe.some((k) => k.id === gewuenscht)) oeffne(gewuenscht);
+          else if (offen === null && koepfe.length > 0) oeffne(koepfe[0].id);
         })
         .catch((fehler) => {
           if (untertitelEl) {
@@ -270,6 +331,8 @@ export const analysenView: View = {
     };
 
     lade();
+    const lehrenEl = container.querySelector<HTMLElement>('[data-role="lehren"]');
+    const lehrenWeg = lehrenEl ? mountLehren(lehrenEl, ctx) : () => undefined;
 
     // Kommt eine neue Analyse herein, während die Liste offen ist, erscheint sie von selbst.
     const abbestellen = ctx.bus.onMessage((rahmen) => {
@@ -279,6 +342,7 @@ export const analysenView: View = {
     return () => {
       verworfen = true;
       abbestellen();
+      lehrenWeg();
     };
   },
 };

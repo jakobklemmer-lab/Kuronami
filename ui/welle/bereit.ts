@@ -49,6 +49,7 @@ export function verfolge(api: ApiClient): Verfolgt {
       get: (pfad) => zaehle(api.get(pfad)),
       post: (pfad, koerper) => zaehle(api.post(pfad, koerper)),
       patch: (pfad, koerper) => zaehle(api.patch(pfad, koerper)),
+      put: (pfad, koerper) => zaehle(api.put(pfad, koerper)),
       delete: (pfad) => zaehle(api.delete(pfad)),
     },
     bereit({ ruheMs = 60, hoechstensMs = 700 } = {}) {

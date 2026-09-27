@@ -387,13 +387,20 @@ export function mountWelle(opt: WelleOptionen): void {
   });
   // Eine neue Antwort, eine Rückfrage oder eine Tafel öffnen das Blatt wieder — wer es
   // geschlossen hat, wollte die letzte nicht mehr sehen, nicht die nächste.
-  let zuletztGesehen = "";
+  // Was beim Laden schon im Verlauf steht (er kommt aus dem Seitenspeicher), gilt als gesehen.
+  // Bis 2026-09-26 begann der Vergleich bei „nichts": der erste Abgleich mit dem Gateway meldete
+  // denselben Verlauf noch einmal, und Kuros letzte Antwort — auch eine Stunden alte — legte sich
+  // nach jedem Neuladen über den Bereich. Aufgehen soll das Blatt für das, was neu ist: eine
+  // Antwort, eine Rückfrage, eine Tafel.
+  const abdruckVon = (): string => {
+    const letzte = gespraech.verlauf.eintraege.at(-1);
+    return letzte ? `${letzte.id}:${letzte.rueckfrage?.askId ?? ""}:${letzte.tafeln.length}` : "";
+  };
+  let zuletztGesehen = abdruckVon();
   gespraech.abonniere((s) => {
     if (s.art !== "verlauf") return;
     const letzte = gespraech.verlauf.eintraege.at(-1);
-    const abdruck = letzte
-      ? `${letzte.id}:${letzte.rueckfrage?.askId ?? ""}:${letzte.tafeln.length}`
-      : "";
+    const abdruck = abdruckVon();
     if (abdruck !== zuletztGesehen && letzte?.von === "kuro") {
       zuletztGesehen = abdruck;
       blattGeschlossen = false;

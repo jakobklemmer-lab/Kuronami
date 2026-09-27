@@ -2,6 +2,7 @@ import { createApiClient } from "../api/client.js";
 import { holeLage } from "../auth/anmeldung.js";
 import { resolveBackendOrigin } from "../backend-origin.js";
 import { createEventBus } from "../events/bus.js";
+import { meldeAlarme } from "../markets/alarm-melden.js";
 import { createMicStateStore } from "../mic/state.js";
 import { oberflaecheZiel } from "../oberflaeche.js";
 import { loadToken, saveToken } from "../settings.js";
@@ -55,6 +56,7 @@ function toaster(el: HTMLElement): (text: string) => void {
 function starteWelle(backend: ReturnType<typeof resolveBackendOrigin>): void {
   const toast = toaster(element("w-toast"));
   const bus = createEventBus({ url: backend.ws });
+  meldeAlarme(bus, toast);
 
   // Läuft die Sitzung ab, antwortet jeder Aufruf mit 401. Dann kommt die Tür zurück — einmal,
   // nicht einmal je Tafel.
@@ -98,6 +100,7 @@ function starteWelle(backend: ReturnType<typeof resolveBackendOrigin>): void {
   const stimme = createVoiceController({
     mic,
     url: () => loadSettings().speech.endpoint ?? backend.voiceWs,
+    sprechtaste: () => loadSettings().speech.sprechtaste,
     token: () => loadSettings().speech.sessionToken ?? sprachToken,
     notify: toast,
     // Was Jakob sagt, steht als seine Frage im Gespräch; Kuros Antwort kommt über den Strom.

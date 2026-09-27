@@ -23,9 +23,12 @@
   overflow-y: auto;
   margin-left: var(--p-nav);
   padding: 28px 32px 28px 8px;
-  font-weight: 300;
-  font-size: 14px;
-  line-height: 1.5;
+  font-weight: 400;
+  font-size: var(--text-md);
+  line-height: 1.55;
+  /* Was in einer Ansicht haftet (Postliste, Archivlisten), bleibt so weit vom Rand. */
+  --haft-oben: 12px;
+  --haft-unten: 24px;
 }
 
 /* --------------------------------------------------------------------- */

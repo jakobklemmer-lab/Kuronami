@@ -62,16 +62,23 @@
   --pad: 20px;
   --page-x: 28px;
 
-  /* Typstufen, an der Vorlage abgenommen. */
-  --text-2xl: 30px;
-  --text-xl: 21px;
-  --text-lg: 16px;
-  --text-md: 14px;
-  --text-sm: 13px;
-  --text-xs: 12px;
-  --text-2xs: 11px;
+  /* Typstufen. Seit 2026-09-26 eine Stufe größer und in Figtree statt Manrope: die dünnen
+     Schnitte auf dem Foto waren schwer zu lesen, und Jakob mochte die Schrift nicht. */
+  --text-2xl: 32px;
+  --text-xl: 20px;
+  --text-lg: 17px;
+  --text-md: 15px;
+  --text-sm: 13.5px;
+  --text-xs: 12.5px;
+  --text-2xs: 11.5px;
 
-  --font-ui: "Inter", "Segoe UI", system-ui, -apple-system, sans-serif;
+  /* Wie breit eine Seite höchstens wird, mit zweiter Spalte und ohne. */
+  --seite-max: 1280px;
+  --seite-schmal: 940px;
+
+  --bg-hover: rgba(237, 240, 245, 0.05);
+
+  --font-ui: "Figtree", "Helvetica Neue", system-ui, -apple-system, sans-serif;
   --font-mono: "JetBrains Mono", "Cascadia Mono", ui-monospace, "SF Mono", monospace;
 
   --motion-fast: 140ms;

@@ -834,9 +834,27 @@ export function createLabor(deps: LaborDeps = {}) {
       // Gemessen wird an der ersten Zeile: dem Original am Heimatmarkt. Alles danach ist eine
       // Bedingung, die der Stratege nicht ausgesucht hat.
       const urteilDavon = urteile(ergebnisse, ergebnisse[0]?.erwartungswertR);
-      return text(formatiereGegenprobe(eintrag.name, ergebnisse, urteilDavon));
+      const tabelle = formatiereGegenprobe(eintrag.name, ergebnisse, urteilDavon);
+      // Am Eintrag vermerken: daraus lernt der Stratege (`lehren.ts`). Ein Fehler beim Schreiben
+      // nimmt dem Prüfer nicht sein Ergebnis.
+      await deps.strategien
+        .aendere(id, {
+          gegenprobe: {
+            am: new Date().toISOString(),
+            einstufung: urteilDavon.einstufung,
+            tragfaehig: urteilDavon.tragfaehig,
+            gepruefte: urteilDavon.gepruefte,
+            ...(urteilDavon.behaltenMedian !== undefined
+              ? { behaltenMedian: urteilDavon.behaltenMedian }
+              : {}),
+            maerkte: maerkte ?? [],
+            tabelle,
+          },
+        })
+        .catch(() => undefined);
+      return text(tabelle);
     },
-    { annotations: { title: "Strategie gegenprüfen", readOnlyHint: true } },
+    { annotations: { title: "Strategie gegenprüfen" } },
   );
 
   /**

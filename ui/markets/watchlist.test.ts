@@ -34,3 +34,15 @@ describe("removeSymbol/hasSymbol", () => {
     expect(hasSymbol(["AAPL"], "MSFT")).toBe(false);
   });
 });
+
+describe("chartSymbolFuer", () => {
+  it("macht aus Labor-Symbolen Yahoo-Symbole und sagt, wenn der Handelsplatz ein anderer ist", async () => {
+    const { chartSymbolFuer } = await import("./watchlist.js");
+    expect(chartSymbolFuer("^GDAXI")).toEqual({ symbol: "^GDAXI", anderePlattform: false });
+    expect(chartSymbolFuer("yahoo:gc=f")).toEqual({ symbol: "GC=F", anderePlattform: false });
+    expect(chartSymbolFuer("binance:BTCUSDT")).toEqual({
+      symbol: "BTC-USD",
+      anderePlattform: true,
+    });
+  });
+});

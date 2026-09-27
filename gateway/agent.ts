@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { mkdir, open, readFile, stat, writeFile } from "node:fs/promises";
+import { mkdir, open, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import path from "node:path";
 import {
@@ -9,14 +9,25 @@ import {
   type SDKRateLimitInfo,
   query,
 } from "@anthropic-ai/claude-agent-sdk";
+import { BEDIENSTETE, HANDELSTISCH } from "../context/bedienstete.js";
 import { KURO_PERSONA } from "../context/persona.js";
 import { redactText } from "../runtime/redaction/redact.js";
 import { type AboGrenzen, createAboGrenzen } from "./abo.js";
+import { nurEigeneServer } from "./abschottung.js";
 import { type AnalysenArchiv, createAnalysen } from "./analysen.js";
 import { BUEHNE_TOOLS, createBuehne } from "./buehne.js";
+import { schreibeEinmal } from "./einmal.js";
+import {
+  ARCHIV_TOOL,
+  type ArchivErgebnis,
+  type Gespraechsarchiv,
+  createGedaechtnis,
+  createGespraechsarchiv,
+} from "./gespraeche.js";
 import { HAUS_TOOLS, createHaus } from "./haus.js";
 import { createYahooMarkets } from "./integrations/markets.js";
 import { createKerzenquelle } from "./kerzen.js";
+import { type Lehrbuch, createLehren } from "./lehren.js";
 import { type Papierhandel, createPapierhandel } from "./papierhandel.js";
 import { createSendePostfach } from "./postfach-werkzeuge.js";
 import { konten } from "./postfach.js";
@@ -72,6 +83,8 @@ const ALLOWED_WITHOUT_ASKING = [
   "Write",
   ...HAUS_TOOLS,
   ...BUEHNE_TOOLS,
+  // Nur lesend, nur im eigenen Archiv — dafür muss niemand gefragt werden.
+  ARCHIV_TOOL,
 ];
 
 /**
@@ -253,6 +266,11 @@ export class KuroAgent {
   /** Der Betrieb: geprüfte Regeln gegen den laufenden Markt, mit Buchgeld. */
   readonly #papier: Papierhandel;
   readonly #prognosen: Prognosenbuch;
+  /** Was der Handelstisch aus seinen benoteten Ideen gelernt hat — und was davon gilt. */
+  readonly #lehren: Lehrbuch;
+  /** Kuros frühere Gespräche, nach Tagen — und die Übergabe an das jeweils nächste. */
+  readonly #gespraeche: Gespraechsarchiv;
+  readonly #gedaechtnis: ReturnType<typeof createGedaechtnis>;
   /** Die Bühne: womit Kuro Jakob etwas hinstellt. */
   readonly #buehne: ReturnType<typeof createBuehne>;
   /** Wohin ein nachgereichter Bericht geht: dorthin, wo zuletzt jemand geschrieben hat. */
@@ -309,10 +327,43 @@ export class KuroAgent {
           return geholt.kerzen;
         },
       });
+    // Die Nachbetrachtung schreibt der Chefanalyst selbst — mit seinem Modell, aber in einem
+    // eigenen Lauf ohne Werkzeuge: zurückschauen, nicht nachschlagen (`einmal.ts`).
+    this.#lehren = createLehren({
+      workdir: this.#workdir,
+      prognosen: this.#prognosen,
+      strategien: this.#strategien,
+      schreibe: (system, prompt, wer) =>
+        schreibeEinmal({
+          wer,
+          wofuer: "nachbetrachtung",
+          system,
+          prompt,
+          model: (HANDELSTISCH[wer] ?? BEDIENSTETE[wer] ?? BEDIENSTETE.boerse)?.model,
+          cwd: this.#workdir,
+          onVerbrauch: (posten) => this.#bucheVerbrauch(posten),
+        }),
+    });
+    // Die Übergabe schreibt dasselbe Modell, das Kuro ist — sie ist das, was er morgen weiß.
+    this.#gespraeche = createGespraechsarchiv({
+      workdir: this.#workdir,
+      schreibe: (system, prompt) =>
+        schreibeEinmal({
+          wer: "kuro",
+          wofuer: "uebergabe",
+          system,
+          prompt,
+          model: deps.model ?? process.env.KURO_MODEL?.trim(),
+          cwd: this.#workdir,
+          onVerbrauch: (posten) => this.#bucheVerbrauch(posten),
+        }),
+    });
+    this.#gedaechtnis = createGedaechtnis(this.#gespraeche);
     this.#haus = createHaus({
       strategien: this.#strategien,
       papier: this.#papier,
       prognosen: this.#prognosen,
+      lehren: this.#lehren,
       // Auch die Protokollzeile läuft durch den Filter: der Auftragstext trägt alles weiter,
       // was Jakob vorher geschrieben hat, und journalctl bewahrt es auf.
       //
@@ -373,6 +424,53 @@ export class KuroAgent {
 
   get papier(): Papierhandel {
     return this.#papier;
+  }
+
+  get prognosen(): Prognosenbuch {
+    return this.#prognosen;
+  }
+
+  get lehren(): Lehrbuch {
+    return this.#lehren;
+  }
+
+  get gespraeche(): Gespraechsarchiv {
+    return this.#gespraeche;
+  }
+
+  /**
+   * Das laufende Gespräch archivieren und das nächste frisch beginnen (`gespraeche.ts`).
+   *
+   * Läuft **in der Schlange der Züge**: kein Zug schreibt in eine Sitzung, die gerade abgelegt
+   * wird, und keiner beginnt, bevor die Übergabe steht. Wartet eine Rückfrage auf Antwort oder
+   * arbeitet ein Bediensteter noch, wird verschoben — sein Bericht gehört ins alte Gespräch,
+   * und die Frage ist eine, die Jakob gerade vor sich hat.
+   *
+   * Scheitert die Übergabe, wirft `archiviere`, und Kuro bleibt in seiner Sitzung.
+   */
+  archiviereGespraech(
+    anlass: string,
+  ): Promise<
+    | { status: "archiviert"; ergebnis: ArchivErgebnis }
+    | { status: "spaeter" | "leer"; grund: string }
+  > {
+    const lauf = this.#laufend.then(async () => {
+      const id = this.#sessionId;
+      if (!id) return { status: "leer" as const, grund: "Es läuft kein Gespräch." };
+      if (this.#offen || this.#stapel)
+        return { status: "spaeter" as const, grund: "Eine Rückfrage oder Nachricht ist offen." };
+      if (this.#haus.laufende().length > 0)
+        return { status: "spaeter" as const, grund: "Ein Bediensteter arbeitet noch." };
+      const datei = path.join(verlaufsOrdner(this.#workdir), `${id}.jsonl`);
+      const ergebnis = await this.#gespraeche.archiviere(id, datei, anlass);
+      this.#sessionId = null;
+      this.#kontext = null;
+      await rm(path.join(this.#workdir, SITZUNGSDATEI), { force: true });
+      this.#deps.publish?.("gespraech.archiviert", { ...ergebnis, anlass });
+      return { status: "archiviert" as const, ergebnis };
+    });
+    this.#laufend = lauf.catch(() => undefined);
+    return lauf;
   }
 
   /** Das Verbrauchsbuch — die System-Seite liest daraus. */
@@ -533,9 +631,16 @@ export class KuroAgent {
           // Ein **eigener** Prompt statt des `claude_code`-Presets. Der Preset brachte rund
           // 44.000 Token Programmieranleitung mit, die bei jeder Nachricht mitliefen — auch
           // bei „wie ist das Wetter" — und die den Butler-Ton übertönten. Siehe persona.ts.
-          systemPrompt: { type: "custom", prompt: KURO_PERSONA },
+          // Dahinter die Übergabe aus dem letzten Gespräch — fest im Prompt, nicht als Hinweis
+          // auf eine Datei: den übergeht er, wenn er gerade etwas anderes vorhat.
+          systemPrompt: {
+            type: "custom",
+            prompt: KURO_PERSONA + (await this.#gespraeche.uebergabeAbschnitt()),
+          },
           // Lädt CLAUDE.md aus dem Arbeitsbereich — Kuros Hausregeln.
           settingSources: ["project"],
+          // Keine Connectoren aus Jakobs claude.ai-Konto — siehe `abschottung.ts`.
+          ...nurEigeneServer(),
           allowedTools: ALLOWED_WITHOUT_ASKING,
           disallowedTools: NICHT_FUER_EINEN_BUTLER,
           // Das Gesindehaus als ein einzelnes Werkzeug. Die Bediensteten selbst laufen
@@ -544,6 +649,7 @@ export class KuroAgent {
           mcpServers: {
             haus: this.#haus.server,
             buehne: this.#buehne,
+            gedaechtnis: this.#gedaechtnis,
             // Der Versand liegt bei Kuro, nicht beim Sekretär — und steht bewusst **nicht**
             // in `ALLOWED_WITHOUT_ASKING`. Er fragt also vor jeder Mail, die hinausgeht.
             ...(konten().length > 0 ? { versand: createSendePostfach() } : {}),

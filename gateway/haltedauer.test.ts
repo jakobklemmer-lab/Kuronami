@@ -116,9 +116,9 @@ describe("dauerText", () => {
   it("nennt die Spanne so, wie ein Mensch sie sagt", () => {
     expect(dauerText(600)).toBe("10 Min");
     expect(dauerText(3600)).toBe("60 Min");
-    expect(dauerText(5 * 3600)).toBe("5.0 Std");
-    expect(dauerText(3 * TAG)).toBe("3.0 Tage");
-    expect(dauerText(90 * TAG)).toBe("3.0 Monate");
+    expect(dauerText(5 * 3600)).toBe("5,0 Std");
+    expect(dauerText(3 * TAG)).toBe("3,0 Tage");
+    expect(dauerText(90 * TAG)).toBe("3,0 Monate");
     expect(dauerText(Number.NaN)).toBe("unbekannt");
   });
 });

@@ -1,4 +1,7 @@
 import { icon } from "../icons.js";
+import { anzeigeName } from "../markets/format.js";
+import { merkeChartAbsicht } from "../markets/watchlist.js";
+import { formatAnteil, formatR, formatTagKurz, formatZahl, kerzenName } from "./format.js";
 import { escapeHtml } from "./html.js";
 import type { View, ViewContext } from "./types.js";
 
@@ -11,10 +14,16 @@ import type { View, ViewContext } from "./types.js";
  * Geld. Bis dahin ist das hier die Stelle, an der er entscheidet, was dafür überhaupt in Frage
  * kommt.
  *
- * Deshalb zeigt die Liste zuerst die Zahlen, die eine Strategie tragen oder nicht tragen:
- * Anzahl Handel, Trefferquote, Erwartungswert in R, Sharpe — und den Status, den **die
- * Rechnung** vergeben hat, nicht der Analyst. Die Vorbehalte stehen oben im Blatt, nicht unten:
- * wer eine Strategie freigibt, soll sie gelesen haben.
+ * Die Liste ist nach dem Status geteilt, den **die Rechnung** vergeben hat, nicht der Analyst:
+ * Kandidaten oben, Verworfenes gedämpft unten. Jede Zeile nennt den Erwartungswert in R und
+ * worauf er steht, dazu die Übertragbarkeit — auch wenn sie fehlt.
+ *
+ * Das Blatt (seit 2026-09-26 neu geordnet — Jakob fühlte sich „mit Informationen erschlagen"):
+ * fünf Kennzahlen groß, die übrigen klein, **direkt darunter die Vorbehalte**, noch vor allem
+ * anderen. Vorher standen die Vorbehalte als Kasten über den Zahlen, elf gleich große Kennzahlen
+ * darunter und der Prüfbericht in Schreibmaschinenschrift aufgeklappt am Ende; jetzt liest man
+ * erst, was gerechnet wurde, gleich danach, warum man ihm nicht trauen sollte. Regel und
+ * Prüfbericht im Wortlaut sind zugeklappt — sie wiederholen, was darüber steht.
  */
 
 interface Kennzahlen {
@@ -93,19 +102,49 @@ const STATUS_LABEL: Record<Status, string> = {
   verworfen: "Verworfen",
 };
 
-function prozent(wert: number): string {
-  return `${wert.toFixed(1)} %`;
+/** In dieser Reihenfolge stehen die Gruppen der Liste: was in Frage kommt, zuerst. */
+export const STATUS_REIHE: readonly Status[] = ["kandidat", "geprueft", "entwurf", "verworfen"];
+
+/** Die Reihenfolge der Wahl im Blatt: der Weg einer Strategie, vom Entwurf bis zum Urteil. */
+const STATUS_WEG: readonly Status[] = ["entwurf", "geprueft", "kandidat", "verworfen"];
+
+const GRUPPEN_TITEL: Record<Status, string> = {
+  kandidat: "Kandidaten",
+  geprueft: "Geprüft",
+  entwurf: "Entwürfe",
+  verworfen: "Verworfen",
+};
+
+/**
+ * Die Liste nach Status geteilt, Kandidaten oben, Verworfenes unten. Innerhalb einer Gruppe
+ * bleibt die Reihenfolge, in der das Archiv sie liefert. Leere Gruppen fallen weg.
+ */
+export function gruppiereNachStatus<T extends { status: Status }>(
+  koepfe: readonly T[],
+): Array<{ status: Status; titel: string; eintraege: T[] }> {
+  return STATUS_REIHE.map((status) => ({
+    status,
+    titel: GRUPPEN_TITEL[status],
+    eintraege: koepfe.filter((k) => k.status === status),
+  })).filter((g) => g.eintraege.length > 0);
 }
 
-function kurz(k: Kennzahlen | null): string {
+/** Die Zeile unter dem Namen: der Erwartungswert und worauf er steht. Nie die Trefferquote
+ * allein — sie ist bei Jakobs Ziel die gefährlichste Zahl. */
+export function kurz(k: Kennzahlen | null): string {
   if (!k || k.anzahl === 0) return "ohne Prüfung";
-  return `${k.anzahl} Handel · ${(k.trefferquote * 100).toFixed(0)} % · ${k.erwartungswertR.toFixed(2)} R · Sharpe ${k.sharpe.toFixed(2)}`;
+  return `${formatR(k.erwartungswertR)} je Handel · ${k.anzahl} Handel`;
+}
+
+/** Der Markt, wie man ihn nennt („S&P 500"); unbekannte Kürzel bleiben Kürzel. */
+function marktName(symbol: string): string {
+  return anzeigeName(symbol, "");
 }
 
 export const strategienView: View = {
   mount(container, ctx: ViewContext) {
     container.innerHTML = `
-      <div class="detail-view">
+      <div class="detail-view detail-view--archiv">
         <header class="detail-view__head">
           ${icon("strategien", { className: "detail-view__icon" })}
           <div>
@@ -114,11 +153,9 @@ export const strategienView: View = {
           </div>
         </header>
         <div class="analysen">
-          <section class="analysen__liste glass">
-            <ul class="detail-list" data-role="liste"></ul>
-          </section>
+          <section class="analysen__liste glass" aria-label="Strategien" data-role="liste"></section>
           <section class="analysen__blatt glass" data-role="blatt">
-            <p class="field__hint">Links eine Strategie wählen.</p>
+            <p class="analysen__leer">Links eine Strategie wählen.</p>
           </section>
         </div>
       </div>
@@ -136,102 +173,115 @@ export const strategienView: View = {
       if (!listeEl) return;
       if (koepfe.length === 0) {
         listeEl.innerHTML = `
-          <li class="detail-list__leer">
+          <div class="analysen__leer">
             <p>Noch keine Strategie geprüft.</p>
-            <p class="field__hint">Der Handelstisch legt hier ab, was er gerechnet hat —
-            fragen Sie Kuro nach einer Strategie für einen Wert, den Sie handeln.</p>
-          </li>`;
+            <p>Der Handelstisch legt hier ab, was er gerechnet hat — fragen Sie Kuro nach einer
+            Strategie für einen Wert, den Sie handeln.</p>
+          </div>`;
         return;
       }
-      listeEl.innerHTML = koepfe
+      listeEl.innerHTML = gruppiereNachStatus(koepfe)
         .map(
-          (k) => `
-            <li>
-              <button class="analysen__eintrag${k.id === offen ? " ist-aktiv" : ""}" data-id="${escapeHtml(k.id)}">
-                <div class="detail-list__head">
-                  <p class="detail-list__title">${escapeHtml(k.name)}</p>
-                  <span class="detail-list__meta">${escapeHtml(k.symbol)}</span>
-                </div>
-                <p class="detail-list__body">
-                  ${escapeHtml(kurz(k.kennzahlen))}
-                  <span class="analysen__marke ist-${escapeHtml(k.status)}">${STATUS_LABEL[k.status]}</span>
-                  ${k.warnungen > 0 ? `<span class="analysen__marke ist-geschaetzt">${k.warnungen} Vorbehalt${k.warnungen === 1 ? "" : "e"}</span>` : ""}
-                  ${uebertragbarkeitsMarke(k.symbol, k.universum)}
-                </p>
-              </button>
-            </li>
-          `,
+          (g) => `
+            <h3 class="analysen__gruppe">${g.titel}<span>${g.eintraege.length}</span></h3>
+            <ul class="analysen__eintraege${g.status === "verworfen" ? " ist-verworfen" : ""}">
+              ${g.eintraege
+                .map(
+                  (k) => `
+                    <li>
+                      <button class="analysen__eintrag${k.id === offen ? " ist-aktiv" : ""}" data-id="${escapeHtml(k.id)}"
+                              aria-pressed="${k.id === offen}">
+                        <span class="analysen__titel">${escapeHtml(k.name)}</span>
+                        <span class="analysen__unter">
+                          <span>${escapeHtml(marktName(k.symbol))} · ${escapeHtml(kurz(k.kennzahlen))}</span>
+                          ${uebertragbarkeitsMarke(k.symbol, k.universum)}
+                        </span>
+                      </button>
+                    </li>`,
+                )
+                .join("")}
+            </ul>`,
         )
         .join("");
     };
 
-    const kennzahlenTabelle = (k: Kennzahlen): string =>
-      `
+    /**
+     * Die Kennzahlen in zwei Stufen: fünf, auf die es ankommt, groß — der Erwartungswert zuerst,
+     * die Trefferquote nie ohne ihn —, der Rest klein darunter. Vorher standen alle elf gleich
+     * groß in einem Raster, und man suchte.
+     */
+    const kennzahlen = (k: Kennzahlen): string => `
       <dl class="strategie__zahlen">
-        <div><dt>Nettoergebnis</dt><dd>${prozent(k.gesamtrenditeProzent)}</dd></div>
+        <div class="ist-haupt"><dt>Erwartungswert</dt><dd>${formatR(k.erwartungswertR)}</dd></div>
+        <div><dt>Trefferquote</dt><dd>${formatAnteil(k.trefferquote * 100)}</dd></div>
+        <div><dt>Sharpe</dt><dd>${formatZahl(k.sharpe)}</dd></div>
+        <div><dt>Max. Rückschlag</dt><dd>${formatAnteil(k.maxDrawdownProzent)}</dd></div>
         <div><dt>Handel</dt><dd>${k.anzahl}</dd></div>
-        <div><dt>Trefferquote</dt><dd>${prozent(k.trefferquote * 100)}</dd></div>
-        <div><dt>Erwartungswert</dt><dd>${k.erwartungswertR.toFixed(2)} R</dd></div>
-        <div><dt>Profitfaktor</dt><dd>${Number.isFinite(k.profitFaktor) ? k.profitFaktor.toFixed(2) : "∞"}</dd></div>
-        <div><dt>Max. Rückschlag</dt><dd>${prozent(k.maxDrawdownProzent)}</dd></div>
-        <div><dt>Sharpe</dt><dd>${k.sharpe.toFixed(2)}</dd></div>
-        <div><dt>Sortino</dt><dd>${k.sortino.toFixed(2)}</dd></div>
-        <div><dt>Gewinn ⌀</dt><dd>${k.durchschnittGewinnR.toFixed(2)} R</dd></div>
-        <div><dt>Verlust ⌀</dt><dd>${k.durchschnittVerlustR.toFixed(2)} R</dd></div>
-        <div><dt>Verlustserie</dt><dd>${k.laengsteVerlustserie}</dd></div>
+      </dl>
+      <dl class="strategie__nebenzahlen">
+        <div><dt>Nettoergebnis</dt><dd>${formatAnteil(k.gesamtrenditeProzent)}</dd></div>
+        <div><dt>Profitfaktor</dt><dd>${formatZahl(k.profitFaktor)}</dd></div>
+        <div><dt>Sortino</dt><dd>${formatZahl(k.sortino)}</dd></div>
+        <div><dt>Gewinn ⌀</dt><dd>${formatR(k.durchschnittGewinnR)}</dd></div>
+        <div><dt>Verlust ⌀</dt><dd>${formatR(k.durchschnittVerlustR)}</dd></div>
+        <div><dt>Längste Verlustserie</dt><dd>${k.laengsteVerlustserie}</dd></div>
       </dl>`;
 
     /**
      * Der Betrieb: läuft die Regel schon gegen den laufenden Markt?
      *
-     * Bewusst zwischen Kennzahlen und Regel und nicht ganz unten: wer hier steht, will wissen,
-     * ob etwas läuft, bevor er die Regel liest. „Kandidat" heißt geprüft — der Schritt in den
-     * Papierhandel ist trotzdem eine eigene Entscheidung, und zwar Jakobs.
+     * „Kandidat" heißt geprüft — der Schritt in den Papierhandel ist trotzdem eine eigene
+     * Entscheidung, und zwar Jakobs. Solange eine Strategie kein Kandidat ist, reicht ein Satz;
+     * vorher stand bei jeder derselbe Absatz.
      */
     const betriebsblock = (e: StrategieEintrag): string => {
       const konto = konten.find((k) => k.strategieId === e.id);
       if (!konto) {
         if (e.status !== "kandidat") {
-          return `<p class="field__hint">Im Papierhandel läuft das nicht — dafür braucht es den
-            Status „Kandidat", also eine Regel, die auch im ungesehenen Zeitraum getragen hat.</p>`;
+          return `<p class="strategie__notiz">Papierhandel erst ab dem Status „Kandidat" — also
+            wenn die Regel auch im ungesehenen Zeitraum getragen hat.</p>`;
         }
         return `
-          <div class="strategie__betrieb">
-            <p class="field__hint">Noch nicht im Betrieb. Der Papierhandel führt die Regel als
-            Code gegen den laufenden Markt aus — mit Buchgeld, ohne Broker, und er sperrt sich
-            selbst bei 20 % Rückschlag, sechs Verlusten in Folge oder wenn er hinter dem
-            Backtest zurückbleibt.</p>
-            <button class="field__button" type="button" data-role="papier-start">In den Papierhandel geben</button>
-            <span class="field__status" data-role="papier-status"></span>
-          </div>`;
+          <section class="strategie__abschnitt strategie__betrieb">
+            <h3>Papierhandel</h3>
+            <p>Noch nicht im Betrieb. Der Papierhandel führt die Regel als Code gegen den
+            laufenden Markt aus — mit Buchgeld, ohne Broker. Er sperrt sich selbst bei 20 %
+            Rückschlag, sechs Verlusten in Folge oder wenn er hinter dem Backtest zurückbleibt.</p>
+            <div class="strategie__knoepfe">
+              <button class="field__button field__button--haupt" type="button" data-role="papier-start">In den Papierhandel geben</button>
+              <span class="field__status" data-role="papier-status"></span>
+            </div>
+          </section>`;
       }
       const summeR = konto.handel.reduce((a, h) => a + h.r, 0);
       const treffer = konto.handel.filter((h) => h.r > 0).length;
       const lage = konto.gesperrt
         ? `<strong>Gesperrt.</strong> ${escapeHtml(konto.sperrgrund ?? "")}`
         : konto.offen
-          ? `Eine Position offen (${escapeHtml(konto.offen.richtung)} ab ${konto.offen.einstieg.toFixed(2)}, Stop ${konto.offen.stop.toFixed(2)}).`
+          ? `Eine Position offen (${escapeHtml(konto.offen.richtung)} ab ${formatZahl(konto.offen.einstieg)}, Stop ${formatZahl(konto.offen.stop)}).`
           : konto.wartetAufEinstieg
             ? "Signal erkannt — Einstieg zur nächsten Eröffnung."
             : "Läuft, gerade ohne Position.";
       return `
-        <div class="strategie__betrieb${konto.gesperrt ? " ist-gesperrt" : ""}">
-          <h3>Papierhandel seit ${escapeHtml(konto.seit.slice(0, 10))}</h3>
+        <section class="strategie__abschnitt strategie__betrieb${konto.gesperrt ? " ist-gesperrt" : ""}">
+          <h3>Papierhandel seit ${escapeHtml(formatTagKurz(konto.seit.slice(0, 10)))}</h3>
           <p>${lage}</p>
-          <p class="field__hint">
+          <p class="strategie__notiz">
             ${konto.handel.length} abgeschlossene Handel${
               konto.handel.length > 0
-                ? ` · ${((treffer / konto.handel.length) * 100).toFixed(0)} % Treffer · ${(summeR / konto.handel.length).toFixed(2)} R je Handel
-                   (Backtest: ${konto.erwartetR.toFixed(2)} R)`
+                ? ` · ${formatAnteil((treffer / konto.handel.length) * 100, 0)} Treffer · ${formatR(summeR / konto.handel.length)} je Handel
+                   (Backtest: ${formatR(konto.erwartetR)})`
                 : ""
             } · zuletzt geprüft ${escapeHtml(new Date(konto.zuletztGeprueft).toLocaleString("de-AT"))}
           </p>
-          <button class="field__button" type="button" data-role="papier-sperre">
-            ${konto.gesperrt ? "Wieder freigeben" : "Sperren"}
-          </button>
-          <button class="field__button" type="button" data-role="papier-ende">Beenden</button>
-          <span class="field__status" data-role="papier-status"></span>
-        </div>`;
+          <div class="strategie__knoepfe">
+            <button class="field__button" type="button" data-role="papier-sperre">
+              ${konto.gesperrt ? "Wieder freigeben" : "Sperren"}
+            </button>
+            <button class="field__button" type="button" data-role="papier-ende">Beenden</button>
+            <span class="field__status" data-role="papier-status"></span>
+          </div>
+        </section>`;
     };
 
     /**
@@ -248,78 +298,83 @@ export const strategienView: View = {
       // worauf die Regel beschränkt ist, und genau das ist hier die Kennzeichnung.
       const text =
         u.einstufung === "einzelfall"
-          ? `nur ${escapeHtml(symbol)}`
+          ? `nur ${escapeHtml(marktName(symbol))}`
           : `${UEBERTRAGBARKEIT_LABEL[u.einstufung]} · ${u.maerkte} Märkte`;
       return `<span class="analysen__marke ist-${u.einstufung}" title="${escapeHtml(u.begruendung)}">${text}</span>`;
     };
 
+    const uebertragbarkeit = (e: StrategieEintrag): string => {
+      const u = e.universum;
+      if (!u) {
+        return `
+          <section class="strategie__abschnitt strategie__universum ist-offen">
+            <h3>Übertragbarkeit nicht gerechnet</h3>
+            <p>Die Zahlen stammen aus genau einem Markt. Ob die Regel ein Mechanismus ist oder an
+            diesen einen Verlauf angepasst, ist damit offen.</p>
+          </section>`;
+      }
+      const titel =
+        u.einstufung === "einzelfall"
+          ? `Einzelfall — läuft nur in ${escapeHtml(marktName(e.symbol))}`
+          : `Über ${u.maerkte} Märkte: ${UEBERTRAGBARKEIT_LABEL[u.einstufung]}`;
+      return `
+        <section class="strategie__abschnitt strategie__universum ist-${u.einstufung}">
+          <h3>${titel}</h3>
+          <p>${escapeHtml(u.begruendung)}${
+            u.einstufung === "einzelfall"
+              ? ` Das schließt sie nicht aus — sie ist dann eine Regel für ${escapeHtml(marktName(e.symbol))}, keine allgemeine.`
+              : ""
+          }</p>
+        </section>`;
+    };
+
     const zeichneBlatt = (e: StrategieEintrag): void => {
       if (!blattEl) return;
+      const markt = marktName(e.symbol);
       blattEl.innerHTML = `
         <header class="analysen__kopf">
+          <span class="analysen__status-marke ist-${escapeHtml(e.status)}">${STATUS_LABEL[e.status]}</span>
           <h2>${escapeHtml(e.name)}</h2>
-          <p class="detail-list__meta">
-            ${escapeHtml(e.symbol)} · ${escapeHtml(e.intervall)} · ${escapeHtml(e.von)} bis ${escapeHtml(e.bis)} ·
-            geprüft von ${escapeHtml(e.wer)}
+          <p class="analysen__meta">
+            ${escapeHtml(markt)}${markt !== e.symbol ? ` <span class="analysen__kuerzel">${escapeHtml(e.symbol)}</span>` : ""}
+            · ${escapeHtml(kerzenName(e.intervall))}
+            · ${escapeHtml(formatTagKurz(e.von))} bis ${escapeHtml(formatTagKurz(e.bis))}
+            · geprüft von ${escapeHtml(e.wer)}
           </p>
+          <div class="analysen__chart">
+            <button type="button" class="analysen__chart-knopf" data-role="im-chart">${icon("trading")} Im Chart zeigen</button>
+            <span class="analysen__chart-was">jeder Handel der Regel auf ${escapeHtml(markt)}, neu gerechnet — dazu, was seit der Ablage geschah</span>
+          </div>
         </header>
+        ${e.kennzahlen ? kennzahlen(e.kennzahlen) : ""}
         ${
           e.warnungstexte.length > 0
-            ? `<div class="strategie__vorbehalte">
-                 <h3>Vorbehalte</h3>
+            ? `<section class="strategie__abschnitt strategie__vorbehalte">
+                 <h3>${e.warnungstexte.length === 1 ? "Ein Vorbehalt" : `${e.warnungstexte.length} Vorbehalte`} aus der Rechnung</h3>
                  <ul>${e.warnungstexte.map((w) => `<li>${escapeHtml(w)}</li>`).join("")}</ul>
-               </div>`
-            : '<p class="field__hint">Keine Vorbehalte aus der Rechnung.</p>'
+               </section>`
+            : '<p class="strategie__notiz">Keine Vorbehalte aus der Rechnung.</p>'
         }
-        ${e.kennzahlen ? kennzahlenTabelle(e.kennzahlen) : ""}
-        ${
-          e.universum
-            ? `<div class="strategie__universum ist-${e.universum.einstufung}">
-                 <h3>${
-                   e.universum.einstufung === "einzelfall"
-                     ? `Einzelfall — läuft nur in ${escapeHtml(e.symbol)}`
-                     : `Über ${e.universum.maerkte} Märkte: ${UEBERTRAGBARKEIT_LABEL[e.universum.einstufung]}`
-                 }</h3>
-                 <p>${escapeHtml(e.universum.begruendung)}</p>
-                 ${
-                   e.universum.einstufung === "einzelfall"
-                     ? `<p>Das schließt sie nicht aus — eine Regel darf an ein Produkt gebunden
-                          sein. Sie ist dann aber eine Regel für ${escapeHtml(e.symbol)} und
-                          keine allgemeine, und nur so gehört sie eingesetzt.</p>`
-                     : ""
-                 }
-               </div>`
-            : `<div class="strategie__universum ist-offen">
-                 <h3>Übertragbarkeit nicht gerechnet</h3>
-                 <p>
-                   Diese Zahlen stammen aus genau einem Markt. Ob die Regel ein Mechanismus ist
-                   oder eine Anpassung an diesen einen Verlauf, ist damit offen — nicht beantwortet.
-                 </p>
-               </div>`
-        }
+        ${uebertragbarkeit(e)}
         ${betriebsblock(e)}
-        <details class="analysen__auftrag">
+        <details class="analysen__mehr">
           <summary>Die Regel</summary>
           <pre class="strategie__regel">${escapeHtml(JSON.stringify(e.strategie, null, 2))}</pre>
         </details>
-        <details class="analysen__auftrag" open>
-          <summary>Prüfbericht</summary>
+        <details class="analysen__mehr">
+          <summary>Prüfbericht im Wortlaut</summary>
           <pre class="strategie__bericht">${escapeHtml(e.bericht)}</pre>
         </details>
         <footer class="analysen__fuss">
+          <h3>Ihre Entscheidung</h3>
           <div class="analysen__status" role="group" aria-label="Status">
-            ${(["entwurf", "geprueft", "kandidat", "verworfen"] as const)
-              .map(
-                (s) =>
-                  `<button class="analysen__wahl${e.status === s ? " ist-aktiv" : ""}" data-status="${s}">${STATUS_LABEL[s]}</button>`,
-              )
-              .join("")}
+            ${STATUS_WEG.map(
+              (s) =>
+                `<button class="analysen__wahl${e.status === s ? " ist-aktiv" : ""}" data-status="${s}" aria-pressed="${e.status === s}">${STATUS_LABEL[s]}</button>`,
+            ).join("")}
           </div>
-          <p class="field__hint">
-            Den Status vergibt die Rechnung; hier überschreiben Sie ihn bewusst. „Kandidat“
-            heißt geprüft und im ungesehenen Zeitraum bestanden — nicht, dass etwas läuft.
-            Eine Anbindung an einen Broker gibt es nicht.
-          </p>
+          <p class="strategie__notiz">Den Status vergibt die Rechnung — hier überschreiben Sie ihn
+            bewusst. Eine Anbindung an einen Broker gibt es nicht.</p>
           <label class="field">
             <span class="field__label">Notiz</span>
             <textarea class="field__input" rows="3" data-role="notiz"
@@ -328,6 +383,11 @@ export const strategienView: View = {
           <p class="field__hint" data-role="gemerkt"></p>
         </footer>
       `;
+
+      blattEl.querySelector('[data-role="im-chart"]')?.addEventListener("click", () => {
+        merkeChartAbsicht({ symbol: e.symbol, strategie: e.id });
+        ctx.navigate("trading");
+      });
 
       const gemerkt = blattEl.querySelector<HTMLElement>('[data-role="gemerkt"]');
       const sage = (t: string): void => {
@@ -353,6 +413,7 @@ export const strategienView: View = {
           if (!status) return;
           for (const anderer of blattEl.querySelectorAll(".analysen__wahl")) {
             anderer.classList.toggle("ist-aktiv", anderer === knopf);
+            anderer.setAttribute("aria-pressed", String(anderer === knopf));
           }
           e.status = status as Status;
           sichere({ status });
@@ -430,7 +491,7 @@ export const strategienView: View = {
     const oeffne = (id: string): void => {
       offen = id;
       zeichneListe();
-      if (blattEl) blattEl.innerHTML = '<p class="field__hint">Lädt …</p>';
+      if (blattEl) blattEl.innerHTML = '<p class="analysen__leer">Lädt …</p>';
       void ctx.api
         .get<StrategieEintrag>(`/integrations/strategien/${id}`)
         .then((e) => {
@@ -438,7 +499,7 @@ export const strategienView: View = {
         })
         .catch((fehler) => {
           if (blattEl) {
-            blattEl.innerHTML = `<p class="field__hint">${escapeHtml(
+            blattEl.innerHTML = `<p class="analysen__leer">${escapeHtml(
               fehler instanceof Error ? fehler.message : String(fehler),
             )}</p>`;
           }
@@ -468,7 +529,9 @@ export const strategienView: View = {
               : `${koepfe.length} abgelegt, davon ${kandidaten} Kandidat${kandidaten === 1 ? "" : "en"}`;
         }
         zeichneListe();
-        if (offen === null && koepfe.length > 0) oeffne(koepfe[0].id);
+        // Aufgeschlagen wird, was oben in der Liste steht — nicht, was das Archiv zuerst liefert.
+        const erste = gruppiereNachStatus(koepfe)[0]?.eintraege[0];
+        if (offen === null && erste) oeffne(erste.id);
       })
       .catch((fehler) => {
         if (untertitelEl) {

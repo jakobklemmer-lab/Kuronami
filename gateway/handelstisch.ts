@@ -2,9 +2,11 @@ import { createSdkMcpServer, query, tool } from "@anthropic-ai/claude-agent-sdk"
 import { z } from "zod";
 import { HANDELSTISCH, type HandelstischName, WERKSTATT } from "../context/bedienstete.js";
 import { redactText } from "../runtime/redaction/redact.js";
+import { nurEigeneServer } from "./abschottung.js";
 import { crvVermerk } from "./crv.js";
 import { CRV_TOOL, createKurse } from "./kurse.js";
 import { createLabor } from "./labor.js";
+import type { Lehrbuch } from "./lehren.js";
 import type { Papierhandel } from "./papierhandel.js";
 import { sandkastenOptionen } from "./sandkasten.js";
 import type { StrategienArchiv } from "./strategien.js";
@@ -42,6 +44,8 @@ const BUDGET_STRATEGE = Number(process.env.KURO_BUDGET_STRATEGE_USD ?? 2.5);
 export interface HandelstischDeps {
   /** Das Strategie-Archiv — ohne es fehlen dem Strategen die Ablage-Werkzeuge. */
   strategien?: StrategienArchiv;
+  /** Die freigegebenen Lehren — der Stratege bekommt seine in den Prompt (`lehren.ts`). */
+  lehren?: Lehrbuch;
   /**
    * Der Papierhandel. Die Spezialisten dürfen **zusehen**, nicht starten: wer eine Strategie
    * in den Betrieb gibt, hat sie selbst geprüft — und genau das soll hier getrennt bleiben.
@@ -109,8 +113,12 @@ export function createHandelstisch(deps: HandelstischDeps = {}) {
           prompt: frage,
           options: {
             cwd: WERKSTATT,
-            systemPrompt: { type: "custom", prompt: person.prompt },
+            systemPrompt: {
+              type: "custom",
+              prompt: person.prompt + (deps.lehren ? await deps.lehren.anhang(wen) : ""),
+            },
             model: person.model,
+            ...nurEigeneServer(),
             ...sandkastenOptionen(wen, person.tools, person.disallowedTools),
             // Kursdaten aus erster Hand statt durch ein Zusammenfassungsmodell — der Grund,
             // warum eine Chartanalyse am 2026-09-20 volle 279 Sekunden brauchte, lag hier.

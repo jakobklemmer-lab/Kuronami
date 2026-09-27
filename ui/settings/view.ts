@@ -10,6 +10,7 @@ import type { View, ViewContext } from "../views/types.js";
 import {
   type KuronamiSettings,
   type RiskLevel,
+  istSprachAdresse,
   loadSettings,
   settingsBus,
   updateSettingsSection,
@@ -56,6 +57,11 @@ function currentAccent(): string {
   return value.length > 0 ? value : "#61a0c9";
 }
 
+/**
+ * Hier stand bis 2026-09-26 auch ein Schalter „Theme" (Dunkel / Folgt System). Er setzte
+ * `data-theme`, und keine Regel las es — er änderte nichts. Beide Oberflächen sind dunkel
+ * gebaut; ein Schalter, der eine helle behauptet, ist schlimmer als keiner.
+ */
 function renderAppearance(settings: KuronamiSettings): string {
   return `
     <section class="settings-section" aria-labelledby="section-appearance-title">
@@ -68,14 +74,6 @@ function renderAppearance(settings: KuronamiSettings): string {
           <option value="modern" ${settings.appearance.oberflaeche === "modern" ? "selected" : ""}>Modern</option>
         </select>
         <p class="field__hint">Standard ist die Präsenz mit Leiste und Karten, Modern die Welle mit dem Film. Der Wechsel lädt die Seite neu.</p>
-      </div>
-
-      <div class="field">
-        <label class="field__label" for="setting-theme">Theme</label>
-        <select class="field__control" id="setting-theme" data-role="theme">
-          <option value="dark" ${settings.appearance.theme === "dark" ? "selected" : ""}>Dunkel</option>
-          <option value="system" ${settings.appearance.theme === "system" ? "selected" : ""}>Folgt Systemeinstellung</option>
-        </select>
       </div>
 
       <div class="field">
@@ -217,7 +215,7 @@ function renderApiKeys(): string {
         (field) => `
           <div class="field">
             <label class="field__label" for="setting-key-${field.key}">${field.label}</label>
-            <input class="field__control" id="setting-key-${field.key}" type="password" autocomplete="off"
+            <input class="field__control" id="setting-key-${field.key}" type="password" ${KEIN_PASSWORT}
               placeholder="Noch nicht geladen" data-role="api-key-input" data-key="${field.key}" disabled />
             <p class="field__hint" data-role="api-key-hint-${field.key}"></p>
           </div>
@@ -286,6 +284,31 @@ function renderMcp(): string {
   `;
 }
 
+/**
+ * Kein Feld hier ist eine Anmeldung, aber Chrome rät danach: ein Textfeld vor einem
+ * Passwortfeld gilt ihm als Benutzername + Passwort. Am 2026-09-27 standen so der Benutzername
+ * der Oberfläche in „Sprachprozess" und ihr Passwort im Sitzungs-Token — die Sprachschicht war
+ * „unter jakob nicht erreichbar". `autocomplete="off"` allein reicht Chrome bei
+ * Passwortfeldern nicht; `new-password` sagt ihm, dass hier kein gespeichertes hingehört. Die
+ * `data-*`-Schalter gelten den gängigen Passwortverwaltern.
+ */
+const KEIN_AUSFUELLEN =
+  'autocomplete="off" spellcheck="false" data-lpignore="true" data-1p-ignore data-bwignore';
+const KEIN_PASSWORT =
+  'autocomplete="new-password" data-lpignore="true" data-1p-ignore data-bwignore';
+
+/** Hat der Browser das Feld selbst befüllt? Dann ist der Wert nicht vom Nutzer. */
+function vomBrowserEingesetzt(input: HTMLInputElement): boolean {
+  for (const auswahl of [":autofill", ":-webkit-autofill"]) {
+    try {
+      if (input.matches(auswahl)) return true;
+    } catch {
+      // Unbekannte Pseudoklasse in diesem Browser — die andere fragen.
+    }
+  }
+  return false;
+}
+
 function renderSpeech(settings: KuronamiSettings): string {
   const endpoint = settings.speech.endpoint ?? "";
   const token = settings.speech.sessionToken ?? "";
@@ -294,14 +317,19 @@ function renderSpeech(settings: KuronamiSettings): string {
       <h2 class="settings-section__title" id="section-speech-title">Sprache</h2>
       <div class="field">
         <label class="field__label" for="setting-voice-endpoint">Sprachprozess</label>
-        <input class="field__control" id="setting-voice-endpoint" type="text" value="${endpoint}" placeholder="Automatisch" data-role="voice-endpoint" />
+        <input class="field__control" id="setting-voice-endpoint" type="text" ${KEIN_AUSFUELLEN} value="${endpoint}" placeholder="Automatisch" data-role="voice-endpoint" />
         <p class="field__hint">Der Pipecat-Prozess aus <code>voice/</code> (S30). Leer = automatisch: hinter dem Reverse-Proxy <code>wss://voice.&lt;diese Domain&gt;</code>, sonst <code>ws://&lt;dieser Host&gt;:8790</code>.</p>
       </div>
       <div class="field">
         <label class="field__label" for="setting-voice-token">Sitzungs-Token (VOICE_SESSION_TOKEN)</label>
-        <input class="field__control" id="setting-voice-token" type="password" autocomplete="off" value="${token}" placeholder="Automatisch" data-role="voice-token" />
+        <input class="field__control" id="setting-voice-token" type="password" ${KEIN_PASSWORT} value="${token}" placeholder="Automatisch" data-role="voice-token" />
         <p class="field__hint">Leer = der Gateway liefert ihn aus seiner <code>.env</code>; nichts einzutragen ist der Normalfall. Ein Wert hier überstimmt ihn — nicht derselbe wie der Verbindungs-Token unter System: der gehört dem Gateway, dieser dem Sprachprozess.</p>
         <span class="field__status" data-role="voice-status"></span>
+      </div>
+      <div class="field field--row">
+        <label class="field__label" for="setting-sprechtaste">Nur zuhören, solange die Leertaste gedrückt ist</label>
+        <input class="field__control" id="setting-sprechtaste" type="checkbox" ${settings.speech.sprechtaste ? "checked" : ""} data-role="sprechtaste" />
+        <p class="field__hint">Kuro hört dann nichts, was nebenbei läuft — Videos, Musik, seine eigene Stimme. Aus: das Mikrofon ist offen, solange die Sprachschicht läuft. Auf dem Telefon ist es immer offen.</p>
       </div>
       <div class="field field--row">
         <label class="field__label" for="setting-barge-in">Barge-in (unterbrechen während der Wiedergabe)</label>
@@ -337,7 +365,7 @@ function renderSystem(): string {
       </div>
       <div class="field">
         <label class="field__label" for="setting-token">Verbindungs-Token (GATEWAY_WEB_TOKEN)</label>
-        <input class="field__control" id="setting-token" type="password" autocomplete="off" value="${token}" placeholder="Token einfügen" />
+        <input class="field__control" id="setting-token" type="password" ${KEIN_PASSWORT} value="${token}" placeholder="Token einfügen" />
         <p class="field__hint">Für <code>/runs</code> und <code>/channels/web/*</code> am Gateway — in <code>localStorage</code> dieses Browserprofils, nie an Kuronami selbst gerichtet. Nach einer Anmeldung steht hier das Sitzungsticket; es läuft ab, der Betreiber-Token nicht.</p>
         <span class="field__status" data-role="token-status"></span>
       </div>
@@ -377,7 +405,14 @@ export const settingsView: View = {
     const section = ctx.section ?? "appearance";
     const settings = loadSettings();
 
+    // Mit Kopf wie jede andere Ansicht. Die Welle setzte ihn bis 2026-09-26 selbst davor, weil
+    // es hier keinen gab; jetzt benennt sie ihn nur um, wie bei allen Bereichen.
     container.innerHTML = `
+      <div class="detail-view detail-view--schmal">
+      <header class="detail-view__head">
+        ${icon("settings", { className: "detail-view__icon" })}
+        <div><h1 class="detail-view__title">Settings</h1></div>
+      </header>
       <div class="settings-view">
         <nav class="settings-nav" aria-label="Einstellungsabschnitte">
           ${SETTINGS_SECTION_IDS.map(
@@ -391,6 +426,7 @@ export const settingsView: View = {
         <div class="settings-content glass" data-role="content">
           ${SECTION_RENDER[section](settings)}
         </div>
+      </div>
       </div>
     `;
 
@@ -444,13 +480,6 @@ export const settingsView: View = {
       }
     });
 
-    container.querySelector('[data-role="theme"]')?.addEventListener("change", (event) => {
-      const value = (event.target as HTMLSelectElement)
-        .value as KuronamiSettings["appearance"]["theme"];
-      const next = updateSettingsSection("appearance", { theme: value });
-      settingsBus.emit(next);
-    });
-
     container.querySelector('[data-role="accent"]')?.addEventListener("change", (event) => {
       const value = (event.target as HTMLInputElement).value;
       const next = updateSettingsSection("appearance", { accentOverride: value });
@@ -475,6 +504,14 @@ export const settingsView: View = {
     const tokenInput = container.querySelector<HTMLInputElement>("#setting-token");
     const tokenStatus = container.querySelector<HTMLElement>('[data-role="token-status"]');
     tokenInput?.addEventListener("change", () => {
+      if (vomBrowserEingesetzt(tokenInput)) {
+        // Das Passwort der Anmeldung ist kein Ticket; übernommen, wäre man abgemeldet.
+        tokenInput.value = loadToken() ?? "";
+        if (tokenStatus)
+          tokenStatus.textContent =
+            "Der Browser hat hier ein Passwort eingesetzt — nicht übernommen.";
+        return;
+      }
       saveToken(tokenInput.value.trim());
       if (tokenStatus) {
         tokenStatus.textContent = "Gespeichert.";
@@ -525,9 +562,32 @@ export const settingsView: View = {
       }, 2500);
     }
 
+    function verwerfe(input: HTMLInputElement, text: string): void {
+      input.value = "";
+      if (!voiceStatus) return;
+      voiceStatus.textContent = text;
+    }
+
+    const sprechtasteInput = container.querySelector<HTMLInputElement>('[data-role="sprechtaste"]');
+    sprechtasteInput?.addEventListener("change", () => {
+      settingsBus.emit(updateSettingsSection("speech", { sprechtaste: sprechtasteInput.checked }));
+      confirmSaved();
+    });
+
     const endpointInput = container.querySelector<HTMLInputElement>('[data-role="voice-endpoint"]');
     endpointInput?.addEventListener("change", () => {
       const value = endpointInput.value.trim();
+      if (vomBrowserEingesetzt(endpointInput)) {
+        verwerfe(endpointInput, "Der Browser hat hier Anmeldedaten eingesetzt — nicht übernommen.");
+        return;
+      }
+      if (value.length > 0 && !istSprachAdresse(value)) {
+        verwerfe(
+          endpointInput,
+          `„${value}" ist keine WebSocket-Adresse (ws://… oder wss://…) — nicht übernommen, es gilt die automatische.`,
+        );
+        return;
+      }
       settingsBus.emit(
         updateSettingsSection("speech", { endpoint: value.length > 0 ? value : null }),
       );
@@ -545,6 +605,13 @@ export const settingsView: View = {
 
     const voiceTokenInput = container.querySelector<HTMLInputElement>('[data-role="voice-token"]');
     voiceTokenInput?.addEventListener("change", () => {
+      if (vomBrowserEingesetzt(voiceTokenInput)) {
+        verwerfe(
+          voiceTokenInput,
+          "Der Browser hat hier ein Passwort eingesetzt — nicht übernommen.",
+        );
+        return;
+      }
       const value = voiceTokenInput.value.trim();
       settingsBus.emit(
         updateSettingsSection("speech", { sessionToken: value.length > 0 ? value : null }),

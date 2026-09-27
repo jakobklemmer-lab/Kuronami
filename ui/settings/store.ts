@@ -55,6 +55,12 @@ export interface SpeechSettings {
   wakeWord: string;
   bargeIn: boolean;
   /**
+   * Nur zuhören, solange die Leertaste gedrückt ist (2026-09-27). Jakob: „wenn ich nebenbei Videos
+   * laufen habe". Gilt nur mit Tastatur — auf dem Telefon bleibt das Mikrofon offen, sonst wäre
+   * es dort gar nicht zu benutzen (`ui/voice/sprechtaste.ts`).
+   */
+  sprechtaste: boolean;
+  /**
    * Adresse des Sprachprozesses (S30), z. B. `ws://localhost:8790`. Leer = die Vorgabe aus
    * `ui/voice/session.ts`.
    */
@@ -73,6 +79,63 @@ export interface SpeechSettings {
  * Yahoo-Finance-Symbole, vom Nutzer über die Suche zusammengestellt. */
 export interface MarketsSettings {
   watchlist: string[];
+  /** Wie der Chart zuletzt aussah (2026-09-27) — Kerzengröße, Darstellung, Indikatoren. */
+  chart: ChartSettings;
+}
+
+export interface ChartSettings {
+  intervall: string;
+  typ: "kerzen" | "heikin" | "balken" | "linie" | "flaeche";
+  indikatoren: { art: string; parameter: number[] }[];
+  volumen: boolean;
+  log: boolean;
+  magnet: boolean;
+  /** Der Zeitraum der schlichten Telefonansicht; die Kerzengröße folgt ihm (`handyIntervall`). */
+  handyZeitraum: string;
+}
+
+export const DEFAULT_CHART: ChartSettings = {
+  intervall: "1d",
+  typ: "kerzen",
+  indikatoren: [],
+  volumen: true,
+  log: false,
+  magnet: false,
+  handyZeitraum: "3M",
+};
+
+const CHART_TYPEN = ["kerzen", "heikin", "balken", "linie", "flaeche"] as const;
+
+/** Nur, was die Oberfläche kennt — ein kaputter oder alter Stand fällt auf die Vorgabe. */
+function normalizeChart(stored: unknown): ChartSettings {
+  const c =
+    typeof stored === "object" && stored !== null ? (stored as Record<string, unknown>) : {};
+  const indikatoren = Array.isArray(c.indikatoren)
+    ? c.indikatoren
+        .filter(
+          (i): i is { art: string; parameter: number[] } =>
+            typeof i === "object" &&
+            i !== null &&
+            typeof (i as { art?: unknown }).art === "string" &&
+            Array.isArray((i as { parameter?: unknown }).parameter) &&
+            (i as { parameter: unknown[] }).parameter.every(
+              (p) => typeof p === "number" && Number.isFinite(p),
+            ),
+        )
+        .slice(0, 12)
+    : [];
+  return {
+    intervall: typeof c.intervall === "string" ? c.intervall : DEFAULT_CHART.intervall,
+    typ: (CHART_TYPEN as readonly unknown[]).includes(c.typ)
+      ? (c.typ as ChartSettings["typ"])
+      : "kerzen",
+    indikatoren,
+    volumen: typeof c.volumen === "boolean" ? c.volumen : true,
+    log: c.log === true,
+    magnet: c.magnet === true,
+    handyZeitraum:
+      typeof c.handyZeitraum === "string" ? c.handyZeitraum : DEFAULT_CHART.handyZeitraum,
+  };
 }
 
 /** Der Ort der Wetterkarte (Nachtrag 2026-09-16) — Open-Meteo braucht Koordinaten, der Name
@@ -122,12 +185,14 @@ export const DEFAULT_SETTINGS: KuronamiSettings = {
     // das VAD den Nutzer hört. Dieses Feld bleibt trotzdem stehen — es beschreibt, was die
     // Oberfläche anzeigt, und hat heute keinen Schalter im Sprachprozess dahinter.
     bargeIn: true,
+    sprechtaste: true,
     endpoint: null,
     sessionToken: null,
   },
   markets: {
     // Ein Startpunkt, bis der Nutzer die Liste selbst füllt: DAX, S&P 500, Bitcoin, Euro/Dollar.
     watchlist: ["^GDAXI", "^GSPC", "BTC-USD", "EURUSD=X"],
+    chart: DEFAULT_CHART,
   },
   weather: {
     place: "Wien",
@@ -170,10 +235,32 @@ export function normalizeSettings(raw: unknown): KuronamiSettings {
     approvals: mergeSection(DEFAULT_SETTINGS.approvals, candidate.approvals),
     memory: mergeSection(DEFAULT_SETTINGS.memory, candidate.memory),
     integrations: mergeSection(DEFAULT_SETTINGS.integrations, candidate.integrations),
-    speech: mergeSection(DEFAULT_SETTINGS.speech, candidate.speech),
+    speech: normalizeSpeech(candidate.speech),
     markets: normalizeMarkets(candidate.markets),
     weather: mergeSection(DEFAULT_SETTINGS.weather, candidate.weather),
   };
+}
+
+/**
+ * Die Adresse der Sprachschicht muss eine WebSocket-Adresse sein — alles andere fällt auf die
+ * Vorgabe zurück, und das Geheimnis daneben mit.
+ *
+ * Anlass (2026-09-27): Chrome hielt „Sprachprozess" (Textfeld) und „Sitzungs-Token"
+ * (Passwortfeld) für eine Anmeldemaske und setzte den Benutzernamen und das Passwort der
+ * Oberfläche ein. Die Sprachschicht wurde danach unter `jakob` gesucht, und ein Neustart
+ * des Dienstes half nicht, weil der Fehler im Browser lag. Steht in der Adresse etwas, das
+ * keine ist, stammt das Geheimnis aus demselben Griff — es bleibt nicht stehen.
+ */
+export function istSprachAdresse(value: string): boolean {
+  return /^wss?:\/\/[^\s/]+/i.test(value);
+}
+
+function normalizeSpeech(stored: unknown): SpeechSettings {
+  const speech = mergeSection(DEFAULT_SETTINGS.speech, stored);
+  const endpoint = typeof speech.endpoint === "string" ? speech.endpoint.trim() : "";
+  if (endpoint.length === 0) return { ...speech, endpoint: null };
+  if (istSprachAdresse(endpoint)) return { ...speech, endpoint };
+  return { ...speech, endpoint: null, sessionToken: null };
 }
 
 /** Die Liste selbst wird geprüft, nicht nur verschmolzen: nur Zeichenketten bleiben, und ein
@@ -181,10 +268,12 @@ export function normalizeSettings(raw: unknown): KuronamiSettings {
 function normalizeMarkets(stored: unknown): MarketsSettings {
   const record =
     typeof stored === "object" && stored !== null ? (stored as Record<string, unknown>) : {};
+  const chart = normalizeChart(record.chart);
   if (!Array.isArray(record.watchlist))
-    return { watchlist: [...DEFAULT_SETTINGS.markets.watchlist] };
+    return { watchlist: [...DEFAULT_SETTINGS.markets.watchlist], chart };
   return {
     watchlist: record.watchlist.filter((entry): entry is string => typeof entry === "string"),
+    chart,
   };
 }
 

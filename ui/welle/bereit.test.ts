@@ -14,6 +14,7 @@ function kontrollierteApi() {
     get: () => new Promise((los) => offen.push(los as (wert: unknown) => void)) as never,
     post: () => Promise.resolve() as never,
     patch: () => Promise.resolve() as never,
+    put: () => Promise.resolve() as never,
     delete: () => Promise.resolve() as never,
   };
   return { api, beantworte: () => offen.shift()?.({}) };
@@ -91,6 +92,7 @@ describe("verfolge", () => {
       get: () => Promise.reject(new Error("weg")),
       post: () => Promise.resolve() as never,
       patch: () => Promise.resolve() as never,
+      put: () => Promise.resolve() as never,
       delete: () => Promise.resolve() as never,
     };
     const v = verfolge(api);

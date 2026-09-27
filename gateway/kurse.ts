@@ -1,5 +1,6 @@
 import { createSdkMcpServer, tool } from "@anthropic-ai/claude-agent-sdk";
 import { z } from "zod";
+import { createAlarme } from "./alarme.js";
 import { CrvEingabeFehler, formatiereCrv, rechneCrv } from "./crv.js";
 import {
   CHART_INTERVALS,
@@ -12,6 +13,7 @@ import {
   createYahooMarkets,
   defaultIntervalFor,
 } from "./integrations/markets.js";
+import { beschreibeZeichnungen, createZeichnungen } from "./zeichnungen.js";
 
 /**
  * Kursdaten für den Handelstisch — dieselbe Quelle wie die Oberfläche, ohne Umweg über ein
@@ -38,6 +40,8 @@ const MAX_KERZEN = 200;
 export interface KurseDeps {
   /** Der Marktdaten-Client. Vorgabe: Yahoo. In Tests wird hier eine Attrappe gereicht. */
   markets?: MarketsClient;
+  /** Wo Jakobs Zeichnungen und Alarme liegen (`charts/`, `alarme.json`). Ohne: kein Werkzeug dafür. */
+  werkstatt?: string;
 }
 
 function iso(unixSekunden: number, mitUhrzeit: boolean): string {
@@ -270,6 +274,55 @@ export function createKurse(deps: KurseDeps = {}) {
     { annotations: { title: "Chance-Risiko-Verhältnis rechnen", readOnlyHint: true } },
   );
 
+  /**
+   * Jakobs eigene Marken (2026-09-27). Er zeichnet in den Märkten — Linien, Zonen, Fibonacci,
+   * Positionsideen — und setzt Alarme. Die Kurse, an denen er denkt, sollen dem Handelstisch
+   * nicht erst im Gespräch erklärt werden müssen.
+   */
+  const werkstatt = deps.werkstatt;
+  const zeichnungen = werkstatt
+    ? tool(
+        "zeichnungen",
+        [
+          "Jakobs Zeichnungen im Chart eines Wertes lesen — horizontale Linien, Trendlinien,",
+          "Zonen, Fibonacci, seine Long-/Short-Ideen — und seine Preisalarme darauf.",
+          "",
+          "Sieh hier nach, wenn es um einen bestimmten Wert geht: seine Marken sind die Kurse,",
+          "an denen er denkt. Bezieh dich auf sie, statt eigene daneben zu stellen.",
+        ].join("\n"),
+        {
+          symbol: z.string().min(1).max(20).describe("Yahoo-Symbol, z. B. ^GDAXI."),
+        },
+        async ({ symbol }) => {
+          const blatt = await createZeichnungen({ workdir: werkstatt }).lies(symbol);
+          const alarme = (await createAlarme({ workdir: werkstatt }).liste()).filter(
+            (a) => a.symbol === symbol.toUpperCase(),
+          );
+          const zeilen = [
+            `Jakobs Chart zu ${symbol}:`,
+            ...(blatt.zeichnungen.length > 0
+              ? beschreibeZeichnungen(blatt.zeichnungen).map((z) => `- ${z}`)
+              : ["- keine Zeichnungen"]),
+            "",
+            "Alarme:",
+            ...(alarme.length > 0
+              ? alarme.map(
+                  (a) =>
+                    `- ${a.richtung === "ueber" ? "über" : "unter"} ${a.preis} (${a.status === "aktiv" ? "aktiv" : `ausgelöst ${a.ausgeloestAm?.slice(0, 10) ?? ""}`})${a.notiz ? ` — ${a.notiz}` : ""}`,
+                )
+              : ["- keine"]),
+          ];
+          if (blatt.geaendert)
+            zeilen.push(
+              "",
+              `Zuletzt geändert: ${blatt.geaendert.slice(0, 16).replace("T", " ")} UTC`,
+            );
+          return { content: [{ type: "text" as const, text: zeilen.join("\n") }] };
+        },
+        { annotations: { title: "Jakobs Chart lesen", readOnlyHint: true } },
+      )
+    : null;
+
   return createSdkMcpServer({
     name: "kurse",
     version: "2",
@@ -277,12 +330,17 @@ export function createKurse(deps: KurseDeps = {}) {
       "Kursdaten aus erster Hand. `verlauf` gibt dir den Kursverlauf als Tabelle mit echten " +
       "Datumsangaben, `suche` findet ein Symbol, `crv` rechnet das Chance-Risiko-Verhältnis " +
       "einer Idee aus. Hol jede Zahl hier — nicht über WebFetch, und rechne das CRV nie selbst.",
-    tools: [verlauf, suche, crv],
+    tools: zeichnungen ? [verlauf, suche, crv, zeichnungen] : [verlauf, suche, crv],
   });
 }
 
 /** Die Werkzeugnamen, wie sie in `allowedTools` stehen müssen. */
-export const KURSE_TOOLS = ["mcp__kurse__verlauf", "mcp__kurse__suche", "mcp__kurse__crv"];
+export const KURSE_TOOLS = [
+  "mcp__kurse__verlauf",
+  "mcp__kurse__suche",
+  "mcp__kurse__crv",
+  "mcp__kurse__zeichnungen",
+];
 
 /** Der Name des Rechenwerkzeugs — die Stelle, an der geprüft wird, ob wirklich gerechnet wurde. */
 export const CRV_TOOL = "mcp__kurse__crv";

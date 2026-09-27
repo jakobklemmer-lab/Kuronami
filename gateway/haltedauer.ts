@@ -205,6 +205,14 @@ export function messeHaltedauer(eingabe: DauerEingabe): DauerErgebnis {
   };
 }
 
+/** Deutsche Zahlen wie in der CRV-Rechnung, in deren Bericht dieser Block steht. */
+function deutsch(wert: number, stellen: number): string {
+  return wert.toLocaleString("de-DE", {
+    minimumFractionDigits: stellen,
+    maximumFractionDigits: stellen,
+  });
+}
+
 /**
  * Sekunden als Zeitspanne, wie ein Mensch sie sagt.
  *
@@ -218,23 +226,23 @@ export function dauerText(sekunden: number): string {
   if (sekunden < 5_400) return `${Math.round(sekunden / 60)} Min`;
   if (sekunden < 172_800) {
     const stunden = sekunden / 3600;
-    return `${stunden < 10 ? stunden.toFixed(1) : Math.round(stunden)} Std`;
+    return `${stunden < 10 ? deutsch(stunden, 1) : Math.round(stunden)} Std`;
   }
   const tage = sekunden / 86_400;
-  if (tage < 60) return `${tage < 10 ? tage.toFixed(1) : Math.round(tage)} Tage`;
+  if (tage < 60) return `${tage < 10 ? deutsch(tage, 1) : Math.round(tage)} Tage`;
   const monate = tage / 30.44;
-  return `${monate < 10 ? monate.toFixed(1) : Math.round(monate)} Monate`;
+  return `${monate < 10 ? deutsch(monate, 1) : Math.round(monate)} Monate`;
 }
 
 /** Die Zeilen für den Bericht. Wer sie abschreibt, schreibt gerechnete Zahlen ab. */
 export function formatiereHaltedauer(e: DauerErgebnis, intervall?: string): string {
   const zeilen = [
     `Voraussichtliche Haltedauer${intervall ? ` (${intervall}-Kerzen)` : ""}`,
-    `  Median ${dauerText(e.medianSekunden)} (${e.medianKerzen.toFixed(0)} Kerzen)`,
-    `  mittlere Hälfte ${dauerText(e.q25Sekunden)} bis ${dauerText(e.q75Sekunden)} (${e.q25Kerzen.toFixed(0)}–${e.q75Kerzen.toFixed(0)} Kerzen)`,
-    `  Stop ${e.stopInAtr.toFixed(2)} ATR entfernt, Ziel ${e.zielInAtr.toFixed(2)} ATR`,
-    `  gemessen an ${e.faelle} Stellen der eigenen Geschichte; ${(e.anteilOffen * 100).toFixed(1)} % liefen darin weder ins Ziel noch in den Stop`,
-    `  Baseline ohne Einstiegsregel: ${(e.nullpunktTrefferquote * 100).toFixed(1)} % Treffer, Erwartungswert ${e.nullpunktErwartungswertR >= 0 ? "+" : ""}${e.nullpunktErwartungswertR.toFixed(2)} R — ein Setup muss darüber liegen, sonst ist es keins`,
+    `  Median ${dauerText(e.medianSekunden)} (${deutsch(e.medianKerzen, 0)} Kerzen)`,
+    `  mittlere Hälfte ${dauerText(e.q25Sekunden)} bis ${dauerText(e.q75Sekunden)} (${deutsch(e.q25Kerzen, 0)}–${deutsch(e.q75Kerzen, 0)} Kerzen)`,
+    `  Stop ${deutsch(e.stopInAtr, 2)} ATR entfernt, Ziel ${deutsch(e.zielInAtr, 2)} ATR`,
+    `  gemessen an ${e.faelle} Stellen der eigenen Geschichte; ${deutsch(e.anteilOffen * 100, 1)} % liefen darin weder ins Ziel noch in den Stop`,
+    `  Baseline ohne Einstiegsregel: ${deutsch(e.nullpunktTrefferquote * 100, 1)} % Treffer, Erwartungswert ${e.nullpunktErwartungswertR >= 0 ? "+" : ""}${deutsch(e.nullpunktErwartungswertR, 2)} R — ein Setup muss darüber liegen, sonst ist es keins`,
   ];
   return zeilen.join("\n");
 }

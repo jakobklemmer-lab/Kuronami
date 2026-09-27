@@ -38,7 +38,9 @@ export type IconName =
   | "dumbbell"
   | "utensils"
   | "book"
-  | "phone";
+  | "phone"
+  | "back"
+  | "plus";
 
 const PATHS: Record<IconName, string> = {
   home: '<path d="M3.5 10.5 10 4l6.5 6.5" /><path d="M5.5 8.8V16h9V8.8" />',
@@ -80,6 +82,8 @@ const PATHS: Record<IconName, string> = {
   dumbbell: '<path d="M4 8.2v3.6M6.4 6.4v7.2M13.6 6.4v7.2M16 8.2v3.6M6.4 10h7.2" />',
   utensils:
     '<path d="M6 3v4.4M4.3 3v3.1a1.7 1.7 0 0 0 3.4 0V3M6 8.6V17" /><path d="M13.6 3c-1.1 1.3-1.7 3-1.7 4.8 0 1.5.6 2.4 1.7 2.6V17" />',
+  back: '<path d="M12 4.5 6.5 10l5.5 5.5" />',
+  plus: '<path d="M10 4.5v11M4.5 10h11" />',
   book: '<path d="M10 6.4S8.7 4.8 4.2 4.8v9.9c4.5 0 5.8 1.6 5.8 1.6s1.3-1.6 5.8-1.6V4.8c-4.5 0-5.8 1.6-5.8 1.6Z" /><path d="M10 6.4v9.9" />',
   phone:
     '<path d="M6.3 3.9 8 3.2l1.7 3.1-1.5 1.3a8.8 8.8 0 0 0 3.2 3.2l1.3-1.5 3.1 1.7-.7 1.7a1.6 1.6 0 0 1-1.8.9A11.4 11.4 0 0 1 5.4 5.7a1.6 1.6 0 0 1 .9-1.8Z" />',

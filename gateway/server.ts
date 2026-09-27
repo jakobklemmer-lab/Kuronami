@@ -15,6 +15,7 @@ import {
 import { readSecretStatus, upsertSecrets } from "../runtime/secrets/env-file.js";
 import type { MemoryStore } from "../tools/memory/store.js";
 import type { N8nBridge } from "../tools/n8n/bridge.js";
+import type { AlarmeAblage } from "./alarme.js";
 import { type Anmeldung, SITZUNG_GUELTIG_MS } from "./anmeldung.js";
 import { handleSlackEvent } from "./channels/slack/channel.js";
 import type { SlackChannelDeps } from "./channels/slack/channel.js";
@@ -23,7 +24,10 @@ import { handleUpdate } from "./channels/telegram/channel.js";
 import type { TelegramChannelDeps } from "./channels/telegram/channel.js";
 import type { VoiceChannel } from "./channels/voice/channel.js";
 import type { WebChannel } from "./channels/web.js";
+import { chartRouten } from "./chart-routen.js";
+import type { Chartdaten } from "./chartdaten.js";
 import { type GatewayDeps, openAskRoutes, receiveDecision, receiveMessage } from "./core.js";
+import { ARCHIV_FENSTER } from "./gespraeche.js";
 import {
   type GatewayIdentity,
   authenticateVoice,
@@ -48,10 +52,13 @@ import {
   isValidSymbol,
 } from "./integrations/markets.js";
 import { type SystemSampler, formatBytesPerSecond } from "./integrations/system.js";
+import type { Kerzenquelle } from "./kerzen.js";
+import { LehrFehler, MAX_AKTIV } from "./lehren.js";
 import { postfachVerbindenRouten } from "./postfach-verbinden.js";
 import { konten, lies, listeGepuffert } from "./postfach.js";
 import { deriveAskRoutes } from "./routing.js";
 import type { InboundAttachment } from "./types.js";
+import type { ZeichnungenAblage } from "./zeichnungen.js";
 
 /**
  * Der HTTP-Rand des Gateways. **Nur Rand** — er packt aus, authentifiziert, ruft den Kern und
@@ -87,6 +94,14 @@ export interface ServerDeps {
   memory?: Pick<MemoryStore, "all">;
   /** Marktdaten (Yahoo Finance) für `/integrations/markets/*`; fehlt der Client, gibt es 404. */
   markets?: MarketsClient;
+  /** Der Chart der Märkte (2026-09-27): Kerzen je Größe, Indikatoren, Kennzahlen. */
+  chartdaten?: Chartdaten;
+  /** Jakobs Linien und Ideen im Chart, je Wert eine Datei. */
+  zeichnungen?: ZeichnungenAblage;
+  /** Preisalarme; geprüft im Minutentakt (`gateway/alarme.ts`). */
+  alarme?: AlarmeAblage;
+  /** Die Kerzenquelle des Labors — für Strategien im Chart, auf denselben Kerzen gerechnet. */
+  kerzenquelle?: Kerzenquelle;
   /** Host-Messwerte für `/integrations/system`; ohne Sampler 404. */
   system?: SystemSampler;
   /** Fehlt sie, bleibt der Neustart-Knopf der Oberfläche tot (Nachtrag 2026-09-16) — dann gilt
@@ -217,8 +232,10 @@ export function createServer(deps: ServerDeps): express.Express {
       // läuft auf einer anderen Subdomain als der Gateway, der Preflight lehnte die Methode
       // ab, und damit liefen „gehandelt"/„verworfen" und das Notizfeld im Browser ins Leere,
       // während sie per curl funktionierten. Wer hier eine Methode ergänzt, ergänzt sie auch
-      // in dieser Zeile.
-      res.setHeader("Access-Control-Allow-Methods", "GET, POST, PATCH, DELETE, OPTIONS");
+      // in dieser Zeile. PUT kam mit den Zeichnungen der Märkte (2026-09-27) — und fehlte
+      // zuerst genauso; gefunden hat es der Prüfbrowser, nicht der Routentest mit `fetch`
+      // ohne Herkunft. Deshalb prüft `chart-routen.test.ts` den Preflight jetzt mit.
+      res.setHeader("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS");
     }
     if (req.method === "OPTIONS") {
       res.sendStatus(204);
@@ -1093,6 +1110,24 @@ export function createServer(deps: ServerDeps): express.Express {
     }
   });
 
+  // Der Chart der Märkte (2026-09-27): Kerzen, Kennzahlen, Zeichnungen, Alarme, CRV,
+  // Prognosebuch — in `chart-routen.ts`, weil es zusammengehört.
+  chartRouten(
+    app,
+    {
+      chartdaten: deps.chartdaten,
+      markets: deps.markets,
+      zeichnungen: deps.zeichnungen,
+      alarme: deps.alarme,
+      prognosen: () => deps.gateway.agent?.prognosen,
+      strategien: () => deps.gateway.agent?.strategien,
+      analysen: () => deps.gateway.agent?.analysen,
+      papier: () => deps.gateway.agent?.papier,
+      kerzenquelle: deps.kerzenquelle,
+    },
+    webPrincipal,
+  );
+
   /**
    * Das Analysen-Archiv.
    *
@@ -1286,6 +1321,98 @@ export function createServer(deps: ServerDeps): express.Express {
         return;
       }
       res.json(analyse);
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  // Die Lernschleife (`lehren.ts`): Vorschläge des Handelstischs, Jakobs Tor, die Wirkung.
+  app.get("/integrations/lehren", async (req, res, next) => {
+    try {
+      const principal = webPrincipal(req, res);
+      if (!principal) return;
+      const lehrbuch = deps.gateway.agent.lehren;
+      const [lehren, protokoll] = await Promise.all([
+        lehrbuch.listeMitWirkung(),
+        lehrbuch.protokoll(),
+      ]);
+      res.json({ lehren, maxAktiv: MAX_AKTIV, nachbetrachtet: Object.keys(protokoll).length });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.patch("/integrations/lehren/:id", async (req, res, next) => {
+    try {
+      const principal = webPrincipal(req, res);
+      if (!principal) return;
+      const { status, text, notiz } = req.body ?? {};
+      if (!["aktiv", "verworfen", "abgelegt", "vorgeschlagen"].includes(status)) {
+        res.status(400).json({ error: `Unbekannter Status "${String(status)}".` });
+        return;
+      }
+      if (
+        (text !== undefined && typeof text !== "string") ||
+        (notiz !== undefined && typeof notiz !== "string")
+      ) {
+        res.status(400).json({ error: "text und notiz müssen Text sein." });
+        return;
+      }
+      const lehre = await deps.gateway.agent.lehren.entscheide(req.params.id, {
+        status,
+        ...(text !== undefined ? { text } : {}),
+        ...(notiz !== undefined ? { notiz } : {}),
+      });
+      if (!lehre) {
+        res.status(404).json({ error: "Diese Lehre gibt es nicht." });
+        return;
+      }
+      res.json(lehre);
+    } catch (error) {
+      if (error instanceof LehrFehler) {
+        res.status(409).json({ error: error.message });
+        return;
+      }
+      next(error);
+    }
+  });
+
+  // Das Gesprächsarchiv (`gespraeche.ts`): wie es um Kuros Gespräch steht, was abgelegt ist.
+  app.get("/integrations/gespraeche", async (req, res, next) => {
+    try {
+      const principal = webPrincipal(req, res);
+      if (!principal) return;
+      const agent = deps.gateway.agent;
+      const [lage, tage] = await Promise.all([agent.sitzungsLage(), agent.gespraeche.tage()]);
+      res.json({
+        lage,
+        kontext: agent.kontext,
+        tage: tage.slice(0, 60),
+        fenster: ARCHIV_FENSTER,
+        aus: process.env.KURO_ARCHIV?.trim() === "aus",
+      });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  /** Jetzt archivieren statt nachts — der Knopf auf der System-Seite. */
+  app.post("/integrations/gespraeche/archivieren", async (req, res, next) => {
+    try {
+      const principal = webPrincipal(req, res);
+      if (!principal) return;
+      res.json(await deps.gateway.agent.archiviereGespraech("von Hand"));
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  /** Nicht auf den Takt warten — z. B. gleich nach einer aufgelösten Idee. */
+  app.post("/integrations/lehren/nachbetrachten", async (req, res, next) => {
+    try {
+      const principal = webPrincipal(req, res);
+      if (!principal) return;
+      res.json({ neue: await deps.gateway.agent.lehren.nachbetrachte() });
     } catch (error) {
       next(error);
     }

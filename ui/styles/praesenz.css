@@ -29,7 +29,7 @@ body {
 
   background: var(--p-grund);
   color: var(--p-text);
-  font-family: Manrope, "Helvetica Neue", Arial, system-ui, sans-serif;
+  font-family: var(--font-ui);
 }
 
 /* Der Raum: das Foto als Grund, mit einem leichten Verlauf für die Lesbarkeit unten. */
@@ -44,6 +44,25 @@ body {
       rgba(6, 10, 14, 0.58) 100%
     ), var(--p-bild, radial-gradient(90vmax 70vmax at 60% 30%, #1a2b36, #0a1116 70%)) center / cover
     no-repeat, var(--p-grund);
+}
+
+/* In allen anderen Ansichten tritt der Raum zurück: er bleibt als Stimmung, aber die Laternen
+   leuchten nicht mehr als Flecken durch Listen und Tabellen. Kuros Raum selbst bleibt hell. */
+.p-raum::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    90deg,
+    rgba(5, 9, 12, 0.5),
+    rgba(5, 9, 12, 0.66) 40%,
+    rgba(5, 9, 12, 0.66)
+  );
+  opacity: 0;
+  transition: opacity 0.45s ease;
+}
+body[data-route]:not([data-route="praesenz"]) .p-raum::after {
+  opacity: 1;
 }
 
 /* Kuros Ansicht selbst füllt das Fenster rechts der Leiste. */

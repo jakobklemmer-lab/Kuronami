@@ -6,6 +6,7 @@ import {
   startMicrophone,
 } from "./audio.js";
 import { type VoiceApproval, type VoiceSession, createVoiceSession } from "./session.js";
+import { type Sprechtaste, createSprechtaste, hatTastatur } from "./sprechtaste.js";
 
 /**
  * Der Knopf und die Sprachschicht, zusammengesteckt (S30/S31).
@@ -37,6 +38,8 @@ export interface VoiceControllerOptions {
   onTranscript?: (text: string, final: boolean) => void;
   onReply?: (text: string) => void;
   onApproval?: (approval: VoiceApproval) => void;
+  /** Nur zuhören, solange die Leertaste gedrückt ist — die Einstellung, bei jedem Block gefragt. */
+  sprechtaste?: () => boolean;
 }
 
 export interface VoiceController {
@@ -53,6 +56,8 @@ export function createVoiceController(options: VoiceControllerOptions): VoiceCon
   let microphone: MicrophoneHandle | null = null;
   let speaker: SpeakerHandle | null = null;
   let starting = false;
+  let taste: Sprechtaste | null = null;
+  const tasteGilt = () => (options.sprechtaste?.() ?? false) && hatTastatur();
 
   async function openDevices(current: VoiceSession): Promise<void> {
     const inRate = current.audioInSampleRate;
@@ -60,10 +65,18 @@ export function createVoiceController(options: VoiceControllerOptions): VoiceCon
     if (inRate === null || outRate === null) return;
 
     speaker = createSpeaker(outRate);
+    const t = createSprechtaste({
+      aktiv: tasteGilt,
+      // Nur die Anzeige; den Zustand von Kuro (hört, denkt, spricht) setzt weiter die Pipeline.
+      onWechsel: (offen) => document.body.classList.toggle("ist-sprechtaste", offen),
+    });
+    taste = t;
+    if (tasteGilt())
+      options.notify("Leertaste halten zum Sprechen — Kuro hört nur, solange sie gedrückt ist.");
     try {
       microphone = await startMicrophone({
         sampleRate: inRate,
-        onChunk: (pcm) => current.sendAudio(pcm),
+        onChunk: (pcm) => current.sendAudio(t.filtere(pcm)),
       });
     } catch (error) {
       // Abgelehnte Mikrofonerlaubnis ist kein Absturz, aber auch keine laufende Sitzung.
@@ -78,6 +91,8 @@ export function createVoiceController(options: VoiceControllerOptions): VoiceCon
     const openSession = session;
     const openMic = microphone;
     const openSpeaker = speaker;
+    taste?.beende();
+    taste = null;
     session = null;
     microphone = null;
     speaker = null;

@@ -1,4 +1,5 @@
 import { type SDKControlGetUsageResponse, query } from "@anthropic-ai/claude-agent-sdk";
+import { nurEigeneServer } from "./abschottung.js";
 
 /**
  * Die Grenzen des Abos, über das Kuro läuft (2026-09-26).
@@ -169,7 +170,10 @@ async function frageSdk(cwd: string): Promise<Rohdaten> {
       loese = r;
     });
   })();
-  const q = query({ prompt: stumm as never, options: { cwd, settingSources: [] } });
+  const q = query({
+    prompt: stumm as never,
+    options: { cwd, settingSources: [], ...nurEigeneServer() },
+  });
   try {
     const antwort = await q.usage_EXPERIMENTAL_MAY_CHANGE_DO_NOT_RELY_ON_THIS_API_YET({
       skipBehaviors: true,

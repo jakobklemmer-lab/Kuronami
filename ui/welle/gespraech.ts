@@ -271,6 +271,11 @@ export function oeffneGespraech(opt: GespraechsOptionen): Gespraech {
         neuerZustand();
         return;
       }
+      case "alarm.ausgeloest": {
+        notiere("Märkte", text(d.text));
+        melde({ art: "arbeit" });
+        return;
+      }
       case "analyse.neu": {
         notiere("Analysen", `neu abgelegt: ${text(d.titel)}`);
         melde({ art: "arbeit" });

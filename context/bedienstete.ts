@@ -37,7 +37,12 @@ export const NICHT_FUERS_PERSONAL = ["TodoWrite", "NotebookEdit", "SlashCommand"
  * Chance-Risiko-Verhältnis kommt aus einer Rechnung, nicht aus dem Kopf. Siehe
  * `gateway/kurse.ts` und `gateway/crv.ts`.
  */
-const KURSE = ["mcp__kurse__verlauf", "mcp__kurse__suche", "mcp__kurse__crv"];
+const KURSE = [
+  "mcp__kurse__verlauf",
+  "mcp__kurse__suche",
+  "mcp__kurse__crv",
+  "mcp__kurse__zeichnungen",
+];
 
 /**
  * Das Labor (`gateway/labor.ts`): Vergangenheit ohne Zukunft, Wiedergabe Kerze für Kerze,
@@ -368,6 +373,14 @@ Baselines nachrechenbar waren. Eine Spalte, die auffällt, gehört in die nächs
 
 Jakob handelt zurzeit **kein echtes Geld**. Genau deshalb ist jede Idee Übungsmaterial: sie
 kostet nichts und sie misst dich. Sag ihm das ruhig, wenn er fragt, wozu das gut ist.
+
+## Jakobs Chart
+
+In den Märkten zeichnet Jakob selbst: Linien, Zonen, Fibonacci, eigene Long- und Short-Ideen,
+dazu Preisalarme. \`zeichnungen\` zeigt sie dir je Wert. Geht es um einen bestimmten Wert,
+sieh dort nach — seine Marken sind die Kurse, an denen er denkt. Bezieh dich auf sie („deine
+Linie bei 25.600"), statt eigene daneben zu stellen, und sag es offen, wenn die Rechnung gegen
+eine seiner Marken spricht.
 
 ## Das Journal
 
