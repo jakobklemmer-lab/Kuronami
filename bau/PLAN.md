@@ -63,7 +63,7 @@ abgelegt werden können. Der Eintrag `1acb4e880448` im Live-Archiv
 1d-Test, gemeint war ein 1h-Test (27.09.)" — nichts löschen, nichts sonst ändern.
 
 ## N9 · Kalibrierung: stimmt das Werkzeug mit TradingLab überein?
-- Status: offen
+- Status: erledigt (2026-09-28, „Nachtbau N9: Kalibrierung an TradingLab — Regeln und Rechenskript")
 - Modell: opus
 - Braucht: N1, N3
 
@@ -204,7 +204,9 @@ kurz im Prompt der boerse. Grundlast messen und im Bericht nennen.
 - Modell: opus
 - Braucht: N9
 
-Als Code, ohne Blick in die Zukunft, je mit Test: Swing-Hochs/-Tiefs, Struktur (BOS/CHoCH),
+Als Code, ohne Blick in die Zukunft, je mit Test: Swing-Hochs/-Tiefs (Swing-Tief der letzten N
+Kerzen und Williams-Fraktale gibt es seit N9), Unterstützungszone aus einem früheren Abprall und
+Divergenz Kurs/Indikator (beide aus N9, nicht prüfbar ohne sie), Struktur (BOS/CHoCH),
 Fair Value Gaps (offen/gefüllt), Order Blocks mit „unmitigated", Liquidity Sweep, Fibonacci-Zone
 zum letzten Swing, Vortages- und Sitzungs-Hoch/-Tief, höheres Intervall als Filter, Teilgewinne.
 Zerlegen in N12a–c. Danach die Setup-Karten (N11) 1:1 rechnen (Skript, wie N9).
