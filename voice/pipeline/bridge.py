@@ -296,7 +296,11 @@ class KuronamiBridge(FrameProcessor):
         elif isinstance(frame, InterruptionFrame):
             await self._abandon_turn()
         elif isinstance(frame, InterimTranscriptionFrame):
-            await self._emit("transcript", text=frame.text, final=False)
+            # Der Zwischenstand zeigt die ganze Äußerung bis hierher, nicht nur das Stück, das
+            # die Erkennung gerade bearbeitet — sonst spränge die Anzeige bei jeder Atempause
+            # auf null zurück.
+            bisher = " ".join([*self._satz, frame.text.strip()]).strip()
+            await self._emit("transcript", text=bisher, final=False)
         elif isinstance(frame, TranscriptionFrame):
             await self._on_transcript(frame.text)
 
@@ -399,7 +403,6 @@ class KuronamiBridge(FrameProcessor):
             return
 
         cleaned = text.strip()
-        await self._emit("transcript", text=cleaned, final=True)
         if not cleaned:
             return
 
@@ -415,6 +418,11 @@ class KuronamiBridge(FrameProcessor):
         # letzten Stück ist eine kurze Pause vergangen, **und** das VAD sagt, dass nicht mehr
         # geredet wird. Das kostet eine Viertelsekunde und spart die halbe Frage.
         self._satz.append(cleaned)
+        # Nach außen ist ein Stück nur ein Zwischenstand. `final` heißt „das geht jetzt als
+        # Befehl hinaus" und kommt genau einmal, in `_satz_abwarten`. Am 2026-09-27 meldete die
+        # Brücke jedes Stück als fertig: die Welle legte für jedes eine eigene Frage samt
+        # wartender Antwort an, und zwischen Jakobs Satzteilen stand „Kuro denkt nach …".
+        await self._emit("transcript", text=" ".join(self._satz), final=False)
         if self._satz_task is not None and not self._satz_task.done():
             self._satz_task.cancel()
         self._satz_task = self.create_task(self._satz_abwarten())
@@ -439,6 +447,7 @@ class KuronamiBridge(FrameProcessor):
         teile, self._satz = self._satz, []
         satz = " ".join(teile).strip()
         if satz:
+            await self._emit("transcript", text=satz, final=True)
             await self._ausfuehren(satz)
 
     async def _ausfuehren(self, satz: str) -> None:

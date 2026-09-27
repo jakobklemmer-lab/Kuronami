@@ -182,8 +182,13 @@ export function oeffneGespraech(opt: GespraechsOptionen): Gespraech {
         const zug = text(d.turn_id);
         lage.zugLaeuft = true;
         lage.werkzeug = null;
-        // Ein Zug, der nicht von hier kam, sagt, woher er kam.
-        if (zug) setze(V.zugBeginnt(verlauf, zug, umgebung(), KANAL[text(d.channel)] ?? null));
+        // Ein Zug, der nicht von hier kam, sagt, woher er kam — und nimmt keiner Frage von hier
+        // den Platz weg.
+        const kanal = text(d.channel);
+        const nachtrag = text(d.external_id).startsWith("nachtrag_");
+        const herkunft = nachtrag ? "nachgereicht" : (KANAL[kanal] ?? null);
+        const quelle = kanal ? { kanal, nachtrag } : null;
+        if (zug) setze(V.zugBeginnt(verlauf, zug, umgebung(), herkunft, quelle));
         neuerZustand();
         return;
       }

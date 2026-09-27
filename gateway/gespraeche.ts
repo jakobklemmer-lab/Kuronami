@@ -333,8 +333,14 @@ Laufende Themen, je ein Satz.
 
 Dazu je Tag eine Zeile fürs Inhaltsverzeichnis: die Themen, kommagetrennt, höchstens zwölf Wörter.
 
-Antworte ausschließlich mit JSON:
-{"uebergabe": "## Was offen ist\\n…", "themen": {"2026-09-27": "Wetter, DAX-Analyse, Watchlist Siemens"}}`;
+Antworte in genau dieser Form, ohne Text davor oder danach:
+<uebergabe>
+## Was offen ist
+…
+</uebergabe>
+<themen>
+2026-09-27: Wetter, DAX-Analyse, Watchlist Siemens
+</themen>`;
 
 export function uebergabePrompt(wortlaut: string, vorige: string | null): string {
   const text =
@@ -350,22 +356,50 @@ export function uebergabePrompt(wortlaut: string, vorige: string | null): string
   ].join("\n");
 }
 
+/**
+ * Die Antwort des Übergabe-Laufs lesen.
+ *
+ * Verlangt sind zwei Abschnitte in Markierungen, **kein JSON** mehr. Am 2026-09-27 scheiterte
+ * das Archivieren von Hand an Position 70 der Antwort: in einem JSON-String stand ein deutsches
+ * Zitat „…" mit geradem Schlusszeichen, und ein einziges unmaskiertes `"` machte die ganze
+ * Übergabe unlesbar. Eine Übergabe ist Fließtext mit Zitaten; zwischen zwei Markierungen muss
+ * darin nichts maskiert werden. Das alte JSON wird weiter gelesen, falls ein Modell es doch
+ * schickt.
+ */
 export function leseUebergabe(antwort: string): {
   uebergabe: string;
   themen: Record<string, string>;
 } {
-  const anfang = antwort.indexOf("{");
-  const ende = antwort.lastIndexOf("}");
-  if (anfang < 0 || ende <= anfang) throw new Error("Die Übergabe kam nicht als JSON.");
-  const o = JSON.parse(antwort.slice(anfang, ende + 1)) as Record<string, unknown>;
-  const uebergabe = typeof o.uebergabe === "string" ? o.uebergabe.trim() : "";
-  if (uebergabe.length < 20) throw new Error("Die Übergabe ist leer.");
+  const markiert = /<uebergabe>([\s\S]*?)(?:<\/uebergabe>|<themen>|$)/i.exec(antwort);
+  let uebergabe = "";
   const themen: Record<string, string> = {};
-  if (o.themen && typeof o.themen === "object") {
-    for (const [tag, t] of Object.entries(o.themen as Record<string, unknown>)) {
-      if (/^\d{4}-\d{2}-\d{2}$/.test(tag) && typeof t === "string") themen[tag] = kuerze(t, 140);
+  const nimmThema = (tag: string, t: unknown): void => {
+    if (/^\d{4}-\d{2}-\d{2}$/.test(tag) && typeof t === "string" && t.trim())
+      themen[tag] = kuerze(t.trim(), 140);
+  };
+  if (markiert) {
+    uebergabe = (markiert[1] ?? "").trim();
+    const block = /<themen>([\s\S]*?)(?:<\/themen>|$)/i.exec(antwort)?.[1] ?? "";
+    for (const zeile of block.split("\n")) {
+      const m = /^\s*[-*]?\s*(\d{4}-\d{2}-\d{2})\s*[:|–-]\s*(.+)$/.exec(zeile);
+      if (m) nimmThema(m[1] as string, m[2]);
+    }
+  } else {
+    const anfang = antwort.indexOf("{");
+    const ende = antwort.lastIndexOf("}");
+    if (anfang < 0 || ende <= anfang) throw new Error("Die Übergabe kam ohne ihre Markierungen.");
+    let o: Record<string, unknown>;
+    try {
+      o = JSON.parse(antwort.slice(anfang, ende + 1)) as Record<string, unknown>;
+    } catch {
+      throw new Error("Die Übergabe kam als kaputtes JSON statt in ihren Markierungen.");
+    }
+    uebergabe = typeof o.uebergabe === "string" ? o.uebergabe.trim() : "";
+    if (o.themen && typeof o.themen === "object") {
+      for (const [tag, t] of Object.entries(o.themen as Record<string, unknown>)) nimmThema(tag, t);
     }
   }
+  if (uebergabe.length < 20) throw new Error("Die Übergabe ist leer.");
   return { uebergabe, themen };
 }
 

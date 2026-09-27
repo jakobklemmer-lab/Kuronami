@@ -167,7 +167,40 @@ describe("leseUebergabe", () => {
 
   it("verweigert eine leere oder formlose Übergabe", () => {
     expect(() => leseUebergabe('{"uebergabe": ""}')).toThrow();
+    expect(() => leseUebergabe("<uebergabe>\n\n</uebergabe>")).toThrow();
     expect(() => leseUebergabe("Hier ist die Übergabe …")).toThrow();
+  });
+
+  it("liest die Markierungen — Zitate darin brauchen keine Maske (der Fall vom 27.09.)", () => {
+    const u = leseUebergabe(
+      [
+        "<uebergabe>",
+        "## Was offen ist",
+        'Die boerse sollte „Analysen und Strategien" zusammenfassen; Bericht steht aus.',
+        "</uebergabe>",
+        "<themen>",
+        "2026-09-26: Watchlist, BTC-Idee",
+        "- 2026-09-27: Wochenziel 100 Euro, Archiv",
+        "gestern: x",
+        "</themen>",
+      ].join("\n"),
+    );
+    expect(u.uebergabe).toBe(
+      '## Was offen ist\nDie boerse sollte „Analysen und Strategien" zusammenfassen; Bericht steht aus.',
+    );
+    expect(u.themen).toEqual({
+      "2026-09-26": "Watchlist, BTC-Idee",
+      "2026-09-27": "Wochenziel 100 Euro, Archiv",
+    });
+  });
+
+  it("nimmt eine Übergabe, deren Schlussmarke fehlt, und sagt bei kaputtem JSON, was los ist", () => {
+    expect(leseUebergabe("<uebergabe>\n## Was offen ist\nBTC-Auslöser beobachten.").uebergabe).toBe(
+      "## Was offen ist\nBTC-Auslöser beobachten.",
+    );
+    expect(() => leseUebergabe('{"uebergabe": "Er sagte „so" und ging."}')).toThrow(
+      /kaputtes JSON/,
+    );
   });
 });
 
@@ -216,10 +249,7 @@ describe("das Archiv", () => {
     const archiv = createGespraechsarchiv({
       workdir: ordner,
       schreibe: async () =>
-        JSON.stringify({
-          uebergabe: "## Was offen ist\nDen Ticker von Deep Drive prüfen.",
-          themen: { "2026-09-22": "Watchlist Deep Drive" },
-        }),
+        "<uebergabe>\n## Was offen ist\nDen Ticker von Deep Drive prüfen.\n</uebergabe>\n<themen>\n2026-09-22: Watchlist Deep Drive\n</themen>",
     });
     const r = await archiv.archiviere("abc", roh, "nachts");
     expect(r).toMatchObject({ tage: ["2026-09-22", "2026-09-26", "2026-09-27"], nachrichten: 2 });

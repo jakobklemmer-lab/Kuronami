@@ -45,7 +45,8 @@ export interface Eintrag {
   stand: Stand;
   tafeln: Tafel[];
   rueckfrage: Rueckfrage | null;
-  /** Jakobs Eintrag kam aus dem Mikrofon, nicht von der Tastatur. */
+  /** Jakobs Eintrag kam aus dem Mikrofon, nicht von der Tastatur. Bei Kuros wartendem Eintrag:
+   * die Frage davor — daran erkennt ein Zug, ob der Platz ihm gehört. */
   gesprochen: boolean;
   /** Woher ein Zug kam, der nicht hier gefragt wurde („über Telegram") — sonst null. */
   herkunft: string | null;
@@ -95,8 +96,32 @@ function haenge(v: Verlauf, ...neu: Eintrag[]): Verlauf {
   return { eintraege: [...v.eintraege, ...neu].slice(-HOECHSTENS) };
 }
 
-/** Der Eintrag eines Zuges, sonst der jüngste, der noch auf seinen Zug wartet. */
-function findeZug(v: Verlauf, zugId: string | null): number {
+/** Woher ein Zug kam, laut `turn.started` — entscheidet, welchen wartenden Platz er nehmen darf. */
+export interface ZugQuelle {
+  /** Der Kanal beim Gateway: `web`, `voice`, `telegram` … */
+  kanal: string;
+  /** Kuro trägt von sich aus einen Bericht nach (`nachtrag_…`) — darauf wartet hier keine Frage. */
+  nachtrag: boolean;
+}
+
+/**
+ * Darf dieser Zug den wartenden Platz nehmen? Nur ein Zug aus demselben Kanal wie die Frage.
+ *
+ * Am 2026-09-27 nahm sich Kuros nachgetragener Börsenbericht (Kanal `voice`, weil der Auftrag
+ * gesprochen war) den jüngsten wartenden Platz — und das war einer, der zwischen Jakobs
+ * Satzbruchstücken liegengeblieben war. Die Antwort war sauber, stand aber mitten in seiner
+ * Nachricht. Ein Nachtrag und ein Zug aus Telegram beantworten keine Frage von hier.
+ */
+function nimmtPlatz(e: Eintrag, quelle: ZugQuelle | null): boolean {
+  if (!quelle) return true;
+  if (quelle.nachtrag) return false;
+  if (quelle.kanal === "web") return !e.gesprochen;
+  if (quelle.kanal === "voice") return e.gesprochen;
+  return false;
+}
+
+/** Der Eintrag eines Zuges, sonst der jüngste passende, der noch auf seinen Zug wartet. */
+function findeZug(v: Verlauf, zugId: string | null, quelle: ZugQuelle | null = null): number {
   if (zugId) {
     for (let i = v.eintraege.length - 1; i >= 0; i--) {
       if (v.eintraege[i].zugId === zugId) return i;
@@ -104,7 +129,8 @@ function findeZug(v: Verlauf, zugId: string | null): number {
   }
   for (let i = v.eintraege.length - 1; i >= 0; i--) {
     const e = v.eintraege[i];
-    if (e.von === "kuro" && e.zugId === null && e.stand === "wartet") return i;
+    if (e.von === "kuro" && e.zugId === null && e.stand === "wartet" && nimmtPlatz(e, quelle))
+      return i;
   }
   return -1;
 }
@@ -133,18 +159,19 @@ export function frage(v: Verlauf, text: string, u: Umgebung, gesprochen = false)
     gesprochen,
     herkunft: null,
   };
-  return haenge(v, jakob, kuro(u, { stand: "wartet" }));
+  return haenge(v, jakob, kuro(u, { stand: "wartet", gesprochen }));
 }
 
-/** Ein Zug beginnt. Wartet eine eigene Frage auf ihre Antwort, ist er deren Antwort; sonst kam
- * er von anderswo und bekommt einen eigenen Eintrag samt `herkunft`. */
+/** Ein Zug beginnt. Wartet eine eigene Frage aus seinem Kanal auf ihre Antwort, ist er deren
+ * Antwort; sonst kam er von anderswo und bekommt einen eigenen Eintrag samt `herkunft`. */
 export function zugBeginnt(
   v: Verlauf,
   zugId: string,
   u: Umgebung,
   herkunft: string | null = null,
+  quelle: ZugQuelle | null = null,
 ): Verlauf {
-  const i = findeZug(v, zugId);
+  const i = findeZug(v, zugId, quelle);
   if (i >= 0) {
     const e = v.eintraege[i];
     return ersetze(v, i, { ...e, zugId, stand: e.stand === "fehler" ? e.stand : "laeuft" });

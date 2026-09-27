@@ -38,7 +38,7 @@ from pipecat.serializers.base_serializer import FrameSerializer
 SERVER_MESSAGE_TYPES = (
     "ready",  # Abtastraten und Modus, einmal nach dem Verbinden
     "state",  # einer der sechs Agentenzustände aus ui/mic/state.ts
-    "transcript",  # erkannter Text, `final` unterscheidet Zwischenstand und Endstand
+    "transcript",  # erkannter Text; `final` genau einmal je Befehl, mit dem ganzen Satz
     "reply",  # die Antwort des Agenten als Text (gesprochen wird sie ohnehin)
     "approval",  # eine Freigabeanfrage samt Optionen, wortgleich aus dem Protokoll
     "interrupted",  # der Nutzer hat dazwischengeredet, die Ausgabe ist verworfen

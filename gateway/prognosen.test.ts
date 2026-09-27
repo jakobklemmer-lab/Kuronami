@@ -238,6 +238,19 @@ describe("akte", () => {
     expect(text).toContain(String(BELASTBAR_AB));
   });
 
+  it("führt die laufende Woche in Euro nach der Ein-Prozent-Regel — das Ziel nur daneben", () => {
+    const b = benote(idee(), kerzenZiel);
+    const aus = b.verlauf.ausstiegAm as number;
+    const r = b.verlauf.r as number;
+    const ziel = { kapitalEuro: 1500, risikoProzent: 1, zielEuro: 100 };
+    const drin = akte("boerse", [b], new Date(aus * 1000), ziel);
+    expect(drin.woche).toMatchObject({ aufgeloest: 1, rSumme: Math.round(r * 100) / 100 });
+    expect(drin.woche.euro).toBeCloseTo(r * 15, 1);
+    expect(formatiereAkte(drin)).toContain("Wochenziel von 100,00 € ist eine Beobachtung");
+    const spaeter = akte("boerse", [b], new Date((aus + 14 * 86_400) * 1000), ziel);
+    expect(spaeter.woche).toMatchObject({ aufgeloest: 0, rSumme: 0, euro: 0 });
+  });
+
   it("zählt nur die Prognosen dessen, um den es geht", () => {
     const b = [
       benote(idee({ id: "a", von: "boerse" }), kerzenZiel),

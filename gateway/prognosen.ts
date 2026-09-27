@@ -3,6 +3,14 @@ import path from "node:path";
 import { type Richtung, rechneCrv } from "./crv.js";
 import { messeHaltedauer } from "./haltedauer.js";
 import type { MarketCandle } from "./integrations/markets.js";
+import {
+  type Wochenziel,
+  euro,
+  risikoEuro,
+  wienerTag,
+  wochenbeginn,
+  wochenziel,
+} from "./wochenziel.js";
 
 /**
  * Das Prognosebuch: was ein Analyst behauptet hat, und was davon eingetreten ist.
@@ -514,6 +522,11 @@ export interface Akte {
    * ist die Antwort nein, und die Zahl wird trotzdem genannt — mit diesem Vermerk daneben.
    */
   belastbar: boolean;
+  /**
+   * Die laufende Woche (ab Montag, Wien): was in ihr aufgelöst wurde, in R und in Euro nach
+   * Jakobs Ein-Prozent-Regel. Das Wochenziel steht daneben als Beobachtung (`wochenziel.ts`).
+   */
+  woche: { ab: string; aufgeloest: number; rSumme: number; euro: number; zielEuro: number };
 }
 
 /**
@@ -523,7 +536,12 @@ export interface Akte {
  * richtig gerechnet, Auslöser 2/6 erreicht" sagt, wo er gut ist und wo nicht — und das Zweite
  * ist eine Arbeitsanweisung, das Erste ein Stimmungsbild.
  */
-export function akte(von: string, benotungen: readonly Benotung[]): Akte {
+export function akte(
+  von: string,
+  benotungen: readonly Benotung[],
+  jetzt: Date = new Date(),
+  ziel: Wochenziel = wochenziel(),
+): Akte {
   const meine = benotungen.filter((b) => b.von === von);
   const nachArt = new Map<string, AkteZeile>();
   for (const b of meine) {
@@ -538,6 +556,11 @@ export function akte(von: string, benotungen: readonly Benotung[]): Akte {
   const aufgeloest = meine.filter((b) => b.verlauf.stand === "ziel" || b.verlauf.stand === "stop");
   const rWerte = aufgeloest.map((b) => b.verlauf.r).filter((r): r is number => r !== null);
   const summe = rWerte.reduce((a, b) => a + b, 0);
+  const ab = wochenbeginn(jetzt);
+  const dieseWoche = aufgeloest.filter(
+    (b) => b.verlauf.ausstiegAm !== null && wienerTag(b.verlauf.ausstiegAm) >= ab,
+  );
+  const wocheR = dieseWoche.reduce((a, b) => a + (b.verlauf.r ?? 0), 0);
   return {
     von,
     prognosen: meine.length,
@@ -548,6 +571,13 @@ export function akte(von: string, benotungen: readonly Benotung[]): Akte {
     rSumme: rWerte.length > 0 ? Math.round(summe * 100) / 100 : null,
     rMittel: rWerte.length > 0 ? Math.round((summe / rWerte.length) * 100) / 100 : null,
     belastbar: rWerte.length >= BELASTBAR_AB,
+    woche: {
+      ab,
+      aufgeloest: dieseWoche.length,
+      rSumme: Math.round(wocheR * 100) / 100,
+      euro: Math.round(wocheR * risikoEuro(ziel) * 100) / 100,
+      zielEuro: ziel.zielEuro,
+    },
   };
 }
 
@@ -583,6 +613,8 @@ export function formatiereBenotung(b: Benotung): string {
 export function formatiereAkte(a: Akte): string {
   const zeilen = [
     `**Akte ${a.von}** — ${a.prognosen} Prognosen: ${a.aufgeloest} aufgelöst, ${a.verfallen} verfallen, ${a.laeuft} laufen.`,
+    "",
+    `Diese Woche (ab ${a.woche.ab.split("-").reverse().join(".")}): ${a.woche.aufgeloest} aufgelöst, ${zahl(a.woche.rSumme)} R = ${euro(a.woche.euro, true)} bei Jakobs Ein-Prozent-Regel. Sein Wochenziel von ${euro(a.woche.zielEuro)} ist eine Beobachtung, keine Vorgabe für die Positionsgröße.`,
     "",
   ];
   if (a.zeilen.length === 0) {
@@ -729,7 +761,7 @@ export function createPrognosen(deps: PrognosenDeps): Prognosenbuch {
     },
 
     async akteVon(von) {
-      return akte(von, await this.pruefeAlle());
+      return akte(von, await this.pruefeAlle(), jetzt());
     },
   };
 }

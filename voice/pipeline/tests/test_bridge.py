@@ -674,3 +674,36 @@ async def test_mit_gedrueckter_sprechtaste_ist_erst_nach_dem_loslassen_gesagt(mo
     assert client.turns == [
         "Hätte gerne zwei Sachen. Schau dir alle Analysen an. Und fasse sie zusammen."
     ]
+
+
+async def test_fertig_gemeldet_wird_der_ganze_befehl_nicht_jedes_stueck(monkeypatch) -> None:
+    """Jakobs Fall vom 2026-09-27, 12:50 Uhr.
+
+    Der Befehl ging als einer hinaus, aber die Brücke meldete dem Browser jedes Stück als
+    `final` — und die Welle stellte jedes als eigene Frage in den Faden, mit „Kuro denkt nach …"
+    dazwischen. `final` kommt jetzt genau einmal, mit dem Wortlaut, der auch an Kuro geht.
+    """
+    monkeypatch.setattr(bridge_modul, "_SATZ_PAUSE_SECS", 0.1)
+    monkeypatch.setattr(bridge_modul, "_TASTE_NACHLAUF_SECS", 0.4)
+    client = FakeGateway()
+    down, _up = await run_test(
+        bridge(client),
+        frames_to_send=[
+            hello(),
+            taste(True),
+            VADUserStoppedSpeakingFrame(),
+            TranscriptionFrame(text="Fasse die Analysen zusammen.", user_id="u", timestamp="t"),
+            SleepFrame(sleep=0.5),
+            TranscriptionFrame(text="Und archiviere den Rest.", user_id="u", timestamp="t"),
+            SleepFrame(sleep=0.3),
+            taste(False),
+            SleepFrame(sleep=0.8),
+        ],
+        expected_down_frames=None,
+    )
+    ganz = "Fasse die Analysen zusammen. Und archiviere den Rest."
+    fertig = [m["text"] for m in of_type(down, "transcript") if m.get("final")]
+    zwischen = [m["text"] for m in of_type(down, "transcript") if not m.get("final")]
+    assert client.turns == [ganz]
+    assert fertig == [ganz], "Einmal fertig, mit genau dem, was an Kuro ging."
+    assert zwischen[-1] == ganz, "Der Zwischenstand wächst mit, statt neu anzufangen."

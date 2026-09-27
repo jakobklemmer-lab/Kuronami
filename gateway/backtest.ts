@@ -23,6 +23,7 @@ import {
 } from "./indikatoren.js";
 import type { MarketCandle } from "./integrations/markets.js";
 import { type Konfidenz, formatiereKonfidenz, konfidenz, nullEingeschlossen } from "./konfidenz.js";
+import { wochenzielZeile } from "./wochenziel.js";
 
 /**
  * Der Backtest: eine Strategie gegen echte Kerzen laufen lassen und **nachrechenbar** sagen,
@@ -1009,6 +1010,12 @@ export function formatiereBacktest(e: BacktestErgebnis): string {
     "Gesamt:",
     kennzahlenZeilen(e.gesamt),
     `  Kaufen und liegen lassen im selben Zeitraum: ${prozent(e.kaufUndHaltenProzent)}`,
+    ...[
+      wochenzielZeile(
+        { ...e.gesamt, von: e.von, bis: e.bis },
+        { ...e.outOfSample.kennzahlen, von: e.outOfSample.von, bis: e.outOfSample.bis },
+      ),
+    ].filter(Boolean),
     ...(e.nullpunkt
       ? [
           `  Nullpunkt (dieselbe Geometrie ohne Einstiegsregel): Trefferquote ${prozent(e.nullpunkt.trefferquote * 100)}, ${e.nullpunkt.erwartungswertR >= 0 ? "+" : ""}${e.nullpunkt.erwartungswertR.toFixed(2)} R`,

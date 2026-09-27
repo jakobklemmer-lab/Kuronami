@@ -102,6 +102,33 @@ describe("fremde Züge", () => {
   });
 });
 
+describe("wartende Plätze", () => {
+  it("nimmt ein Nachtrag keiner wartenden Frage den Platz (27.09.)", () => {
+    const u = umgebung();
+    let v = frage(leer(), "Fasse die Analysen zusammen.", u, true);
+    v = zugBeginnt(v, "nachtrag-zug", u, "nachgereicht", { kanal: "voice", nachtrag: true });
+    expect(texte(v)).toEqual([
+      "jakob:Fasse die Analysen zusammen.:fertig",
+      "kuro::wartet",
+      "kuro::laeuft",
+    ]);
+    expect(v.eintraege[2].herkunft).toBe("nachgereicht");
+    v = zugBeginnt(v, "eigener-zug", u, "gesprochen", { kanal: "voice", nachtrag: false });
+    expect(v.eintraege[1]).toMatchObject({ zugId: "eigener-zug", stand: "laeuft" });
+  });
+
+  it("gibt den Platz einer getippten Frage keinem gesprochenen Zug und umgekehrt", () => {
+    const u = umgebung();
+    let v = frage(leer(), "Wie steht der DAX?", u);
+    v = zugBeginnt(v, "gesprochen", u, "gesprochen", { kanal: "voice", nachtrag: false });
+    v = zugBeginnt(v, "telegram", u, "über Telegram", { kanal: "telegram", nachtrag: false });
+    expect(v.eintraege[1]).toMatchObject({ zugId: null, stand: "wartet" });
+    v = zugBeginnt(v, "getippt", u, null, { kanal: "web", nachtrag: false });
+    expect(v.eintraege[1]).toMatchObject({ zugId: "getippt", stand: "laeuft" });
+    expect(v.eintraege.slice(2).map((e) => e.herkunft)).toEqual(["gesprochen", "über Telegram"]);
+  });
+});
+
 describe("Tafeln", () => {
   it("hängen an der Antwort, die gerade entsteht, und doppeln nicht", () => {
     const u = umgebung();
