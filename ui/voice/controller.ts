@@ -67,8 +67,13 @@ export function createVoiceController(options: VoiceControllerOptions): VoiceCon
     speaker = createSpeaker(outRate);
     const t = createSprechtaste({
       aktiv: tasteGilt,
-      // Nur die Anzeige; den Zustand von Kuro (hört, denkt, spricht) setzt weiter die Pipeline.
-      onWechsel: (offen) => document.body.classList.toggle("ist-sprechtaste", offen),
+      // Drücken heißt: Jakob redet. Kuros Stimme verstummt sofort hier im Browser, und der
+      // Sprachprozess bricht die Antwort ab und hält alles, bis die Taste wieder oben ist.
+      onWechsel: (offen) => {
+        document.body.classList.toggle("ist-sprechtaste", offen);
+        if (offen) speaker?.flush();
+        current.taste(offen);
+      },
     });
     taste = t;
     if (tasteGilt())

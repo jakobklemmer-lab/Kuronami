@@ -83,6 +83,8 @@ export interface VoiceSession {
   sendAudio(chunk: ArrayBufferLike | ArrayBufferView): void;
   /** Eine Freigabe per Klick beantworten, statt sie zu sprechen. */
   answer(askId: string, choiceId: string): void;
+  /** Die Sprechtaste: unten = Jakob redet, Kuro schweigt; oben = gesagt ist, was gesagt ist. */
+  taste(unten: boolean): void;
   readonly status: VoiceStatus;
   /** Erst nach `ready` bekannt — vorher gibt es keinen ehrlichen Wert. */
   readonly audioInSampleRate: number | null;
@@ -270,6 +272,11 @@ export function createVoiceSession(options: VoiceSessionOptions): VoiceSession {
     answer(askId, choiceId): void {
       if (socket === null || status !== "ready") return;
       socket.send(JSON.stringify({ type: "answer", askId, choiceId }));
+    },
+
+    taste(unten): void {
+      if (socket === null || status !== "ready") return;
+      socket.send(JSON.stringify({ type: "taste", unten }));
     },
 
     get status(): VoiceStatus {

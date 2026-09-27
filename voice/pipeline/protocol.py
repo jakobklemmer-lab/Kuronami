@@ -51,6 +51,7 @@ CLIENT_MESSAGE_TYPES = (
     "hello",  # trägt das gemeinsame Geheimnis; ohne sie bleibt die Brücke stumm
     "utterance",  # nur im Loopback: der Text, den die Stand-in-Erkennung liefern soll
     "answer",  # die Wahl zu einer Freigabeanfrage, per Klick statt per Stimme
+    "taste",  # die Sprechtaste: `unten` true/false — gesprochen ist erst, wenn sie oben ist
 )
 
 

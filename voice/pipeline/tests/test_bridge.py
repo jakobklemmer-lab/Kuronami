@@ -638,3 +638,39 @@ async def test_kein_nachtrag_waehrend_die_bruecke_noch_sammelt(monkeypatch) -> N
     )
     assert client.outbox_calls == 0, "Während gesammelt wird, wird nicht nachgesehen."
     assert spoken(down) == [], "Und schon gar nicht gesprochen."
+
+
+def taste(unten: bool) -> Frame:
+    return InputTransportMessageFrame(message={"type": "taste", "unten": unten})
+
+
+async def test_mit_gedrueckter_sprechtaste_ist_erst_nach_dem_loslassen_gesagt(monkeypatch) -> None:
+    """Jakobs Fall vom 2026-09-27, 12:44 Uhr.
+
+    Er hielt die Leertaste, sprach mit Pausen, und Kuro antwortete auf jedes Stück: „Ich höre."
+    — „Und der zweite Punkt?". Solange die Taste unten ist, ist nichts zu Ende gesagt; nach dem
+    Loslassen kommt noch das letzte Stück aus der Erkennung, und alles geht als ein Befehl.
+    """
+    monkeypatch.setattr(bridge_modul, "_SATZ_PAUSE_SECS", 0.1)
+    monkeypatch.setattr(bridge_modul, "_TASTE_NACHLAUF_SECS", 0.4)
+    client = FakeGateway()
+    await run_test(
+        bridge(client),
+        frames_to_send=[
+            hello(),
+            taste(True),
+            VADUserStoppedSpeakingFrame(),
+            TranscriptionFrame(text="Hätte gerne zwei Sachen.", user_id="u", timestamp="t"),
+            SleepFrame(sleep=0.5),
+            TranscriptionFrame(text="Schau dir alle Analysen an.", user_id="u", timestamp="t"),
+            SleepFrame(sleep=0.5),
+            taste(False),
+            SleepFrame(sleep=0.2),
+            TranscriptionFrame(text="Und fasse sie zusammen.", user_id="u", timestamp="t"),
+            SleepFrame(sleep=0.8),
+        ],
+        expected_down_frames=None,
+    )
+    assert client.turns == [
+        "Hätte gerne zwei Sachen. Schau dir alle Analysen an. Und fasse sie zusammen."
+    ]

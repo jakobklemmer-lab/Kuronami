@@ -43,6 +43,7 @@ import asyncio
 import hmac
 import os
 import re
+import time
 import uuid
 from collections.abc import Awaitable, Callable
 from typing import Any
@@ -72,6 +73,10 @@ from voice.pipeline.latency import LatencyLedger
 _OUTBOX_POLL_SECS = 4.0
 #: Wie lange nach einem **abgeschlossenen** Satz noch auf eine Fortsetzung gewartet wird.
 _SATZ_PAUSE_SECS = float(os.environ.get("VOICE_UTTERANCE_GAP_SECS") or 0.25)
+#: Nach dem Loslassen der Sprechtaste: so lange kommt das letzte Stück noch aus VAD-Pause und
+#: Erkennung. Ohne das ginge der Satz ohne seine letzten Worte hinaus, und die kämen als eigener
+#: Befehl hinterher.
+_TASTE_NACHLAUF_SECS = 1.2
 #: Dasselbe, wenn der Satz erkennbar **nicht** zu Ende ist.
 #:
 #: Am 2026-09-21 sagte Jakob "…aber wenn der Paperhandel, also der Paper Trading laufen würde,"
@@ -200,6 +205,10 @@ class KuronamiBridge(FrameProcessor):
         #: Die Stücke der laufenden Äußerung, bis feststeht, dass sie zu Ende ist.
         self._satz: list[str] = []
         self._satz_task: asyncio.Task[None] | None = None
+        #: Hält Jakob die Sprechtaste (Leertaste im Browser)? Dann ist nichts zu Ende gesagt,
+        #: was er zwischendurch mit Pausen spricht — der Satz geht erst nach dem Loslassen.
+        self._taste_unten = False
+        self._taste_los = 0.0
 
     # -- Zustand nach außen ---------------------------------------------------------------
 
@@ -320,6 +329,10 @@ class KuronamiBridge(FrameProcessor):
                 await self._emit("error", message="Das Sitzungsgeheimnis stimmt nicht.")
             return
 
+        if kind == "taste" and self._authenticated:
+            await self._taste(bool(message.get("unten")))
+            return
+
         if kind == "answer" and self._authenticated:
             ask_id = str(message.get("askId") or "")
             choice_id = str(message.get("choiceId") or "")
@@ -352,6 +365,29 @@ class KuronamiBridge(FrameProcessor):
             # Der eigene Zug muss deshalb hier fallengelassen werden — sonst spräche die Antwort,
             # die schon unterwegs war, gleich über den Nutzer hinweg.
             await self._abandon_turn()
+
+    async def _taste(self, unten: bool) -> None:
+        """Die Sprechtaste (2026-09-27).
+
+        Jakob sprach mit gehaltener Leertaste, machte Pausen, und Kuro antwortete auf jedes
+        Bruchstück („Ich höre." / „Und der zweite Punkt?"). Mit der Taste gibt es ein
+        eindeutiges Zeichen, das das VAD nicht hat: **solange sie unten ist, ist nichts zu
+        Ende gesagt.** Und wer sie drückt, will reden — Kuros laufende Antwort bricht sofort
+        ab, nicht erst, wenn das VAD ein Wort gehört hat.
+        """
+        self._taste_unten = unten
+        if not unten:
+            self._taste_los = time.monotonic()
+        if unten:
+            if self._bot_speaking or self.turn_in_flight:
+                await self.broadcast_interruption()
+                await self._abandon_turn()
+            await self._emit_state("listening")
+            return
+        # Losgelassen: was gesammelt ist, geht nach der üblichen Pause hinaus. Kommt das letzte
+        # Stück erst noch aus der Erkennung, startet `_on_transcript` das Warten selbst.
+        if self._satz and (self._satz_task is None or self._satz_task.done()):
+            self._satz_task = self.create_task(self._satz_abwarten())
 
     async def _on_transcript(self, text: str) -> None:
         if not self._authenticated:
@@ -387,9 +423,19 @@ class KuronamiBridge(FrameProcessor):
         """Wartet das Ende der Äußerung ab und schickt sie dann als einen Befehl."""
         offen = bool(_SATZ_OFFEN.search(self._satz[-1].strip())) if self._satz else False
         await asyncio.sleep(_SATZ_PAUSE_OFFEN_SECS if offen else _SATZ_PAUSE_SECS)
-        # Solange das VAD noch Stimme hört, kommt noch etwas nach.
-        while self._user_speaking:
+        # Solange das VAD noch Stimme hört, kommt noch etwas nach — und solange die Sprechtaste
+        # unten ist, auch (höchstens zwei Minuten: eine verlorene Taste hält nicht ewig fest).
+        gewartet = 0.0
+        while self._user_speaking or (self._taste_unten and gewartet < 120):
             await asyncio.sleep(0.1)
+            gewartet += 0.1
+        # Eben losgelassen? Dann das letzte Stück abwarten. Kommt es, beginnt `_on_transcript`
+        # dieses Warten neu, und alles geht zusammen hinaus.
+        rest = self._taste_los + _TASTE_NACHLAUF_SECS - time.monotonic()
+        if rest > 0:
+            await asyncio.sleep(rest)
+            while self._user_speaking:
+                await asyncio.sleep(0.1)
         teile, self._satz = self._satz, []
         satz = " ".join(teile).strip()
         if satz:
