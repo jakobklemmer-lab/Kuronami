@@ -226,6 +226,7 @@ export function createLabor(deps: LaborDeps = {}) {
     weitere: readonly string[],
     von: string,
     bis: string,
+    intervall: ChartInterval = "1d",
   ): Promise<{ vermerk?: UniversumVermerk; universumBericht: string }> {
     if (weitere.length === 0) {
       return {
@@ -247,7 +248,7 @@ export function createLabor(deps: LaborDeps = {}) {
       try {
         const geholt = await kerzenquelle.hole({
           symbol,
-          intervall: "1d",
+          intervall,
           vonUnix: unix(von),
           bisUnix: unix(bis) + 86_400,
         });
@@ -265,7 +266,7 @@ export function createLabor(deps: LaborDeps = {}) {
       };
     }
     try {
-      const ergebnis = ueberMaerkte(strategie, maerkte, { intervall: "1d" });
+      const ergebnis = ueberMaerkte(strategie, maerkte, { intervall });
       return {
         vermerk: {
           einstufung: ergebnis.einstufung,
@@ -945,10 +946,18 @@ export function createLabor(deps: LaborDeps = {}) {
           "mit ins Archiv. Ohne sie steht dort sichtbar, dass über Übertragbarkeit nichts",
           "gerechnet wurde; die Zahlen gelten dann für genau einen Verlauf.",
           "",
+          "**Das Intervall gilt für alle Märkte gleich.** 1d ist die Vorgabe; für einen",
+          "Intraday-Test brauchst du wie bei `backtest` `binance:`-Symbole — Yahoo gibt Intraday",
+          "nur ein paar Wochen weit her.",
+          "",
           "Jakob sieht die Ablage in der Oberfläche unter „Strategien“ und entscheidet dort.",
         ].join("\n"),
         {
-          symbol: z.string().min(1).max(20),
+          symbol: z.string().min(1).max(30),
+          intervall: z
+            .enum(CHART_INTERVALS)
+            .default("1d")
+            .describe("Kerzengröße. Gilt für `symbol` und alle `weitereMaerkte` gleich."),
           von: z.string().regex(TAG),
           bis: z.string().regex(TAG).optional(),
           weitereMaerkte: z
@@ -962,30 +971,38 @@ export function createLabor(deps: LaborDeps = {}) {
           ...strategieSchema,
         },
         async (eingabe) => {
-          const { symbol, von, bis, weitereMaerkte, ...rest } = eingabe;
+          const { symbol, intervall, von, bis, weitereMaerkte, ...rest } = eingabe;
           const ende = bis ?? heute();
+          const intervallWahl = intervall as ChartInterval;
           try {
-            const chart = await markets.zeitraum(symbol, unix(von), unix(ende) + 86_400, "1d");
+            const geholt = await kerzenquelle.hole({
+              symbol,
+              intervall: intervallWahl,
+              vonUnix: unix(von),
+              bisUnix: unix(ende) + 86_400,
+            });
+            const marktsymbol = `${geholt.quelle}:${geholt.symbol}`;
             const strategie = rest as unknown as Strategie;
-            const ergebnis = backtest(strategie, chart.candles, {
-              symbol: chart.symbol,
-              intervall: "1d",
+            const ergebnis = backtest(strategie, geholt.kerzen, {
+              symbol: marktsymbol,
+              intervall: intervallWahl,
             });
             // **Die Einstufung wird hier gerechnet, nicht entgegengenommen.** Ein Feld, in das
             // der Stratege „übertragbar" schreiben könnte, wäre wieder eine Meinung mit
             // Fachbegriff — dieselbe Falle wie ein geschätztes CRV.
             const { vermerk, universumBericht } = await universumZurAblage(
               strategie,
-              { symbol: chart.symbol, kerzen: chart.candles },
+              { symbol: marktsymbol, kerzen: geholt.kerzen },
               weitereMaerkte ?? [],
               von,
               ende,
+              intervallWahl,
             );
             const kopf = await archiv.lege({
               name: strategie.name,
               wer: deps.wer ?? "handelstisch",
-              symbol: chart.symbol,
-              intervall: "1d",
+              symbol: marktsymbol,
+              intervall: intervallWahl,
               von: ergebnis.von,
               bis: ergebnis.bis,
               strategie,
