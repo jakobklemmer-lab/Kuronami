@@ -1329,6 +1329,34 @@
   font-weight: 600;
 }
 
+/* Tabellen aus Markdown: ruhig wie die Verbrauchstabelle; rollen in sich, nicht die Seite. */
+.markdown .md-tabelle {
+  overflow-x: auto;
+  margin: 0 0 1.2em;
+}
+.markdown table {
+  border-collapse: collapse;
+  font-size: var(--text-sm);
+  line-height: 1.5;
+  font-variant-numeric: tabular-nums;
+}
+.markdown th {
+  text-align: left;
+  font-size: var(--text-xs);
+  color: var(--fg-faint);
+  font-weight: 500;
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--border);
+}
+.markdown td {
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--border);
+  vertical-align: top;
+}
+.markdown tbody tr:last-child td {
+  border-bottom: none;
+}
+
 .analysen__zuarbeit {
   margin-top: 8px;
   padding-top: 18px;

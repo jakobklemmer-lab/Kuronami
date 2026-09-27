@@ -6,9 +6,9 @@ import { escapeHtml } from "./html.js";
  * Bis hierher zeigte der Composer den Antworttext roh: Sternchen, Rauten, Bindestriche —
  * „nicht übersichtlich zu lesen", wie der Nutzer sagte. Der Assistent antwortet in Markdown
  * (Überschriften, fette Stichworte, nummerierte Listen), also wird genau das gerendert, und
- * nicht mehr: Überschriften, Absätze, Listen, fett/kursiv, Code, Links. Kein rohes HTML —
- * jeder Textknoten läuft durch `escapeHtml`, ein `<script>` in einer Modellantwort bleibt
- * sichtbarer Text.
+ * nicht mehr: Überschriften, Absätze, Listen, fett/kursiv, Code, Links, Tabellen. Kein rohes
+ * HTML — jeder Textknoten läuft durch `escapeHtml`, ein `<script>` in einer Modellantwort
+ * bleibt sichtbarer Text.
  *
  * Bewusst eigene achtzig Zeilen statt einer Bibliothek: die Oberfläche hat keine Laufzeit-
  * Abhängigkeiten (`ui/`, S21), und die Untermenge hier ist die, die ein Assistent schreibt.
@@ -46,6 +46,43 @@ function inline(text: string, options: MarkdownOptions): string {
   return out;
 }
 
+/** `| a | b |` → `["a", "b"]`; die äußeren Striche sind optional wie in GitHub-Markdown. */
+function zellen(zeile: string): string[] {
+  let z = zeile.trim();
+  if (z.startsWith("|")) z = z.slice(1);
+  if (z.endsWith("|")) z = z.slice(0, -1);
+  return z.split("|").map((c) => c.trim());
+}
+
+/** Die Trennzeile unter dem Tabellenkopf: `|---|:--:|--:|`. */
+const TRENNER = /^\s*\|?\s*:?-+:?\s*(\|\s*:?-+:?\s*)*\|?\s*$/;
+
+/**
+ * Tabellen (Nachtrag 2026-09-28): die boerse schreibt ihre Vergleiche als Tabelle, und 13 von
+ * 21 abgelegten Analysen enthielten eine — in der Oberfläche standen sie als Wand aus
+ * senkrechten Strichen. Die Ausrichtung aus der Trennzeile bleibt erhalten, weil Zahlen
+ * rechtsbündig untereinander stehen müssen, um vergleichbar zu sein.
+ */
+function tabelle(
+  kopf: string[],
+  trenner: string[],
+  zeilen: string[][],
+  options: MarkdownOptions,
+): string {
+  const ausrichtung = trenner.map((c) =>
+    c.endsWith(":") ? (c.startsWith(":") ? "center" : "right") : null,
+  );
+  const zelle = (tag: "th" | "td", inhalt: string, spalte: number): string => {
+    const a = ausrichtung[spalte];
+    return `<${tag}${a ? ` style="text-align:${a}"` : ""}>${inline(inhalt, options)}</${tag}>`;
+  };
+  const kopfHtml = kopf.map((c, i) => zelle("th", c, i)).join("");
+  const koerper = zeilen
+    .map((z) => `<tr>${kopf.map((_, i) => zelle("td", z[i] ?? "", i)).join("")}</tr>`)
+    .join("");
+  return `<div class="md-tabelle"><table><thead><tr>${kopfHtml}</tr></thead><tbody>${koerper}</tbody></table></div>`;
+}
+
 export function renderMarkdown(source: string, options: MarkdownOptions = {}): string {
   const lines = source.replace(/\r\n/g, "\n").split("\n");
   const html: string[] = [];
@@ -66,7 +103,8 @@ export function renderMarkdown(source: string, options: MarkdownOptions = {}): s
     list = null;
   };
 
-  for (const raw of lines) {
+  for (let n = 0; n < lines.length; n += 1) {
+    const raw = lines[n];
     if (code !== null) {
       if (raw.startsWith("```")) {
         html.push(`<pre><code>${escapeHtml(code.join("\n"))}</code></pre>`);
@@ -87,6 +125,21 @@ export function renderMarkdown(source: string, options: MarkdownOptions = {}): s
     if (line.trim() === "") {
       flushParagraph();
       flushList();
+      continue;
+    }
+    if (line.trimStart().startsWith("|") && TRENNER.test(lines[n + 1] ?? "")) {
+      flushParagraph();
+      flushList();
+      const kopf = zellen(line);
+      const trenner = zellen(lines[n + 1]);
+      const zeilen: string[][] = [];
+      n += 2;
+      while (n < lines.length && lines[n].trimStart().startsWith("|")) {
+        zeilen.push(zellen(lines[n]));
+        n += 1;
+      }
+      n -= 1;
+      html.push(tabelle(kopf, trenner, zeilen, options));
       continue;
     }
     const heading = /^(#{1,6})\s+(.*)$/.exec(line);
