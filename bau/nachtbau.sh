@@ -39,6 +39,9 @@ GS=$(env_wert NACHTBAU_GRENZE_SITZUNG); GS=${GS:-85}
 GW=$(env_wert NACHTBAU_GRENZE_WOCHE); GW=${GW:-85}
 MIN=$(env_wert NACHTBAU_AUFGABE_MIN); MIN=${MIN:-100}
 PORT=$(env_wert PORT); PORT=${PORT:-3000}
+# Fünf Testdateien laufen gegen Postgres. `vitest.setup.ts` lädt sonst die ganze `.env` — im
+# Worktree gibt es keine, und dorthin gehört auch keine. Weitergereicht wird nur diese eine Zeile.
+DATABASE_URL=$(env_wert DATABASE_URL); export DATABASE_URL
 jetzt=$(date +%s)
 SCHLUSS=$(date -d "today $ENDE" +%s)
 (( jetzt >= SCHLUSS )) && SCHLUSS=$(date -d "tomorrow $ENDE" +%s)
