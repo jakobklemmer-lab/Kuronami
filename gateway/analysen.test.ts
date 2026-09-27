@@ -70,6 +70,18 @@ describe("ablegen", () => {
     ).toBe(false);
   });
 
+  it("legt Berichte des Nachtbaus ab und lässt ihn sagen, dass keine Idee darin steht", async () => {
+    const kopf = await archiv.lege({
+      ...bericht,
+      wer: "nachtbau",
+      bericht: "# Kalibrierung\n\nEinstieg nach dem Kreuzen, Stop unter der EMA 200.",
+      beitraege: [],
+      hatIdee: false,
+    });
+    expect(kopf?.wer).toBe("nachtbau");
+    expect(kopf?.hatIdee).toBe(false);
+  });
+
   it("sortiert die Liste mit der jüngsten zuerst", async () => {
     await archiv.lege({ ...bericht, bericht: "# Erste\n\nEinstieg 1, Stop 0." });
     await new Promise((f) => setTimeout(f, 5));

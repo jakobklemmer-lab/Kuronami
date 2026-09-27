@@ -19,8 +19,14 @@ import path from "node:path";
  * Analysen, und sie gehören nicht in einen zweiten Ablageort, der nie wieder aufgeräumt wird.
  */
 
-/** Wer Analysen schreibt. Alle anderen Berichte sind Alltag und werden nicht abgelegt. */
-const ARCHIVWUERDIG = new Set(["boerse", "recherche", "werkstatt"]);
+/**
+ * Wer Analysen schreibt. Alle anderen Berichte sind Alltag und werden nicht abgelegt.
+ *
+ * Der `nachtbau` legt Berichte ab, die Jakob in der Oberfläche finden soll — seit der
+ * Kalibrierung an TradingLab (N9, 2026-09-28), die als Skript über den Code rechnet und nicht
+ * über einen Bediensteten.
+ */
+const ARCHIVWUERDIG = new Set(["boerse", "recherche", "werkstatt", "nachtbau"]);
 
 export type AnalyseStatus = "offen" | "gehandelt" | "verworfen";
 
@@ -80,6 +86,11 @@ export interface AnalysenArchiv {
     dauerMs: number;
     /** Siehe `crvGerechnet` am Kopf: nur gesetzt, wenn der Bericht eine Kennzahl nennt. */
     crvGerechnet?: boolean;
+    /**
+     * Steht eine handelbare Idee darin? Fehlt die Angabe, entscheidet die Erkennung am Text.
+     * Ein Prüfbericht über Stops und Einstiege ist keine Idee, auch wenn beide Wörter dastehen.
+     */
+    hatIdee?: boolean;
   }): Promise<AnalyseKopf | null>;
   /**
    * `mitArchiv` (Vorgabe `true`) entscheidet, ob Archiviertes mitgezählt wird — die Oberfläche
@@ -193,7 +204,7 @@ export function createAnalysen(deps: AnalysenDeps): AnalysenArchiv {
         wer: eintrag.wer,
         titel: titelAus(eintrag.bericht, eintrag.auftrag),
         auftrag: eintrag.auftrag,
-        hatIdee: erkenneIdee(eintrag.bericht),
+        hatIdee: eintrag.hatIdee ?? erkenneIdee(eintrag.bericht),
         ...(eintrag.crvGerechnet === undefined ? {} : { crvGerechnet: eintrag.crvGerechnet }),
         zuarbeit: [...new Set(eintrag.beitraege.map((b) => b.wer))],
         status: "offen",
