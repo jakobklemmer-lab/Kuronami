@@ -37,3 +37,10 @@ venv/
 # ein Tag mehr — privat, und das Repo hat einen Remote. Die Übergabe wechselt mit jedem Archivieren.
 /workspace/ablage/gespraeche/
 /workspace/notizen/uebergabe.md
+
+# Lehrvideos (2026-09-27): fremder Inhalt, nicht auf GitHub
+workspace/wissen/
+werkzeuge/bin/
+werkzeuge/pc/schluessel.txt
+# Nachtbau: Berichte und Protokolle bleiben auf dem Server
+bau/protokoll/

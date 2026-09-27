@@ -58,6 +58,7 @@ import { postfachVerbindenRouten } from "./postfach-verbinden.js";
 import { konten, lies, listeGepuffert } from "./postfach.js";
 import { deriveAskRoutes } from "./routing.js";
 import type { InboundAttachment } from "./types.js";
+import { type WissenAblage, wissenRouten } from "./wissen.js";
 import type { ZeichnungenAblage } from "./zeichnungen.js";
 
 /**
@@ -116,6 +117,8 @@ export interface ServerDeps {
    * `model.delta` und reichen die Textstücke als SSE weiter. Fehlt er, antworten sie wie bisher
    * mit einem Block. */
   bus?: Pick<RuntimeEventBus, "subscribe">;
+  /** Lehrvideos (2026-09-27): der PC lädt Untertitel hoch, der Nachtbau arbeitet sie durch. */
+  wissen?: WissenAblage;
 }
 
 /**
@@ -807,6 +810,13 @@ export function createServer(deps: ServerDeps): express.Express {
   // ihn ebenso dorthin zurück. Die Seite selbst gibt nichts preis, was nicht ohnehin bei
   // Google steht — den Schlüssel bekommt nur, wer sich dort erfolgreich angemeldet hat.
   postfachVerbindenRouten(app);
+  if (deps.wissen) {
+    wissenRouten(app, {
+      wissen: deps.wissen,
+      schluessel: () => process.env.KURO_WISSEN_SCHLUESSEL,
+      webPrincipal,
+    });
+  }
 
   /**
    * Der Ist-Zustand des Hauses (Nachtrag 2026-09-18).

@@ -29,6 +29,7 @@ import { createSystemdRestart } from "./restart.js";
 import { sandkastenLage } from "./sandkasten.js";
 import { createServer } from "./server.js";
 import type { ChannelId, ChannelPort } from "./types.js";
+import { createWissen } from "./wissen.js";
 import { createZeichnungen } from "./zeichnungen.js";
 
 /**
@@ -241,6 +242,7 @@ async function main(): Promise<void> {
     system: createSystemSampler(),
     restart: createSystemdRestart(),
     bus: eventBus,
+    wissen: createWissen({ workdir: agent.workdir }),
   });
   const server: Server = app.listen(port, () => {
     console.log(`[gateway] http://localhost:${port} — Kanäle: ${[...channels.keys()].join(", ")}`);
