@@ -1,6 +1,14 @@
 import { mkdir, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
-import { type Kennzahlen, type Strategie, atrAm, pruefeStrategie, signalAm } from "./backtest.js";
+import {
+  type Kennzahlen,
+  type Strategie,
+  atrAm,
+  pruefeStrategie,
+  signalAm,
+  stopFuer,
+  stopLinieAm,
+} from "./backtest.js";
 import { imFenster, minuteAus } from "./indikatoren.js";
 import type { MarketCandle, MarketsClient } from "./integrations/markets.js";
 import type { StrategienArchiv } from "./strategien.js";
@@ -203,20 +211,19 @@ export function verarbeite(
     if (konto.wartetAufEinstieg && konto.offen === null) {
       const roh = kerze.open;
       const kurs = long ? roh * (1 + schlupf) : roh * (1 - schlupf);
-      let stop: number | null = null;
-      if (strategie.stopAtr !== undefined) {
-        const spanne = atrAm(abgeschlossen, i - 1);
-        if (spanne !== undefined) {
-          stop = long ? kurs - spanne * strategie.stopAtr : kurs + spanne * strategie.stopAtr;
-        }
-      } else if (strategie.stopProzent !== undefined) {
-        const anteil = strategie.stopProzent / 100;
-        stop = long ? kurs * (1 - anteil) : kurs * (1 + anteil);
-      }
+      // Dieselbe Rechnung wie im Backtest, aus ATR oder Linie der Signalkerze (`i - 1`).
+      const stop = stopFuer(
+        strategie,
+        kurs,
+        atrAm(abgeschlossen, i - 1),
+        stopLinieAm(strategie, abgeschlossen, i - 1),
+      );
       konto.wartetAufEinstieg = false;
       if (stop === null) {
         ereignisse.push(
-          `${konto.name}: Signal verfallen — der Stop ließ sich nicht bestimmen (zu wenige Kerzen für den ATR).`,
+          strategie.stopAn === undefined
+            ? `${konto.name}: Signal verfallen — der Stop ließ sich nicht bestimmen (zu wenige Kerzen für den ATR).`
+            : `${konto.name}: Signal verfallen — die Stoplinie fehlt oder liegt auf der falschen Seite des Einstiegs ${kurs.toFixed(4)}.`,
         );
       } else {
         const risiko = Math.abs(kurs - stop);

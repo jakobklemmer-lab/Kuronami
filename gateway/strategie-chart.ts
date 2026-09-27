@@ -108,6 +108,10 @@ const NAMEN: Partial<Record<Indikator["art"], string>> = {
   bollinger_breite: "Bollinger-Breite",
   obv: "OBV",
   vwap: "VWAP",
+  swing_tief: "Swing-Tief",
+  swing_hoch: "Swing-Hoch",
+  fraktal_tief: "Fraktal-Tief",
+  fraktal_hoch: "Fraktal-Hoch",
 };
 
 function wort(i: Indikator): string {
@@ -133,7 +137,13 @@ export function regelInWorten(s: Strategie): string[] {
   if (s.ausstieg && s.ausstieg.length > 0) {
     zeilen.push(`Ausstieg, wenn ${s.ausstieg.map(teil).join(" oder ")}`);
   }
-  const stop = s.stopAtr ? `${s.stopAtr} ATR` : s.stopProzent ? `${s.stopProzent} %` : null;
+  const stop = s.stopAtr
+    ? `${s.stopAtr} ATR`
+    : s.stopProzent
+      ? `${s.stopProzent} %`
+      : s.stopAn
+        ? `an ${wort(s.stopAn)}`
+        : null;
   const ziel = s.zielR ? `${s.zielR} R` : s.zielProzent ? `${s.zielProzent} %` : null;
   if (stop || ziel)
     zeilen.push(
@@ -178,6 +188,9 @@ export function strategieImChart(
       if (id) indikatoren.add(id);
     }
   }
+  // Die Stoplinie gehört ins Bild: wer „Stop an EMA 200" liest, will die EMA 200 sehen.
+  const stopLinie = s.stopAn ? chartIndikatorFuer(s.stopAn) : null;
+  if (stopLinie) indikatoren.add(stopLinie);
 
   const letzte = kerzen.length - 2; // die zuletzt **abgeschlossene** Kerze, wie im Papierhandel
   return {

@@ -564,15 +564,17 @@ trauen kann, dass sie mit echtem Geld läuft. Du arbeitest an diesem Ziel, nicht
 ## Dein Handwerk
 
 \`backtest\` rechnet eine Regel gegen echte Kerzen durch. Du gibst Einstiegsbedingungen
-(alle müssen zutreffen), optional Ausstiegsbedingungen (eine genügt), einen Stop (in ATR oder
-Prozent) und ein Ziel (in R oder Prozent). Zurück kommen Nettoergebnis, Trefferquote,
-Erwartungswert in R, Profitfaktor, Drawdown, Sharpe, Sortino — und der Vergleich mit
-Buy-and-Hold.
+(alle müssen zutreffen), optional Ausstiegsbedingungen (eine genügt), einen Stop (in ATR,
+Prozent oder mit \`stopAn\` an einer Linie wie der EMA 200) und ein Ziel (in R oder Prozent).
+Zurück kommen Nettoergebnis, Trefferquote, Erwartungswert in R, Profitfaktor, Drawdown,
+Sharpe, Sortino — und der Vergleich mit Buy-and-Hold.
 
 Indikatoren: sma, ema, macd (mit Signallinie und Histogramm), adx samt di_plus/di_minus für
 die Trendstärke; rsi, stoch_k/stoch_d fürs Momentum; atr, stdabw, bollinger_oben/mitte/unten
 und bollinger_breite für die Volatilität; obv fürs Volumen (fehlt bei Indizes und Devisen);
-vwap samt vwap_oben/vwap_unten für die Sitzung; dazu kurs, wert, hoch und tief.
+vwap samt vwap_oben/vwap_unten für die Sitzung; dazu kurs, wert, hoch und tief;
+swing_tief/swing_hoch (Tief/Hoch der letzten periode Kerzen samt aktueller, für \`stopAn\`);
+fraktal_tief/fraktal_hoch (Williams, Wert erst auf der Kerze, auf der das Fraktal feststeht).
 
 ## Das Intervall ist eine Entscheidung, keine Einstellung
 

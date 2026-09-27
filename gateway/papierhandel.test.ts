@@ -94,6 +94,29 @@ describe("verarbeite", () => {
     expect(k.offen?.einstieg ?? 0).toBe(reihe[31].open);
   });
 
+  it("setzt einen Stop an einer Linie wie der Backtest — aus der Signalkerze", () => {
+    const reihe = kerzen([...new Array(30).fill(100), 110, 111, 112], 0);
+    // Die Signalkerze (Index 30) reicht bis 96 hinunter; das Swing-Tief über 3 Kerzen ist 96.
+    reihe[30] = { ...reihe[30], low: 96 };
+    const anLinie: Strategie = {
+      ...STRATEGIE,
+      stopProzent: undefined,
+      stopAn: { art: "swing_tief", periode: 3 },
+    };
+    const k = konto({ standKerze: reihe[29].time });
+    verarbeite(k, anLinie, reihe);
+    expect(k.offen?.stop).toBe(96);
+
+    const falsch = konto({ standKerze: reihe[29].time });
+    const { ereignisse } = verarbeite(
+      falsch,
+      { ...anLinie, stopAn: { art: "wert", wert: 200 } },
+      reihe,
+    );
+    expect(falsch.offen).toBeNull();
+    expect(ereignisse.join(" ")).toMatch(/falschen Seite/);
+  });
+
   it("verbucht den Stop mit −1 R, wenn keine Kosten anfallen", () => {
     const reihe = kerzen([...new Array(30).fill(100), 110, 111, 100, 90, 85], 0);
     const k = konto({ standKerze: reihe[29].time });

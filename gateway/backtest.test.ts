@@ -474,3 +474,99 @@ describe("Lücken über den Stop", () => {
     expect(gestoppt.r).toBeLessThan(-1);
   });
 });
+
+describe("Stop an einer Linie (stopAn) — gebaut für die Kalibrierung an TradingLab", () => {
+  // Flach bei 100, dann ein Sprung auf 110: Signal auf Index 40, Einstieg zur Eröffnung von 41.
+  const sprung = [...new Array(40).fill(100), 110, ...new Array(20).fill(110)];
+
+  it("setzt den Stop auf den Wert der Linie an der Signalkerze, das Ziel in R davon", () => {
+    const mitLinie = backtest(
+      {
+        ...KREUZT_UEBER_SMA,
+        stopProzent: undefined,
+        zielProzent: undefined,
+        stopAn: { art: "wert", wert: 95 },
+        zielR: 1.5,
+      },
+      kerzen(sprung, 0),
+      { intervall: "1d" },
+    );
+    const h = mitLinie.handel[0];
+    expect(h.einstieg).toBe(110);
+    expect(h.stop).toBe(95);
+    // Risiko 15, Ziel 1,5 R darüber.
+    expect(h.ziel).toBe(132.5);
+  });
+
+  it("nimmt fürs Swing-Tief die Signalkerze mit — ihr Tief ist oft das tiefste", () => {
+    const reihe = kerzen(sprung, 0);
+    // Die Signalkerze (Index 40) taucht vor dem Schluss bei 110 bis 97 ab.
+    reihe[40] = { ...reihe[40], low: 97 };
+    const ergebnis = backtest(
+      {
+        ...KREUZT_UEBER_SMA,
+        stopProzent: undefined,
+        stopAn: { art: "swing_tief", periode: 3 },
+      },
+      reihe,
+      { intervall: "1d" },
+    );
+    expect(ergebnis.handel[0].stop).toBe(97);
+  });
+
+  it("handelt nicht, wenn die Linie auf der falschen Seite liegt — und sagt, wie oft", () => {
+    const ergebnis = backtest(
+      { ...KREUZT_UEBER_SMA, stopProzent: undefined, stopAn: { art: "wert", wert: 120 } },
+      kerzen(sprung, 0),
+      { intervall: "1d" },
+    );
+    expect(ergebnis.handel).toHaveLength(0);
+    expect(ergebnis.ohneStop).toBe(1);
+    expect(ergebnis.warnungen.join(" ")).toMatch(/falschen Seite/);
+  });
+
+  it("weist einen Stop an einer Linie ab, die kein Kurs ist, und zwei Stop-Arten zugleich", () => {
+    const reihe = kerzen(new Array(60).fill(100));
+    expect(() =>
+      backtest(
+        { ...KREUZT_UEBER_SMA, stopProzent: undefined, stopAn: { art: "rsi", periode: 14 } },
+        reihe,
+      ),
+    ).toThrow(/Kursachse/);
+    expect(() =>
+      backtest({ ...KREUZT_UEBER_SMA, stopAn: { art: "ema", periode: 3 } }, reihe),
+    ).toThrow(/nicht beides/);
+  });
+
+  it("steigt auf ein Fraktal erst nach der zweiten Kerze danach ein, nie an der Tiefkerze", () => {
+    // Abwärts bis Index 30 (Tief 70), danach wieder aufwärts.
+    const schluss = [
+      ...Array.from({ length: 31 }, (_, i) => 100 - i),
+      ...Array.from({ length: 30 }, (_, i) => 71 + i),
+    ];
+    const reihe = kerzen(schluss, 0.5);
+    // Die Kerze danach eröffnet am Tief — ihr Tief läge sonst gleichauf, und nach TradingViews
+    // Regel für gleich tiefe Kerzen wäre dann sie das Fraktal.
+    reihe[31] = { ...reihe[31], low: 70 };
+    const ergebnis = backtest(
+      {
+        name: "Test: grüner Pfeil",
+        richtung: "long",
+        einstieg: [
+          { links: { art: "fraktal_tief" }, vergleich: "ueber", rechts: { art: "wert", wert: 0 } },
+        ],
+        stopAn: { art: "swing_tief", periode: 5 },
+        zielR: 1.5,
+        gebuehrProzent: 0,
+        schlupfProzent: 0,
+      },
+      reihe,
+      { intervall: "1d" },
+    );
+    const erster = ergebnis.handel[0];
+    // Fraktal an Index 30, fest bei 32, Einstieg zur Eröffnung von 33 — nicht bei 30 oder 31.
+    expect(erster.einstiegZeit).toBe(reihe[33].time);
+    expect(erster.einstieg).toBe(reihe[33].open);
+    expect(erster.stop).toBe(reihe[30].low);
+  });
+});

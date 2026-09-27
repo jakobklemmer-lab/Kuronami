@@ -40,6 +40,11 @@ describe("Regel für den Chart", () => {
       "Spätestens nach 30 Kerzen raus",
     ]);
   });
+
+  it("nennt einen Stop an einer Linie beim Namen", () => {
+    const anLinie = { ...regel, stopAtr: undefined, stopAn: { art: "ema" as const, periode: 200 } };
+    expect(regelInWorten(anLinie)[1]).toBe("Stop an EMA 200, Ziel 3 R");
+  });
 });
 
 describe("strategieImChart", () => {

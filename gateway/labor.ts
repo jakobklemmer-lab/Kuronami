@@ -109,6 +109,10 @@ const indikator = z.object({
       "vwap",
       "vwap_oben",
       "vwap_unten",
+      "swing_tief",
+      "swing_hoch",
+      "fraktal_tief",
+      "fraktal_hoch",
     ])
     .describe(
       "Trend: sma, ema, macd, macd_signal, macd_histogramm, adx (mit di_plus/di_minus). " +
@@ -165,6 +169,14 @@ const strategieSchema = {
     .describe("Eine genügt. Ohne Ausstiegsregel tragen Stop, Ziel und Zeitgrenze den Handel."),
   stopAtr: z.number().positive().max(20).optional().describe("Stop als Vielfaches des ATR(14)."),
   stopProzent: z.number().positive().max(90).optional().describe("Stop in Prozent vom Einstieg."),
+  stopAn: z
+    .object({
+      art: z.enum(["ema", "sma", "swing_tief", "swing_hoch", "bollinger_mitte", "wert"]),
+      periode: z.number().int().positive().max(500).optional(),
+      wert: z.number().optional(),
+    })
+    .optional()
+    .describe("Stop an einer Linie, ihr Wert auf der Signalkerze — z. B. unter der EMA 200."),
   zielR: z.number().positive().max(50).optional().describe("Ziel als Vielfaches des Risikos."),
   zielProzent: z.number().positive().max(500).optional(),
   maxKerzen: z.number().int().positive().max(500).optional(),

@@ -1,5 +1,15 @@
 import { describe, expect, it } from "vitest";
-import { ZeitzoneFehler, hatVolumen, imFenster, minuteAus, ortszeit, vwap } from "./indikatoren.js";
+import {
+  ZeitzoneFehler,
+  fraktale,
+  hatVolumen,
+  imFenster,
+  minuteAus,
+  ortszeit,
+  swingHoch,
+  swingTief,
+  vwap,
+} from "./indikatoren.js";
 import type { MarketCandle } from "./integrations/markets.js";
 
 /** Eine Kerze ohne Spanne: Hoch = Tief = Schluss, damit der typische Kurs genau `kurs` ist. */
@@ -126,5 +136,85 @@ describe("vwap", () => {
     // Bei nur einem Kurs gibt es keine Streuung — die Bänder liegen auf der Linie.
     expect(ergebnis.oben[0]).toBeCloseTo(100, 10);
     expect(ergebnis.unten[0]).toBeCloseTo(100, 10);
+  });
+});
+
+/** Kerzen aus Tief- und Hochwerten; Eröffnung und Schluss liegen in der Mitte. */
+function spannen(werte: ReadonlyArray<[number, number]>): MarketCandle[] {
+  return werte.map(([tief, hoch], i) => ({
+    time: 1_700_000_000 + i * 60,
+    open: (tief + hoch) / 2,
+    high: hoch,
+    low: tief,
+    close: (tief + hoch) / 2,
+  }));
+}
+
+describe("swingTief / swingHoch", () => {
+  it("schließt die aktuelle Kerze ein — sonst läge ein Stop nach neuem Tief über dem Kurs", () => {
+    const k = spannen([
+      [10, 12],
+      [9, 11],
+      [11, 13],
+      [7, 10],
+    ]);
+    expect(swingTief(k, 3)).toEqual([undefined, undefined, 9, 7]);
+    expect(swingHoch(k, 2)).toEqual([undefined, 12, 13, 13]);
+  });
+});
+
+describe("fraktale", () => {
+  // Ein Tief bei Index 2, umgeben von je zwei höheren Tiefs.
+  const k = spannen([
+    [10, 14],
+    [9, 13],
+    [7, 12],
+    [8, 13],
+    [9, 15],
+    [9.5, 14],
+  ]);
+
+  it("setzt das Fraktal erst auf die Kerze, auf der es feststeht (n Kerzen später)", () => {
+    const { tief } = fraktale(k, 2);
+    // Gezeichnet würde der Pfeil bei TradingView unter Index 2 — bekannt ist er erst bei 4.
+    expect(tief[2]).toBeUndefined();
+    expect(tief[3]).toBeUndefined();
+    expect(tief[4]).toBe(7);
+    expect(tief.filter((w) => w !== undefined)).toHaveLength(1);
+  });
+
+  it("schaut nie in die Zukunft: ohne die zweite Kerze danach gibt es kein Fraktal", () => {
+    const { tief } = fraktale(k.slice(0, 4), 2);
+    expect(tief.every((w) => w === undefined)).toBe(true);
+  });
+
+  it("verlangt rechts strikt höhere Tiefs, lässt links gleich tiefe zu wie TradingView", () => {
+    const zweiGleiche = spannen([
+      [10, 14],
+      [9, 13],
+      [7, 12],
+      [7, 13],
+      [9, 15],
+      [9, 15],
+    ]);
+    const { tief } = fraktale(zweiGleiche, 2);
+    // Index 2 hat rechts ein gleich tiefes Tief — kein Fraktal, bei Index 4 steht nichts.
+    expect(tief[4]).toBeUndefined();
+    // Index 3 schon: links ein gleich tiefes (Index 2), dahinter zwei höhere. Fest bei 5.
+    expect(tief[5]).toBe(7);
+  });
+
+  it("erkennt ein Hoch gespiegelt", () => {
+    const { hoch } = fraktale(k, 2);
+    // Das Hoch bei Index 4 (15) hat rechts nur eine Kerze — noch kein Fraktal.
+    expect(hoch.every((w) => w === undefined)).toBe(true);
+    const mitHoch = spannen([
+      [5, 10],
+      [5, 11],
+      [5, 15],
+      [5, 12],
+      [5, 11],
+    ]);
+    expect(fraktale(mitHoch, 2).hoch[4]).toBe(15);
   });
 });

@@ -7,6 +7,7 @@ import {
   atrReihe,
   bollinger,
   ema,
+  fraktale,
   hatVolumen,
   imFenster,
   macd,
@@ -19,6 +20,8 @@ import {
   sma,
   stdabw,
   stochastik,
+  swingHoch,
+  swingTief,
   vwap,
 } from "./indikatoren.js";
 import type { MarketCandle } from "./integrations/markets.js";
@@ -75,13 +78,17 @@ export type IndikatorArt =
   | "obv"
   | "vwap"
   | "vwap_oben"
-  | "vwap_unten";
+  | "vwap_unten"
+  | "swing_tief"
+  | "swing_hoch"
+  | "fraktal_tief"
+  | "fraktal_hoch";
 
 export interface Indikator {
   art: IndikatorArt;
   /**
    * Die erste Periode. Vorgaben je Art: 14 für rsi/atr/adx/stoch, 20 für bollinger, 12 für die
-   * schnelle MACD-Linie.
+   * schnelle MACD-Linie, 5 Kerzen Rückblick für swing, 2 Kerzen je Seite für fraktal.
    */
   periode?: number;
   /** Zweite Periode: die langsame MACD-Linie (26) oder die Glättung von %K (3). */
@@ -136,7 +143,16 @@ export interface Strategie {
   stopAtr?: number;
   /** Stop in Prozent vom Einstieg. Entweder das oder `stopAtr`, nicht beides. */
   stopProzent?: number;
-  /** Ziel als Vielfaches des Risikos (1 R = Abstand Einstieg → Stop). */
+  /**
+   * Stop **an einer Linie**: ihr Wert auf der Signalkerze, danach fest — „unter der EMA 200",
+   * „unter dem letzten Swing-Tief" (`swing_tief`). Nur eine der drei Stop-Arten.
+   *
+   * Gebaut am 2026-09-28 für die Kalibrierung an TradingLab (N9): alle drei geprüften Videos
+   * setzen den Stop an eine Linie, keins in ATR. Ohne diesen Baustein rechneten die Agenten
+   * einen ATR-Stop — eine andere Regel unter demselben Namen.
+   */
+  stopAn?: Indikator;
+  /** Ziel als Vielfaches des Risikos (1 R = Abstand Einstieg → Stop), bei jeder Stop-Art. */
   zielR?: number;
   /** Ziel in Prozent vom Einstieg. */
   zielProzent?: number;
@@ -243,6 +259,8 @@ export interface BacktestErgebnis {
    * zu vergleichen. Siehe `haltedauer.ts`.
    */
   nullpunkt?: { trefferquote: number; erwartungswertR: number };
+  /** Signale, aus denen kein Handel wurde, weil die Stoplinie (`stopAn`) falsch lag. */
+  ohneStop?: number;
 }
 
 export class StrategieFehler extends Error {}
@@ -308,6 +326,14 @@ function reiheFuer(ind: Indikator, kerzen: readonly MarketCandle[], zone = "UTC"
       return vwap(kerzen, zone, ind.faktor ?? 1).oben;
     case "vwap_unten":
       return vwap(kerzen, zone, ind.faktor ?? 1).unten;
+    case "swing_tief":
+      return swingTief(kerzen, ind.periode ?? 5);
+    case "swing_hoch":
+      return swingHoch(kerzen, ind.periode ?? 5);
+    case "fraktal_tief":
+      return fraktale(kerzen, ind.periode ?? 2).tief;
+    case "fraktal_hoch":
+      return fraktale(kerzen, ind.periode ?? 2).hoch;
     default:
       throw new StrategieFehler(`Unbekannter Indikator: ${String((ind as Indikator).art)}`);
   }
@@ -415,18 +441,85 @@ export function atrAm(kerzen: readonly MarketCandle[], index: number): number | 
   return atrReihe(kerzen, 14)[index];
 }
 
+/** Arten, deren Wert ein Kurs ist. Nur an so einer Linie kann ein Stop liegen. */
+const KURSLINIEN: readonly IndikatorArt[] = [
+  "kurs",
+  "wert",
+  "sma",
+  "ema",
+  "hoch",
+  "tief",
+  "bollinger_oben",
+  "bollinger_mitte",
+  "bollinger_unten",
+  "vwap",
+  "vwap_oben",
+  "vwap_unten",
+  "swing_tief",
+  "swing_hoch",
+  "fraktal_tief",
+  "fraktal_hoch",
+];
+
+/** Der Wert der Stoplinie (`stopAn`) an einer Kerze — der Papierhandel fragt ihn wie `atrAm`. */
+export function stopLinieAm(
+  strategie: Strategie,
+  kerzen: readonly MarketCandle[],
+  index: number,
+): number | undefined {
+  if (strategie.stopAn === undefined) return undefined;
+  return reiheFuer(strategie.stopAn, kerzen, strategie.zone ?? "UTC")[index];
+}
+
+/**
+ * Wo der Stop für einen Einstieg zu `kurs` liegt, aus ATR oder Linie der **Signalkerze**.
+ * Dieselbe Rechnung im Backtest und im Papierhandel.
+ *
+ * `null` heißt: kein Stop bestimmbar, also kein Handel. Das gilt auch für eine Linie auf der
+ * **falschen Seite** — ein Long mit der EMA 200 über dem Einstieg. Den Stop dann still
+ * irgendwohin zu legen hieße, eine andere Regel zu rechnen als die genannte; wie oft es
+ * vorkam, steht im Ergebnis.
+ */
+export function stopFuer(
+  strategie: Strategie,
+  kurs: number,
+  atrWert: number | undefined,
+  linienWert: number | undefined,
+): number | null {
+  const long = strategie.richtung === "long";
+  if (strategie.stopAtr !== undefined) {
+    if (atrWert === undefined) return null;
+    return long ? kurs - atrWert * strategie.stopAtr : kurs + atrWert * strategie.stopAtr;
+  }
+  if (strategie.stopAn !== undefined) {
+    if (linienWert === undefined) return null;
+    if (long ? linienWert >= kurs : linienWert <= kurs) return null;
+    return linienWert;
+  }
+  const anteil = (strategie.stopProzent ?? 0) / 100;
+  return long ? kurs * (1 - anteil) : kurs * (1 + anteil);
+}
+
 export function pruefeStrategie(s: Strategie): void {
   if (s.einstieg.length === 0) {
     throw new StrategieFehler(
       "Eine Strategie ohne Einstiegsbedingung kauft immer — das ist keine Strategie, sondern ein Kauf.",
     );
   }
-  if (s.stopAtr !== undefined && s.stopProzent !== undefined) {
-    throw new StrategieFehler("Stop entweder in ATR oder in Prozent, nicht beides.");
+  const stopArten = [s.stopAtr, s.stopProzent, s.stopAn].filter((w) => w !== undefined).length;
+  if (stopArten > 1) {
+    throw new StrategieFehler(
+      "Stop entweder in ATR, in Prozent oder an einer Linie (stopAn), nicht beides.",
+    );
   }
-  if (s.stopAtr === undefined && s.stopProzent === undefined) {
+  if (stopArten === 0) {
     throw new StrategieFehler(
       "Ohne Verlustbegrenzung wird hier nicht gehandelt — auch nicht auf dem Papier.",
+    );
+  }
+  if (s.stopAn !== undefined && !KURSLINIEN.includes(s.stopAn.art)) {
+    throw new StrategieFehler(
+      `Ein Stop an ${s.stopAn.art} liegt nicht auf der Kursachse — ein RSI von 30 ist kein Kurs von 30. Nimm eine Linie wie ema, sma oder swing_tief.`,
     );
   }
   if (s.zielR !== undefined && s.zielProzent !== undefined) {
@@ -648,6 +741,9 @@ export function backtest(
     vergleich: b.vergleich,
   }));
   const atr = atrReihe(kerzen, 14);
+  const stopLinie =
+    strategie.stopAn === undefined ? undefined : reiheFuer(strategie.stopAn, kerzen, zone);
+  let falscheSeite = 0;
   const fenster = strategie.fenster;
   const fensterVon = fenster === undefined ? 0 : minuteAus(fenster.von);
   const fensterBis = fenster === undefined ? 0 : minuteAus(fenster.bis);
@@ -751,17 +847,11 @@ export function backtest(
     ) {
       const roh = kerzen[i + 1].open;
       const kurs = long ? roh * (1 + schlupf) : roh * (1 - schlupf);
-      const spanne = atr[i];
-      let stop: number;
-      if (strategie.stopAtr !== undefined) {
-        if (spanne === undefined) {
-          kapitalkurve.push(kapital);
-          continue;
-        }
-        stop = long ? kurs - spanne * strategie.stopAtr : kurs + spanne * strategie.stopAtr;
-      } else {
-        const anteil = (strategie.stopProzent ?? 0) / 100;
-        stop = long ? kurs * (1 - anteil) : kurs * (1 + anteil);
+      const stop = stopFuer(strategie, kurs, atr[i], stopLinie?.[i]);
+      if (stop === null) {
+        if (stopLinie?.[i] !== undefined) falscheSeite += 1;
+        kapitalkurve.push(kapital);
+        continue;
       }
       const risiko = Math.abs(kurs - stop);
       let ziel: number | null = null;
@@ -797,7 +887,13 @@ export function backtest(
     kennzahlen: kennzahlenAus(hinten, kapitalkurve.slice(grenzeIndex), proJahr),
   };
 
-  const nullpunkt = messeNullpunkt(strategie, kerzen, atr);
+  const nullpunkt = messeNullpunkt(strategie, kerzen, atr, medianerRisikoAnteil(handel));
+  const warnungen = warnungenAus(gesamt, inSample, outOfSample, handel, kaufUndHalten, nullpunkt);
+  if (falscheSeite > 0) {
+    warnungen.push(
+      `${falscheSeite} Signal${falscheSeite === 1 ? "" : "e"} ohne Handel: die Stoplinie lag auf der falschen Seite des Einstiegs. Diese Fälle deckt die Regel nicht ab — sie sind nicht mitgerechnet.`,
+    );
+  }
 
   return {
     strategie: strategie.name,
@@ -813,7 +909,8 @@ export function backtest(
     outOfSample,
     kaufUndHaltenProzent: kaufUndHalten,
     ...(nullpunkt !== undefined ? { nullpunkt } : {}),
-    warnungen: warnungenAus(gesamt, inSample, outOfSample, handel, kaufUndHalten, nullpunkt),
+    warnungen,
+    ...(falscheSeite > 0 ? { ohneStop: falscheSeite } : {}),
     kosten: {
       gebuehrProzent: strategie.gebuehrProzent ?? VORGABE_GEBUEHR,
       schlupfProzent: strategie.schlupfProzent ?? VORGABE_SCHLUPF,
@@ -841,6 +938,7 @@ function messeNullpunkt(
   strategie: Strategie,
   kerzen: readonly MarketCandle[],
   atr: Reihe,
+  risikoAnteil?: number,
 ): { trefferquote: number; erwartungswertR: number } | undefined {
   const letzterKurs = kerzen[kerzen.length - 1]?.close;
   if (letzterKurs === undefined || letzterKurs <= 0) return undefined;
@@ -852,6 +950,10 @@ function messeNullpunkt(
     risiko = letzterAtr * strategie.stopAtr;
   } else if (strategie.stopProzent !== undefined) {
     risiko = (letzterKurs * strategie.stopProzent) / 100;
+  } else if (strategie.stopAn !== undefined && risikoAnteil !== undefined) {
+    // Eine Linie hat keinen festen Abstand. Als Geometrie gilt der typische Abstand der
+    // wirklichen Handel (Median), damit der Vergleich nicht an einem Ausreißer hängt.
+    risiko = letzterKurs * risikoAnteil;
   } else {
     return undefined;
   }
@@ -880,6 +982,17 @@ function messeNullpunkt(
     if (fehler instanceof DauerFehler) return undefined;
     throw fehler;
   }
+}
+
+/** Der Median von |Einstieg − Stop| / Einstieg über die Handel, oder nichts ohne Handel. */
+function medianerRisikoAnteil(handel: readonly Handel[]): number | undefined {
+  const anteile = handel
+    .map((h) => Math.abs(h.einstieg - h.stop) / h.einstieg)
+    .filter((a) => Number.isFinite(a) && a > 0)
+    .sort((a, b) => a - b);
+  if (anteile.length === 0) return undefined;
+  const mitte = Math.floor(anteile.length / 2);
+  return anteile.length % 2 === 1 ? anteile[mitte] : (anteile[mitte - 1] + anteile[mitte]) / 2;
 }
 
 export function warnungenAus(

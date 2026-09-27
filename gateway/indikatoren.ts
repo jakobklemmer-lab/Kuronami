@@ -129,6 +129,112 @@ export function rollendesTief(kerzen: readonly MarketCandle[], periode: number):
   return raus;
 }
 
+/**
+ * Das letzte Swing-Tief: der tiefste Tiefpunkt der letzten `periode` Kerzen **einschließlich**
+ * der aktuellen — wie `ta.lowest(low, periode)` in TradingView.
+ *
+ * Anders als `rollendesTief`, und das mit Absicht: dort geht es um einen Ausbruch unter das
+ * eigene Tief, hier um den Ort eines Stops. Wer nach einer Signalkerze mit neuem Tief einsteigt
+ * und den Stop unter das Tief der Kerzen **davor** legt, legt ihn über den Kurs.
+ */
+export function swingTief(kerzen: readonly MarketCandle[], periode: number): Reihe {
+  const raus: Reihe = new Array(kerzen.length).fill(undefined);
+  if (periode <= 0) return raus;
+  for (let i = periode - 1; i < kerzen.length; i += 1) {
+    let tief = Number.POSITIVE_INFINITY;
+    for (let j = i - periode + 1; j <= i; j += 1) tief = Math.min(tief, kerzen[j].low);
+    raus[i] = tief;
+  }
+  return raus;
+}
+
+/** Das letzte Swing-Hoch, gespiegelt zu `swingTief`. */
+export function swingHoch(kerzen: readonly MarketCandle[], periode: number): Reihe {
+  const raus: Reihe = new Array(kerzen.length).fill(undefined);
+  if (periode <= 0) return raus;
+  for (let i = periode - 1; i < kerzen.length; i += 1) {
+    let hoch = Number.NEGATIVE_INFINITY;
+    for (let j = i - periode + 1; j <= i; j += 1) hoch = Math.max(hoch, kerzen[j].high);
+    raus[i] = hoch;
+  }
+  return raus;
+}
+
+/**
+ * Williams-Fraktale, gerechnet wie der eingebaute Indikator bei TradingView — aber **dort, wo
+ * sie feststehen, nicht dort, wo sie gezeichnet werden.**
+ *
+ * Ein Fraktal-Tief ist eine Kerze, deren Tief unter den `n` Kerzen danach und den `n` Kerzen
+ * davor liegt; links dürfen wie bei TradingView bis zu vier gleich tiefe Kerzen dazwischen
+ * stehen. Feststehen kann es erst, wenn die `n` Kerzen **danach** abgeschlossen sind.
+ * TradingView zeichnet den Pfeil trotzdem `n` Kerzen früher unter die Tiefkerze selbst — wer
+ * im Chart „am Pfeil" einsteigt, steigt mit Wissen ein, das es in dem Moment noch nicht gab.
+ *
+ * Deshalb trägt die Reihe den Wert (das Tief bzw. Hoch der Fraktalkerze) **auf der Kerze, auf
+ * der das Fraktal feststeht**, und sonst `undefined`. Als Einstiegsbedingung heißt das: „auf
+ * dieser Kerze ist ein Pfeil erschienen" — und eingestiegen wird wie immer zur nächsten
+ * Eröffnung.
+ */
+export function fraktale(kerzen: readonly MarketCandle[], n = 2): { tief: Reihe; hoch: Reihe } {
+  const tief: Reihe = new Array(kerzen.length).fill(undefined);
+  const hoch: Reihe = new Array(kerzen.length).fill(undefined);
+  if (n <= 0) return { tief, hoch };
+  const lo = (i: number): number | undefined => kerzen[i]?.low;
+  const hi = (i: number): number | undefined => kerzen[i]?.high;
+
+  // `strikt(a, b)` heißt „a liegt jenseits von b": fürs Tief höher, fürs Hoch tiefer.
+  const ist = (
+    feld: (i: number) => number | undefined,
+    f: number,
+    strikt: (a: number, b: number) => boolean,
+    gleichOder: (a: number, b: number) => boolean,
+  ): boolean => {
+    const mitte = feld(f) as number;
+    for (let i = 1; i <= n; i += 1) {
+      const danach = feld(f + i);
+      if (danach === undefined || !strikt(danach, mitte)) return false;
+    }
+    // Links: `gleich` Kerzen dürfen gleich weit (oder weniger weit) reichen, dann müssen `n`
+    // strikt dahinter liegen — die fünf Varianten aus TradingViews eigenem Code.
+    for (let gleich = 0; gleich <= 4; gleich += 1) {
+      let passt = true;
+      for (let j = 1; j <= gleich && passt; j += 1) {
+        const w = feld(f - j);
+        passt = w !== undefined && gleichOder(w, mitte);
+      }
+      for (let i = 1; i <= n && passt; i += 1) {
+        const w = feld(f - gleich - i);
+        passt = w !== undefined && strikt(w, mitte);
+      }
+      if (passt) return true;
+    }
+    return false;
+  };
+
+  for (let t = 2 * n; t < kerzen.length; t += 1) {
+    const f = t - n;
+    if (
+      ist(
+        lo,
+        f,
+        (a, b) => a > b,
+        (a, b) => a >= b,
+      )
+    )
+      tief[t] = lo(f);
+    if (
+      ist(
+        hi,
+        f,
+        (a, b) => a < b,
+        (a, b) => a <= b,
+      )
+    )
+      hoch[t] = hi(f);
+  }
+  return { tief, hoch };
+}
+
 /** Standardabweichung der letzten `periode` Werte — Grundlage für Bänder und für die Volatilität. */
 export function stdabw(werte: readonly number[], periode: number): Reihe {
   const raus: Reihe = new Array(werte.length).fill(undefined);
