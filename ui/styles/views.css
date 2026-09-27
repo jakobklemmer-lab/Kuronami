@@ -3292,3 +3292,36 @@ body.ist-sprechtaste::after {
   letter-spacing: 0.02em;
   pointer-events: none;
 }
+
+/* Nachtbau (2026-09-27): Protokoll bricht um statt seitlich zu scrollen. */
+.system-nachtbau__log {
+  margin: 0.75rem 0 0;
+  padding: 0.6rem 0.75rem;
+  max-height: 16rem;
+  overflow: auto;
+  font-size: 0.78rem;
+  line-height: 1.45;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  border-radius: 8px;
+  background: color-mix(in srgb, currentColor 6%, transparent);
+}
+.system-nachtbau details {
+  margin-top: 0.75rem;
+}
+.system-nachtbau summary {
+  cursor: pointer;
+}
+.system-nachtbau__plan {
+  margin: 0.5rem 0 0;
+  padding-left: 1.4rem;
+  display: grid;
+  gap: 0.25rem;
+  font-size: 0.9rem;
+}
+.system-nachtbau__plan .ist-erledigt {
+  opacity: 0.55;
+}
+.system-nachtbau__status {
+  opacity: 0.7;
+}

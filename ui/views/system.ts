@@ -3,6 +3,7 @@ import type { BusMessage } from "../events/bus.js";
 import { icon } from "../icons.js";
 import { werName } from "../welle/form.js";
 import { escapeHtml } from "./html.js";
+import { renderMarkdown } from "./markdown.js";
 import type { View, ViewContext } from "./types.js";
 
 /**
@@ -328,6 +329,60 @@ export interface ArchivStand {
   aus: boolean;
 }
 
+export interface NachtbauStand {
+  dienst: string;
+  naechsterStart: string | null;
+  aufgaben: { id: string; titel: string; status: string }[];
+  protokoll: { datei: string; zeilen: string[] } | null;
+  bericht: { datei: string; text: string } | null;
+}
+
+/**
+ * Der Nachtbau zum Zusehen (2026-09-27): ob `bau/nachtbau.sh` arbeitet, wartet oder ruht, wie
+ * weit `bau/PLAN.md` ist, die letzten Protokollzeilen und der jüngste Bericht (zugeklappt).
+ */
+export function nachtbauHtml(s: NachtbauStand, jetzt: Date): string {
+  const zeilen = s.protokoll?.zeilen ?? [];
+  const wartet = /warte bis (\d{1,2}:\d{2})/.exec(zeilen.at(-1) ?? "");
+  const an = [...zeilen]
+    .reverse()
+    .map((z) => /\b(N\d+)\b/.exec(z)?.[1])
+    .find(Boolean);
+  const laeuft = s.dienst === "active" || s.dienst === "activating";
+  const zustand = laeuft
+    ? wartet
+      ? `wartet bis ${wartet[1]} aufs nächste Sitzungsfenster`
+      : `arbeitet${an ? ` (zuletzt ${an})` : ""}`
+    : s.dienst === "failed"
+      ? "abgebrochen — siehe Protokoll"
+      : "ruht";
+  const erledigt = s.aufgaben.filter((a) => a.status.startsWith("erledigt")).length;
+  const naechster = s.naechsterStart ? wann(new Date(s.naechsterStart), jetzt) : "kein Termin";
+  const plan = s.aufgaben
+    .map((a) => {
+      const kurz = a.status.split(/[\s(]/, 1)[0] ?? a.status;
+      return `<li class="${kurz === "erledigt" ? "ist-erledigt" : ""}"><b>${escapeHtml(a.id)}</b> ${escapeHtml(a.titel)} <span class="system-nachtbau__status" title="${escapeHtml(a.status)}">· ${escapeHtml(kurz)}</span></li>`;
+    })
+    .join("");
+  return `
+    <dl class="system-fakten">
+      <div class="system-fakt"><dt>Jetzt</dt><dd>${escapeHtml(zustand)}</dd></div>
+      <div class="system-fakt"><dt>Plan</dt><dd>${erledigt} von ${s.aufgaben.length} erledigt</dd></div>
+      <div class="system-fakt"><dt>Nächster Start</dt><dd>${escapeHtml(naechster)}</dd></div>
+    </dl>
+    ${
+      zeilen.length
+        ? `<pre class="system-nachtbau__log" aria-label="Protokoll ${escapeHtml(s.protokoll?.datei ?? "")}">${escapeHtml(zeilen.join("\n"))}</pre>`
+        : `<p class="system-leer">Noch kein Protokoll.</p>`
+    }
+    <details data-teil="plan"><summary>Alle Aufgaben</summary><ol class="system-nachtbau__plan">${plan}</ol></details>
+    ${
+      s.bericht
+        ? `<details data-teil="bericht"><summary>Bericht ${escapeHtml(s.bericht.datei.replace(/\.md$/, ""))}</summary><div class="markdown">${renderMarkdown(s.bericht.text)}</div></details>`
+        : ""
+    }`;
+}
+
 /**
  * Das Gesprächsarchiv unter Kuros Karte (2026-09-27): wann das Gespräch abgelegt wird, was schon
  * liegt, und ein Knopf, es jetzt zu tun. Kuro liest den Wortlaut selbst (`im_archiv_suchen`); hier
@@ -570,6 +625,14 @@ export const systemView: View = {
             </header>
             <div data-role="laeufe"></div>
           </section>
+
+          <section class="card glass card--nachtbau system-nachtbau" aria-labelledby="system-nachtbau-titel">
+            <header class="card__head">
+              ${icon("moon", { className: "card__icon" })}
+              <h2 class="card__title" id="system-nachtbau-titel">Nachtbau</h2>
+            </header>
+            <div data-role="nachtbau"></div>
+          </section>
         </div>
       </div>
     `;
@@ -578,6 +641,25 @@ export const systemView: View = {
       container.querySelector<T>(`[data-role="${role}"]`) as T;
     const aboEl = q<HTMLElement>("abo");
     const aboStand = q<HTMLElement>("abo-stand");
+    const nachtbauEl = q<HTMLElement>("nachtbau");
+    async function ladeNachtbau(): Promise<void> {
+      try {
+        const stand = await ctx.api.get<NachtbauStand>("/integrations/nachtbau");
+        if (weg) return;
+        // Aufgeklapptes bleibt aufgeklappt, auch wenn der Takt neu zeichnet.
+        const offen = new Set(
+          [...nachtbauEl.querySelectorAll<HTMLDetailsElement>("details[open]")].map(
+            (d) => d.dataset.teil,
+          ),
+        );
+        nachtbauEl.innerHTML = nachtbauHtml(stand, new Date());
+        for (const d of nachtbauEl.querySelectorAll<HTMLDetailsElement>("details")) {
+          if (offen.has(d.dataset.teil)) d.open = true;
+        }
+      } catch {
+        // Ohne Stand bleibt die Karte leer; der Nachtbau selbst hängt nicht an ihr.
+      }
+    }
     const kuroEl = q<HTMLElement>("kuro");
     const archivEl = q<HTMLElement>("archiv");
     const personalEl = q<HTMLElement>("personal");
@@ -748,12 +830,14 @@ export const systemView: View = {
     const takt = globalThis.setInterval(() => {
       void ladeOrchestrator();
       void ladeAbo();
+      void ladeNachtbau();
     }, TAKT_MS);
 
     void ladeOrchestrator();
     void ladeAbo();
     void ladeRueckfragen();
     void ladeArchiv();
+    void ladeNachtbau();
 
     return () => {
       weg = true;

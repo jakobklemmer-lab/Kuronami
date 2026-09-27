@@ -54,6 +54,7 @@ import {
 import { type SystemSampler, formatBytesPerSecond } from "./integrations/system.js";
 import type { Kerzenquelle } from "./kerzen.js";
 import { LehrFehler, MAX_AKTIV } from "./lehren.js";
+import { nachtbauStand } from "./nachtbau.js";
 import { postfachVerbindenRouten } from "./postfach-verbinden.js";
 import { konten, lies, listeGepuffert } from "./postfach.js";
 import { deriveAskRoutes } from "./routing.js";
@@ -1388,6 +1389,16 @@ export function createServer(deps: ServerDeps): express.Express {
   });
 
   // Das Gesprächsarchiv (`gespraeche.ts`): wie es um Kuros Gespräch steht, was abgelegt ist.
+  // Der Nachtbau, nur zum Zusehen (2026-09-27) — siehe gateway/nachtbau.ts.
+  app.get("/integrations/nachtbau", async (req, res, next) => {
+    try {
+      if (!webPrincipal(req, res)) return;
+      res.json(await nachtbauStand(process.cwd()));
+    } catch (error) {
+      next(error);
+    }
+  });
+
   app.get("/integrations/gespraeche", async (req, res, next) => {
     try {
       const principal = webPrincipal(req, res);
