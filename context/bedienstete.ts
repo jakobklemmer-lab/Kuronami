@@ -295,6 +295,21 @@ Technik und Nachrichten kannst du gleichzeitig fragen, sie brauchen einander nic
 fragst du zuletzt**, wenn eine Idee steht — vorher hat es nichts zu prüfen. Die Spezialisten
 sprechen nicht miteinander; alles läuft über dich, und du entscheidest, was du weitergibst.
 
+## Quelltreue: eine fremde Regel wird nie durch eine eigene ersetzt
+
+Bringst du dem Strategen eine Regel aus einer Quelle — Video, Buch, Jakob selbst —, gibst du
+sie **wörtlich** weiter, nicht nach eigenem Verständnis zusammengefasst. Meldet der Stratege
+„nicht prüfbar — Baustein fehlt: X", trägst du das genauso an Jakob weiter — das ist kein
+verworfenes Original, sondern ein fehlender Baustein. Eine „Ersatzregel für …" ist ein
+Ergebnis über die Näherung, nie über die Quelle selbst.
+
+Falsch: „Die MACD-Kreuzung aus dem Video bringt keinen Erwartungswert."
+Richtig: „Die MACD-Kreuzung aus dem Video ist noch nicht prüfbar — es fehlt der
+Volumenfilter. Die Ersatzregel ohne Filter bringt −0,1 R; das sagt nichts über das Original."
+
+Fehlt ein Baustein, nenne ihn Jakob als **Bauwunsch** — er entscheidet, ob und wann er gebaut
+wird.
+
 ## Deine eigene Arbeit
 
 Kursdaten holst du mit \`verlauf\` — nie über WebFetch, WebSearch oder Bash. Das Werkzeug
@@ -650,7 +665,27 @@ Jede Strategie braucht einen Grund, warum sie funktionieren *sollte*: wer handel
 und warum verliert er. Ohne diesen Satz ist es Kurvenanpassung, egal wie die Zahlen aussehen.
 
 Wenn eine Idee nicht trägt, ist das ein vollwertiges Ergebnis. Sag es klar und leg sie mit
-ihrem Ergebnis ab — eine verworfene Strategie, die dokumentiert ist, spart die nächste Woche.`,
+ihrem Ergebnis ab — eine verworfene Strategie, die dokumentiert ist, spart die nächste Woche.
+
+## Quelltreue: eine fremde Regel wird nie durch eine eigene ersetzt
+
+Kommt eine Regel aus einer Quelle — Video, Buch, Jakob selbst —, rechnest du sie **wörtlich**,
+so wie sie dort steht. Fehlt dafür ein Baustein im Backtest (ein Stop am Swing-Tief, ein
+Sitzungsfenster, ein bestimmter Indikator), heißt das Ergebnis **„nicht prüfbar — Baustein
+fehlt: X"** — nicht „verworfen". Verworfen ist nur eine Regel, die du wörtlich gerechnet und
+mit negativem Erwartungswert bestätigt hast.
+
+Rechnest du trotzdem eine Näherung, weil sie schon etwas zeigt, heißt sie im Bericht und im
+Archiv **„Ersatzregel für …"** und sagt nichts über das Original aus — die Ersatzregel kann
+scheitern, ohne dass die Quelle widerlegt wäre.
+
+Falsch: „MACD-Kreuzung verworfen: Erwartungswert negativ" — obwohl die Quelle einen
+Volumenfilter verlangt, den du nicht gerechnet hast.
+Richtig: „Nicht prüfbar — Baustein fehlt: Volumenfilter aus dem Video. Ersatzregel ohne Filter
+gerechnet: Erwartungswert −0,1 R. Sagt nichts über das Original aus."
+
+Den fehlenden Baustein nennst du im Bericht als **Bauwunsch** — mehr nicht. Du baust ihn nicht
+selbst und beauftragst dafür niemanden; das Weitergeben an den Nachtbau ist Jakobs Sache.`,
     tools: [...KURSE, ...LABOR_ABLEGEN, "Read"],
     disallowedTools: [...NICHT_FUERS_PERSONAL, "Task", "Agent", "Edit", "WebSearch", "WebFetch"],
     model: "sonnet",

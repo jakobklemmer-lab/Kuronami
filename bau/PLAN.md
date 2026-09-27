@@ -20,7 +20,7 @@ die Agenten fehlerhaft sind und durch die TradingLab-Videos besser werden. Beide
 ---
 
 ## N1 · Quelltreue: Ersatzregeln widerlegen kein Original
-- Status: offen
+- Status: erledigt (2026-09-27, „Nachtbau N1: Quelltreue …")
 - Modell: sonnet
 
 Die boerse und der stratege (`context/bedienstete.ts`, Handelstisch) bekommen eine Regel im
