@@ -53,7 +53,7 @@ Fertig, wenn: Tests für Ablage und Routen, Typecheck grün, und die Ansicht zei
 Daten (read-only aus `/opt/kuronami/workspace`) weniger Einträge als vorher — Zahl im Bericht.
 
 ## N3 · Strategie-Ablage kennt Intervall und Quelle
-- Status: offen
+- Status: erledigt (2026-09-28, „Nachtbau N3: Strategie-Ablage kennt Intervall und Quelle")
 - Modell: sonnet
 
 `strategie_ablegen` (`gateway/labor.ts`) rechnet fest mit `"1d"` und Yahoo. Es bekommt
