@@ -1230,7 +1230,15 @@ export function createServer(deps: ServerDeps): express.Express {
       if (!principal) return;
       const grenzeRoh = Number(req.query.grenze);
       const grenze = Number.isFinite(grenzeRoh) ? Math.min(Math.max(grenzeRoh, 1), 200) : 50;
-      res.json({ strategien: await deps.gateway.agent.strategien.liste(grenze) });
+      // Standardmäßig ohne Archiviertes (2026-09-28, N2) — „sonst müllt mir das die Website
+      // zu". `archiv=1` zeigt umgekehrt nur das Archiv, für den ruhigen Schalter.
+      const alle = await deps.gateway.agent.strategien.liste(Number.MAX_SAFE_INTEGER, true);
+      const archiviert = alle.filter((s) => s.archiviert).length;
+      const sichtbar =
+        req.query.archiv === "1"
+          ? alle.filter((s) => s.archiviert)
+          : alle.filter((s) => !s.archiviert);
+      res.json({ strategien: sichtbar.slice(0, grenze), archiviert });
     } catch (error) {
       next(error);
     }
@@ -1282,13 +1290,51 @@ export function createServer(deps: ServerDeps): express.Express {
     }
   });
 
+  app.post("/integrations/strategien/:id/archiv", async (req, res, next) => {
+    try {
+      const principal = webPrincipal(req, res);
+      if (!principal) return;
+      const eintrag = await deps.gateway.agent.strategien.archiviere(req.params.id);
+      if (!eintrag) {
+        res.status(404).json({ error: "Diese Strategie gibt es nicht." });
+        return;
+      }
+      res.json(eintrag);
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.delete("/integrations/strategien/:id/archiv", async (req, res, next) => {
+    try {
+      const principal = webPrincipal(req, res);
+      if (!principal) return;
+      const eintrag = await deps.gateway.agent.strategien.zurueckhole(req.params.id);
+      if (!eintrag) {
+        res.status(404).json({ error: "Diese Strategie gibt es nicht." });
+        return;
+      }
+      res.json(eintrag);
+    } catch (error) {
+      next(error);
+    }
+  });
+
   app.get("/integrations/analysen", async (req, res, next) => {
     try {
       const principal = webPrincipal(req, res);
       if (!principal) return;
       const grenzeRoh = Number(req.query.grenze);
       const grenze = Number.isFinite(grenzeRoh) ? Math.min(Math.max(grenzeRoh, 1), 200) : 50;
-      res.json({ analysen: await deps.gateway.agent.analysen.liste(grenze) });
+      // Standardmäßig ohne Archiviertes (2026-09-28, N2), `archiv=1` zeigt nur das Archiv —
+      // wie bei den Strategien.
+      const alle = await deps.gateway.agent.analysen.liste(Number.MAX_SAFE_INTEGER, true);
+      const archiviert = alle.filter((a) => a.archiviert).length;
+      const sichtbar =
+        req.query.archiv === "1"
+          ? alle.filter((a) => a.archiviert)
+          : alle.filter((a) => !a.archiviert);
+      res.json({ analysen: sichtbar.slice(0, grenze), archiviert });
     } catch (error) {
       next(error);
     }
@@ -1327,6 +1373,36 @@ export function createServer(deps: ServerDeps): express.Express {
         ...(status ? { status } : {}),
         ...(notiz !== undefined ? { notiz: notiz.slice(0, 4000) } : {}),
       });
+      if (!analyse) {
+        res.status(404).json({ error: "Diese Analyse gibt es nicht." });
+        return;
+      }
+      res.json(analyse);
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.post("/integrations/analysen/:id/archiv", async (req, res, next) => {
+    try {
+      const principal = webPrincipal(req, res);
+      if (!principal) return;
+      const analyse = await deps.gateway.agent.analysen.archiviere(req.params.id);
+      if (!analyse) {
+        res.status(404).json({ error: "Diese Analyse gibt es nicht." });
+        return;
+      }
+      res.json(analyse);
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.delete("/integrations/analysen/:id/archiv", async (req, res, next) => {
+    try {
+      const principal = webPrincipal(req, res);
+      if (!principal) return;
+      const analyse = await deps.gateway.agent.analysen.zurueckhole(req.params.id);
       if (!analyse) {
         res.status(404).json({ error: "Diese Analyse gibt es nicht." });
         return;

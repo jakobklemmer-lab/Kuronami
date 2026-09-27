@@ -72,6 +72,8 @@ interface StrategieKopf {
   kennzahlen: Kennzahlen | null;
   warnungen: number;
   universum?: UniversumVermerk;
+  /** ISO-Zeitpunkt der Ablage ins Archiv, oder fehlt: nicht archiviert. */
+  archiviert?: string;
 }
 
 interface StrategieEintrag extends StrategieKopf {
@@ -151,6 +153,8 @@ export const strategienView: View = {
             <h1 class="detail-view__title">Strategien</h1>
             <p class="detail-view__subtitle" data-role="subtitle">Lädt …</p>
           </div>
+          <button type="button" class="konto-schalter detail-view__archiv-schalter"
+                  data-role="archiv-schalter" aria-pressed="false" hidden></button>
         </header>
         <div class="analysen">
           <section class="analysen__liste glass" aria-label="Strategien" data-role="liste"></section>
@@ -164,15 +168,24 @@ export const strategienView: View = {
     const listeEl = container.querySelector<HTMLElement>('[data-role="liste"]');
     const blattEl = container.querySelector<HTMLElement>('[data-role="blatt"]');
     const untertitelEl = container.querySelector<HTMLElement>('[data-role="subtitle"]');
+    const archivSchalterEl = container.querySelector<HTMLButtonElement>(
+      '[data-role="archiv-schalter"]',
+    );
     let koepfe: StrategieKopf[] = [];
     let konten: PapierKonto[] = [];
     let offen: string | null = null;
     let verworfen = false;
+    // Der ruhige Schalter im Kopf (2026-09-28, N2): Standardansicht ohne Archiviertes, hier
+    // umgeschaltet auf „nur das Archiv" — Jakob: „sonst müllt mir das die Website zu."
+    let archivAnsicht = false;
+    let archivAnzahl = 0;
 
     const zeichneListe = (): void => {
       if (!listeEl) return;
       if (koepfe.length === 0) {
-        listeEl.innerHTML = `
+        listeEl.innerHTML = archivAnsicht
+          ? '<p class="analysen__leer">Das Archiv ist leer.</p>'
+          : `
           <div class="analysen__leer">
             <p>Noch keine Strategie geprüft.</p>
             <p>Der Handelstisch legt hier ab, was er gerechnet hat — fragen Sie Kuro nach einer
@@ -188,7 +201,7 @@ export const strategienView: View = {
               ${g.eintraege
                 .map(
                   (k) => `
-                    <li>
+                    <li${archivAnsicht ? ' class="analysen__archivzeile"' : ""}>
                       <button class="analysen__eintrag${k.id === offen ? " ist-aktiv" : ""}" data-id="${escapeHtml(k.id)}"
                               aria-pressed="${k.id === offen}">
                         <span class="analysen__titel">${escapeHtml(k.name)}</span>
@@ -197,6 +210,11 @@ export const strategienView: View = {
                           ${uebertragbarkeitsMarke(k.symbol, k.universum)}
                         </span>
                       </button>
+                      ${
+                        archivAnsicht
+                          ? `<button type="button" class="field__button analysen__zurueckholen" data-zurueckholen="${escapeHtml(k.id)}">Zurückholen</button>`
+                          : ""
+                      }
                     </li>`,
                 )
                 .join("")}
@@ -381,6 +399,14 @@ export const strategienView: View = {
               placeholder="Warum freigegeben, warum nicht.">${escapeHtml(e.notiz ?? "")}</textarea>
           </label>
           <p class="field__hint" data-role="gemerkt"></p>
+          <div class="strategie__knoepfe">
+            ${
+              e.archiviert
+                ? `<span class="strategie__notiz">Archiviert am ${escapeHtml(new Date(e.archiviert).toLocaleDateString("de-AT"))}.</span>
+                   <button type="button" class="field__button" data-role="archiv-zurueckholen">Zurückholen</button>`
+                : `<button type="button" class="field__button" data-role="archiv-legen">Ins Archiv legen</button>`
+            }
+          </div>
         </footer>
       `;
 
@@ -486,6 +512,34 @@ export const strategienView: View = {
         e.notiz = notizEl.value;
         sichere({ notiz: notizEl.value });
       });
+
+      blattEl
+        .querySelector<HTMLButtonElement>('[data-role="archiv-legen"]')
+        ?.addEventListener("click", (ereignis) => {
+          const knopf = ereignis.currentTarget as HTMLButtonElement;
+          knopf.disabled = true;
+          void ctx.api
+            .post<StrategieKopf>(`/integrations/strategien/${e.id}/archiv`, {})
+            .then(() => lade())
+            .catch((fehler) => {
+              knopf.disabled = false;
+              sage(fehler instanceof Error ? fehler.message : String(fehler));
+            });
+        });
+
+      blattEl
+        .querySelector<HTMLButtonElement>('[data-role="archiv-zurueckholen"]')
+        ?.addEventListener("click", (ereignis) => {
+          const knopf = ereignis.currentTarget as HTMLButtonElement;
+          knopf.disabled = true;
+          void ctx.api
+            .delete(`/integrations/strategien/${e.id}/archiv`)
+            .then(() => lade())
+            .catch((fehler) => {
+              knopf.disabled = false;
+              sage(fehler instanceof Error ? fehler.message : String(fehler));
+            });
+        });
     };
 
     const oeffne = (id: string): void => {
@@ -507,37 +561,62 @@ export const strategienView: View = {
     };
 
     listeEl?.addEventListener("click", (ereignis) => {
+      const zurueck = (ereignis.target as HTMLElement).closest<HTMLElement>("[data-zurueckholen]");
+      if (zurueck?.dataset.zurueckholen) {
+        const id = zurueck.dataset.zurueckholen;
+        void ctx.api.delete(`/integrations/strategien/${id}/archiv`).then(() => lade());
+        return;
+      }
       const knopf = (ereignis.target as HTMLElement).closest<HTMLElement>("[data-id]");
       if (knopf?.dataset.id) oeffne(knopf.dataset.id);
     });
 
-    void Promise.all([
-      ctx.api.get<{ strategien: StrategieKopf[] }>("/integrations/strategien"),
-      ctx.api
-        .get<{ konten: PapierKonto[] }>("/integrations/papierhandel")
-        .catch(() => ({ konten: [] as PapierKonto[] })),
-    ])
-      .then(([daten, betrieb]) => {
-        if (verworfen) return;
-        koepfe = daten.strategien;
-        konten = betrieb.konten;
-        if (untertitelEl) {
-          const kandidaten = koepfe.filter((k) => k.status === "kandidat").length;
-          untertitelEl.textContent =
-            koepfe.length === 0
-              ? "Noch keine Strategie geprüft"
-              : `${koepfe.length} abgelegt, davon ${kandidaten} Kandidat${kandidaten === 1 ? "" : "en"}`;
-        }
-        zeichneListe();
-        // Aufgeschlagen wird, was oben in der Liste steht — nicht, was das Archiv zuerst liefert.
-        const erste = gruppiereNachStatus(koepfe)[0]?.eintraege[0];
-        if (offen === null && erste) oeffne(erste.id);
-      })
-      .catch((fehler) => {
-        if (untertitelEl) {
-          untertitelEl.textContent = fehler instanceof Error ? fehler.message : String(fehler);
-        }
-      });
+    archivSchalterEl?.addEventListener("click", () => {
+      archivAnsicht = !archivAnsicht;
+      offen = null;
+      if (blattEl) blattEl.innerHTML = '<p class="analysen__leer">Lädt …</p>';
+      lade();
+    });
+
+    function lade(): void {
+      void Promise.all([
+        ctx.api.get<{ strategien: StrategieKopf[]; archiviert: number }>(
+          `/integrations/strategien${archivAnsicht ? "?archiv=1" : ""}`,
+        ),
+        ctx.api
+          .get<{ konten: PapierKonto[] }>("/integrations/papierhandel")
+          .catch(() => ({ konten: [] as PapierKonto[] })),
+      ])
+        .then(([daten, betrieb]) => {
+          if (verworfen) return;
+          koepfe = daten.strategien;
+          konten = betrieb.konten;
+          archivAnzahl = daten.archiviert;
+          if (archivSchalterEl) {
+            archivSchalterEl.hidden = archivAnzahl === 0 && !archivAnsicht;
+            archivSchalterEl.textContent = `Archiv (${archivAnzahl})`;
+            archivSchalterEl.setAttribute("aria-pressed", String(archivAnsicht));
+          }
+          if (untertitelEl) {
+            const kandidaten = koepfe.filter((k) => k.status === "kandidat").length;
+            untertitelEl.textContent = archivAnsicht
+              ? `${koepfe.length} im Archiv`
+              : koepfe.length === 0
+                ? "Noch keine Strategie geprüft"
+                : `${koepfe.length} abgelegt, davon ${kandidaten} Kandidat${kandidaten === 1 ? "" : "en"}`;
+          }
+          zeichneListe();
+          // Aufgeschlagen wird, was oben in der Liste steht — nicht, was das Archiv zuerst liefert.
+          const erste = gruppiereNachStatus(koepfe)[0]?.eintraege[0];
+          if (offen === null && erste) oeffne(erste.id);
+        })
+        .catch((fehler) => {
+          if (untertitelEl) {
+            untertitelEl.textContent = fehler instanceof Error ? fehler.message : String(fehler);
+          }
+        });
+    }
+    lade();
 
     return () => {
       verworfen = true;

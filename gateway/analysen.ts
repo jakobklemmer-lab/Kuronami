@@ -53,6 +53,14 @@ export interface AnalyseKopf {
   status: AnalyseStatus;
   kostenUsd: number;
   dauerMs: number;
+  /**
+   * ISO-Zeitpunkt der Ablage ins Archiv, oder fehlt: nicht archiviert.
+   *
+   * Jakob: „wir brauchen Archive für Strategien und Analysen, sonst müllt mir das die Website
+   * zu" (2026-09-27). Archiviert wird nicht gelöscht — `liste()` blendet es nur standardmäßig
+   * aus.
+   */
+  archiviert?: string;
 }
 
 export interface Analyse extends AnalyseKopf {
@@ -73,10 +81,23 @@ export interface AnalysenArchiv {
     /** Siehe `crvGerechnet` am Kopf: nur gesetzt, wenn der Bericht eine Kennzahl nennt. */
     crvGerechnet?: boolean;
   }): Promise<AnalyseKopf | null>;
-  liste(grenze?: number): Promise<AnalyseKopf[]>;
+  /**
+   * `mitArchiv` (Vorgabe `true`) entscheidet, ob Archiviertes mitgezählt wird — die Oberfläche
+   * ruft mit `false`, alle anderen Aufrufer wollen die volle Geschichte.
+   */
+  liste(grenze?: number, mitArchiv?: boolean): Promise<AnalyseKopf[]>;
   lies(id: string): Promise<Analyse | null>;
   /** Status oder Notiz ändern. Gibt den neuen Stand zurück, oder `null`, wenn es sie nicht gibt. */
   aendere(id: string, felder: { status?: AnalyseStatus; notiz?: string }): Promise<Analyse | null>;
+  /** Ins Archiv legen. `null`, wenn es die Analyse nicht gibt. */
+  archiviere(id: string): Promise<AnalyseKopf | null>;
+  /** Aus dem Archiv zurückholen. `null`, wenn es die Analyse nicht gibt. */
+  zurueckhole(id: string): Promise<AnalyseKopf | null>;
+  /**
+   * Legt `verworfen`e Analysen automatisch ins Archiv, sobald sie älter als `grenzeTage` sind
+   * (Vorgabe 3). Gibt zurück, wie viele es waren.
+   */
+  archiviereAlte(grenzeTage?: number): Promise<number>;
 }
 
 export interface AnalysenDeps {
@@ -190,10 +211,17 @@ export function createAnalysen(deps: AnalysenDeps): AnalysenArchiv {
       return kopfVon(analyse);
     },
 
-    async liste(grenze = 50) {
-      const dateien = (await pfadeAlle()).slice(0, grenze);
+    async liste(grenze = 50, mitArchiv = true) {
+      // Archiviertes steht zwischen dem übrigen Bestand, nicht am Ende — deshalb erst lesen und
+      // filtern, dann auf die Grenze kürzen. Sonst würde eine alte archivierte Zeile einer
+      // frischen, nicht archivierten den Platz in der Liste wegnehmen.
+      const dateien = await pfadeAlle();
       const alle = await Promise.all(dateien.map(leseDatei));
-      return alle.filter((a): a is Analyse => a !== null).map(kopfVon);
+      return alle
+        .filter((a): a is Analyse => a !== null)
+        .filter((a) => mitArchiv || !a.archiviert)
+        .slice(0, grenze)
+        .map(kopfVon);
     },
 
     async lies(id) {
@@ -213,6 +241,41 @@ export function createAnalysen(deps: AnalysenDeps): AnalysenArchiv {
       };
       await writeFile(path.join(ordner, datei), `${JSON.stringify(neu, null, 2)}\n`, "utf8");
       return neu;
+    },
+
+    async archiviere(id) {
+      const datei = await dateiZu(id);
+      if (!datei) return null;
+      const alt = await leseDatei(datei);
+      if (!alt) return null;
+      const neu: Analyse = { ...alt, archiviert: new Date().toISOString() };
+      await writeFile(path.join(ordner, datei), `${JSON.stringify(neu, null, 2)}\n`, "utf8");
+      return kopfVon(neu);
+    },
+
+    async zurueckhole(id) {
+      const datei = await dateiZu(id);
+      if (!datei) return null;
+      const alt = await leseDatei(datei);
+      if (!alt) return null;
+      const { archiviert: _archiviert, ...neu } = alt;
+      await writeFile(path.join(ordner, datei), `${JSON.stringify(neu, null, 2)}\n`, "utf8");
+      return kopfVon(neu as Analyse);
+    },
+
+    async archiviereAlte(grenzeTage = 3) {
+      const schwelle = Date.now() - grenzeTage * 24 * 60 * 60 * 1000;
+      const dateien = await pfadeAlle();
+      let anzahl = 0;
+      for (const datei of dateien) {
+        const eintrag = await leseDatei(datei);
+        if (!eintrag || eintrag.archiviert || eintrag.status !== "verworfen") continue;
+        if (new Date(eintrag.zeit).getTime() > schwelle) continue;
+        const neu: Analyse = { ...eintrag, archiviert: new Date().toISOString() };
+        await writeFile(path.join(ordner, datei), `${JSON.stringify(neu, null, 2)}\n`, "utf8");
+        anzahl++;
+      }
+      return anzahl;
     },
   };
 }

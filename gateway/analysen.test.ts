@@ -1,4 +1,4 @@
-import { mkdtemp, readdir, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, readdir, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { beforeEach, describe, expect, it } from "vitest";
@@ -127,5 +127,64 @@ describe("leeres Archiv", () => {
   it("ist eine leere Liste und kein Fehler", async () => {
     expect(await archiv.liste()).toEqual([]);
     expect(await archiv.lies("0123456789ab")).toBeNull();
+  });
+});
+
+/**
+ * Das Archiv-Feld (2026-09-28, N2): Jakob wollte Analysen aus der Liste räumen können, „sonst
+ * müllt mir das die Website zu" — archiviert wird nicht gelöscht, `liste()` blendet es nur
+ * standardmäßig aus, und Verworfenes räumt sich nach drei Tagen von selbst weg.
+ */
+describe("archivieren", () => {
+  it("blendet Archiviertes standardmäßig aus, zeigt es aber auf Wunsch", async () => {
+    const kopf = await archiv.lege(bericht);
+    const id = kopf?.id ?? "";
+    const archiviert = await archiv.archiviere(id);
+    expect(archiviert?.archiviert).toBeDefined();
+    expect(await archiv.liste(50, false)).toHaveLength(0);
+    expect(await archiv.liste(50, true)).toHaveLength(1);
+    // Alte Aufrufer lassen `mitArchiv` weg und wollen die volle Geschichte — die Vorgabe darf
+    // das Verhalten also nicht ändern.
+    expect(await archiv.liste()).toHaveLength(1);
+  });
+
+  it("holt aus dem Archiv zurück", async () => {
+    const kopf = await archiv.lege(bericht);
+    const id = kopf?.id ?? "";
+    await archiv.archiviere(id);
+    const zurueck = await archiv.zurueckhole(id);
+    expect(zurueck?.archiviert).toBeUndefined();
+    expect(await archiv.liste(50, false)).toHaveLength(1);
+  });
+
+  it("gibt null zurück, wenn es die Analyse nicht gibt", async () => {
+    expect(await archiv.archiviere("0123456789ab")).toBeNull();
+    expect(await archiv.zurueckhole("0123456789ab")).toBeNull();
+  });
+
+  it("legt verworfene Analysen erst nach drei Tagen automatisch ins Archiv", async () => {
+    const frisch = await archiv.lege(bericht);
+    const alt = await archiv.lege(bericht);
+    const offen = await archiv.lege(bericht);
+    const idFrisch = frisch?.id ?? "";
+    const idAlt = alt?.id ?? "";
+    const idOffen = offen?.id ?? "";
+    await archiv.aendere(idFrisch, { status: "verworfen" });
+    await archiv.aendere(idAlt, { status: "verworfen" });
+    // `idOffen` bleibt „offen" — nur verworfene Analysen räumen sich automatisch weg.
+
+    // `alt` künstlich auf vier Tage zurückdatieren — nur `lege()` selbst setzt `zeit`.
+    const pfad = path.join(ordner, "analysen");
+    const dateiname = (await readdir(pfad)).find((d) => d.endsWith(`-${idAlt}.json`));
+    if (!dateiname) throw new Error("Datei nicht gefunden.");
+    const roh = JSON.parse(await readFile(path.join(pfad, dateiname), "utf8"));
+    roh.zeit = new Date(Date.now() - 4 * 24 * 60 * 60 * 1000).toISOString();
+    await writeFile(path.join(pfad, dateiname), `${JSON.stringify(roh, null, 2)}\n`, "utf8");
+
+    const anzahl = await archiv.archiviereAlte();
+    expect(anzahl).toBe(1);
+    expect((await archiv.lies(idAlt))?.archiviert).toBeDefined();
+    expect((await archiv.lies(idFrisch))?.archiviert).toBeUndefined();
+    expect((await archiv.lies(idOffen))?.archiviert).toBeUndefined();
   });
 });

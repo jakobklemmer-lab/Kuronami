@@ -34,7 +34,7 @@ Prompt, mit Beispiel richtig/falsch (der Ton steht in Beispielen, nicht in Adjek
 Fertig, wenn: Prompttexte stehen, ein Test prüft, dass die Sätze im Prompt der beiden stehen.
 
 ## N2 · Archiv für Strategien und Analysen
-- Status: offen
+- Status: erledigt (2026-09-28, „Nachtbau N2: Archiv für Strategien und Analysen")
 - Modell: sonnet
 
 Jakob: „wir brauchen Archive für Strategien und Analysen, sonst müllt mir das die Website zu."

@@ -34,6 +34,8 @@ interface AnalyseKopf {
   status: "offen" | "gehandelt" | "verworfen";
   kostenUsd: number;
   dauerMs: number;
+  /** ISO-Zeitpunkt der Ablage ins Archiv, oder fehlt: nicht archiviert. */
+  archiviert?: string;
 }
 
 interface Analyse extends AnalyseKopf {
@@ -77,6 +79,8 @@ export const analysenView: View = {
             <h1 class="detail-view__title">Analysen</h1>
             <p class="detail-view__subtitle" data-role="subtitle">Lädt …</p>
           </div>
+          <button type="button" class="konto-schalter detail-view__archiv-schalter"
+                  data-role="archiv-schalter" aria-pressed="false" hidden></button>
         </header>
         <section class="lehren" aria-label="Lehren des Handelstischs" data-role="lehren"></section>
         <div class="analysen">
@@ -91,15 +95,23 @@ export const analysenView: View = {
     const listeEl = container.querySelector<HTMLElement>('[data-role="liste"]');
     const blattEl = container.querySelector<HTMLElement>('[data-role="blatt"]');
     const untertitelEl = container.querySelector<HTMLElement>('[data-role="subtitle"]');
+    const archivSchalterEl = container.querySelector<HTMLButtonElement>(
+      '[data-role="archiv-schalter"]',
+    );
     let koepfe: AnalyseKopf[] = [];
     let offen: string | null = null;
     let verworfen = false;
+    // Der ruhige Schalter im Kopf (2026-09-28, N2): Standardansicht ohne Archiviertes, hier
+    // umgeschaltet auf „nur das Archiv" — Jakob: „sonst müllt mir das die Website zu."
+    let archivAnsicht = false;
+    let archivAnzahl = 0;
 
     const zeichneListe = (): void => {
       if (!listeEl) return;
       if (koepfe.length === 0) {
-        listeEl.innerHTML =
-          '<p class="analysen__leer">Noch nichts abgelegt. Sobald der Handelstisch oder die Recherche einen Bericht liefert, steht er hier.</p>';
+        listeEl.innerHTML = archivAnsicht
+          ? '<p class="analysen__leer">Das Archiv ist leer.</p>'
+          : '<p class="analysen__leer">Noch nichts abgelegt. Sobald der Handelstisch oder die Recherche einen Bericht liefert, steht er hier.</p>';
         return;
       }
       const uhrzeit = (iso: string): string =>
@@ -112,7 +124,7 @@ export const analysenView: View = {
               ${g.eintraege
                 .map(
                   (k) => `
-                    <li>
+                    <li${archivAnsicht ? ' class="analysen__archivzeile"' : ""}>
                       <button class="analysen__eintrag${k.id === offen ? " ist-aktiv" : ""}" data-id="${escapeHtml(k.id)}"
                               aria-pressed="${k.id === offen}">
                         <span class="analysen__titel">${escapeHtml(k.titel)}</span>
@@ -128,6 +140,11 @@ export const analysenView: View = {
                           ${k.status !== "offen" ? `<span class="analysen__marke ist-${escapeHtml(k.status)}">${escapeHtml(STATUS_LABEL[k.status])}</span>` : ""}
                         </span>
                       </button>
+                      ${
+                        archivAnsicht
+                          ? `<button type="button" class="field__button analysen__zurueckholen" data-zurueckholen="${escapeHtml(k.id)}">Zurückholen</button>`
+                          : ""
+                      }
                     </li>`,
                 )
                 .join("")}
@@ -188,6 +205,14 @@ export const analysenView: View = {
               placeholder="Warum gehandelt, warum nicht — für später.">${escapeHtml(a.notiz ?? "")}</textarea>
           </label>
           <p class="field__hint" data-role="gemerkt"></p>
+          <div class="strategie__knoepfe">
+            ${
+              a.archiviert
+                ? `<span class="strategie__notiz">Archiviert am ${escapeHtml(new Date(a.archiviert).toLocaleDateString("de-AT"))}.</span>
+                   <button type="button" class="field__button" data-role="archiv-zurueckholen">Zurückholen</button>`
+                : `<button type="button" class="field__button" data-role="archiv-legen">Ins Archiv legen</button>`
+            }
+          </div>
         </footer>
       `;
 
@@ -232,6 +257,34 @@ export const analysenView: View = {
         a.notiz = notizEl.value;
         sichere({ notiz: notizEl.value });
       });
+
+      blattEl
+        .querySelector<HTMLButtonElement>('[data-role="archiv-legen"]')
+        ?.addEventListener("click", (ereignis) => {
+          const knopf = ereignis.currentTarget as HTMLButtonElement;
+          knopf.disabled = true;
+          void ctx.api
+            .post<AnalyseKopf>(`/integrations/analysen/${a.id}/archiv`, {})
+            .then(() => lade())
+            .catch((fehler) => {
+              knopf.disabled = false;
+              sage(fehler instanceof Error ? fehler.message : String(fehler));
+            });
+        });
+
+      blattEl
+        .querySelector<HTMLButtonElement>('[data-role="archiv-zurueckholen"]')
+        ?.addEventListener("click", (ereignis) => {
+          const knopf = ereignis.currentTarget as HTMLButtonElement;
+          knopf.disabled = true;
+          void ctx.api
+            .delete(`/integrations/analysen/${a.id}/archiv`)
+            .then(() => lade())
+            .catch((fehler) => {
+              knopf.disabled = false;
+              sage(fehler instanceof Error ? fehler.message : String(fehler));
+            });
+        });
     };
 
     /**
@@ -293,20 +346,42 @@ export const analysenView: View = {
     };
 
     listeEl?.addEventListener("click", (ereignis) => {
+      const zurueck = (ereignis.target as HTMLElement).closest<HTMLElement>("[data-zurueckholen]");
+      if (zurueck?.dataset.zurueckholen) {
+        const id = zurueck.dataset.zurueckholen;
+        void ctx.api.delete(`/integrations/analysen/${id}/archiv`).then(() => lade());
+        return;
+      }
       const knopf = (ereignis.target as HTMLElement).closest<HTMLElement>("[data-id]");
       if (knopf?.dataset.id) oeffne(knopf.dataset.id);
     });
 
+    archivSchalterEl?.addEventListener("click", () => {
+      archivAnsicht = !archivAnsicht;
+      offen = null;
+      if (blattEl) blattEl.innerHTML = '<p class="analysen__leer">Lädt …</p>';
+      lade();
+    });
+
     const lade = (): void => {
       void ctx.api
-        .get<{ analysen: AnalyseKopf[] }>("/integrations/analysen")
+        .get<{ analysen: AnalyseKopf[]; archiviert: number }>(
+          `/integrations/analysen${archivAnsicht ? "?archiv=1" : ""}`,
+        )
         .then((daten) => {
           if (verworfen) return;
           koepfe = daten.analysen;
+          archivAnzahl = daten.archiviert;
+          if (archivSchalterEl) {
+            archivSchalterEl.hidden = archivAnzahl === 0 && !archivAnsicht;
+            archivSchalterEl.textContent = `Archiv (${archivAnzahl})`;
+            archivSchalterEl.setAttribute("aria-pressed", String(archivAnsicht));
+          }
           if (untertitelEl) {
             const ideen = koepfe.filter((k) => k.hatIdee).length;
-            untertitelEl.textContent =
-              koepfe.length === 0
+            untertitelEl.textContent = archivAnsicht
+              ? `${koepfe.length} im Archiv`
+              : koepfe.length === 0
                 ? "Noch keine Analyse abgelegt"
                 : `${koepfe.length} abgelegt, davon ${ideen} mit handelbarer Idee`;
           }

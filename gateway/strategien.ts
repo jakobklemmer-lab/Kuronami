@@ -82,6 +82,14 @@ export interface StrategieKopf {
   universum?: UniversumVermerk;
   /** Die letzte Gegenprobe; fehlt, solange keine lief. */
   gegenprobe?: GegenprobeVermerk;
+  /**
+   * ISO-Zeitpunkt der Ablage ins Archiv, oder fehlt: nicht archiviert.
+   *
+   * Jakob: „wir brauchen Archive für Strategien und Analysen, sonst müllt mir das die Website
+   * zu" (2026-09-27). Archiviert wird nicht gelöscht — die Zeilen bleiben lesbar, `liste()`
+   * blendet sie nur standardmäßig aus.
+   */
+  archiviert?: string;
 }
 
 export interface StrategieEintrag extends StrategieKopf {
@@ -112,12 +120,25 @@ export interface StrategienArchiv {
     status?: StrategieStatus;
     universum?: UniversumVermerk;
   }): Promise<StrategieKopf>;
-  liste(grenze?: number): Promise<StrategieKopf[]>;
+  /**
+   * `mitArchiv` (Vorgabe `true`) entscheidet, ob Archiviertes mitgezählt wird — die alten
+   * Aufrufer (Lernschleife, Chart) wollen die volle Geschichte, die Oberfläche ruft mit `false`.
+   */
+  liste(grenze?: number, mitArchiv?: boolean): Promise<StrategieKopf[]>;
   lies(id: string): Promise<StrategieEintrag | null>;
   aendere(
     id: string,
     felder: { status?: StrategieStatus; notiz?: string; gegenprobe?: GegenprobeVermerk },
   ): Promise<StrategieEintrag | null>;
+  /** Ins Archiv legen. `null`, wenn es die Strategie nicht gibt. */
+  archiviere(id: string): Promise<StrategieKopf | null>;
+  /** Aus dem Archiv zurückholen. `null`, wenn es die Strategie nicht gibt. */
+  zurueckhole(id: string): Promise<StrategieKopf | null>;
+  /**
+   * Legt `verworfen`e Strategien automatisch ins Archiv, sobald sie älter als `grenzeTage`
+   * sind (Vorgabe 3). Gibt zurück, wie viele es waren.
+   */
+  archiviereAlte(grenzeTage?: number): Promise<number>;
 }
 
 export interface StrategienDeps {
@@ -254,10 +275,17 @@ export function createStrategien(deps: StrategienDeps): StrategienArchiv {
       return kopfVon(voll);
     },
 
-    async liste(grenze = 50) {
-      const dateien = (await pfadeAlle()).slice(0, grenze);
+    async liste(grenze = 50, mitArchiv = true) {
+      // Archiviertes steht zwischen dem übrigen Bestand, nicht am Ende — deshalb erst lesen und
+      // filtern, dann auf die Grenze kürzen. Sonst würde eine alte archivierte Zeile einer
+      // frischen, nicht archivierten den Platz in der Liste wegnehmen.
+      const dateien = await pfadeAlle();
       const alle = await Promise.all(dateien.map(leseDatei));
-      return alle.filter((e): e is StrategieEintrag => e !== null).map(kopfVon);
+      return alle
+        .filter((e): e is StrategieEintrag => e !== null)
+        .filter((e) => mitArchiv || !e.archiviert)
+        .slice(0, grenze)
+        .map(kopfVon);
     },
 
     async lies(id) {
@@ -278,6 +306,41 @@ export function createStrategien(deps: StrategienDeps): StrategienArchiv {
       };
       await writeFile(path.join(ordner, datei), `${JSON.stringify(neu, null, 2)}\n`, "utf8");
       return neu;
+    },
+
+    async archiviere(id) {
+      const datei = await dateiZu(id);
+      if (!datei) return null;
+      const alt = await leseDatei(datei);
+      if (!alt) return null;
+      const neu: StrategieEintrag = { ...alt, archiviert: new Date().toISOString() };
+      await writeFile(path.join(ordner, datei), `${JSON.stringify(neu, null, 2)}\n`, "utf8");
+      return kopfVon(neu);
+    },
+
+    async zurueckhole(id) {
+      const datei = await dateiZu(id);
+      if (!datei) return null;
+      const alt = await leseDatei(datei);
+      if (!alt) return null;
+      const { archiviert: _archiviert, ...neu } = alt;
+      await writeFile(path.join(ordner, datei), `${JSON.stringify(neu, null, 2)}\n`, "utf8");
+      return kopfVon(neu as StrategieEintrag);
+    },
+
+    async archiviereAlte(grenzeTage = 3) {
+      const schwelle = Date.now() - grenzeTage * 24 * 60 * 60 * 1000;
+      const dateien = await pfadeAlle();
+      let anzahl = 0;
+      for (const datei of dateien) {
+        const eintrag = await leseDatei(datei);
+        if (!eintrag || eintrag.archiviert || eintrag.status !== "verworfen") continue;
+        if (new Date(eintrag.zeit).getTime() > schwelle) continue;
+        const neu: StrategieEintrag = { ...eintrag, archiviert: new Date().toISOString() };
+        await writeFile(path.join(ordner, datei), `${JSON.stringify(neu, null, 2)}\n`, "utf8");
+        anzahl++;
+      }
+      return anzahl;
     },
   };
 }

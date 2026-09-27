@@ -371,6 +371,30 @@ async function main(): Promise<void> {
       : `Gesprächsarchiv: nachts zwischen ${ARCHIV_FENSTER[0]} und ${ARCHIV_FENSTER[1]} Uhr (Wien), nach Tagen in ablage/gespraeche/.`,
   );
 
+  /**
+   * Das Strategien- und Analysen-Archiv (2026-09-28, N2): „wir brauchen Archive für Strategien
+   * und Analysen, sonst müllt mir das die Website zu." Verworfenes räumt sich von selbst weg,
+   * sobald es drei Tage alt ist — einmal beim Start (damit ein Neustart nichts liegen lässt)
+   * und danach täglich, weil sich der Status einer Strategie oder Analyse höchstens einmal am
+   * Tag ändert.
+   */
+  const veraltetArchivTick = async (): Promise<void> => {
+    try {
+      const strategien = await agent.strategien.archiviereAlte();
+      const analysen = await agent.analysen.archiviereAlte();
+      if (strategien > 0 || analysen > 0) {
+        console.log(
+          `[archiv] automatisch abgelegt: ${strategien} Strategie(n), ${analysen} Analyse(n) — verworfen und älter als 3 Tage.`,
+        );
+      }
+    } catch (fehler) {
+      console.error("[archiv] automatisches Ablegen fehlgeschlagen:", fehler);
+    }
+  };
+  const veraltetArchivUhr = setInterval(() => void veraltetArchivTick(), 24 * 60 * 60_000);
+  veraltetArchivUhr.unref();
+  setTimeout(() => void veraltetArchivTick(), 20_000).unref();
+
   const polling =
     telegram && process.env.TELEGRAM_MODE?.trim() !== "webhook"
       ? startTelegramPolling(telegram, {

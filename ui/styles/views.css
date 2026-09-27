@@ -88,6 +88,11 @@
   font-size: var(--text-sm);
   color: var(--fg-muted);
 }
+/* Der ruhige Archiv-Schalter (2026-09-28, N2) steht rechts vom Titel, nicht darunter. */
+.detail-view__archiv-schalter {
+  margin-left: auto;
+  align-self: flex-start;
+}
 
 .detail-panel {
   padding: 6px 22px;
@@ -1142,6 +1147,21 @@
 /* Verworfenes bleibt lesbar, tritt aber zurück. */
 .analysen__eintraege.ist-verworfen .analysen__eintrag:not(.ist-aktiv) {
   opacity: 0.6;
+}
+/* Im Archiv (2026-09-28, N2) steht neben der Zeile ein ruhiger Knopf zum Zurückholen. */
+.analysen__archivzeile {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.analysen__archivzeile .analysen__eintrag {
+  flex: 1;
+  min-width: 0;
+}
+.analysen__zurueckholen {
+  flex: none;
+  padding: 6px 12px;
+  font-size: var(--text-xs);
 }
 
 .analysen__eintrag {
