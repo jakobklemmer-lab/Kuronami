@@ -1,6 +1,6 @@
 import { mkdir, readFile, readdir, writeFile } from "node:fs/promises";
 import path from "node:path";
-import type { Abschnitt, Kennzahlen, Strategie } from "./backtest.js";
+import { type Abschnitt, type Kennzahlen, type Strategie, sperrt } from "./backtest.js";
 import type { Konfidenz } from "./konfidenz.js";
 import type { Uebertragbarkeit } from "./universum.js";
 
@@ -185,7 +185,10 @@ interface Probe {
  * - `verworfen` nur, wenn das 95-%-Intervall **ganz unter null** liegt, in jeder Probe, die
  *   groß genug ist.
  * - `kandidat` nur, wenn eine große Probe ganz über null liegt **und** der Heimatmarkt selbst
- *   trägt: positiver Erwartungswert, im ungesehenen Teil auch, Sharpe ab 1, kein Vorbehalt.
+ *   trägt: positiver Erwartungswert, im ungesehenen Teil auch, kein sperrender Vorbehalt
+ *   (`sperrt`). Sharpe, Kaufen-und-liegen-lassen und der Rückschlag sind seit dem 28.09. nur
+ *   noch Hinweise: keine abgelegte Strategie kam über Sharpe 0,55, und der Vergleich mit dem
+ *   Index sperrte 17 von 18 — beides steht nicht in Jakobs Regel.
  *
  * **Ein Einzelfall darf Kandidat werden — er muss nur als einer zu erkennen sein.** Jakob am
  * 2026-09-21: „Es ist auch okay, wenn eine Strategie nur in einem Produkt läuft, muss dann halt
@@ -210,8 +213,7 @@ export function bewerte(
   const draussen = outOfSample?.kennzahlen;
   if (kennzahlen.erwartungswertR <= 0) return "geprueft";
   if (!draussen || draussen.anzahl < 5 || draussen.erwartungswertR <= 0) return "geprueft";
-  if (warnungen.length === 0 && kennzahlen.sharpe >= 1) return "kandidat";
-  return "geprueft";
+  return warnungen.some(sperrt) ? "geprueft" : "kandidat";
 }
 
 export function createStrategien(deps: StrategienDeps): StrategienArchiv {

@@ -952,7 +952,7 @@ export function createLabor(deps: LaborDeps = {}) {
           "Der Status vergibt sich selbst aus den Kennzahlen. Geurteilt wird erst ab 200 Handeln",
           "— im Markt allein oder über `weitereMaerkte` im gemeinsamen Topf. `verworfen` nur, wenn",
           "das 95-%-Intervall ganz unter null liegt; `kandidat` nur, wenn es ganz darüber liegt und",
-          "der Markt selbst trägt (beide Zeitabschnitte positiv, Sharpe ab 1, kein Vorbehalt).",
+          "der Markt selbst trägt (beide Zeitabschnitte positiv, kein sperrender Vorbehalt).",
           "Alles dazwischen ist `geprueft`. Du kannst den Status nicht selbst setzen — sonst wäre",
           "er eine Meinung.",
           "",

@@ -995,6 +995,26 @@ function medianerRisikoAnteil(handel: readonly Handel[]): number | undefined {
   return anteile.length % 2 === 1 ? anteile[mitte] : (anteile[mitte - 1] + anteile[mitte]) / 2;
 }
 
+/**
+ * Vorbehalte, die der Bericht nennt, die einen Kandidaten aber **nicht sperren** (seit 28.09.).
+ * Stichprobe und Intervall prüft `bewerte` selbst — auch über den gemeinsamen Topf, den diese
+ * Warnungen nicht kennen. Kaufen-und-liegen-lassen und der Rückschlag rechnen mit voll
+ * investiertem Kapital, Jakob handelt mit 1 % Risiko je Handel. Seine Regel: „eine Strategie ist
+ * ein Gewinner, solange sie oft genug greifen kann und insgesamt mehr Plus als Minus erwirtschaftet."
+ */
+const NUR_HINWEIS: readonly RegExp[] = [
+  /^Nur \d+ Handel\./,
+  /^Trefferquote \d+ %, aber nur /,
+  /^Der Erwartungswert ist zwar \+/,
+  /^Zwischendurch standen /,
+  /^Kaufen und liegen lassen hätte /,
+];
+
+/** Hält dieser Vorbehalt eine Strategie vom Kandidaten ab? */
+export function sperrt(warnung: string): boolean {
+  return !NUR_HINWEIS.some((muster) => muster.test(warnung));
+}
+
 export function warnungenAus(
   gesamt: Kennzahlen,
   inSample: Abschnitt,

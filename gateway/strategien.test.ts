@@ -2,7 +2,13 @@ import { mkdtemp, readFile, readdir, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { beforeEach, describe, expect, it } from "vitest";
-import type { Abschnitt, Kennzahlen, Strategie } from "./backtest.js";
+import {
+  type Abschnitt,
+  type Handel,
+  type Kennzahlen,
+  type Strategie,
+  warnungenAus,
+} from "./backtest.js";
 import { konfidenz } from "./konfidenz.js";
 import {
   type StrategienArchiv,
@@ -167,10 +173,54 @@ describe("bewerte", () => {
     const k = (teil: Partial<Kennzahlen> = {}) =>
       kennzahlen({ anzahl: 1200, konfidenz: belegt, ...teil });
     expect(bewerte(k(), abschnitt(0.2), ["irgendwas"])).toBe("geprueft");
-    expect(bewerte(k({ sharpe: 0.8 }), abschnitt(0.2), [])).toBe("geprueft");
     expect(bewerte(k({ erwartungswertR: -0.1 }), abschnitt(0.2), [])).toBe("geprueft");
     expect(bewerte(k(), abschnitt(0.2, 4), [])).toBe("geprueft");
     expect(bewerte(k(), null, [])).toBe("geprueft");
+  });
+
+  it("lässt Sharpe, Kaufen-und-liegen-lassen und Rückschlag nur Hinweis sein", () => {
+    // Jakob am 28.09.: „eine Strategie ist ein Gewinner, solange sie oft genug greifen kann und
+    // insgesamt mehr Plus als Minus erwirtschaftet." Keine abgelegte Strategie kam über Sharpe
+    // 0,55, und der Vergleich mit dem Index stand an 17 von 18.
+    const k = kennzahlen({ anzahl: 1200, konfidenz: belegt, sharpe: 0.4, maxDrawdownProzent: 40 });
+    const handel = [1, -1, 1.2, -1, 0.9, -1].map(
+      (r): Handel => ({
+        einstiegZeit: 0,
+        ausstiegZeit: 1,
+        einstieg: 100,
+        ausstieg: 100 + r,
+        stop: 99,
+        ziel: 101,
+        grund: r > 0 ? "ziel" : "stop",
+        renditeProzent: r,
+        r,
+        kerzen: 3,
+      }),
+    );
+    const hinweise = warnungenAus(k, abschnitt(0.3), abschnitt(0.3), handel, 500);
+    expect(hinweise.some((w) => w.startsWith("Kaufen und liegen lassen"))).toBe(true);
+    expect(hinweise.some((w) => w.startsWith("Zwischendurch standen"))).toBe(true);
+    expect(bewerte(k, abschnitt(0.3), hinweise)).toBe("kandidat");
+    // Die kleine Stichprobe und ihr Intervall prüft `bewerte` selbst — über den Topf, den die
+    // Warnungen des einen Marktes nicht kennen.
+    const klein = kennzahlen({ anzahl: 25, konfidenz: konfidenz(rWerte(25, 0.4, 2)) });
+    const vorbehalte = warnungenAus(klein, abschnitt(0.3), abschnitt(0.3), handel);
+    expect(vorbehalte.some((w) => w.startsWith("Nur 25 Handel"))).toBe(true);
+    expect(
+      bewerte(
+        klein,
+        abschnitt(0.3),
+        vorbehalte,
+        vermerk({ gesamtHandel: 1200, gemeinsam: belegt }),
+      ),
+    ).toBe("kandidat");
+    // Der Nullpunkt sperrt weiter: schlägt die Regel den zufälligen Einstieg nicht, ist es die
+    // Geometrie, die verdient, nicht die Regel.
+    const nullpunkt = warnungenAus(k, abschnitt(0.3), abschnitt(0.3), handel, undefined, {
+      trefferquote: 0.5,
+      erwartungswertR: 0.5,
+    });
+    expect(bewerte(k, abschnitt(0.3), nullpunkt)).toBe("geprueft");
   });
 
   it("urteilt ohne Intervall nicht", () => {

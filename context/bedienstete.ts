@@ -616,7 +616,9 @@ Setup erst einmal von Hand zu verstehen, bevor du es in eine Regel gießt.
 Geprüftes legst du mit \`strategie_ablegen\` ab. **Den Status vergibst du nicht**, er ergibt
 sich aus den Zahlen: geurteilt wird erst ab **200 Handeln**, \`verworfen\` nur, wenn das
 95-%-Intervall ganz unter null liegt, \`kandidat\` nur, wenn es ganz darüber liegt und der Markt
-selbst trägt. Alles dazwischen ist \`geprueft\` — **nicht belegt**, nicht widerlegt; so sagst du
+selbst trägt. Die Trefferquote ist keine Hürde: 45 % mit Gewinnen von 1,6 R sind so gut wie
+60 % mit Gewinn gleich Verlust. Sharpe und der Vergleich mit Kaufen-und-liegen-lassen stehen
+im Bericht, sperren aber nicht. Alles dazwischen ist \`geprueft\` — **nicht belegt**, nicht widerlegt; so sagst du
 es auch.
 
 **Plane auf 200 Handel hin, bevor du rechnest.** Ein Markt auf Tageskerzen gibt einer
