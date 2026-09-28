@@ -19,6 +19,14 @@ import { formatiereVerlauf } from "./kurse.js";
 import { PapierFehler, type Papierhandel, papierKennzahlen } from "./papierhandel.js";
 import { type Prognosenbuch, formatiereAkte, formatiereBenotung } from "./prognosen.js";
 import {
+  PLAN_INTERVALLE,
+  PruefplanFehler,
+  createPruefplaene,
+  formatierePlan,
+  planHash,
+  rechneRegel,
+} from "./pruefplan.js";
+import {
   ReplayFehler,
   formatiereKerzen,
   formatiereStand,
@@ -269,6 +277,41 @@ export function createLabor(deps: LaborDeps = {}) {
   const kerzenquelle = deps.kerzen ?? createKerzenquelle({ workdir: deps.workdir, markets });
   const versuchsbuch =
     deps.versuche ?? (deps.workdir ? createVersuchsbuch({ workdir: deps.workdir }) : undefined);
+  const plaene = deps.workdir ? createPruefplaene({ workdir: deps.workdir }) : undefined;
+
+  /**
+   * Gehört eine Ablage zu einer Regel aus einem festgeschriebenen Prüfplan? Dann gilt dessen
+   * Hürde. Die Regel muss **genau** die aus dem Plan sein — Bedingungen, Märkte, Zeitrahmen,
+   * Beginn —, sonst wäre der Verweis ein Weg, eine gedrehte Variante unter der kleinen Hürde
+   * durchzubringen.
+   */
+  async function planRegelFuer(
+    bezug: { id: string; nr: number },
+    strategie: Strategie,
+    symbole: readonly string[],
+    intervall: string,
+    von: string,
+  ): Promise<{ huerde: number; satz: string } | { fehler: string }> {
+    const plan = plaene ? await plaene.lies(bezug.id) : null;
+    if (!plan) return { fehler: `Keinen Prüfplan ${bezug.id}.` };
+    if (!plan.festgeschrieben || planHash(plan.regeln) !== plan.festgeschrieben.hash) {
+      return { fehler: `Prüfplan ${bezug.id} ist nicht (unverändert) festgeschrieben.` };
+    }
+    const regel = plan.regeln.find((r) => r.nr === bezug.nr);
+    if (!regel) return { fehler: `Prüfplan ${bezug.id} hat keine Regel ${bezug.nr}.` };
+    const gleich =
+      regelSchluessel(regel.strategie, [...regel.maerkte].sort(), regel.intervall) ===
+        regelSchluessel(strategie, [...symbole].sort(), intervall) && regel.von === von;
+    if (!gleich) {
+      return {
+        fehler: `Das ist nicht Regel ${bezug.nr} aus Prüfplan ${bezug.id}: Bedingungen, Märkte (${regel.maerkte.join(", ")}), Zeitrahmen (${regel.intervall}) und Beginn (${regel.von}) müssen genau so sein wie festgeschrieben.`,
+      };
+    }
+    return {
+      huerde: plan.festgeschrieben.huerde,
+      satz: `**Prüfplan:** Regel ${regel.nr} aus „${plan.titel}" (${plan.id}), festgeschrieben am ${plan.festgeschrieben.am.slice(0, 10)} — Hürde z > ${plan.festgeschrieben.huerde.toFixed(2)} über ${plan.regeln.length} Regeln statt über das ganze Versuchsbuch.`,
+    };
+  }
 
   /**
    * Einen Versuch ins Versuchsbuch schreiben und den Satz dazu liefern. Ein Fehler beim Schreiben
@@ -1207,12 +1250,29 @@ export function createLabor(deps: LaborDeps = {}) {
               'Weitere Märkte für die Übertragbarkeit, z. B. ["^GDAXI", "GC=F", "AAPL"]. ' +
                 "Zusammen mit `symbol` ab drei aussagekräftig. Vorher festlegen, nicht danach.",
             ),
+          pruefplan: z
+            .object({ id: z.string().max(20), nr: z.number().int().min(1) })
+            .optional()
+            .describe(
+              "Nur für eine Regel aus einem festgeschriebenen Prüfplan: dann gilt dessen Hürde. " +
+                "Regel, Märkte, Zeitrahmen und `von` müssen genau die aus dem Plan sein.",
+            ),
           ...strategieSchema,
         },
         async (eingabe) => {
-          const { symbol, intervall, von, bis, weitereMaerkte, ...rest } = eingabe;
+          const { symbol, intervall, von, bis, weitereMaerkte, pruefplan, ...rest } = eingabe;
           const zeitraum = suchEnde(von, bis, intervall);
           if ("fehler" in zeitraum) return text(zeitraum.fehler, true);
+          const planBezug = pruefplan
+            ? await planRegelFuer(
+                pruefplan,
+                rest as unknown as Strategie,
+                [symbol, ...(weitereMaerkte ?? [])],
+                intervall,
+                von,
+              )
+            : null;
+          if (planBezug && "fehler" in planBezug) return text(planBezug.fehler, true);
           const ende = zeitraum.ende;
           const intervallWahl = intervall as ChartInterval;
           try {
@@ -1260,11 +1320,20 @@ export function createLabor(deps: LaborDeps = {}) {
                 z: Math.max(zHeimat, zTopf),
               },
             );
+            const versuchVermerk =
+              planBezug && versuch.vermerk
+                ? {
+                    ...versuch.vermerk,
+                    huerde: planBezug.huerde,
+                    haelt: versuch.vermerk.z > planBezug.huerde,
+                  }
+                : versuch.vermerk;
             const bericht = [
               formatiereBacktest(ergebnis),
               universumBericht,
               zeitraum.hinweis,
               versuch.satz,
+              planBezug ? planBezug.satz : "",
             ]
               .filter((teil) => teil !== "")
               .join("\n\n");
@@ -1284,7 +1353,7 @@ export function createLabor(deps: LaborDeps = {}) {
               gesehenBis: zeitraum.grenze,
               maerkte,
               ...(vermerk === undefined ? {} : { universum: vermerk }),
-              ...(versuch.vermerk === undefined ? {} : { versuch: versuch.vermerk }),
+              ...(versuchVermerk === undefined ? {} : { versuch: versuchVermerk }),
             });
             return text(`Abgelegt als ${kopf.id} — Status **${kopf.status}**.\n\n${bericht}`);
           } catch (error) {
@@ -1458,6 +1527,177 @@ export function createLabor(deps: LaborDeps = {}) {
     ];
   }
 
+  const planRegel = z.object({
+    quelle: z
+      .string()
+      .min(3)
+      .max(300)
+      .describe(
+        'Woher, mit Stelle: "TradingLab g-PLctW8aU0 [2:24–3:21]" oder "Murphy, Kap. 9, S. 203".',
+      ),
+    maerkte: z.array(z.string().min(1).max(30)).min(1).max(12),
+    intervall: z.enum(PLAN_INTERVALLE).default("1d"),
+    von: z.string().regex(TAG).describe("Beginn, YYYY-MM-DD. Das Ende ist die Sperrgrenze."),
+    strategie: z.object(strategieSchema),
+  });
+
+  const pruefplanWerkzeuge = plaene
+    ? [
+        tool(
+          "pruefplan_entwurf",
+          [
+            "**Einen Prüfplan anlegen oder weiterschreiben** — die Liste der Regeln aus den Quellen,",
+            "bevor eine davon gerechnet ist. Siehe `pruefplan.ts`.",
+            "",
+            "Jede Regel wörtlich aus der Quelle, mit Stelle; Märkte, Zeitrahmen und Beginn legst du",
+            "hier fest, nicht nach dem Rechnen. Was sich nicht rechnen lässt, gehört mit Grund in",
+            "`nichtPruefbar` („Baustein fehlt: Unterstützungszone“) — nie als Näherung in `regeln`.",
+            "Große Pläne in Teilen: `anhaengen: true` hängt an, sonst wird die Liste ersetzt.",
+            "Rechne keine dieser Regeln vorher mit `backtest` oder `universum` — sonst ist der Plan",
+            "nicht mehr unabhängig von unseren Ergebnissen.",
+          ].join("\n"),
+          {
+            id: z.string().max(20).optional().describe("Weiterschreiben; ohne: neuer Plan."),
+            titel: z.string().min(3).max(200),
+            regeln: z.array(planRegel).max(60),
+            nichtPruefbar: z.array(z.string().max(400)).max(200).optional(),
+            anhaengen: z.boolean().default(false),
+          },
+          async (eingabe) => {
+            try {
+              const plan = await plaene.entwurf(
+                eingabe as unknown as Parameters<typeof plaene.entwurf>[0],
+              );
+              return text(formatierePlan(plan));
+            } catch (error) {
+              if (error instanceof PruefplanFehler) return text(error.message, true);
+              throw error;
+            }
+          },
+          { annotations: { title: "Prüfplan entwerfen" } },
+        ),
+        tool(
+          "pruefplan_zeigen",
+          "Einen Prüfplan zeigen (mit `id`) oder alle auflisten — Status, Regeln, Ergebnisse.",
+          { id: z.string().max(20).optional() },
+          async ({ id }) => {
+            if (id) {
+              const plan = await plaene.lies(id);
+              return plan ? text(formatierePlan(plan)) : text(`Keinen Prüfplan ${id}.`, true);
+            }
+            const alle = await plaene.liste();
+            if (alle.length === 0) return text("Es gibt noch keinen Prüfplan.");
+            return text(
+              alle
+                .map(
+                  (p) =>
+                    `- ${p.id} · ${p.titel} · ${p.status} · ${p.regeln.length} Regeln${p.gerechnet ? ` · ${p.gerechnet.ergebnisse.length} gerechnet` : ""}`,
+                )
+                .join("\n"),
+            );
+          },
+          { annotations: { title: "Prüfplan ansehen", readOnlyHint: true } },
+        ),
+        tool(
+          "pruefplan_festschreiben",
+          [
+            "**Den Plan festschreiben** — nur, wenn Jakob der Liste zugestimmt hat. Danach ändert",
+            "sich nichts mehr an ihr: Prüfsumme, Zeitpunkt und ein Git-Commit halten sie fest, und",
+            "die Hürde ergibt sich aus der Zahl der Regeln.",
+          ].join("\n"),
+          {
+            id: z.string().max(20),
+            freigabe: z
+              .string()
+              .min(3)
+              .max(500)
+              .describe("Jakobs Zustimmung im Wortlaut, wie Kuro sie weitergegeben hat."),
+          },
+          async ({ id, freigabe }) => {
+            try {
+              return text(formatierePlan(await plaene.festschreibe(id, freigabe), false));
+            } catch (error) {
+              if (error instanceof PruefplanFehler) return text(error.message, true);
+              throw error;
+            }
+          },
+          { annotations: { title: "Prüfplan festschreiben" } },
+        ),
+        tool(
+          "pruefplan_rechnen",
+          [
+            "**Die Regeln eines festgeschriebenen Plans rechnen** — jede genau einmal, unverändert,",
+            "über ihre Märkte bis zur Sperrgrenze, mit und ohne Kosten, Intervall in Zeitblöcken.",
+            "Rechnet höchstens `hoechstens` offene Regeln je Aufruf; ruf es wieder auf, bis der",
+            "Plan „gerechnet“ ist. Was schon gerechnet ist, wird nie ein zweites Mal gerechnet.",
+          ].join("\n"),
+          {
+            id: z.string().max(20),
+            hoechstens: z.number().int().min(1).max(100).default(20),
+          },
+          async ({ id, hoechstens }) => {
+            const plan = await plaene.lies(id);
+            if (!plan) return text(`Keinen Prüfplan ${id}.`, true);
+            if (!plan.festgeschrieben) {
+              return text(`Plan ${id} ist ein Entwurf — erst festschreiben, dann rechnen.`, true);
+            }
+            if (planHash(plan.regeln) !== plan.festgeschrieben.hash) {
+              return text(
+                `Die Regeln von Plan ${id} passen nicht mehr zur Prüfsumme. Es wird nicht gerechnet.`,
+                true,
+              );
+            }
+            const huerde = plan.festgeschrieben.huerde;
+            const schon = new Set((plan.gerechnet?.ergebnisse ?? []).map((e) => e.nr));
+            const offen = plan.regeln.filter((r) => !schon.has(r.nr)).slice(0, hoechstens);
+            const ergebnisse = [];
+            for (const regel of offen) {
+              const ende = kappe(heute(), regel.intervall).bis;
+              const maerkte: MarktKerzen[] = [];
+              const fehlend: string[] = [];
+              if (regel.von < ende) {
+                for (const symbol of regel.maerkte) {
+                  try {
+                    const geholt = await kerzenquelle.hole({
+                      symbol,
+                      intervall: regel.intervall as ChartInterval,
+                      vonUnix: unix(regel.von),
+                      bisUnix: unix(ende) + 86_400,
+                    });
+                    if (geholt.kerzen.length === 0) fehlend.push(`${symbol}: keine Kerzen`);
+                    else maerkte.push({ symbol, kerzen: geholt.kerzen });
+                  } catch (error) {
+                    fehlend.push(`${symbol}: ${error instanceof Error ? error.message : error}`);
+                  }
+                }
+              } else {
+                fehlend.push(`Beginn ${regel.von} liegt im gesperrten Zeitraum`);
+              }
+              const e = rechneRegel(regel, maerkte, huerde);
+              if (fehlend.length > 0) {
+                e.fehler = [e.fehler, `ohne Kerzen: ${fehlend.join("; ")}`]
+                  .filter(Boolean)
+                  .join(" · ");
+              }
+              await zaehle("pruefplan", regel.strategie, regel.maerkte, regel.intervall, {
+                anzahl: e.anzahl,
+                erwartungswertR: e.erwartungswertR,
+                z: e.z,
+              });
+              ergebnisse.push(e);
+            }
+            try {
+              return text(formatierePlan(await plaene.legeErgebnisse(id, ergebnisse), false));
+            } catch (error) {
+              if (error instanceof PruefplanFehler) return text(error.message, true);
+              throw error;
+            }
+          },
+          { annotations: { title: "Prüfplan rechnen" } },
+        ),
+      ]
+    : [];
+
   return createSdkMcpServer({
     name: "labor",
     version: "1",
@@ -1481,6 +1721,7 @@ export function createLabor(deps: LaborDeps = {}) {
       replayEnde,
       gegenprobe,
       schlussprobe,
+      ...pruefplanWerkzeuge,
       ...(deps.papier ? papierWerkzeuge(deps.papier) : []),
       ...(deps.strategien ? archivWerkzeuge(deps.strategien) : []),
       ...(deps.prognosen ? prognoseWerkzeuge(deps.prognosen) : []),
@@ -1511,6 +1752,10 @@ export const LABOR_TOOLS = [
   "mcp__labor__prognose_anlegen",
   "mcp__labor__prognose_stand",
   "mcp__labor__akte",
+  "mcp__labor__pruefplan_zeigen",
+  "mcp__labor__pruefplan_entwurf",
+  "mcp__labor__pruefplan_festschreiben",
+  "mcp__labor__pruefplan_rechnen",
 ];
 
 /** Was ein Prüfer braucht, der keine Strategien ablegt. */

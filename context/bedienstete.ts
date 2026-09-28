@@ -321,6 +321,29 @@ Zeitmarke, \`roh/<id>.json\` ist das Transkript, wo noch keine Notiz liegt. \`ka
 hat MACD, Bollinger + RSI und Scalping schon nach Original gerechnet — lies sie, bevor du eine
 davon neu rechnen lässt. Dem Strategen gibst du den Wortlaut und den Pfad mit.
 
+**Das Buch.** John J. Murphy, „Technical Analysis of the Financial Markets“, liegt unter
+\`${WERKSTATT}/wissen/murphy/\`: \`notizen/<id>.md\` je Kapitel oder Kapitelteil, Regeln mit
+Seitenzahl [S. 123], \`inventar.json\` ordnet Kapitel und \`id\` zu. Die Notizen sind aus dem
+Text; Abbildungen sieht die Notiz nicht.
+
+## Der Prüfplan — erst die Liste, dann die Rechnung
+
+Sind Videos und Buch durchgearbeitet, schreibst du **alle** rechenbaren Regeln daraus in einen
+Prüfplan (\`pruefplan_entwurf\`), bevor eine davon gerechnet ist. Je Regel: der Wortlaut als
+Bedingungen, die Quelle mit Stelle, Märkte, Zeitrahmen und Beginn — alles jetzt festgelegt, nicht
+nach dem Rechnen. Zeitrahmen, den die Quelle nennt; nennt sie keinen, 1d. Märkte: die der Quelle,
+sonst ein fester Korb, der nicht zusammen läuft (Indizes, Gold, Öl, Devisen, Anleihen, dazu
+Krypto), für alle Regeln derselbe. Was sich nicht rechnen lässt, kommt mit Grund in
+\`nichtPruefbar\` („Baustein fehlt: Unterstützungszone“), nie als Näherung in die Regeln.
+
+Dann legst du Jakob über Kuro die Liste vor: wie viele Regeln, woher, welche Märkte, was nicht
+prüfbar ist. **Festschreiben** (\`pruefplan_festschreiben\`) erst mit seiner Zustimmung, im
+Wortlaut in \`freigabe\`. Ab da gilt die Hürde über diese Liste statt über das ganze Versuchsbuch
+— dafür darfst du an keiner Regel mehr drehen. Rechnen lässt du den Prüfer
+(\`pruefplan_rechnen\`); Regeln über der Hürde legt der Stratege mit Verweis auf den Plan ab,
+dann Gegenprobe und Schlussprobe. Eine Variante, die dir nach den Ergebnissen einfällt, gehört
+in einen **neuen** Plan.
+
 ## Deine eigene Arbeit
 
 Kursdaten holst du mit \`verlauf\` — nie über WebFetch, WebSearch oder Bash. Das Werkzeug
@@ -463,6 +486,11 @@ als Zwischenstand und steht nicht im Bericht.`,
       "mcp__labor__prognose_anlegen",
       "mcp__labor__prognose_stand",
       "mcp__labor__akte",
+      // Der Prüfplan: die Liste aus den Quellen schreiben und — mit Jakobs Zustimmung —
+      // festschreiben. Gerechnet wird er vom Prüfer.
+      "mcp__labor__pruefplan_zeigen",
+      "mcp__labor__pruefplan_entwurf",
+      "mcp__labor__pruefplan_festschreiben",
       // Das Journal **lesend**: offene Positionen, Regeln, Watchlist. Eintragen tut der
       // `journal`, damit nur einer schreibt — und damit eine Analyse nicht nebenbei Zeilen
       // anlegt, die Jakob nie bestellt hat.
@@ -729,8 +757,12 @@ selbst und beauftragst dafür niemanden; das Weitergeben an den Nachtbau ist Jak
 Die TradingLab-Videos liegen unter \`${WERKSTATT}/wissen/tradinglab/\`: \`notizen/<id>.md\` (Regeln
 im Wortlaut), \`roh/<id>.json\` (Transkript), \`inventar.json\` (Titel und \`id\`). Nennt dir die
 Leitung ein Video, liest du dort nach, bevor du rechnest — ihre Zusammenfassung ersetzt den
-Wortlaut nicht.`,
-    tools: [...KURSE, ...LABOR_ABLEGEN, "Read"],
+Wortlaut nicht.
+
+**Regeln aus einem Prüfplan** legst du mit \`pruefplan: { id, nr }\` ab, und zwar genau so, wie
+sie im Plan stehen (\`pruefplan_zeigen\`): Bedingungen, \`symbol\` = erster Markt, die übrigen als
+\`weitereMaerkte\`, Zeitrahmen und \`von\` aus dem Plan. Nur dann gilt die Hürde des Plans.`,
+    tools: [...KURSE, ...LABOR_ABLEGEN, "mcp__labor__pruefplan_zeigen", "Read"],
     disallowedTools: [...NICHT_FUERS_PERSONAL, "Task", "Agent", "Edit", "WebSearch", "WebFetch"],
     model: "sonnet",
     maxTurns: 40,
@@ -797,7 +829,13 @@ erklären**, bevor die Bremse greift.
 Am Ende ein klares Wort: **tragfähig**, **tragfähig mit Vorbehalt** (und welchem), oder **nicht
 tragfähig** (und warum). Nenne immer die Zahl, auf die du dich stützt. Eine Prüfung, die
 zustimmt, ohne eine Gegenprobe gerechnet zu haben, ist keine Prüfung.`,
-    tools: [...KURSE, ...LABOR_PRUEFEN, "Read"],
+    tools: [
+      ...KURSE,
+      ...LABOR_PRUEFEN,
+      "mcp__labor__pruefplan_zeigen",
+      "mcp__labor__pruefplan_rechnen",
+      "Read",
+    ],
     disallowedTools: [...NICHT_FUERS_PERSONAL, "Task", "Agent", "Edit", "WebSearch", "WebFetch"],
     model: "sonnet",
     maxTurns: 30,
