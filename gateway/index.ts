@@ -24,6 +24,7 @@ import { configuredChannels, identityFromEnv } from "./identity.js";
 import { createYahooMarkets } from "./integrations/markets.js";
 import { createSystemSampler } from "./integrations/system.js";
 import { createKerzenquelle } from "./kerzen.js";
+import { ausUmgebung } from "./lehrgang.js";
 import { JE_NACHT, LEHRGANG_FENSTER } from "./lehrgang.js";
 import { haltePostfaecherWarm, konten } from "./postfach.js";
 import { createSystemdRestart } from "./restart.js";
@@ -400,7 +401,7 @@ async function main(): Promise<void> {
   console.log(
     process.env.KURO_LEHRGANG?.trim() === "aus"
       ? "Lehrgang: abgeschaltet (KURO_LEHRGANG=aus)."
-      : `Lehrgang: nachts zwischen ${LEHRGANG_FENSTER[0]} und ${LEHRGANG_FENSTER[1]} Uhr (Wien), höchstens ${JE_NACHT} Videos, Notizen in wissen/tradinglab/notizen/.`,
+      : `Lehrgang: zwischen ${ausUmgebung().fenster[0]} und ${ausUmgebung().fenster[1]} Uhr (Wien), höchstens ${ausUmgebung().jeNacht} am Tag, erst TradingLab, dann das Buch, Notizen in wissen/tradinglab/notizen/.`,
   );
 
   /**
