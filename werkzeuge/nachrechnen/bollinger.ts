@@ -2,7 +2,7 @@
  * Bollinger + RSI aus „Bollinger Band + RSI Trading Strategy That Actually Works" nachrechnen —
  * über alle Zeitrahmen, Sitzungen und Märkte. Das Video nennt keinen Stop; das Original läuft
  * mit einem Notstop weit weg (siehe `NOTSTOP_PROZENT`), deshalb ist dort „Ø R" winzig und die
- * Spalte „Ø %" in der CSV die ehrlichere. Dazu die Gegenprobe mit Stop am Swing der letzten 5 Kerzen.
+ * Spalte „Ø % je Handel" im Bericht die ehrlichere. Dazu die Gegenprobe mit Stop am Swing der letzten 5 Kerzen.
  *
  *   cd /opt/kuronami && pnpm nachrechnen:bollinger
  *   Schalter: --intervalle 15m,1h · --maerkte binance:BTCUSDT,^GSPC · --ohne-sitzungen · --analyse

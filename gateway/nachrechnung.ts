@@ -256,12 +256,12 @@ function urteilText(z: Zeile): string {
 }
 
 const KOPF =
-  "| Zeitrahmen | Sitzung | Handel | je Woche | Treffer | Ø R (mit Kosten) | 95-%-Intervall | Ø R ohne Kosten | ungesehen | € je Woche | Märkte +/mit Handel | Urteil |";
-const TRENN = "|---|---|---:|---:|---:|---:|---|---:|---:|---:|---:|---|";
+  "| Zeitrahmen | Sitzung | Handel | je Woche | Treffer | Ø R (mit Kosten) | 95-%-Intervall | Ø R ohne Kosten | Ø % je Handel | ungesehen | € je Woche | Märkte +/mit Handel | Urteil |";
+const TRENN = "|---|---|---:|---:|---:|---:|---|---:|---:|---:|---:|---:|---|";
 
 export function tabellenZeile(z: Zeile): string {
   const euro = z.jeWoche * z.erwartungswertR * RISIKO_EURO;
-  return `| ${z.intervall} | ${z.sitzung} | ${z.anzahl} | ${komma(z.jeWoche, 1)} | ${prozent(z.trefferquote)} | ${vorz(z.erwartungswertR)} | ${intervallText(z.konfidenz)} | ${vorz(z.ohneKostenR)} | ${vorz(z.ungesehenR)} | ${vorz(euro, 0)} € | ${z.maerktePositiv}/${z.maerkteMitHandel} | ${urteilText(z)} |`;
+  return `| ${z.intervall} | ${z.sitzung} | ${z.anzahl} | ${komma(z.jeWoche, 1)} | ${prozent(z.trefferquote)} | ${vorz(z.erwartungswertR)} | ${intervallText(z.konfidenz)} | ${vorz(z.ohneKostenR)} | ${vorz(z.renditeProzent)} % | ${vorz(z.ungesehenR)} | ${vorz(euro, 0)} € | ${z.maerktePositiv}/${z.maerkteMitHandel} | ${urteilText(z)} |`;
 }
 
 // ------------------------------------------------------------------------------ Der Lauf
