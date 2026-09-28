@@ -24,12 +24,12 @@ import { configuredChannels, identityFromEnv } from "./identity.js";
 import { createYahooMarkets } from "./integrations/markets.js";
 import { createSystemSampler } from "./integrations/system.js";
 import { createKerzenquelle } from "./kerzen.js";
+import { JE_NACHT, LEHRGANG_FENSTER } from "./lehrgang.js";
 import { haltePostfaecherWarm, konten } from "./postfach.js";
 import { createSystemdRestart } from "./restart.js";
 import { sandkastenLage } from "./sandkasten.js";
 import { createServer } from "./server.js";
 import type { ChannelId, ChannelPort } from "./types.js";
-import { createWissen } from "./wissen.js";
 import { createZeichnungen } from "./zeichnungen.js";
 
 /**
@@ -242,7 +242,8 @@ async function main(): Promise<void> {
     system: createSystemSampler(),
     restart: createSystemdRestart(),
     bus: eventBus,
-    wissen: createWissen({ workdir: agent.workdir }),
+    wissen: agent.wissen,
+    lehrgang: agent.lehrgang,
   });
   const server: Server = app.listen(port, () => {
     console.log(`[gateway] http://localhost:${port} — Kanäle: ${[...channels.keys()].join(", ")}`);
@@ -369,6 +370,35 @@ async function main(): Promise<void> {
     process.env.KURO_ARCHIV?.trim() === "aus"
       ? "Gesprächsarchiv: abgeschaltet (KURO_ARCHIV=aus)."
       : `Gesprächsarchiv: nachts zwischen ${ARCHIV_FENSTER[0]} und ${ARCHIV_FENSTER[1]} Uhr (Wien), nach Tagen in ablage/gespraeche/.`,
+  );
+
+  /**
+   * Der Lehrgang (`lehrgang.ts`, N8): nachts zwischen eins und sechs wird Video um Video
+   * durchgearbeitet, solange das Abo es hergibt. Alle zehn Minuten nachsehen — ein Takt, der
+   * außerhalb des Fensters läuft, fragt nicht einmal das Abo. `KURO_LEHRGANG=aus` schaltet ihn ab.
+   */
+  const lehrgangTick = async (): Promise<void> => {
+    try {
+      const { gelernt, halt } = await agent.lehrgang.takt();
+      for (const v of gelernt) {
+        console.log(
+          v.ok
+            ? `[lehrgang] Notiz zu ${v.id} abgelegt.`
+            : `[lehrgang] ${v.id} gescheitert: ${v.grund}`,
+        );
+      }
+      if (gelernt.length > 0) console.log(`[lehrgang] Pause: ${halt}`);
+    } catch (fehler) {
+      console.error("[lehrgang] Takt fehlgeschlagen:", fehler);
+    }
+  };
+  const lehrgangUhr = setInterval(() => void lehrgangTick(), 10 * 60_000);
+  lehrgangUhr.unref();
+  setTimeout(() => void lehrgangTick(), 90_000).unref();
+  console.log(
+    process.env.KURO_LEHRGANG?.trim() === "aus"
+      ? "Lehrgang: abgeschaltet (KURO_LEHRGANG=aus)."
+      : `Lehrgang: nachts zwischen ${LEHRGANG_FENSTER[0]} und ${LEHRGANG_FENSTER[1]} Uhr (Wien), höchstens ${JE_NACHT} Videos, Notizen in wissen/tradinglab/notizen/.`,
   );
 
   /**

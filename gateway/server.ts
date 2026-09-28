@@ -54,6 +54,7 @@ import {
 import { type SystemSampler, formatBytesPerSecond } from "./integrations/system.js";
 import type { Kerzenquelle } from "./kerzen.js";
 import { LehrFehler, MAX_AKTIV } from "./lehren.js";
+import type { Lehrgang } from "./lehrgang.js";
 import { nachtbauStand } from "./nachtbau.js";
 import { postfachVerbindenRouten } from "./postfach-verbinden.js";
 import { konten, lies, listeGepuffert } from "./postfach.js";
@@ -118,8 +119,10 @@ export interface ServerDeps {
    * `model.delta` und reichen die Textstücke als SSE weiter. Fehlt er, antworten sie wie bisher
    * mit einem Block. */
   bus?: Pick<RuntimeEventBus, "subscribe">;
-  /** Lehrvideos (2026-09-27): der PC lädt Untertitel hoch, der Nachtbau arbeitet sie durch. */
+  /** Lehrvideos (2026-09-27): der PC lädt Untertitel hoch, der Lehrgang arbeitet sie durch. */
   wissen?: WissenAblage;
+  /** Wer die Videos nachts durcharbeitet — sein Stand steht neben dem der Ablage. */
+  lehrgang?: Lehrgang;
 }
 
 /**
@@ -814,6 +817,7 @@ export function createServer(deps: ServerDeps): express.Express {
   if (deps.wissen) {
     wissenRouten(app, {
       wissen: deps.wissen,
+      lehrgang: deps.lehrgang,
       schluessel: () => process.env.KURO_WISSEN_SCHLUESSEL,
       webPrincipal,
     });

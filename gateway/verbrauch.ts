@@ -170,7 +170,9 @@ export function fasse(posten: Posten[], jetzt: Date, grenze = 20): Uebersicht {
       uebersicht.heute[p.wer] ??= leereSumme();
       addiere(uebersicht.heute[p.wer], p);
     }
-    if (p.wer === "kuro" && (!uebersicht.kuro || p.zeit > uebersicht.kuro.zeit)) {
+    // Nur ein Zug im Gespräch sagt, wie voll Kuros Kontext ist. Übergabe und Lehrgang laufen
+    // unter seinem Namen (`unter`), aber in eigenen Läufen ohne seinen Verlauf.
+    if (p.wer === "kuro" && !p.unter && (!uebersicht.kuro || p.zeit > uebersicht.kuro.zeit)) {
       uebersicht.kuro = p;
     }
   }

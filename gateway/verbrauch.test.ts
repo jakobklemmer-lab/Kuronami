@@ -105,18 +105,20 @@ describe("fasse", () => {
         posten({ zeit: "2026-09-26T08:00:00Z", wer: "kuro", kontext: 40_000 }),
         posten({ zeit: "2026-09-26T09:00:00Z", wer: "kuro", kontext: 42_000 }),
         posten({ zeit: "2026-09-26T09:01:00Z", wer: "boerse", ok: false }),
+        // Ein Lehrgangslauf nach dem letzten Zug: zählt für Kuro, sagt aber nichts über seinen Kontext.
+        posten({ zeit: "2026-09-26T09:30:00Z", wer: "kuro", unter: "lehrgang" }),
         posten({ zeit: "2026-09-24T09:00:00Z", wer: "kuro" }),
         // Älter als sieben Tage: steht im Buch, zählt aber in keiner Summe.
         posten({ zeit: "2026-09-10T09:00:00Z", wer: "kuro" }),
       ],
       jetzt,
     );
-    expect(u.heute.kuro.laeufe).toBe(2);
-    expect(u.woche.kuro.laeufe).toBe(3);
+    expect(u.heute.kuro.laeufe).toBe(3);
+    expect(u.woche.kuro.laeufe).toBe(4);
     expect(u.heute.boerse.fehlgeschlagen).toBe(1);
     expect(u.kuro?.kontext).toBe(42_000);
     expect(u.woche.boerse.laeufe).toBe(1);
-    expect(u.letzte[0].zeit).toBe("2026-09-26T09:01:00Z");
+    expect(u.letzte[0].zeit).toBe("2026-09-26T09:30:00Z");
   });
 });
 

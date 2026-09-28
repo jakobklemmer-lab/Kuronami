@@ -186,7 +186,12 @@ async function frageSdk(cwd: string): Promise<Rohdaten> {
 }
 
 export interface AboGrenzen {
-  lies(): Promise<AboStand>;
+  /**
+   * `frisch`: auf die Abfrage warten statt den letzten Stand zu nehmen, wenn der abgelaufen ist.
+   * Für einen Takt, der danach entscheidet, ob er arbeitet (`lehrgang.ts`): der letzte Stand
+   * kann Stunden alt sein, wenn die System-Seite seither niemand geöffnet hat.
+   */
+  lies(frisch?: boolean): Promise<AboStand>;
 }
 
 export function createAboGrenzen(opt: {
@@ -202,7 +207,7 @@ export function createAboGrenzen(opt: {
   let laufend: Promise<AboStand> | null = null;
 
   return {
-    lies() {
+    lies(frisch = false) {
       if (letzte && Date.now() - letzte.um < haltbar) return Promise.resolve(letzte.stand);
       laufend ??= (async () => {
         try {
@@ -221,7 +226,7 @@ export function createAboGrenzen(opt: {
       // Ein älterer Stand geht sofort hinaus, die frische Abfrage läuft dahinter. Sonst wartete die
       // System-Seite bei jedem Besuch nach einer Minute Pause zwei Sekunden auf den Anbieter — und
       // die Karte sprang, wenn die Antwort kam. Der Stand trägt seine Uhrzeit, die Seite zeigt sie.
-      return letzte ? Promise.resolve(letzte.stand) : neu;
+      return letzte && !frisch ? Promise.resolve(letzte.stand) : neu;
     },
   };
 }

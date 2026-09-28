@@ -127,6 +127,18 @@ describe("createAboGrenzen", () => {
     expect(dritte.verfuegbar && dritte.fenster[0].prozent).toBe(2);
   });
 
+  it("wartet auf Wunsch auf die frische Abfrage statt den alten Stand zu nehmen", async () => {
+    let prozent = 1;
+    const frage = vi.fn(async () => ({
+      ...roh,
+      rate_limits: { five_hour: { utilization: prozent++, resets_at: null } },
+    }));
+    const abo = createAboGrenzen({ cwd: "/tmp", frage, haltbarMs: 0 });
+    await abo.lies();
+    const frisch = await abo.lies(true);
+    expect(frisch.verfuegbar && frisch.fenster[0].prozent).toBe(2);
+  });
+
   it("hält einen Fehler nicht fest", async () => {
     const frage = vi
       .fn<() => Promise<typeof roh>>()

@@ -1,5 +1,5 @@
 import { timingSafeEqual } from "node:crypto";
-import { mkdir, readFile, readdir, rename, writeFile } from "node:fs/promises";
+import { mkdir, readFile, readdir, rename, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
 import type { Express, NextFunction, Request, Response } from "express";
 import { bearerToken } from "./identity.js";
@@ -22,8 +22,8 @@ import { bearerToken } from "./identity.js";
  * welche fehlen — sonst nichts.
  *
  * Ablage unter `workspace/wissen/<kanal>/`: `inventar.json` (die Liste), `roh/<id>.json` (je
- * Video ein Transkript mit Zeitmarken). Nicht im Git — fremder Inhalt, und das Repo hat einen
- * GitHub-Remote.
+ * Video ein Transkript mit Zeitmarken), `notizen/<id>.md` (was der Lehrgang daraus gemacht hat,
+ * `lehrgang.ts`). Nicht im Git — fremder Inhalt, und das Repo hat einen GitHub-Remote.
  */
 
 export interface Video {
@@ -32,6 +32,8 @@ export interface Video {
   /** Länge in Sekunden. */
   dauer: number;
   aufrufe?: number;
+  /** Eins der ältesten Strategievideos, mit denen Jakob gelernt hat — der Lehrgang nimmt sie zuerst. */
+  kalibrierung?: boolean;
 }
 
 export interface Segment {
@@ -119,6 +121,9 @@ export interface WissenStand {
   ohneUntertitel: number;
   offen: number;
   stunden: number;
+  /** Videos, zu denen der Lehrgang eine Notiz abgelegt hat. */
+  durchgearbeitet: number;
+  kalibrierung: { videos: number; durchgearbeitet: number };
 }
 
 export interface WissenAblage {
@@ -127,6 +132,12 @@ export interface WissenAblage {
   offen(kanal: string): Promise<Video[]>;
   lege(kanal: string, roh: unknown): Promise<Transkript>;
   stand(kanal: string): Promise<WissenStand>;
+  /** Das abgelegte Transkript eines Videos, `null`, wenn keins da ist. */
+  transkript(kanal: string, id: string): Promise<Transkript | null>;
+  /** Zu welchen Videos eine Notiz liegt, mit dem Zeitpunkt der Datei. */
+  notizen(kanal: string): Promise<Map<string, Date>>;
+  notiz(kanal: string, id: string): Promise<string | null>;
+  legeNotiz(kanal: string, id: string, text: string): Promise<void>;
 }
 
 export function createWissen(opt: { workdir: string }): WissenAblage {
@@ -143,6 +154,29 @@ export function createWissen(opt: { workdir: string }): WissenAblage {
       if ((error as NodeJS.ErrnoException).code === "ENOENT") return [];
       throw error;
     }
+  }
+
+  function videoId(id: string): string {
+    if (!VIDEO_ID.test(id)) throw new WissenFehler("Keine gültige Video-ID.");
+    return id;
+  }
+
+  async function notizen(kanal: string): Promise<Map<string, Date>> {
+    const ziel = path.join(ordner(kanal), "notizen");
+    const da = new Map<string, Date>();
+    let dateien: string[];
+    try {
+      dateien = await readdir(ziel);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") return da;
+      throw error;
+    }
+    for (const datei of dateien) {
+      const id = datei.replace(/\.md$/, "");
+      if (datei === id || !VIDEO_ID.test(id)) continue;
+      da.set(id, (await stat(path.join(ziel, datei))).mtime);
+    }
+    return da;
   }
 
   async function vorhanden(kanal: string): Promise<Map<string, Transkript["art"]>> {
@@ -186,8 +220,13 @@ export function createWissen(opt: { workdir: string }): WissenAblage {
     },
 
     async stand(kanal) {
-      const [liste, da] = await Promise.all([inventar(kanal), vorhanden(kanal)]);
+      const [liste, da, notiert] = await Promise.all([
+        inventar(kanal),
+        vorhanden(kanal),
+        notizen(kanal),
+      ]);
       const ohne = [...da.values()].filter((a) => a === "ohne").length;
+      const kalibrierung = liste.filter((v) => v.kalibrierung);
       return {
         kanal,
         videos: liste.length,
@@ -195,22 +234,60 @@ export function createWissen(opt: { workdir: string }): WissenAblage {
         ohneUntertitel: ohne,
         offen: liste.filter((v) => !da.has(v.id)).length,
         stunden: Math.round((liste.reduce((s, v) => s + (v.dauer || 0), 0) / 3600) * 10) / 10,
+        durchgearbeitet: liste.filter((v) => notiert.has(v.id)).length,
+        kalibrierung: {
+          videos: kalibrierung.length,
+          durchgearbeitet: kalibrierung.filter((v) => notiert.has(v.id)).length,
+        },
       };
+    },
+
+    async transkript(kanal, id) {
+      try {
+        const datei = path.join(ordner(kanal), "roh", `${videoId(id)}.json`);
+        return JSON.parse(await readFile(datei, "utf8")) as Transkript;
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code === "ENOENT") return null;
+        throw error;
+      }
+    },
+
+    notizen,
+
+    async notiz(kanal, id) {
+      try {
+        return await readFile(path.join(ordner(kanal), "notizen", `${videoId(id)}.md`), "utf8");
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code === "ENOENT") return null;
+        throw error;
+      }
+    },
+
+    async legeNotiz(kanal, id, text) {
+      const ziel = path.join(ordner(kanal), "notizen");
+      await mkdir(ziel, { recursive: true });
+      const datei = path.join(ziel, `${videoId(id)}.md`);
+      // Erst daneben, dann umbenennen: eine halbe Notiz zählte sonst als durchgearbeitet.
+      await writeFile(`${datei}.neu`, text, "utf8");
+      await rename(`${datei}.neu`, datei);
     },
   };
 }
 
 /**
- * Die zwei Türen für den PC und eine für die Oberfläche.
+ * Die zwei Türen für den PC und zwei für die Oberfläche.
  *
  * `GET /wissen/:kanal/offen` und `POST /wissen/:kanal/transkript` nehmen **nur** den
- * Wissensschlüssel. `GET /integrations/wissen/:kanal` ist der Stand für die Oberfläche und nimmt
- * den normalen Ausweis — dafür reicht der Server die Prüfung herein (`webPrincipal`).
+ * Wissensschlüssel. `GET /integrations/wissen/:kanal` (der Stand, mit dem des Lehrgangs) und
+ * `GET /integrations/wissen/:kanal/notizen/:id` (eine Notiz zum Lesen) nehmen den normalen Ausweis
+ * — dafür reicht der Server die Prüfung herein (`webPrincipal`).
  */
 export function wissenRouten(
   app: Express,
   deps: {
     wissen: WissenAblage;
+    /** Der Lehrgang arbeitet nur einen Kanal durch; für die anderen steht `lehrgang: null`. */
+    lehrgang?: { kanal: string; stand(): Promise<unknown> };
     schluessel: () => string | undefined;
     webPrincipal: (req: Request, res: Response) => unknown;
   },
@@ -259,7 +336,26 @@ export function wissenRouten(
   app.get("/integrations/wissen/:kanal", async (req, res, next) => {
     try {
       if (!deps.webPrincipal(req, res)) return;
-      res.json(await deps.wissen.stand(String(req.params.kanal)));
+      const kanal = String(req.params.kanal);
+      const lehrgang = deps.lehrgang?.kanal === kanal ? await deps.lehrgang.stand() : null;
+      res.json({ ...(await deps.wissen.stand(kanal)), lehrgang });
+    } catch (error) {
+      fehler(error, res, next);
+    }
+  });
+
+  app.get("/integrations/wissen/:kanal/notizen/:id", async (req, res, next) => {
+    try {
+      if (!deps.webPrincipal(req, res)) return;
+      const kanal = String(req.params.kanal);
+      const id = String(req.params.id);
+      const text = await deps.wissen.notiz(kanal, id);
+      if (text === null) {
+        res.status(404).json({ error: `Zu ${id} liegt keine Notiz.` });
+        return;
+      }
+      const titel = (await deps.wissen.inventar(kanal)).find((v) => v.id === id)?.titel ?? id;
+      res.json({ id, titel, text });
     } catch (error) {
       fehler(error, res, next);
     }

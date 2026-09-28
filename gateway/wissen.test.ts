@@ -1,8 +1,16 @@
 import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
+import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import express from "express";
 import { describe, expect, it } from "vitest";
-import { WissenFehler, createWissen, pruefeTranskript, schluesselGilt } from "./wissen.js";
+import {
+  WissenFehler,
+  createWissen,
+  pruefeTranskript,
+  schluesselGilt,
+  wissenRouten,
+} from "./wissen.js";
 
 const LISTE = [
   { id: "qmsGqitE2LE", titel: "I Found a Secret To Orderblocks", dauer: 600 },
@@ -76,6 +84,17 @@ describe("createWissen", () => {
     });
   });
 
+  it("legt Notizen ab, liest sie wieder und nimmt nur Video-IDs als Dateinamen", async () => {
+    const w = await ablage();
+    expect(await w.notiz("tradinglab", "qmsGqitE2LE")).toBeNull();
+    await w.legeNotiz("tradinglab", "qmsGqitE2LE", "# Orderblocks\n");
+    expect(await w.notiz("tradinglab", "qmsGqitE2LE")).toBe("# Orderblocks\n");
+    expect([...(await w.notizen("tradinglab")).keys()]).toEqual(["qmsGqitE2LE"]);
+    expect((await w.stand("tradinglab")).durchgearbeitet).toBe(1);
+    await expect(w.legeNotiz("tradinglab", "../../x", "…")).rejects.toThrow(WissenFehler);
+    await expect(w.notiz("tradinglab", "../inventar")).rejects.toThrow(WissenFehler);
+  });
+
   it("lässt keinen Pfad als Kanal durch", async () => {
     const w = await ablage();
     await expect(w.offen("../../etc")).rejects.toThrow(WissenFehler);
@@ -88,5 +107,64 @@ describe("schluesselGilt", () => {
     expect(schluesselGilt("abc", null)).toBe(false);
     expect(schluesselGilt("abc", "abd")).toBe(false);
     expect(schluesselGilt("abc", "abc")).toBe(true);
+  });
+});
+
+describe("wissenRouten für die Oberfläche", () => {
+  async function server(angemeldet: boolean) {
+    const wissen = await ablage();
+    await wissen.legeNotiz("tradinglab", "qmsGqitE2LE", "# Orderblocks\n");
+    const app = express();
+    wissenRouten(app, {
+      wissen,
+      lehrgang: { kanal: "tradinglab", stand: async () => ({ dieseNacht: { versuche: 1 } }) },
+      schluessel: () => "pc",
+      webPrincipal: (_req, res) => {
+        if (!angemeldet) res.status(401).json({ error: "Anmeldung nötig." });
+        return angemeldet ? { userId: "jakob" } : null;
+      },
+    });
+    const s = app.listen(0);
+    const basis = `http://127.0.0.1:${(s.address() as AddressInfo).port}`;
+    return { basis, schliesse: () => s.close() };
+  }
+
+  it("zeigt den Stand mit dem des Lehrgangs und liefert eine Notiz zum Lesen", async () => {
+    const { basis, schliesse } = await server(true);
+    try {
+      const stand = await (await fetch(`${basis}/integrations/wissen/tradinglab`)).json();
+      expect(stand).toMatchObject({
+        videos: 2,
+        durchgearbeitet: 1,
+        lehrgang: { dieseNacht: { versuche: 1 } },
+      });
+      const notiz = await (
+        await fetch(`${basis}/integrations/wissen/tradinglab/notizen/qmsGqitE2LE`)
+      ).json();
+      expect(notiz).toEqual({
+        id: "qmsGqitE2LE",
+        titel: "I Found a Secret To Orderblocks",
+        text: "# Orderblocks\n",
+      });
+      expect(
+        (await fetch(`${basis}/integrations/wissen/tradinglab/notizen/9REzGB3R6HU`)).status,
+      ).toBe(404);
+      expect((await fetch(`${basis}/integrations/wissen/tradinglab/notizen/..%2Fx`)).status).toBe(
+        400,
+      );
+    } finally {
+      schliesse();
+    }
+  });
+
+  it("gibt ohne Anmeldung nichts heraus", async () => {
+    const { basis, schliesse } = await server(false);
+    try {
+      expect(
+        (await fetch(`${basis}/integrations/wissen/tradinglab/notizen/qmsGqitE2LE`)).status,
+      ).toBe(401);
+    } finally {
+      schliesse();
+    }
   });
 });

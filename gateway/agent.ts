@@ -28,6 +28,7 @@ import { HAUS_TOOLS, createHaus } from "./haus.js";
 import { createYahooMarkets } from "./integrations/markets.js";
 import { createKerzenquelle } from "./kerzen.js";
 import { type Lehrbuch, createLehren } from "./lehren.js";
+import { type Lehrgang, createLehrgang } from "./lehrgang.js";
 import { type Papierhandel, createPapierhandel } from "./papierhandel.js";
 import { createSendePostfach } from "./postfach-werkzeuge.js";
 import { konten } from "./postfach.js";
@@ -35,6 +36,7 @@ import { type Prognosenbuch, createPrognosen } from "./prognosen.js";
 import { type StrategienArchiv, createStrategien } from "./strategien.js";
 import type { ChannelRegistry, InboundMessage, Outbound, Sender } from "./types.js";
 import { type Posten, type Verbrauchsbuch, ausErgebnis, createVerbrauch } from "./verbrauch.js";
+import { type WissenAblage, createWissen } from "./wissen.js";
 
 /**
  * Der Motor: Claude Code als Bibliothek, hinter derselben Kanalgrenze wie zuvor.
@@ -270,6 +272,9 @@ export class KuroAgent {
   readonly #lehren: Lehrbuch;
   /** Kuros frühere Gespräche, nach Tagen — und die Übergabe an das jeweils nächste. */
   readonly #gespraeche: Gespraechsarchiv;
+  /** Die Lehrvideos (Transkripte, Notizen) und wer sie nachts durcharbeitet. */
+  readonly #wissen: WissenAblage;
+  readonly #lehrgang: Lehrgang;
   readonly #gedaechtnis: ReturnType<typeof createGedaechtnis>;
   /** Die Bühne: womit Kuro Jakob etwas hinstellt. */
   readonly #buehne: ReturnType<typeof createBuehne>;
@@ -359,6 +364,26 @@ export class KuroAgent {
         }),
     });
     this.#gedaechtnis = createGedaechtnis(this.#gespraeche);
+    // Der Lehrgang liest mit Sonnet: eine Notiz aus einem Transkript braucht kein großes Modell,
+    // und über Nacht sind es bis zu fünfzehn. Gebucht wird unter Kuro, wofür: `lehrgang`.
+    this.#wissen = createWissen({ workdir: this.#workdir });
+    this.#lehrgang = createLehrgang({
+      workdir: this.#workdir,
+      wissen: this.#wissen,
+      modell: "Sonnet",
+      schreibe: (system, prompt) =>
+        schreibeEinmal({
+          wer: "kuro",
+          wofuer: "lehrgang",
+          system,
+          prompt,
+          model: "sonnet",
+          cwd: this.#workdir,
+          onVerbrauch: (posten) => this.#bucheVerbrauch(posten),
+        }),
+      abo: () => this.#abo.lies(true),
+      schlange: (arbeit) => this.#hintenAn(arbeit),
+    });
     this.#haus = createHaus({
       strategien: this.#strategien,
       papier: this.#papier,
@@ -469,6 +494,25 @@ export class KuroAgent {
       this.#deps.publish?.("gespraech.archiviert", { ...ergebnis, anlass });
       return { status: "archiviert" as const, ergebnis };
     });
+    this.#laufend = lauf.catch(() => undefined);
+    return lauf;
+  }
+
+  get wissen(): WissenAblage {
+    return this.#wissen;
+  }
+
+  get lehrgang(): Lehrgang {
+    return this.#lehrgang;
+  }
+
+  /**
+   * Arbeit, die keinen Zug ist, aber keinem in die Quere kommen soll: sie wartet, bis der
+   * laufende fertig ist, und der nächste wartet auf sie. Ein Fehler darin hält die Schlange
+   * nicht an.
+   */
+  #hintenAn<T>(arbeit: () => Promise<T>): Promise<T> {
+    const lauf = this.#laufend.then(arbeit);
     this.#laufend = lauf.catch(() => undefined);
     return lauf;
   }
