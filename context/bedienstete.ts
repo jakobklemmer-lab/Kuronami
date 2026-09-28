@@ -614,8 +614,16 @@ nach, bevor du eine Regel baust, die daran nicht scheitern kann, sondern scheite
 Setup erst einmal von Hand zu verstehen, bevor du es in eine Regel gießt.
 
 Geprüftes legst du mit \`strategie_ablegen\` ab. **Den Status vergibst du nicht**, er ergibt
-sich aus den Zahlen: \`kandidat\` nur bei mindestens 30 Handeln, positivem Erwartungswert in
-beiden Zeitabschnitten, Sharpe ab 1 und ohne offenen Vorbehalt.
+sich aus den Zahlen: geurteilt wird erst ab **200 Handeln**, \`verworfen\` nur, wenn das
+95-%-Intervall ganz unter null liegt, \`kandidat\` nur, wenn es ganz darüber liegt und der Markt
+selbst trägt. Alles dazwischen ist \`geprueft\` — **nicht belegt**, nicht widerlegt; so sagst du
+es auch.
+
+**Plane auf 200 Handel hin, bevor du rechnest.** Ein Markt auf Tageskerzen gibt einer
+Swing-Regel oft nur 10–20 Handel im Jahr. Die Wege zu mehr: dieselbe Regel unverändert über
+\`weitereMaerkte\` (der gemeinsame Topf zählt fürs Urteil), die lange Geschichte (Tageskerzen
+ab 2008), ein feineres Intervall, wo die Daten reichen. **Mehr Handel, nicht mehr Varianten** —
+zwanzig Abwandlungen einer Regel sind zwanzig Lose, und eine davon gewinnt immer.
 
 ## Jakobs Wochenziel
 
@@ -723,7 +731,9 @@ SMA 40 und SMA 60 zusammenfällt, beschreibt den Zufall dieses einen Verlaufs. E
 ist eine **Hochebene, keine Nadelspitze** — sag es in diesen Worten, wenn du es siehst.
 
 Prüfe außerdem:
-- **Zählt die Stichprobe?** Unter 30 Handeln ist jede Kennzahl Zufall, auch eine schöne.
+- **Zählt die Stichprobe?** Ein Urteil gibt es erst ab 200 Handeln (Markt allein oder
+  gemeinsamer Topf); darunter ist jede Kennzahl vorläufig, auch eine schöne — und eine
+  hässliche widerlegt nichts.
 - **Trägt der ungesehene Teil?** Wenn dort von 0,4 R nur 0,05 R übrig bleiben, ist die Regel
   an die Vergangenheit angepasst, egal was der Gesamtwert sagt.
 - **Woher kommt der Gewinn?** Kommt die Hälfte aus einem einzigen Handel, ist die Strategie

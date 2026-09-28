@@ -59,43 +59,103 @@ function vermerk(teil: Partial<UniversumVermerk> = {}): UniversumVermerk {
 }
 
 describe("bewerte", () => {
+  // +0,2 R mit einem Intervall über null, −0,4 R mit einem darunter, und fast null dazwischen.
+  const belegt = konfidenz(rWerte(1200, 0.4, 2));
+  const widerlegt = konfidenz(rWerte(1200, 0.2, 2));
+  const offen = konfidenz(rWerte(250, 0.34, 2));
+
   it("macht aus einer belegten Kante einen Kandidaten", () => {
-    const belegt = konfidenz(rWerte(1200, 0.4, 2));
     expect(belegt).toBeDefined();
-    expect(bewerte(kennzahlen({ konfidenz: belegt }), abschnitt(0.2), [])).toBe("kandidat");
+    expect(bewerte(kennzahlen({ anzahl: 1200, konfidenz: belegt }), abschnitt(0.2), [])).toBe(
+      "kandidat",
+    );
+  });
+
+  it("urteilt unter 200 Handeln gar nicht — weder so noch so", () => {
+    // Jakob am 28.09.: „Backtesting muss über hunderte von Backtests stattfinden, nicht über ein
+    // paar dutzend." Auch ein Intervall, das bei 199 Handeln klar aussieht, bleibt vorläufig.
+    expect(bewerte(kennzahlen({ anzahl: 199, konfidenz: belegt }), abschnitt(0.2), [])).toBe(
+      "geprueft",
+    );
+    expect(
+      bewerte(
+        kennzahlen({ anzahl: 199, erwartungswertR: -0.4, konfidenz: widerlegt }),
+        abschnitt(-0.4),
+        [],
+      ),
+    ).toBe("geprueft");
+  });
+
+  it("verwirft nur, wenn das Intervall ganz unter null liegt", () => {
+    expect(
+      bewerte(
+        kennzahlen({ anzahl: 1200, erwartungswertR: -0.4, konfidenz: widerlegt }),
+        abschnitt(-0.4),
+        [],
+      ),
+    ).toBe("verworfen");
+    // Nahe null bei 250 Handeln: nicht belegt, aber auch nicht widerlegt.
+    expect(offen && offen.unten < 0 && offen.oben > 0).toBe(true);
+    expect(
+      bewerte(
+        kennzahlen({ anzahl: 250, erwartungswertR: 0.02, konfidenz: offen }),
+        abschnitt(-0.1),
+        [],
+      ),
+    ).toBe("geprueft");
+  });
+
+  it("verwirft nicht mehr, weil der ungesehene Teil kurz ins Minus läuft", () => {
+    // Der Fall vom 21.09.: Momentum-Fortsetzung BTC, 85 Handel, +0,11 R, im ungesehenen Teil
+    // −0,18 R über 24 Handel — nach der alten Regel `verworfen`.
+    const momentum = konfidenz(rWerte(85, 0.39, 1.85));
+    expect(
+      bewerte(
+        kennzahlen({ anzahl: 85, erwartungswertR: 0.11, konfidenz: momentum }),
+        abschnitt(-0.18, 24),
+        [],
+      ),
+    ).toBe("geprueft");
+    // Auch bei einer belegten Kante hält ein negativer ungesehener Teil nur vom Kandidaten ab.
+    expect(bewerte(kennzahlen({ anzahl: 1200, konfidenz: belegt }), abschnitt(-0.1, 24), [])).toBe(
+      "geprueft",
+    );
+  });
+
+  it("zählt den gemeinsamen Topf aller Märkte fürs Urteil", () => {
+    const heimat = konfidenz(rWerte(40, 0.4, 2));
+    const k = kennzahlen({ anzahl: 40, konfidenz: heimat });
+    expect(bewerte(k, abschnitt(0.2), [], vermerk({ gesamtHandel: 1200, gemeinsam: belegt }))).toBe(
+      "kandidat",
+    );
+    expect(
+      bewerte(k, abschnitt(0.2), [], vermerk({ gesamtHandel: 1200, gemeinsam: widerlegt })),
+    ).toBe("verworfen");
+    // Ein Topf ohne Intervall (so lagen Vermerke vor dem 28.09. ab) zählt nicht.
+    expect(bewerte(k, abschnitt(0.2), [], vermerk({ gesamtHandel: 1200 }))).toBe("geprueft");
   });
 
   it("lässt jede Einstufung zum Kandidaten werden — gekennzeichnet, nicht gesperrt", () => {
     // Jakobs Entscheidung vom 2026-09-21: „Es ist auch okay, wenn eine Strategie nur in einem
     // Produkt läuft, muss dann halt so gekennzeichnet sein." Die Übertragbarkeit beschreibt
-    // die Regel, sie bewertet sie nicht — deshalb hängt der Status allein an den Kennzahlen.
-    const belegt = konfidenz(rWerte(1200, 0.4, 2));
+    // die Regel, sie bewertet sie nicht.
+    const k = kennzahlen({ anzahl: 1200, konfidenz: belegt });
     for (const einstufung of ["uebertragbar", "gemischt", "einzelfall"] as const) {
-      expect(
-        bewerte(kennzahlen({ konfidenz: belegt }), abschnitt(0.2), [], vermerk({ einstufung })),
-      ).toBe("kandidat");
+      expect(bewerte(k, abschnitt(0.2), [], vermerk({ einstufung }))).toBe("kandidat");
     }
-    // Ohne jeden Vermerk ändert sich ebenfalls nichts — dass er fehlt, zeigt die Ablage an,
-    // sie bestraft es nicht.
-    expect(bewerte(kennzahlen({ konfidenz: belegt }), abschnitt(0.2), [])).toBe("kandidat");
-  });
-
-  it("hält einen Einzelfall trotzdem zurück, wenn die Kennzahlen es verlangen", () => {
-    const unbelegt = konfidenz(rWerte(30, 0.4, 2));
+    // Belegt im eigenen Markt, widerlegt im Topf: ein Einzelfall, und als solcher Kandidat.
     expect(
       bewerte(
-        kennzahlen({ anzahl: 35, konfidenz: unbelegt }),
+        k,
         abschnitt(0.2),
         [],
-        vermerk({ einstufung: "einzelfall" }),
+        vermerk({ einstufung: "einzelfall", gesamtHandel: 1200, gemeinsam: widerlegt }),
       ),
-    ).toBe("geprueft");
+    ).toBe("kandidat");
+    expect(bewerte(k, abschnitt(0.2), [])).toBe("kandidat");
   });
 
   it("hält eine unbelegte Kante bei `geprueft` zurück, auch wenn sonst alles stimmt", () => {
-    // **Der Kern der Änderung.** 35 Handel, +0,2 R Erwartungswert, Sharpe 1,4, keine
-    // Vorbehalte — vorher wäre das ein `kandidat` gewesen und in den Papierhandel gegangen.
-    // Das 95-%-Intervall schließt die Null ein: es ist keine Kante, sondern eine Stichprobe.
     const unbelegt = konfidenz(rWerte(35, 0.4, 2));
     expect(unbelegt).toBeDefined();
     expect(bewerte(kennzahlen({ anzahl: 35, konfidenz: unbelegt }), abschnitt(0.2), [])).toBe(
@@ -103,30 +163,18 @@ describe("bewerte", () => {
     );
   });
 
-  it("bleibt bei den alten Regeln, wo sie schärfer sind", () => {
-    const belegt = konfidenz(rWerte(1200, 0.4, 2));
-    // Zu wenige Handel.
-    expect(bewerte(kennzahlen({ anzahl: 12, konfidenz: belegt }), abschnitt(0.2), [])).toBe(
-      "geprueft",
-    );
-    // Negativer Erwartungswert.
-    expect(
-      bewerte(kennzahlen({ erwartungswertR: -0.1, konfidenz: belegt }), abschnitt(0.2), []),
-    ).toBe("verworfen");
-    // Im ungesehenen Teil negativ.
-    expect(bewerte(kennzahlen({ konfidenz: belegt }), abschnitt(-0.1), [])).toBe("verworfen");
-    // Offener Vorbehalt.
-    expect(bewerte(kennzahlen({ konfidenz: belegt }), abschnitt(0.2), ["irgendwas"])).toBe(
-      "geprueft",
-    );
-    // Sharpe unter 1.
-    expect(bewerte(kennzahlen({ sharpe: 0.8, konfidenz: belegt }), abschnitt(0.2), [])).toBe(
-      "geprueft",
-    );
+  it("verlangt vom Kandidaten weiter, dass der Markt selbst trägt", () => {
+    const k = (teil: Partial<Kennzahlen> = {}) =>
+      kennzahlen({ anzahl: 1200, konfidenz: belegt, ...teil });
+    expect(bewerte(k(), abschnitt(0.2), ["irgendwas"])).toBe("geprueft");
+    expect(bewerte(k({ sharpe: 0.8 }), abschnitt(0.2), [])).toBe("geprueft");
+    expect(bewerte(k({ erwartungswertR: -0.1 }), abschnitt(0.2), [])).toBe("geprueft");
+    expect(bewerte(k(), abschnitt(0.2, 4), [])).toBe("geprueft");
+    expect(bewerte(k(), null, [])).toBe("geprueft");
   });
 
-  it("wertet ohne Intervall wie bisher — es fehlt nur unter zehn Handeln", () => {
-    expect(bewerte(kennzahlen(), abschnitt(0.2), [])).toBe("kandidat");
+  it("urteilt ohne Intervall nicht", () => {
+    expect(bewerte(kennzahlen({ anzahl: 1200 }), abschnitt(0.2), [])).toBe("geprueft");
   });
 
   it("nennt eine Strategie ohne Handel einen Entwurf", () => {

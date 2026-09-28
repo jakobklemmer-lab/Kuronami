@@ -1,7 +1,7 @@
 import { mkdir, readFile, readdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import type { Abschnitt, Kennzahlen, Strategie } from "./backtest.js";
-import { nullEingeschlossen } from "./konfidenz.js";
+import type { Konfidenz } from "./konfidenz.js";
 import type { Uebertragbarkeit } from "./universum.js";
 
 /**
@@ -43,6 +43,8 @@ export interface UniversumVermerk {
   /** Alle Handel aller Märkte zusammen. */
   gesamtHandel: number;
   gemeinsamErwartungswertR: number;
+  /** Das 95-%-Intervall über alle Handel aller Märkte — seit 28.09. die Stichprobe fürs Urteil. */
+  gemeinsam?: Konfidenz;
   /** Der gerechnete Satz dazu, im Wortlaut. */
   begruendung: string;
 }
@@ -153,12 +155,42 @@ function dateiZeit(d: Date): string {
 }
 
 /**
+ * So viele Handel braucht ein Urteil — in die eine Richtung wie in die andere. Jakob am 28.09.:
+ * „Backtesting muss über hunderte von Backtests stattfinden, nicht über ein paar dutzend."
+ * Bei 20 Handeln mit 60 % Treffern liegt die wahre Quote irgendwo zwischen 36 und 80 %.
+ */
+export const HANDEL_FUER_URTEIL = 200;
+
+/** Eine Stichprobe, über die geurteilt werden kann: ein Markt allein oder der gemeinsame Topf. */
+interface Probe {
+  anzahl: number;
+  konfidenz?: Konfidenz;
+}
+
+/**
  * Bestanden oder nicht — und zwar nach einer Regel, die vor dem Ergebnis feststeht.
  *
  * Ein Backtest, der erst nach dem Blick auf die Zahlen bewertet wird, bewertet sich selbst.
- * Deshalb steht die Schwelle hier im Code: genug Handel, positiver Erwartungswert, und der
- * ungesehene Teil muss den geschraubten tragen. Wer sie ändern will, ändert eine versionierte
+ * Deshalb steht die Schwelle hier im Code. Wer sie ändern will, ändert eine versionierte
  * Datei — nicht seine Meinung.
+ *
+ * **Urteilen heißt belegen, in beide Richtungen** (seit 28.09.). Vorher genügte für `verworfen`
+ * ein Mittelwert ≤ 0 ab 30 Handeln oder ein negativer ungesehener Teil ab **fünf** Handeln,
+ * während `kandidat` ein Intervall über null verlangte. So wurden Regeln mit +0,11 bis +0,16 R
+ * über 74–85 Handel verworfen, weil 24 Handel am Ende ins Minus liefen — widerlegt war nichts.
+ * Jetzt gilt:
+ * - Geurteilt wird erst ab `HANDEL_FUER_URTEIL` Handeln — im Heimatmarkt allein oder im
+ *   gemeinsamen Topf aller Märkte (`universum`). Darunter bleibt es `geprueft`, und der
+ *   Bericht nennt, wie viele Handel es bräuchte (`noetigeHandel`).
+ * - `verworfen` nur, wenn das 95-%-Intervall **ganz unter null** liegt, in jeder Probe, die
+ *   groß genug ist.
+ * - `kandidat` nur, wenn eine große Probe ganz über null liegt **und** der Heimatmarkt selbst
+ *   trägt: positiver Erwartungswert, im ungesehenen Teil auch, Sharpe ab 1, kein Vorbehalt.
+ *
+ * **Ein Einzelfall darf Kandidat werden — er muss nur als einer zu erkennen sein.** Jakob am
+ * 2026-09-21: „Es ist auch okay, wenn eine Strategie nur in einem Produkt läuft, muss dann halt
+ * so gekennzeichnet sein." Deshalb reicht ein belegter Heimatmarkt, auch wenn der Topf es nicht
+ * ist; der Vermerk steht am Kopf des Eintrags, als Marke in der Liste und im Bericht.
  */
 export function bewerte(
   kennzahlen: Kennzahlen | null,
@@ -167,30 +199,17 @@ export function bewerte(
   universum?: UniversumVermerk,
 ): StrategieStatus {
   if (kennzahlen === null || kennzahlen.anzahl === 0) return "entwurf";
-  if (kennzahlen.anzahl < 30) return "geprueft";
-  if (kennzahlen.erwartungswertR <= 0) return "verworfen";
+  const proben: Probe[] = [{ anzahl: kennzahlen.anzahl, konfidenz: kennzahlen.konfidenz }];
+  if (universum) proben.push({ anzahl: universum.gesamtHandel, konfidenz: universum.gemeinsam });
+  const gross = proben.filter(
+    (p): p is Required<Probe> => p.anzahl >= HANDEL_FUER_URTEIL && p.konfidenz !== undefined,
+  );
+  if (gross.length === 0) return "geprueft";
+  if (gross.every((p) => p.konfidenz.oben < 0)) return "verworfen";
+  if (!gross.some((p) => p.konfidenz.unten > 0)) return "geprueft";
   const draussen = outOfSample?.kennzahlen;
-  if (!draussen || draussen.anzahl < 5) return "geprueft";
-  if (draussen.erwartungswertR <= 0) return "verworfen";
-  // **Der Erwartungswert muss belegt sein, nicht nur positiv.** Schließt das 95-%-Intervall
-  // die Null ein, war die Stichprobe eben so ausgefallen — das ist keine Kante, auf die Geld
-  // gehört. Das macht `kandidat` deutlich schwerer erreichbar, und genau das ist die Absicht:
-  // eine Strategie mit +0,2 R je Handel braucht über hundert Handel, bevor sich das von Zufall
-  // unterscheiden lässt. Die Zahl steht als `noetigeHandel` im Bericht, damit aus der Hürde
-  // ein Weg wird statt einer Wand.
-  if (kennzahlen.konfidenz !== undefined && nullEingeschlossen(kennzahlen.konfidenz)) {
-    return "geprueft";
-  }
-  // **Ein Einzelfall darf Kandidat werden — er muss nur als einer zu erkennen sein.** Kurz
-  // stand hier eine Sperre: „Einzelfall" hieß, nie `kandidat`. Jakob hat das am 2026-09-21
-  // umgedreht: „Es ist auch okay, wenn eine Strategie nur in einem Produkt läuft, muss dann
-  // halt so gekennzeichnet sein." Das ist auch die ehrlichere Trennung — ob eine Kante nur im
-  // DAX lebt, ist eine **Eigenschaft** der Regel und kein Mangel an ihrer Prüfung. Eine
-  // Sperre hätte genau die Strategien aussortiert, auf die sein eigenes Regelwerk zielt.
-  //
-  // Die Kennzeichnung ist deshalb kein Beiwerk, sondern die Bedingung dafür, dass diese Zeile
-  // so aussehen darf: der Vermerk steht am Kopf des Eintrags, als Marke in der Liste, als
-  // Block im Blatt und im Wortlaut des Berichts — und fehlt er, steht auch das da.
+  if (kennzahlen.erwartungswertR <= 0) return "geprueft";
+  if (!draussen || draussen.anzahl < 5 || draussen.erwartungswertR <= 0) return "geprueft";
   if (warnungen.length === 0 && kennzahlen.sharpe >= 1) return "kandidat";
   return "geprueft";
 }
