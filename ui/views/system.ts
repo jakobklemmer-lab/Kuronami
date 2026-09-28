@@ -436,12 +436,15 @@ export function lehrgangHtml(s: LehrgangKarte, notizen: ReadonlyMap<string, stri
       ),
     );
     if (!l.aus && l.zuletzt) fakten.push(fakt("Jetzt", l.zuletzt.halt));
-    if (l.dieseNacht.versuche > 0) {
-      const fehl = l.dieseNacht.versuche - l.dieseNacht.fertig;
+    // Gezählt werden Läufe, nicht Videos: dasselbe Video zweimal sind zwei — und beide zählen
+    // gegen die Grenze der Nacht.
+    const { versuche, fertig } = l.dieseNacht;
+    if (versuche > 0) {
+      const fehl = versuche - fertig;
       fakten.push(
         fakt(
           "Diese Nacht",
-          `${l.dieseNacht.fertig} ${l.dieseNacht.fertig === 1 ? "Notiz" : "Notizen"}${fehl > 0 ? `, ${fehl} gescheitert` : ""}`,
+          `${versuche} von ${l.jeNacht} ${versuche === 1 ? "Lauf" : "Läufen"}${fehl > 0 ? `, ${fehl} gescheitert` : ""}`,
         ),
       );
     }

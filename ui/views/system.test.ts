@@ -81,7 +81,7 @@ describe("Lehrgang-Karte", () => {
     expect(html).toContain("105 · 2 fehlen noch · 1 ohne Untertitel");
     expect(html).toContain("2 von 105 · Kalibrierung 2 von 14");
     expect(html).toContain("Sitzungsfenster bei 72 % (Grenze 70 %)");
-    expect(html).toContain("2 Notizen, 1 gescheitert");
+    expect(html).toContain("3 von 15 Läufen, 1 gescheitert");
   });
 
   it("klappt Notizen zu, nennt den Grund eines Fehlschlags und zeigt je Video nur den jüngsten Versuch", () => {

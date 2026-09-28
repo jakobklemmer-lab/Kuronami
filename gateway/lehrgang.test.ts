@@ -13,6 +13,7 @@ import {
   fehlversuche,
   leseNotiz,
   notizMarkdown,
+  pruefeZitate,
   reihenfolge,
   transkriptText,
   verlinkeZeitmarken,
@@ -97,6 +98,12 @@ describe("Zeitmarken", () => {
     expect(verlinkeZeitmarken(link, "x")).toBe(link);
   });
 
+  it("verlinkt in einer Aufzählung jede Marke für sich", () => {
+    expect(verlinkeZeitmarken("[3:27, 4:06–4:16]", "x")).toBe(
+      "[3:27](https://youtu.be/x?t=207), [4:06–4:16](https://youtu.be/x?t=246)",
+    );
+  });
+
   it("fasst das Transkript in Absätze von gut zwanzig Sekunden", () => {
     const t: Transkript = {
       id: "rf_EQvubKlk",
@@ -113,6 +120,34 @@ describe("Zeitmarken", () => {
       ],
     };
     expect(transkriptText(t)).toBe("[0:00] a b\n[0:21] c d\n[1:02] e");
+  });
+});
+
+describe("pruefeZitate", () => {
+  // Aus dem echten Transkript von rf_EQvubKlk, ohne Apostrophe wie die Untertitel.
+  const heuhaufen =
+    "sohowyouwanttousethisindicatorisbywhenthelinescrossupwardbutonlyiftheycrossbelowthezeroline itsgettingsmaller";
+
+  it("lässt wörtliche Zitate stehen und markiert, was das Modell umformuliert hat", () => {
+    const r = pruefeZitate(
+      'Wortlaut: "how you want to use this indicator" — und "you only want to use this indicator"',
+      heuhaufen,
+    );
+    expect(r).toEqual({
+      zitate: 2,
+      woertlich: 1,
+      text: 'Wortlaut: "how you want to use this indicator" — und "you only want to use this indicator" *(nicht wörtlich)*',
+    });
+  });
+
+  it("verzeiht Satzzeichen und Apostrophe, prüft aber keine Einzelbegriffe", () => {
+    expect(pruefeZitate('"It\'s getting smaller."', heuhaufen).woertlich).toBe(1);
+    expect(pruefeZitate('der "zero line"', heuhaufen)).toMatchObject({ zitate: 0 });
+    // Eine Auslassung ist erlaubt — solange jedes Stück wörtlich dasteht.
+    expect(pruefeZitate('"how you want … cross below the zero line"', heuhaufen).woertlich).toBe(1);
+    expect(pruefeZitate('"you only enter… cross below the zero line"', heuhaufen).woertlich).toBe(
+      0,
+    );
   });
 });
 
@@ -139,8 +174,37 @@ describe("notizMarkdown", () => {
     // 23:12 UTC ist in Wien schon der nächste Tag.
     expect(md).toContain("**Durchgearbeitet:** 29.09.2026 01:12 (Wien), Sonnet");
     expect(md).toContain("**Regeln:** 3 — mechanisch prüfbar: 1 ja · 1 teils · 1 nein");
-    expect(md).toContain("## Beispiele\n\n_keine_");
+    expect(md).toContain("## Beispiele\n\n*keine*");
     expect(md).toContain("[3:19](https://youtu.be/rf_EQvubKlk?t=199)");
+    // Eine Leerzeile vor jeder Überschrift, jede Regel ein Block mit Unterpunkten.
+    expect(md).toContain(
+      "[5:48](https://youtu.be/rf_EQvubKlk?t=348)\n  - mechanisch prüfbar: nein",
+    );
+    expect(md).toContain("\n\n## Beispiele");
+    expect(md).toContain("- **Regel 1:** Long nur, wenn");
+    expect(md).toContain(
+      '  - Wortlaut: "only take buy signals below the zero line" *(nicht wörtlich)*',
+    );
+    expect(md).toContain("**Zitate:** 1, davon 0 wörtlich in Transkript oder Titel");
+  });
+
+  it("setzt Spiegelstriche, wo das Modell keine geschrieben hat", () => {
+    const notiz = leseNotiz(ANTWORT.replace("- MACD: Indikator", "MACD: Indikator"));
+    const md = notizMarkdown({
+      video: { id: "rf_EQvubKlk", titel: "BEST MACD", dauer: 426 },
+      transkript: {
+        id: "rf_EQvubKlk",
+        titel: "",
+        sprache: "en",
+        art: "manuell",
+        geholt: "",
+        segmente: [],
+      },
+      notiz,
+      modell: "Sonnet",
+      zeit: new Date(),
+    });
+    expect(md).toContain("## Begriffe\n\n- MACD: Indikator");
   });
 });
 

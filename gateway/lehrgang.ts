@@ -110,12 +110,22 @@ export function leseNotiz(antwort: string): Notiz {
   return { abschnitte, pruefbar: pruefbarkeit(abschnitte.regeln), fehlend };
 }
 
-/** Eine Regel beginnt mit einem Spiegelstrich oder einer Nummer am Zeilenanfang. */
+const EINTRAG = /^(?:[-*]|\d+\.)\s+/;
+
+/**
+ * Die Regeln einzeln — eine beginnt mit Spiegelstrich oder Nummer am Zeilenanfang, eingerückte
+ * Zeilen gehören zu ihr. `vorspann` ist, was davor steht.
+ */
+function regelEintraege(regeln: string): { vorspann: string[]; eintraege: string[] } {
+  const teile = regeln.split(/\n(?=(?:[-*]|\d+\.)\s)/).map((e) => e.trim());
+  return {
+    vorspann: teile.filter((e) => e && !EINTRAG.test(e)),
+    eintraege: teile.filter((e) => EINTRAG.test(e)),
+  };
+}
+
 function pruefbarkeit(regeln: string): (Pruefbar | null)[] {
-  const eintraege = regeln
-    .split(/\n(?=(?:[-*]|\d+\.)\s)/)
-    .filter((e) => /^(?:[-*]|\d+\.)\s/.test(e.trim()));
-  return eintraege.map((e) => {
+  return regelEintraege(regeln).eintraege.map((e) => {
     const m = /pr(?:ü|ue|u)fbar\**:?\**\s*(ja|teils|nein)\b/i.exec(e);
     return m ? ((m[1] as string).toLowerCase() as Pruefbar) : null;
   });
@@ -135,18 +145,82 @@ function sekunden(marke: string): number {
 }
 
 const MARKE = String.raw`\d{1,2}:\d{2}(?::\d{2})?`;
+const SPANNE = String.raw`${MARKE}(?:\s*[–-]\s*${MARKE})?`;
 
 /**
- * `[3:19]` und `[3:19–4:15]` werden Links an die Stelle im Video. Was schon ein Link ist, bleibt,
- * wie es ist.
+ * `[3:19]`, `[3:19–4:15]` und `[3:27, 4:06–4:16]` werden Links an die Stelle im Video — bei einer
+ * Aufzählung jede Marke für sich. Was schon ein Link ist, bleibt, wie es ist.
  */
 export function verlinkeZeitmarken(text: string, id: string): string {
-  const muster = new RegExp(String.raw`\[(${MARKE})(\s*[–-]\s*${MARKE})?\](?!\()`, "g");
-  return text.replace(
-    muster,
-    (_, von: string, bis: string | undefined) =>
-      `[${von}${bis ?? ""}](https://youtu.be/${id}?t=${sekunden(von)})`,
+  const muster = new RegExp(String.raw`\[(${SPANNE}(?:\s*[,;]\s*${SPANNE})*)\](?!\()`, "g");
+  return text.replace(muster, (_, inhalt: string) =>
+    inhalt
+      .split(/\s*[,;]\s*/)
+      .map((teil) => {
+        const von = teil.split(/\s*[–-]\s*/)[0] as string;
+        return `[${teil}](https://youtu.be/${id}?t=${sekunden(von)})`;
+      })
+      .join(", "),
   );
+}
+
+/** Nur Buchstaben und Ziffern: die automatischen Untertitel haben kaum Satzzeichen („It s"). */
+const buchstaben = (s: string) => s.toLowerCase().replace(/[^a-z0-9]+/g, "");
+
+/**
+ * Zitate in geraden Anführungszeichen gegen Transkript und Titel prüfen (`heuhaufen`, schon durch
+ * `buchstaben`). Was dort nicht Buchstabe für Buchstabe steht, bekommt ein „nicht wörtlich"
+ * dahinter: Setup-Karten im Wortlaut (N11) bauen auf diesen Zitaten, und am 28.09. hatte schon die
+ * erste Notiz eins, in das das Modell ein „only" hineingeschrieben hatte.
+ */
+export function pruefeZitate(
+  text: string,
+  heuhaufen: string,
+): { text: string; zitate: number; woertlich: number } {
+  let zitate = 0;
+  let woertlich = 0;
+  const geprueft = text.replace(/"([^"\n]+)"/g, (ganz, zitat: string) => {
+    // Unter drei Wörtern ist es ein Begriff, kein Zitat.
+    if (zitat.trim().split(/\s+/).length < 3) return ganz;
+    zitate += 1;
+    // Eine Auslassung („…") ist erlaubt, wenn jedes Stück für sich wörtlich dasteht.
+    const stuecke = zitat
+      .split(/\.{3}|…/)
+      .map(buchstaben)
+      .filter(Boolean);
+    if (stuecke.every((stueck) => heuhaufen.includes(stueck))) {
+      woertlich += 1;
+      return ganz;
+    }
+    return `${ganz} *(nicht wörtlich)*`;
+  });
+  return { text: geprueft, zitate, woertlich };
+}
+
+/** Zeilen ohne Spiegelstrich bekommen einen — sonst liefen sie in der Ansicht zu einem Absatz zusammen. */
+function stichpunkte(text: string): string {
+  return text
+    .split("\n")
+    .map((z) => (z.trim() === "" || /^\s/.test(z) || EINTRAG.test(z) ? z : `- ${z}`))
+    .join("\n");
+}
+
+/**
+ * Jede Regel ein Block: die Regel selbst, darunter Wortlaut, Parameter und Prüfbarkeit als
+ * Unterpunkte. Ohne erkennbare Einträge bleibt die Antwort, wie sie kam.
+ */
+function regelnMarkdown(regeln: string): string {
+  const { vorspann, eintraege } = regelEintraege(regeln);
+  if (eintraege.length === 0) return stichpunkte(regeln);
+  const bloecke = eintraege.map((e, i) => {
+    const [erste = "", ...rest] = e.split("\n");
+    const unter = rest
+      .map((z) => z.trim())
+      .filter(Boolean)
+      .map((z) => `  - ${z.replace(EINTRAG, "")}`);
+    return [`- **Regel ${i + 1}:** ${erste.replace(EINTRAG, "")}`, ...unter].join("\n");
+  });
+  return [...vorspann, ...bloecke].join("\n\n");
 }
 
 /**
@@ -189,22 +263,25 @@ Falsch: „MACD-Kreuzung als Kaufsignal." — die Bedingung „unter der Nulllin
 
 Ein Abschnitt ohne Inhalt enthält nur „keine". Antworte ohne Text davor oder danach, in genau dieser Form:
 <begriffe>
-…
+- …
 </begriffe>
 <regeln>
-…
+- …
+  Wortlaut: "…"
+  Parameter: …
+  mechanisch prüfbar: …
 </regeln>
 <beispiele>
-…
+- …
 </beispiele>
 <warnungen>
-…
+- …
 </warnungen>
 <behauptungen>
-…
+- …
 </behauptungen>
 <fehlt>
-…
+- …
 </fehlt>`;
 
 export function lehrgangPrompt(video: Video, t: Transkript): string {
@@ -234,6 +311,17 @@ export function notizMarkdown(opt: {
 }): string {
   const { video, transkript: t, notiz } = opt;
   const { tag, uhr } = wienerZeit(opt.zeit.toISOString());
+  const heuhaufen = buchstaben(`${video.titel} ${t.segmente.map((s) => s.text).join(" ")}`);
+  let zitate = 0;
+  let woertlich = 0;
+  const rumpf = ABSCHNITTE.map((a) => {
+    if (!notiz.abschnitte[a]) return `## ${UEBERSCHRIFT[a]}\n\n*keine*`;
+    const geprueft = pruefeZitate(notiz.abschnitte[a], heuhaufen);
+    zitate += geprueft.zitate;
+    woertlich += geprueft.woertlich;
+    const gegliedert = a === "regeln" ? regelnMarkdown(geprueft.text) : stichpunkte(geprueft.text);
+    return `## ${UEBERSCHRIFT[a]}\n\n${verlinkeZeitmarken(gegliedert, video.id)}`;
+  });
   const kopf = [
     `# ${video.titel}`,
     "",
@@ -241,17 +329,16 @@ export function notizMarkdown(opt: {
     `- **Transkript:** ${t.art === "manuell" ? "vom Kanal" : "automatisch erkannt"} (${t.sprache}), ${t.segmente.length} Zeilen`,
     `- **Durchgearbeitet:** ${tag.split("-").reverse().join(".")} ${uhr} (Wien), ${opt.modell}, ohne Werkzeuge`,
     `- **Regeln:** ${zaehle(notiz.pruefbar)}`,
+    ...(zitate > 0
+      ? [`- **Zitate:** ${zitate}, davon ${woertlich} wörtlich in Transkript oder Titel`]
+      : []),
     ...(notiz.fehlend.length > 0
       ? [`- **Nicht geliefert:** ${notiz.fehlend.map((a) => UEBERSCHRIFT[a]).join(", ")}`]
       : []),
     "",
-    "> Aus dem gesprochenen Text. Die Zeitmarken führen an die Stelle im Video. Zahlen unter „Behauptungen“ sind Angaben des Videos, keine Belege.",
+    "*Aus dem gesprochenen Text. Die Zeitmarken führen an die Stelle im Video. Zahlen unter „Behauptungen“ sind Angaben des Videos, keine Belege.*",
   ];
-  const rumpf = ABSCHNITTE.map(
-    (a) =>
-      `## ${UEBERSCHRIFT[a]}\n\n${notiz.abschnitte[a] ? verlinkeZeitmarken(notiz.abschnitte[a], video.id) : "_keine_"}`,
-  );
-  return `${[...kopf, "", ...rumpf].join("\n")}\n`;
+  return `${kopf.join("\n")}\n\n${rumpf.join("\n\n")}\n`;
 }
 
 // ------------------------------------------------------------------------------ Wann und was
