@@ -29,7 +29,7 @@
 
 import { type Strategie, backtest } from "./backtest.js";
 import type { MarketCandle } from "./integrations/markets.js";
-import { type Konfidenz, konfidenz, nullEingeschlossen } from "./konfidenz.js";
+import { type Konfidenz, blocklaenge, konfidenz, nullEingeschlossen } from "./konfidenz.js";
 
 export interface MarktKerzen {
   symbol: string;
@@ -109,6 +109,7 @@ export function ueberMaerkte(
 ): UniversumErgebnis {
   const ergebnisse: MarktErgebnis[] = [];
   const alleR: number[] = [];
+  const alleHandel: { einstiegZeit: number; ausstiegZeit: number }[] = [];
   const rJeMarkt = new Map<string, number>();
 
   for (const markt of maerkte) {
@@ -117,7 +118,10 @@ export function ueberMaerkte(
         symbol: markt.symbol,
         intervall: optionen.intervall,
       });
-      for (const h of e.handel) alleR.push(h.r);
+      for (const h of e.handel) {
+        alleR.push(h.r);
+        alleHandel.push(h);
+      }
       rJeMarkt.set(
         markt.symbol,
         e.handel.reduce((summe, h) => summe + h.r, 0),
@@ -156,7 +160,11 @@ export function ueberMaerkte(
   const positiv = gerechnete.filter((e) => e.erwartungswertR > 0).length;
   const gemeinsamErwartungswertR =
     alleR.length > 0 ? alleR.reduce((a, b) => a + b, 0) / alleR.length : 0;
-  const gemeinsam = konfidenz(alleR);
+  // In Zeitblöcken gezogen: Märkte, die zusammen laufen, sind keine unabhängigen Stichproben.
+  const gemeinsam = konfidenz(alleR, {
+    zeiten: alleHandel.map((h) => h.einstiegZeit),
+    blockSekunden: blocklaenge(alleHandel),
+  });
 
   // Wie stark hängt das Gesamtergebnis an einem einzigen Markt? Summe aller positiven
   // Markt-R-Summen als Nenner — sonst könnte ein Verlustmarkt den Anteil über 100 % treiben.

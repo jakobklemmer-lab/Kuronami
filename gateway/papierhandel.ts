@@ -4,6 +4,7 @@ import {
   type Kennzahlen,
   type Strategie,
   atrAm,
+  backtest,
   pruefeStrategie,
   signalAm,
   stopFuer,
@@ -64,6 +65,8 @@ export interface PapierKonto {
   seit: string;
   /** Der Erwartungswert in R, den der Backtest versprochen hat — die Messlatte im Betrieb. */
   erwartetR: number;
+  /** Woran sich die Bremse eicht (seit 28.09.). Fehlt bei älteren Konten — dann gelten die festen Grenzen. */
+  vorlage?: PapierVorlage;
   gebuehrProzent: number;
   schlupfProzent: number;
   offen: PapierPosition | null;
@@ -86,6 +89,50 @@ export interface PapierGrenzen {
   vergleichAb: number;
   /** Wie weit er darunter liegen darf, bevor gesperrt wird (Anteil, 0,5 = die Hälfte). */
   mindestAnteilErwartung: number;
+}
+
+/**
+ * Was der Backtest je Handel versprochen hat, so weit die Bremse es braucht: wie oft die Regel
+ * trifft, was ein Gewinn und ein Verlust im Mittel bringen, und wie breit die Handel streuen.
+ */
+export interface PapierVorlage {
+  trefferquote: number;
+  gewinnR: number;
+  /** Ø Verlust in R, negativ. */
+  verlustR: number;
+  /** Der größte Einzelverlust in R, negativ — ohne `rWerte` der Spielraum für einzelne Ausreißer. */
+  groessterVerlustR: number;
+  streuungR: number;
+  /**
+   * Die R-Werte der Handel aus dem Backtest dieses Markts, beim Eröffnen des Kontos einmal
+   * nachgerechnet. Aus ihnen zieht die Bremse; ohne sie aus Treffer, Ø Gewinn und Ø Verlust.
+   */
+  rWerte?: number[];
+}
+
+/** Die Vorlage aus den Kennzahlen eines Archiveintrags — oder nichts, wenn sie nicht reichen. */
+export function vorlageAus(
+  k: Kennzahlen | null | undefined,
+  rWerte?: readonly number[],
+): PapierVorlage | undefined {
+  if (!k || k.anzahl < 30 || k.trefferquote <= 0 || k.trefferquote >= 1) return undefined;
+  if (!(k.durchschnittGewinnR > 0) || !(k.durchschnittVerlustR < 0)) return undefined;
+  // Einträge vor dem 28.09. tragen die Streuung nicht; das 95-%-Intervall ist rund 2 · 1,96
+  // Standardfehler breit, und der Standardfehler ist Streuung / √n.
+  const streuung =
+    k.konfidenz?.streuung ??
+    (k.konfidenz ? ((k.konfidenz.oben - k.konfidenz.unten) / 3.92) * Math.sqrt(k.anzahl) : 0);
+  if (!(streuung > 0)) return undefined;
+  return {
+    trefferquote: k.trefferquote,
+    gewinnR: k.durchschnittGewinnR,
+    verlustR: k.durchschnittVerlustR,
+    groessterVerlustR: Math.min(k.groessterVerlustR, k.durchschnittVerlustR),
+    streuungR: streuung,
+    ...(rWerte && rWerte.length >= 30
+      ? { rWerte: rWerte.map((r) => Math.round(r * 1000) / 1000) }
+      : {}),
+  };
 }
 
 export const VORGABE_GRENZEN: PapierGrenzen = {
@@ -112,6 +159,9 @@ export function grenzeGerissen(
   konto: PapierKonto,
   grenzen: PapierGrenzen = VORGABE_GRENZEN,
 ): string | null {
+  if (konto.vorlage !== undefined && konto.handel.length > 0) {
+    return geeichteGrenzeGerissen(konto, konto.vorlage, grenzen.vergleichAb);
+  }
   const kurve = konto.kapitalkurve;
   if (kurve.length > 1) {
     let spitze = kurve[0];
@@ -141,6 +191,118 @@ export function grenzeGerissen(
     }
   }
   return null;
+}
+
+/**
+ * Die Bremse, geeicht an der eigenen Regel (seit 28.09.2026).
+ *
+ * **Warum nicht mehr feste Grenzen.** Sechs Verluste in Folge, 20 % Rückschlag und „unter 30 %
+ * des Erwarteten nach 15 Handeln" passen zu einer Regel, die oft trifft. Eine Trendfolge-Regel
+ * trifft in einem von drei Handeln und verdient an wenigen Läufern. Nachgerechnet am
+ * SuperTrend-Fund (BTC 1h, 35 % Treffer, längste Verlustserie im Backtest 12): lief sie **genau
+ * wie im Backtest**, hätten die festen Grenzen sie in 84 % der Fälle binnen 30 Handeln gesperrt,
+ * binnen 100 Handeln immer. Eine Bremse, die jede funktionierende Regel dieser Art stoppt,
+ * meldet „hält nicht", wo sie hält — und niemand würde je sehen, dass es an der Bremse lag.
+ *
+ * **Wie jetzt.** Für die Zahl der bisherigen Handel wird gezogen, was die Regel laut Backtest
+ * liefern würde (Treffer mit ihrer Quote, Gewinne und Verluste in ihrer mittleren Größe), und
+ * gesperrt wird, was dort in weniger als 0,5 % der Fälle vorkommt: eine so lange Verlustserie,
+ * ein so tiefer Rückschlag in R — oder ein Erwartungswert, der mehr als drei Standardfehler unter
+ * dem versprochenen liegt. Der Rückschlag zählt in R, weil Jakob mit 1 % Risiko je Handel
+ * handelt: 20 R Rückschlag sind bei ihm rund 20 % des Kontos.
+ *
+ * Die Bremse bleibt ein Schalter. Sie ist nur nicht mehr schärfer als die Regel, die sie bewacht.
+ */
+function geeichteGrenzeGerissen(
+  konto: PapierKonto,
+  vorlage: PapierVorlage,
+  vergleichAb: number,
+): string | null {
+  const rs = konto.handel.map((h) => h.r);
+  const n = rs.length;
+  const erwartet = erwartetAuf(vorlage, n);
+
+  let serie = 0;
+  for (const r of rs) serie = r <= 0 ? serie + 1 : 0;
+  if (serie > erwartet.serie) {
+    return `${serie} Verluste in Folge. Bei ${Math.round(vorlage.trefferquote * 100)} % Treffern wie im Backtest kommen in ${n} Handeln mehr als ${erwartet.serie} in Folge in weniger als 0,5 % der Fälle vor.`;
+  }
+
+  let stand = 0;
+  let spitze = 0;
+  let rueckschlag = 0;
+  for (const r of rs) {
+    stand += r;
+    spitze = Math.max(spitze, stand);
+    rueckschlag = Math.max(rueckschlag, spitze - stand);
+  }
+  if (rueckschlag > erwartet.rueckschlagR) {
+    return `Rückschlag ${rueckschlag.toFixed(1)} R (bei 1 % Risiko je Handel rund ${rueckschlag.toFixed(0)} % des Kontos). So tief fällt die Regel laut Backtest in ${n} Handeln in weniger als 0,5 % der Fälle — die Grenze liegt bei ${erwartet.rueckschlagR.toFixed(1)} R.`;
+  }
+
+  if (n >= vergleichAb && konto.erwartetR > 0) {
+    const gelaufen = rs.reduce((a, b) => a + b, 0) / n;
+    const untergrenze = konto.erwartetR - (3 * vorlage.streuungR) / Math.sqrt(n);
+    if (gelaufen < untergrenze) {
+      return (
+        `Im Betrieb ${gelaufen.toFixed(2)} R je Handel statt der ${konto.erwartetR.toFixed(2)} R aus dem Backtest ` +
+        `(${n} Handel). Das liegt mehr als drei Standardfehler darunter — die Strategie hält im laufenden Markt nicht, was sie in der Vergangenheit versprach.`
+      );
+    }
+  }
+  return null;
+}
+
+/**
+ * Längste Verlustserie und tiefster Rückschlag in R, die die Vorlage über `n` Handel in 99,5 %
+ * der Fälle nicht überschreitet. Gezogen mit festem Startwert — dieselben Handel ergeben immer
+ * dieselbe Grenze.
+ *
+ * Gezogen wird aus den echten R-Werten des Backtests, wenn es sie gibt. Sonst aus zwei Punkten
+ * (Ø Gewinn, Ø Verlust) — dann kennt die Ziehung nur mittlere Verluste, und der Rückschlag
+ * bekommt den Abstand zum größten Einzelverlust als Spielraum dazu. Ohne ihn sperrte am 28.09.
+ * schon der erste Verlust über dem Mittel.
+ */
+export function erwartetAuf(
+  vorlage: PapierVorlage,
+  n: number,
+  ziehungen = 4000,
+): { serie: number; rueckschlagR: number } {
+  let zustand = 20260928;
+  const wuerfel = (): number => {
+    zustand = (Math.imul(zustand, 1103515245) + 12345) >>> 0;
+    return zustand / 4294967296;
+  };
+  const serien: number[] = new Array(ziehungen);
+  const rueckschlaege: number[] = new Array(ziehungen);
+  const echte = vorlage.rWerte && vorlage.rWerte.length >= 30 ? vorlage.rWerte : null;
+  for (let z = 0; z < ziehungen; z += 1) {
+    let lauf = 0;
+    let laengste = 0;
+    let stand = 0;
+    let spitze = 0;
+    let tiefste = 0;
+    for (let i = 0; i < n; i += 1) {
+      const r = echte
+        ? echte[Math.floor(wuerfel() * echte.length)]
+        : wuerfel() < vorlage.trefferquote
+          ? vorlage.gewinnR
+          : vorlage.verlustR;
+      const treffer = r > 0;
+      stand += r;
+      lauf = treffer ? 0 : lauf + 1;
+      laengste = Math.max(laengste, lauf);
+      spitze = Math.max(spitze, stand);
+      tiefste = Math.max(tiefste, spitze - stand);
+    }
+    serien[z] = laengste;
+    rueckschlaege[z] = tiefste;
+  }
+  serien.sort((a, b) => a - b);
+  rueckschlaege.sort((a, b) => a - b);
+  const stelle = Math.min(ziehungen - 1, Math.floor(ziehungen * 0.995));
+  const spielraum = echte ? 0 : Math.max(0, vorlage.verlustR - vorlage.groessterVerlustR);
+  return { serie: serien[stelle], rueckschlagR: rueckschlaege[stelle] + spielraum };
 }
 
 /** Die Kennzahlen des Papierhandels — dieselben Namen wie im Backtest, damit man sie nebeneinanderlegen kann. */
@@ -435,6 +597,34 @@ export function createPapierhandel(deps: PapierhandelDeps): Papierhandel {
     }
   }
 
+  /**
+   * Die R-Werte des Backtests für die Vorlage der Bremse: dieselbe Regel, derselbe Markt und
+   * Zeitraum wie im Archiveintrag. Scheitert das (keine Kerzenquelle, Anbieter nicht erreichbar),
+   * eicht sich die Bremse an den Kennzahlen allein.
+   */
+  async function backtestR(eintrag: {
+    strategie: Strategie;
+    symbol: string;
+    intervall: string;
+    von: string;
+    bis: string;
+  }): Promise<number[] | undefined> {
+    if (!deps.kerzen) return undefined;
+    try {
+      const { kerzen } = await deps.kerzen.hole({
+        symbol: eintrag.symbol,
+        intervall: eintrag.intervall as ChartInterval,
+        vonUnix: Math.floor(Date.parse(`${eintrag.von}T00:00:00Z`) / 1000),
+        bisUnix: Math.floor(Date.parse(`${eintrag.bis}T00:00:00Z`) / 1000) + 86_400,
+      });
+      return backtest(eintrag.strategie, kerzen, { intervall: eintrag.intervall }).handel.map(
+        (h) => h.r,
+      );
+    } catch {
+      return undefined;
+    }
+  }
+
   return {
     async starte(strategieId) {
       const eintrag = await deps.strategien.lies(strategieId);
@@ -455,6 +645,12 @@ export function createPapierhandel(deps: PapierhandelDeps): Papierhandel {
         intervall: eintrag.intervall,
         seit: new Date().toISOString(),
         erwartetR: eintrag.kennzahlen?.erwartungswertR ?? 0,
+        ...(await (async () => {
+          // Erst ob die Kennzahlen überhaupt reichen — sonst ist der Backtest umsonst gerechnet.
+          if (!vorlageAus(eintrag.kennzahlen)) return {};
+          const vorlage = vorlageAus(eintrag.kennzahlen, await backtestR(eintrag));
+          return vorlage ? { vorlage } : {};
+        })()),
         gebuehrProzent: eintrag.strategie.gebuehrProzent ?? 0.1,
         schlupfProzent: eintrag.strategie.schlupfProzent ?? 0.05,
         offen: null,

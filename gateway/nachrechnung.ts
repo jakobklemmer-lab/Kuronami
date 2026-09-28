@@ -24,7 +24,7 @@ import { type Handel, type Strategie, type Zeitfenster, backtest } from "./backt
 import type { ChartInterval, MarketCandle } from "./integrations/markets.js";
 import { type Quellregel, vereine } from "./kalibrierung.js";
 import { createKerzenquelle } from "./kerzen.js";
-import { type Konfidenz, konfidenz } from "./konfidenz.js";
+import { type Konfidenz, blocklaenge, konfidenz } from "./konfidenz.js";
 import { sperrgrenze } from "./sperre.js";
 import { HANDEL_FUER_URTEIL } from "./strategien.js";
 import { createVersuchsbuch, strengeHuerde, zWert } from "./versuche.js";
@@ -180,7 +180,11 @@ export function zeileAus(
     });
   }
   const r = alleMit.map((h) => h.r);
-  const k = konfidenz(r);
+  // Über mehrere Märkte in Zeitblöcken gezogen — siehe `zeitbloecke` in konfidenz.ts.
+  const k = konfidenz(r, {
+    zeiten: alleMit.map((h) => h.einstiegZeit),
+    blockSekunden: blocklaenge(alleMit),
+  });
   const ungesehenR = mittel(ungesehen);
   return {
     ...kopf,

@@ -70,3 +70,31 @@ describe("konfidenz", () => {
     expect(dick && formatiereKonfidenz(dick, 0.2)).toContain("Null liegt außerhalb");
   });
 });
+
+describe("Ziehung in Zeitblöcken (seit 28.09.)", () => {
+  // 30 Zeitpunkte, an jedem steigen fünf Märkte gleichzeitig ein und erleben dasselbe.
+  const r: number[] = [];
+  const zeiten: number[] = [];
+  for (let t = 0; t < 30; t += 1) {
+    const wert = t % 3 === 0 ? 3 : -1;
+    for (let markt = 0; markt < 5; markt += 1) {
+      r.push(wert);
+      zeiten.push(t * 7 * 86_400);
+    }
+  }
+
+  it("macht das Intervall breiter, wenn Märkte zusammen laufen", () => {
+    const einzeln = konfidenz(r);
+    const inBloecken = konfidenz(r, { zeiten, blockSekunden: 7 * 86_400 });
+    expect(einzeln).toBeDefined();
+    expect(inBloecken?.bloecke).toBe(30);
+    const breite = (k: typeof einzeln) => (k ? k.oben - k.unten : 0);
+    expect(breite(inBloecken)).toBeGreaterThan(breite(einzeln) * 1.8);
+    expect(inBloecken?.noetigeHandel ?? 0).toBeGreaterThan(einzeln?.noetigeHandel ?? 0);
+  });
+
+  it("zieht einzeln, wenn es weniger als zehn Blöcke sind", () => {
+    const k = konfidenz(r, { zeiten, blockSekunden: 365 * 86_400 });
+    expect(k?.bloecke).toBeUndefined();
+  });
+});

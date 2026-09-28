@@ -48,7 +48,8 @@ import { wochenzielZeile } from "./wochenziel.js";
  *     Kerze, die das Signal gab — den gab es an der Börse nicht.
  *  2. **Der günstige Zufall innerhalb einer Kerze.** Liegen Stop und Ziel in derselben Kerze,
  *     zählt **der Stop**. Ohne Tickdaten weiß niemand, was zuerst kam; die pessimistische
- *     Annahme ist die einzige, die nicht schmeichelt.
+ *     Annahme ist die einzige, die nicht schmeichelt. Nachgemessen am 28.09. mit Binance-
+ *     Minutenkerzen: das betrifft 0–8 % der Handel und verschiebt Ø R um höchstens 0,08 R.
  *  3. **Anpassung an die Vergangenheit.** Jeder Lauf wird in zwei Hälften berichtet: der Teil,
  *     an dem man schraubt, und der Teil, den man dabei nicht gesehen hat. Weichen sie stark
  *     voneinander ab, steht das als Warnung im Ergebnis — nicht im Kleingedruckten.
@@ -707,6 +708,17 @@ export function kerzenProJahr(intervall: string): number {
   }
 }
 
+/**
+ * Kerzen je Jahr, **gemessen** an der Reihe statt aus einer Tabelle (seit 28.09.). Die Tabelle
+ * oben rechnet mit 252 Börsentagen zu 6,5 Stunden — richtig für Aktien, aber Krypto handelt
+ * rund um die Uhr: bei 1h sind das 8.766 Kerzen im Jahr statt 1.764, und die Sharpe-Ratio jeder
+ * Krypto-Stundenregel stand um den Faktor √5 ≈ 2,2 zu niedrig im Bericht.
+ */
+export function kerzenJeJahr(kerzen: readonly MarketCandle[], intervall: string): number {
+  const jahre = (kerzen[kerzen.length - 1].time - kerzen[0].time) / (365.25 * 86_400);
+  return jahre >= 0.25 ? (kerzen.length - 1) / jahre : kerzenProJahr(intervall);
+}
+
 function iso(unix: number): string {
   return new Date(unix * 1000).toISOString().slice(0, 10);
 }
@@ -906,7 +918,7 @@ export function backtest(
   const grenzeZeit = kerzen[Math.max(0, Math.min(kerzen.length - 1, grenzeIndex))].time;
   const vorne = handel.filter((h) => h.einstiegZeit < grenzeZeit);
   const hinten = handel.filter((h) => h.einstiegZeit >= grenzeZeit);
-  const proJahr = kerzenProJahr(intervall);
+  const proJahr = kerzenJeJahr(kerzen, intervall);
 
   const gesamt = kennzahlenAus(handel, kapitalkurve, proJahr);
   const kaufUndHalten = (kerzen[kerzen.length - 1].close / kerzen[0].close - 1) * 100;
@@ -921,7 +933,13 @@ export function backtest(
     kennzahlen: kennzahlenAus(hinten, kapitalkurve.slice(grenzeIndex), proJahr),
   };
 
-  const nullpunkt = messeNullpunkt(strategie, kerzen, atr, medianerRisikoAnteil(handel));
+  const nullpunkt = messeNullpunkt(
+    strategie,
+    kerzen,
+    atr,
+    medianerRisikoAnteil(handel),
+    2 * (gebuehr + schlupf),
+  );
   const warnungen = warnungenAus(gesamt, inSample, outOfSample, handel, kaufUndHalten, nullpunkt);
   if (falscheSeite > 0) {
     warnungen.push(
@@ -964,7 +982,9 @@ export function backtest(
  * Die Baseline: dieselbe Geometrie, von jeder Kerze aus, ohne Einstiegsregel.
  *
  * Dafür wird aus Stop und Ziel der Strategie ein Beispielhandel am letzten Kurs gebaut und
- * `messeHaltedauer` über die ganze Reihe gelegt. Kommt nichts heraus — kein Ziel, zu wenige
+ * `messeHaltedauer` über die ganze Reihe gelegt. **Mit denselben Kosten wie die Regel** (seit
+ * 28.09.): vorher trat eine Regel nach Kosten gegen einen Zufall ohne Kosten an, und die
+ * Warnung „schlägt den Zufall nicht" sperrte dann Regeln, die ihn vor Kosten schlugen. Kommt nichts heraus — kein Ziel, zu wenige
  * Kerzen, eine Geometrie, die sich in `maxKerzen` nie auflöst —, fehlt die Baseline einfach.
  * Eine geschätzte Messlatte wäre schlimmer als keine.
  */
@@ -973,6 +993,8 @@ function messeNullpunkt(
   kerzen: readonly MarketCandle[],
   atr: Reihe,
   risikoAnteil?: number,
+  /** Gebühr und Schlupf beider Seiten, als Anteil vom Kurs. */
+  kostenAnteil = 0,
 ): { trefferquote: number; erwartungswertR: number } | undefined {
   const letzterKurs = kerzen[kerzen.length - 1]?.close;
   if (letzterKurs === undefined || letzterKurs <= 0) return undefined;
@@ -1010,7 +1032,7 @@ function messeNullpunkt(
     });
     return {
       trefferquote: gemessen.nullpunktTrefferquote,
-      erwartungswertR: gemessen.nullpunktErwartungswertR,
+      erwartungswertR: gemessen.nullpunktErwartungswertR - (kostenAnteil * letzterKurs) / risiko,
     };
   } catch (fehler) {
     if (fehler instanceof DauerFehler) return undefined;
@@ -1209,9 +1231,9 @@ export function formatiereBacktest(e: BacktestErgebnis): string {
   zeilen.push(
     "",
     "Gerechnet ohne Blick in die Zukunft: Signal auf der abgeschlossenen Kerze, Einstieg zur",
-    "nächsten Eröffnung; liegen Stop und Ziel in derselben Kerze, zählt der Stop (dieselbe",
-    "pessimistische Annahme wie im Strategy Tester bei TradingView). Kerzen aus derselben",
-    "geprüften Quelle wie die Kurstafel.",
+    "nächsten Eröffnung; liegen Stop und Ziel in derselben Kerze, zählt der Stop. (TradingView",
+    "nimmt stattdessen an, der Kurs laufe zuerst zum näheren Extrem, und rechnet ohne Gebühren,",
+    "wenn man sie nicht einträgt.) Kerzen aus derselben geprüften Quelle wie die Kurstafel.",
   );
   return zeilen.join("\n");
 }

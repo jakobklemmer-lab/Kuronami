@@ -2,16 +2,19 @@ import { mkdtemp } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
-import type { Strategie } from "./backtest.js";
+import type { Kennzahlen, Strategie } from "./backtest.js";
 import type { MarketCandle, MarketsClient } from "./integrations/markets.js";
 import type { KerzenAnfrage, Kerzenquelle } from "./kerzen.js";
 import {
   type PapierKonto,
+  type PapierVorlage,
   VORGABE_GRENZEN,
   createPapierhandel,
+  erwartetAuf,
   grenzeGerissen,
   papierKennzahlen,
   verarbeite,
+  vorlageAus,
 } from "./papierhandel.js";
 import type { StrategienArchiv } from "./strategien.js";
 
@@ -263,5 +266,60 @@ describe("createPapierhandel", () => {
     expect(anfragen[0].intervall).toBe("1h");
     // Unter der Tageskerze 120 Tage Vorlauf, nicht 500.
     expect(anfragen[0].bisUnix - anfragen[0].vonUnix).toBe(120 * TAG);
+  });
+});
+
+describe("geeichte Bremse (seit 28.09.)", () => {
+  /** Eine Trendfolge-Vorlage: 35 % Treffer, Gewinne +2 R, Verluste −0,75 R — wie SuperTrend auf BTC 1h. */
+  const TRENDFOLGE = vorlageAus({
+    anzahl: 400,
+    trefferquote: 0.35,
+    durchschnittGewinnR: 2,
+    durchschnittVerlustR: -0.75,
+    groessterVerlustR: -1.2,
+    konfidenz: { unten: -0.1, oben: 0.4, anteilNegativ: 0.1, streuung: 2.5, ziehungen: 2000 },
+  } as unknown as Kennzahlen);
+
+  function konto(rs: number[]): PapierKonto {
+    return {
+      erwartetR: 0.15,
+      vorlage: TRENDFOLGE,
+      handel: rs.map((r) => ({ r })),
+      kapitalkurve: [1],
+    } as unknown as PapierKonto;
+  }
+
+  it("sperrt eine Trendfolge-Regel nicht nach sechs Verlusten in Folge", () => {
+    expect(TRENDFOLGE).toBeDefined();
+    const rs = [2, ...Array.from({ length: 6 }, () => -0.75)];
+    expect(grenzeGerissen(konto(rs))).toBeNull();
+    // Mit den festen Grenzen wäre hier Schluss gewesen.
+    expect(grenzeGerissen({ ...konto(rs), vorlage: undefined })).toMatch(/6 Verluste in Folge/);
+  });
+
+  it("sperrt eine Serie, die bei dieser Trefferquote praktisch nie vorkommt", () => {
+    const rs = [2, ...Array.from({ length: 30 }, () => -0.75)];
+    expect(grenzeGerissen(konto(rs))).toMatch(/Verluste in Folge/);
+  });
+
+  it("sperrt, wenn der Erwartungswert mehr als drei Standardfehler unter dem versprochenen liegt", () => {
+    const rs = Array.from({ length: 200 }, (_, i) => (i % 2 === 0 ? 0.3 : -1));
+    expect(grenzeGerissen(konto(rs))).toMatch(/drei Standardfehler|Rückschlag/);
+  });
+
+  it("zieht aus den echten R-Werten, wenn es sie gibt", () => {
+    const echte = vorlageAus(
+      {
+        anzahl: 40,
+        trefferquote: 0.5,
+        durchschnittGewinnR: 1,
+        durchschnittVerlustR: -1,
+        groessterVerlustR: -1,
+        konfidenz: { unten: -0.3, oben: 0.3, anteilNegativ: 0.5, streuung: 1, ziehungen: 2000 },
+      } as unknown as Kennzahlen,
+      Array.from({ length: 40 }, (_, i) => (i % 2 === 0 ? 1 : -1)),
+    );
+    expect(echte?.rWerte).toHaveLength(40);
+    expect(erwartetAuf(echte as PapierVorlage, 20).serie).toBeGreaterThanOrEqual(5);
   });
 });

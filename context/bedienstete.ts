@@ -776,6 +776,12 @@ Gegenprobe nicht „fragil“ ergab: eine fragile Regel verbraucht sonst den ein
 Zeitraum, den es für sie gibt. Bestanden hebt eine geprüfte Regel zum Kandidaten; das Ergebnis
 ist endgültig, außer bei „zu wenig Handel“.
 
+Geurteilt wird über ein 99-%-Intervall, in Zeitblöcken gezogen: bestanden nur, wenn es ganz über
+null liegt, nicht bestanden, wenn es ganz unter der Hälfte des Versprochenen liegt — sonst ist
+die Probe **offen**. Offen ist bei breit streuenden Regeln der Normalfall: eine Trendfolge mit
++0,14 R und 2,7 R Streuung braucht Tausende Handel, nicht dreißig. Sag das so, mit der Zahl aus
+der Begründung, statt ein offenes Ergebnis als Tendenz zu deuten.
+
 ## Der laufende Betrieb
 
 Mit \`papier_stand\` siehst du, was im Papierhandel läuft: Handel, Trefferquote und

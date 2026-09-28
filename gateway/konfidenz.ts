@@ -18,9 +18,10 @@
  * Zahl ergeben. Ein Konfidenzintervall, das bei jedem Aufruf wackelt, wäre genau die Sorte
  * Zahl, gegen die dieses Haus gebaut ist.
  *
- * **Was es nicht kann:** Der Bootstrap zieht die Handel unabhängig voneinander. Sind sie es
- * nicht — überlappende Positionen, eine Regel, die in Serien handelt —, ist das Intervall zu
- * eng. Es ist die **freundlichste** ehrliche Schätzung, nicht die vorsichtigste.
+ * **Was es nicht kann:** Einzeln gezogen, unterstellt der Bootstrap unabhängige Handel. Sind sie
+ * es nicht — überlappende Positionen, mehrere Märkte, die zusammen laufen —, ist das Intervall
+ * zu eng. Dafür gibt es seit dem 28.09. die Ziehung in Zeitblöcken (`zeiten`, `blockSekunden`);
+ * der gemeinsame Topf und die Schlussprobe ziehen so.
  */
 
 /**
@@ -52,6 +53,10 @@ export interface Konfidenz {
    * `undefined`, wenn der Erwartungswert nicht positiv ist — dann ist die Frage sinnlos.
    */
   noetigeHandel?: number;
+  /** Standardabweichung der einzelnen Handel in R. Fehlt bei Einträgen vor dem 28.09. */
+  streuung?: number;
+  /** Gezogen in so vielen Zeitblöcken statt Handel für Handel (seit 28.09.). */
+  bloecke?: number;
   ziehungen: number;
 }
 
@@ -76,24 +81,51 @@ function quantil(sortiert: readonly number[], anteil: number): number {
  */
 export function konfidenz(
   rWerte: readonly number[],
-  optionen: { ziehungen?: number; startwert?: number } = {},
+  optionen: {
+    ziehungen?: number;
+    startwert?: number;
+    /**
+     * Einstiegszeiten (Unix) zu den R-Werten. Mit `blockSekunden` wird **in Zeitblöcken**
+     * gezogen statt Handel für Handel — siehe `zeitbloecke`.
+     */
+    zeiten?: readonly number[];
+    blockSekunden?: number;
+    /** Anteil je Rand. Vorgabe 0,025 (95 %); die Schlussprobe nimmt 0,005 (99 %). */
+    rand?: number;
+  } = {},
 ): Konfidenz | undefined {
   const n = rWerte.length;
   if (n < 10) return undefined;
   const ziehungen = optionen.ziehungen ?? 2000;
   const naechste = wuerfel(optionen.startwert ?? 20260921);
+  const rand = optionen.rand ?? 0.025;
+  const bloecke = zeitbloecke(rWerte, optionen.zeiten, optionen.blockSekunden);
 
   const mittelwerte: number[] = new Array(ziehungen);
   let negativ = 0;
   for (let z = 0; z < ziehungen; z += 1) {
     let summe = 0;
-    for (let i = 0; i < n; i += 1) {
-      summe += rWerte[Math.floor(naechste() * n)];
+    let gezogen = n;
+    if (bloecke === null) {
+      for (let i = 0; i < n; i += 1) {
+        summe += rWerte[Math.floor(naechste() * n)];
+      }
+    } else {
+      gezogen = 0;
+      for (let b = 0; b < bloecke.length; b += 1) {
+        const block = bloecke[Math.floor(naechste() * bloecke.length)];
+        summe += block.summe;
+        gezogen += block.anzahl;
+      }
     }
-    const mittel = summe / n;
+    const mittel = summe / gezogen;
     mittelwerte[z] = mittel;
     if (mittel < 0) negativ += 1;
   }
+  const mittelDerZiehungen = mittelwerte.reduce((a, b) => a + b, 0) / ziehungen;
+  const fehlerDerZiehungen = Math.sqrt(
+    mittelwerte.reduce((a, m) => a + (m - mittelDerZiehungen) ** 2, 0) / Math.max(1, ziehungen - 1),
+  );
   mittelwerte.sort((a, b) => a - b);
 
   const mittel = rWerte.reduce((a, b) => a + b, 0) / n;
@@ -101,20 +133,72 @@ export function konfidenz(
   const varianz = rWerte.reduce((summe, r) => summe + (r - mittel) ** 2, 0) / Math.max(1, n - 1);
   const streuung = Math.sqrt(varianz);
 
+  // Wie viel breiter die Blöcke das Intervall machen als die Einzelziehung: die Zahl, um die
+  // „wie viele Handel bräuchte es" wächst, wenn Handel nicht unabhängig voneinander sind.
+  const aufschlag =
+    bloecke !== null && streuung > 0
+      ? Math.max(1, (fehlerDerZiehungen / (streuung / Math.sqrt(n))) ** 2)
+      : 1;
+
   let noetigeHandel: number | undefined;
   if (mittel > 0 && streuung > 0) {
     // n, ab dem 1,96 · s/√n kleiner als der Mittelwert wird. Eine Hochrechnung unter der
     // Annahme, dass Mittelwert und Streuung so bleiben — also eine Größenordnung, keine Zusage.
-    noetigeHandel = Math.ceil(((1.96 * streuung) / mittel) ** 2);
+    noetigeHandel = Math.ceil(((1.96 * streuung) / mittel) ** 2 * aufschlag);
   }
 
   return {
-    unten: quantil(mittelwerte, 0.025),
-    oben: quantil(mittelwerte, 0.975),
+    unten: quantil(mittelwerte, rand),
+    oben: quantil(mittelwerte, 1 - rand),
     anteilNegativ: negativ / ziehungen,
     ...(noetigeHandel !== undefined ? { noetigeHandel } : {}),
+    streuung,
+    ...(bloecke !== null ? { bloecke: bloecke.length } : {}),
     ziehungen,
   };
+}
+
+/**
+ * Handel in Zeitblöcke fassen — oder `null`, wenn einzeln gezogen wird.
+ *
+ * **Warum (28.09.2026):** Sechs Kryptomärkte im selben Topf sind keine sechs unabhängigen
+ * Stichproben. Beim SuperTrend-Fund stiegen in 63 % der Handel binnen drei Stunden auch andere
+ * Coins ein — dieselbe Marktbewegung, mehrfach gezählt. Einzeln gezogen ergab das ein Intervall
+ * von +0,04 bis +0,25 R; in Wochenblöcken gezogen reicht es von −0,01 bis +0,35 R. Wer Handel
+ * zieht, als wären sie unabhängig, rechnet sich sicherer, als er ist.
+ *
+ * Unter zehn Blöcken wird einzeln gezogen: aus weniger Blöcken gibt es kein brauchbares
+ * Intervall, und die Einzelziehung ist dann die einzige Schätzung, die bleibt.
+ */
+function zeitbloecke(
+  rWerte: readonly number[],
+  zeiten: readonly number[] | undefined,
+  blockSekunden: number | undefined,
+): { summe: number; anzahl: number }[] | null {
+  if (zeiten === undefined || blockSekunden === undefined || blockSekunden <= 0) return null;
+  if (zeiten.length !== rWerte.length) return null;
+  const nachBlock = new Map<number, { summe: number; anzahl: number }>();
+  for (let i = 0; i < rWerte.length; i += 1) {
+    const schluessel = Math.floor(zeiten[i] / blockSekunden);
+    const block = nachBlock.get(schluessel) ?? { summe: 0, anzahl: 0 };
+    block.summe += rWerte[i];
+    block.anzahl += 1;
+    nachBlock.set(schluessel, block);
+  }
+  return nachBlock.size >= 10 ? [...nachBlock.values()] : null;
+}
+
+/**
+ * Die Blocklänge für Handel über mehrere Märkte: eine Woche, oder die doppelte mittlere
+ * Haltedauer, wenn die länger ist — ein Block soll ganze Marktphasen fassen, nicht halbe Handel.
+ */
+export function blocklaenge(
+  handel: readonly { einstiegZeit: number; ausstiegZeit: number }[],
+): number {
+  const WOCHE = 7 * 86_400;
+  if (handel.length === 0) return WOCHE;
+  const dauer = handel.map((h) => h.ausstiegZeit - h.einstiegZeit).sort((a, b) => a - b);
+  return Math.max(WOCHE, 2 * dauer[Math.floor(dauer.length / 2)]);
 }
 
 /** Die Zeile für den Bericht. */
