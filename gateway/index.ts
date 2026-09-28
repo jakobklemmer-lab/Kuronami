@@ -379,7 +379,9 @@ async function main(): Promise<void> {
    */
   const lehrgangTick = async (): Promise<void> => {
     try {
-      const { gelernt, halt } = await agent.lehrgang.takt();
+      let { gelernt, halt } = await agent.lehrgang.takt();
+      // Erst die Videos, dann das Buch (Jakob, 29.09.).
+      if (halt.startsWith("nichts offen")) ({ gelernt, halt } = await agent.buchLehrgang.takt());
       for (const v of gelernt) {
         console.log(
           v.ok

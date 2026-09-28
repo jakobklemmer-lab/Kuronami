@@ -34,6 +34,12 @@ export interface Video {
   aufrufe?: number;
   /** Eins der ältesten Strategievideos, mit denen Jakob gelernt hat — der Lehrgang nimmt sie zuerst. */
   kalibrierung?: boolean;
+  /**
+   * Nur bei einem Buch (seit 29.09., Murphy): erste und letzte PDF-Seite des Abschnitts. Dann ist
+   * `start` eines Segments die Seite, nicht die Sekunde.
+   */
+  seiten?: [number, number];
+  buch?: string;
 }
 
 export interface Segment {
@@ -55,7 +61,8 @@ export interface Transkript {
 
 export class WissenFehler extends Error {}
 
-const VIDEO_ID = /^[\w-]{11}$/;
+// YouTube-Kennungen haben elf Zeichen; Buchabschnitte heißen `murphy-07-2`. Pfadsicher bleibt beides.
+const VIDEO_ID = /^[\w-]{6,40}$/;
 const KANAL = /^[a-z0-9-]{1,40}$/;
 const MAX_SEGMENTE = 20_000;
 const MAX_ZEICHEN = 1_500_000;

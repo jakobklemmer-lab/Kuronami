@@ -275,6 +275,7 @@ export class KuroAgent {
   /** Die Lehrvideos (Transkripte, Notizen) und wer sie nachts durcharbeitet. */
   readonly #wissen: WissenAblage;
   readonly #lehrgang: Lehrgang;
+  readonly #buchLehrgang: Lehrgang;
   readonly #gedaechtnis: ReturnType<typeof createGedaechtnis>;
   /** Die Bühne: womit Kuro Jakob etwas hinstellt. */
   readonly #buehne: ReturnType<typeof createBuehne>;
@@ -370,6 +371,25 @@ export class KuroAgent {
     this.#wissen = createWissen({ workdir: this.#workdir });
     this.#lehrgang = createLehrgang({
       workdir: this.#workdir,
+      wissen: this.#wissen,
+      modell: "Sonnet",
+      schreibe: (system, prompt) =>
+        schreibeEinmal({
+          wer: "kuro",
+          wofuer: "lehrgang",
+          system,
+          prompt,
+          model: "sonnet",
+          cwd: this.#workdir,
+          onVerbrauch: (posten) => this.#bucheVerbrauch(posten),
+        }),
+      abo: () => this.#abo.lies(true),
+      schlange: (arbeit) => this.#hintenAn(arbeit),
+    });
+    // Das Buch (29.09.): John Murphy als zweite Quelle, dran erst, wenn TradingLab durch ist (index.ts).
+    this.#buchLehrgang = createLehrgang({
+      workdir: this.#workdir,
+      kanal: "murphy",
       wissen: this.#wissen,
       modell: "Sonnet",
       schreibe: (system, prompt) =>
@@ -505,6 +525,10 @@ export class KuroAgent {
 
   get lehrgang(): Lehrgang {
     return this.#lehrgang;
+  }
+
+  get buchLehrgang(): Lehrgang {
+    return this.#buchLehrgang;
   }
 
   /**

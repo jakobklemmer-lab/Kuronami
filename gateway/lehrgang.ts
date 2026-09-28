@@ -42,6 +42,25 @@ export const GRENZE_WOCHE = 85;
 /** So oft darf ein Video scheitern, bevor es übersprungen wird. */
 export const FEHLVERSUCHE = 2;
 
+/**
+ * Fenster und Tagesmenge aus der Umgebung (29.09.): `KURO_LEHRGANG_FENSTER=0-24` lässt den
+ * Lehrgang auch tagsüber lernen, `KURO_LEHRGANG_JE_NACHT=40` mehr am Stück — Jakob wollte, dass
+ * nach dem Wochen-Reset am 02.10. sofort gelernt wird statt erst in der Nacht. Die Grenzen des Abos
+ * (70 % Sitzung, 85 % Woche) gelten unverändert; eine Nachricht an Kuro wartet höchstens einen
+ * Abschnitt lang.
+ */
+export function ausUmgebung(): { fenster: readonly [number, number]; jeNacht: number } {
+  const f = /^(\d{1,2})-(\d{1,2})$/.exec(process.env.KURO_LEHRGANG_FENSTER?.trim() ?? "");
+  const n = Number(process.env.KURO_LEHRGANG_JE_NACHT);
+  return {
+    fenster: f ? [Number(f[1]), Number(f[2])] : LEHRGANG_FENSTER,
+    jeNacht: Number.isInteger(n) && n > 0 ? n : JE_NACHT,
+  };
+}
+
+/** Ein Abschnitt aus einem Buch statt eines Videos? */
+export const istBuch = (v: Video): boolean => v.seiten !== undefined;
+
 // ------------------------------------------------------------------------------ Die Notiz
 
 export const ABSCHNITTE = [
@@ -284,7 +303,36 @@ Ein Abschnitt ohne Inhalt enthält nur „keine". Antworte ohne Text davor oder 
 - …
 </fehlt>`;
 
+export const LEHRGANG_SYSTEM_BUCH = LEHRGANG_SYSTEM.replace(
+  "Du arbeitest ein Lehrvideo über Trading durch, für Kuro und seine Börsenabteilung. Du bekommst den gesprochenen Text mit Zeitmarken [m:ss]; das Bild siehst du nicht.",
+  "Du arbeitest einen Abschnitt eines Lehrbuchs über technische Analyse durch, für Kuro und seine Börsenabteilung. Du bekommst den Text, Seite für Seite mit [S. n]; Abbildungen und Charts siehst du nicht.",
+)
+  .replace(
+    "Jeder Punkt trägt die Zeitmarke seiner Stelle: [3:19] oder [3:19–4:15].",
+    "Jeder Punkt trägt die Seite seiner Stelle: [S. 123] oder [S. 123–125].",
+  )
+  .replaceAll("[m:ss]", "[S. n]")
+  .replace("Fachbegriffe, wie das Video sie benutzt", "Fachbegriffe, wie das Buch sie benutzt")
+  .replace("vorgeführte Trades:", "besprochene Beispiele:")
+  .replace("wovor das Video warnt", "wovor das Buch warnt")
+  .replace(
+    "mit Zeitmarke und der Grundlage, die das Video nennt",
+    "mit Seite und der Grundlage, die das Buch nennt",
+  )
+  .replace(
+    '<fehlt>: Stellen, an denen etwas nur gezeigt wird („as you can see here"), mit Zeitmarke und was dort vermutlich zu sehen ist.',
+    "<fehlt>: Stellen, die sich auf eine Abbildung stützen („Figure 4.2“), mit Seite und was dort vermutlich zu sehen ist.",
+  );
+
 export function lehrgangPrompt(video: Video, t: Transkript): string {
+  if (istBuch(video)) {
+    return [
+      `Buch: ${video.buch ?? "ohne Titel"}`,
+      `Abschnitt: ${video.titel} (PDF-Seiten ${video.seiten?.[0]}–${video.seiten?.[1]})`,
+      "",
+      ...t.segmente.map((s) => `[S. ${s.start}] ${s.text}`),
+    ].join("\n");
+  }
   return [
     `Video: ${video.titel} (${zeitmarke(video.dauer)})`,
     `Transkript: ${t.art === "manuell" ? "vom Kanal" : "automatisch erkannt"}, Sprache ${t.sprache}`,
@@ -310,34 +358,47 @@ export function notizMarkdown(opt: {
   zeit: Date;
 }): string {
   const { video, transkript: t, notiz } = opt;
+  const buch = istBuch(video);
   const { tag, uhr } = wienerZeit(opt.zeit.toISOString());
   const heuhaufen = buchstaben(`${video.titel} ${t.segmente.map((s) => s.text).join(" ")}`);
   let zitate = 0;
   let woertlich = 0;
   const rumpf = ABSCHNITTE.map((a) => {
-    if (!notiz.abschnitte[a]) return `## ${UEBERSCHRIFT[a]}\n\n*keine*`;
+    const ueberschrift = buch && a === "fehlt" ? "Nur in Abbildungen" : UEBERSCHRIFT[a];
+    if (!notiz.abschnitte[a]) return `## ${ueberschrift}\n\n*keine*`;
     const geprueft = pruefeZitate(notiz.abschnitte[a], heuhaufen);
     zitate += geprueft.zitate;
     woertlich += geprueft.woertlich;
     const gegliedert = a === "regeln" ? regelnMarkdown(geprueft.text) : stichpunkte(geprueft.text);
-    return `## ${UEBERSCHRIFT[a]}\n\n${verlinkeZeitmarken(gegliedert, video.id)}`;
+    return `## ${ueberschrift}\n\n${buch ? gegliedert : verlinkeZeitmarken(gegliedert, video.id)}`;
   });
-  const kopf = [
-    `# ${video.titel}`,
-    "",
-    `- **Video:** [youtube.com/watch?v=${video.id}](https://www.youtube.com/watch?v=${video.id}) · ${zeitmarke(video.dauer)}${video.kalibrierung ? " · Kalibrierungsvideo" : ""}`,
-    `- **Transkript:** ${t.art === "manuell" ? "vom Kanal" : "automatisch erkannt"} (${t.sprache}), ${t.segmente.length} Zeilen`,
-    `- **Durchgearbeitet:** ${tag.split("-").reverse().join(".")} ${uhr} (Wien), ${opt.modell}, ohne Werkzeuge`,
-    `- **Regeln:** ${zaehle(notiz.pruefbar)}`,
-    ...(zitate > 0
-      ? [`- **Zitate:** ${zitate}, davon ${woertlich} wörtlich in Transkript oder Titel`]
-      : []),
-    ...(notiz.fehlend.length > 0
-      ? [`- **Nicht geliefert:** ${notiz.fehlend.map((a) => UEBERSCHRIFT[a]).join(", ")}`]
-      : []),
-    "",
-    "*Aus dem gesprochenen Text. Die Zeitmarken führen an die Stelle im Video. Zahlen unter „Behauptungen“ sind Angaben des Videos, keine Belege.*",
-  ];
+  const kopf = buch
+    ? [
+        `# ${video.titel}`,
+        "",
+        `- **Buch:** ${video.buch ?? "ohne Titel"}, PDF-Seiten ${video.seiten?.[0]}–${video.seiten?.[1]}`,
+        `- **Durchgearbeitet:** ${tag.split("-").reverse().join(".")} ${uhr} (Wien), ${opt.modell}, ohne Werkzeuge`,
+        `- **Regeln:** ${zaehle(notiz.pruefbar)}`,
+        ...(zitate > 0 ? [`- **Zitate:** ${zitate}, davon ${woertlich} wörtlich im Text`] : []),
+        "",
+        "*Aus dem Text der PDF; [S. n] ist die PDF-Seite, nicht die gedruckte. Abbildungen fehlen. Zahlen unter „Behauptungen“ sind Angaben des Buchs, keine Belege.*",
+      ]
+    : [
+        `# ${video.titel}`,
+        "",
+        `- **Video:** [youtube.com/watch?v=${video.id}](https://www.youtube.com/watch?v=${video.id}) · ${zeitmarke(video.dauer)}${video.kalibrierung ? " · Kalibrierungsvideo" : ""}`,
+        `- **Transkript:** ${t.art === "manuell" ? "vom Kanal" : "automatisch erkannt"} (${t.sprache}), ${t.segmente.length} Zeilen`,
+        `- **Durchgearbeitet:** ${tag.split("-").reverse().join(".")} ${uhr} (Wien), ${opt.modell}, ohne Werkzeuge`,
+        `- **Regeln:** ${zaehle(notiz.pruefbar)}`,
+        ...(zitate > 0
+          ? [`- **Zitate:** ${zitate}, davon ${woertlich} wörtlich in Transkript oder Titel`]
+          : []),
+        ...(notiz.fehlend.length > 0
+          ? [`- **Nicht geliefert:** ${notiz.fehlend.map((a) => UEBERSCHRIFT[a]).join(", ")}`]
+          : []),
+        "",
+        "*Aus dem gesprochenen Text. Die Zeitmarken führen an die Stelle im Video. Zahlen unter „Behauptungen“ sind Angaben des Videos, keine Belege.*",
+      ];
   return `${kopf.join("\n")}\n\n${rumpf.join("\n\n")}\n`;
 }
 
@@ -353,22 +414,31 @@ export interface Versuch {
 }
 
 /** Ist das ein Versuch aus der Nacht, zu der `jetzt` gehört? */
-function inDieserNacht(v: Versuch, jetzt: Date): boolean {
+function inDieserNacht(
+  v: Versuch,
+  jetzt: Date,
+  fenster: readonly [number, number] = LEHRGANG_FENSTER,
+): boolean {
   const heute = wienerZeit(jetzt.toISOString(), ZONE).tag;
   const w = wienerZeit(v.zeit, ZONE);
-  return w.tag === heute && w.stunde >= LEHRGANG_FENSTER[0] && w.stunde < LEHRGANG_FENSTER[1];
+  return w.tag === heute && w.stunde >= fenster[0] && w.stunde < fenster[1];
 }
 
 /**
  * Darf jetzt ein Video beginnen — nach Uhr und Nachtgrenze? `null` heißt ja, sonst der Grund in
  * einem Satz; der steht auf der System-Seite.
  */
-export function warumNichtJetzt(jetzt: Date, versuche: readonly Versuch[]): string | null {
+export function warumNichtJetzt(
+  jetzt: Date,
+  versuche: readonly Versuch[],
+  fenster: readonly [number, number] = LEHRGANG_FENSTER,
+  jeNacht: number = JE_NACHT,
+): string | null {
   const { stunde } = wienerZeit(jetzt.toISOString(), ZONE);
-  const [von, bis] = LEHRGANG_FENSTER;
+  const [von, bis] = fenster;
   if (stunde < von || stunde >= bis) return `ruht bis ${von}:00 Uhr`;
-  const heute = versuche.filter((v) => inDieserNacht(v, jetzt)).length;
-  if (heute >= JE_NACHT) return `${JE_NACHT} Videos in dieser Nacht — genug`;
+  const heute = versuche.filter((v) => inDieserNacht(v, jetzt, fenster)).length;
+  if (heute >= jeNacht) return `${jeNacht} Videos in dieser Nacht — genug`;
   return null;
 }
 
@@ -466,6 +536,7 @@ export function createLehrgang(deps: LehrgangDeps): Lehrgang {
   const buchDatei = path.join(deps.workdir, "wissen", kanal, "lehrgang.json");
   let laeuft = false;
   let zuletzt: LehrgangStand["zuletzt"] = null;
+  const { fenster, jeNacht } = ausUmgebung();
 
   async function versuche(): Promise<Versuch[]> {
     try {
@@ -489,7 +560,10 @@ export function createLehrgang(deps: LehrgangDeps): Lehrgang {
     const beginn = jetzt();
     try {
       const antwort = await deps.schlange(() =>
-        deps.schreibe(LEHRGANG_SYSTEM, lehrgangPrompt(video, t)),
+        deps.schreibe(
+          istBuch(video) ? LEHRGANG_SYSTEM_BUCH : LEHRGANG_SYSTEM,
+          lehrgangPrompt(video, t),
+        ),
       );
       const notiz = leseNotiz(antwort);
       // Fremder Text, von einem Modell umgeschrieben, auf die Platte und später wieder in einen
@@ -537,7 +611,8 @@ export function createLehrgang(deps: LehrgangDeps): Lehrgang {
         for (;;) {
           const bisher = await versuche();
           // Erst Uhr und Nachtgrenze, dann der Anbieter: tagsüber wird das Abo nicht gefragt.
-          const grund = warumNichtJetzt(jetzt(), bisher) ?? warumNichtAbo(await deps.abo());
+          const grund =
+            warumNichtJetzt(jetzt(), bisher, fenster, jeNacht) ?? warumNichtAbo(await deps.abo());
           if (grund) {
             halt = grund;
             break;
@@ -586,11 +661,11 @@ export function createLehrgang(deps: LehrgangDeps): Lehrgang {
       const [bisher, inventar] = await Promise.all([versuche(), deps.wissen.inventar(kanal)]);
       const titel = new Map(inventar.map((v) => [v.id, v.titel]));
       const n = jetzt();
-      const nacht = bisher.filter((v) => inDieserNacht(v, n));
+      const nacht = bisher.filter((v) => inDieserNacht(v, n, fenster));
       const zuOft = inventar.filter((v) => fehlversuche(v.id, bisher) >= FEHLVERSUCHE);
       return {
-        fenster: LEHRGANG_FENSTER,
-        jeNacht: JE_NACHT,
+        fenster,
+        jeNacht,
         grenzen: { sitzung: GRENZE_SITZUNG, woche: GRENZE_WOCHE },
         aus: aus(),
         zuletzt,
