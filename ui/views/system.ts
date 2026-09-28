@@ -117,6 +117,7 @@ interface PendingApproval {
 
 const AKTUALISIEREN_MS = 800;
 const TAKT_MS = 30_000;
+const LEHRGANG_TAKT_MS = 5 * 60_000;
 
 // ------------------------------------------------------------- Formen
 
@@ -383,6 +384,99 @@ export function nachtbauHtml(s: NachtbauStand, jetzt: Date): string {
     }`;
 }
 
+/** Was `/integrations/wissen/tradinglab` liefert — der Stand der Ablage und der des Lehrgangs. */
+export interface LehrgangKarte {
+  videos: number;
+  transkripte: number;
+  ohneUntertitel: number;
+  offen: number;
+  stunden: number;
+  durchgearbeitet: number;
+  kalibrierung: { videos: number; durchgearbeitet: number };
+  lehrgang: {
+    fenster: [number, number];
+    jeNacht: number;
+    aus: boolean;
+    zuletzt: { zeit: string; halt: string } | null;
+    dieseNacht: { versuche: number; fertig: number };
+    letzte: { id: string; titel: string; zeit: string; ok: boolean; grund?: string }[];
+    uebersprungen: { id: string; titel: string; grund: string }[];
+  } | null;
+}
+
+/**
+ * Der Lehrgang (N8, 2026-09-28): wie viele TradingLab-Videos es gibt, zu wie vielen ein
+ * Transkript liegt und wie viele Kuro schon durchgearbeitet hat. Die jüngsten Notizen stehen
+ * zugeklappt darunter und werden erst beim Aufklappen geladen (`notizen`: schon geladene, als
+ * HTML) — sie sind lang, und meist will man nur die Zahl sehen.
+ */
+export function lehrgangHtml(s: LehrgangKarte, notizen: ReadonlyMap<string, string>): string {
+  const l = s.lehrgang;
+  const fakt = (name: string, wert: string) =>
+    `<div class="system-fakt"><dt>${name}</dt><dd>${escapeHtml(wert)}</dd></div>`;
+  const transkripte = [String(s.transkripte)];
+  if (s.offen > 0) transkripte.push(`${s.offen} fehlen noch`);
+  if (s.ohneUntertitel > 0) transkripte.push(`${s.ohneUntertitel} ohne Untertitel`);
+  const kalibrierung =
+    s.kalibrierung.videos > 0
+      ? ` · Kalibrierung ${s.kalibrierung.durchgearbeitet} von ${s.kalibrierung.videos}`
+      : "";
+  const fakten = [
+    fakt("Videos", `${s.videos} · ${s.stunden.toLocaleString("de-DE")} Std.`),
+    fakt("Transkripte", transkripte.join(" · ")),
+    fakt("Durchgearbeitet", `${s.durchgearbeitet} von ${s.transkripte}${kalibrierung}`),
+  ];
+  if (l) {
+    fakten.push(
+      fakt(
+        "Lehrgang",
+        l.aus
+          ? "abgeschaltet (KURO_LEHRGANG=aus)"
+          : `nachts ${l.fenster[0]}–${l.fenster[1]} Uhr, höchstens ${l.jeNacht} Videos`,
+      ),
+    );
+    if (!l.aus && l.zuletzt) fakten.push(fakt("Jetzt", l.zuletzt.halt));
+    if (l.dieseNacht.versuche > 0) {
+      const fehl = l.dieseNacht.versuche - l.dieseNacht.fertig;
+      fakten.push(
+        fakt(
+          "Diese Nacht",
+          `${l.dieseNacht.fertig} ${l.dieseNacht.fertig === 1 ? "Notiz" : "Notizen"}${fehl > 0 ? `, ${fehl} gescheitert` : ""}`,
+        ),
+      );
+    }
+  }
+
+  // Je Video nur der jüngste Versuch — ein zweiter Anlauf ersetzt den ersten in der Liste.
+  const gesehen = new Set<string>();
+  const zeilen = (l?.letzte ?? [])
+    .filter((v) => {
+      if (gesehen.has(v.id)) return false;
+      gesehen.add(v.id);
+      return true;
+    })
+    .map((v) => {
+      const wann = new Date(v.zeit).toLocaleString("de-DE", {
+        day: "numeric",
+        month: "numeric",
+        hour: "2-digit",
+        minute: "2-digit",
+      });
+      const titel = `${escapeHtml(v.titel)} <span class="system-lehrgang__wann">· ${escapeHtml(wann)}</span>`;
+      if (!v.ok) {
+        return `<li class="ist-gescheitert">${titel} <span class="system-lehrgang__grund">· gescheitert: ${escapeHtml(v.grund ?? "")}</span></li>`;
+      }
+      return `<li><details data-teil="notiz-${escapeHtml(v.id)}" data-notiz="${escapeHtml(v.id)}"><summary>${titel}</summary><div class="markdown">${notizen.get(v.id) ?? `<p class="card__hint">Lädt …</p>`}</div></details></li>`;
+    });
+  const uebersprungen = l?.uebersprungen.length
+    ? `<p class="card__hint">Übersprungen nach zwei Fehlschlägen: ${l.uebersprungen.map((u) => `${escapeHtml(u.titel)} (${escapeHtml(u.grund)})`).join("; ")}</p>`
+    : "";
+  return `
+    <dl class="system-fakten">${fakten.join("")}</dl>
+    ${zeilen.length ? `<ol class="system-lehrgang__liste">${zeilen.join("")}</ol>` : `<p class="system-leer">Noch keine Notiz.</p>`}
+    ${uebersprungen}`;
+}
+
 /**
  * Das Gesprächsarchiv unter Kuros Karte (2026-09-27): wann das Gespräch abgelegt wird, was schon
  * liegt, und ein Knopf, es jetzt zu tun. Kuro liest den Wortlaut selbst (`im_archiv_suchen`); hier
@@ -543,9 +637,11 @@ function laeufeHtml(o: Orchestrator, jetzt: Date): string {
   return `<ol class="laeufe">${o.verbrauch.letzte
     .map((p) => {
       const d = new Date(p.zeit);
+      // Bei Kuro sagt `unter`, wofür ein eigener Lauf war (Übergabe, Lehrgang), sonst der Kanal.
+      const wofuer = p.unter ? werName(p.unter) : p.kanal;
       const wer =
         p.wer === "kuro"
-          ? `Kuro${p.kanal ? ` <span class="laeufe__fuer">${escapeHtml(p.kanal)}</span>` : ""}`
+          ? `Kuro${wofuer ? ` <span class="laeufe__fuer">${escapeHtml(wofuer)}</span>` : ""}`
           : `${escapeHtml(werName(p.wer))}${p.unter ? ` <span class="laeufe__fuer">für ${escapeHtml(werName(p.unter))}</span>` : ""}`;
       const zeit =
         d.toDateString() === jetzt.toDateString()
@@ -626,6 +722,14 @@ export const systemView: View = {
             <div data-role="laeufe"></div>
           </section>
 
+          <section class="card glass card--lehrgang system-lehrgang" aria-labelledby="system-lehrgang-titel">
+            <header class="card__head">
+              ${icon("book", { className: "card__icon" })}
+              <h2 class="card__title" id="system-lehrgang-titel">Lehrgang · TradingLab</h2>
+            </header>
+            <div data-role="lehrgang"><p class="card__hint">Lädt …</p></div>
+          </section>
+
           <section class="card glass card--nachtbau system-nachtbau" aria-labelledby="system-nachtbau-titel">
             <header class="card__head">
               ${icon("moon", { className: "card__icon" })}
@@ -660,6 +764,53 @@ export const systemView: View = {
         // Ohne Stand bleibt die Karte leer; der Nachtbau selbst hängt nicht an ihr.
       }
     }
+    const lehrgangEl = q<HTMLElement>("lehrgang");
+    const notizen = new Map<string, string>();
+    async function ladeLehrgang(): Promise<void> {
+      try {
+        const stand = await ctx.api.get<LehrgangKarte>("/integrations/wissen/tradinglab");
+        if (weg) return;
+        const offen = new Set(
+          [...lehrgangEl.querySelectorAll<HTMLDetailsElement>("details[open]")].map(
+            (d) => d.dataset.teil,
+          ),
+        );
+        lehrgangEl.innerHTML = lehrgangHtml(stand, notizen);
+        for (const d of lehrgangEl.querySelectorAll<HTMLDetailsElement>("details")) {
+          if (offen.has(d.dataset.teil)) d.open = true;
+        }
+      } catch (error) {
+        if (weg) return;
+        lehrgangEl.innerHTML = `<p class="card__hint">${escapeHtml(describeApiError(error))}</p>`;
+      }
+    }
+    // `toggle` steigt nicht auf — deshalb in der Einfangphase.
+    lehrgangEl.addEventListener(
+      "toggle",
+      (e) => {
+        const d = e.target as HTMLDetailsElement;
+        const id = d.dataset.notiz;
+        if (!d.open || !id || notizen.has(id)) return;
+        const ziel = d.querySelector<HTMLElement>(".markdown");
+        void ctx.api
+          .get<{ text: string }>(
+            `/integrations/wissen/tradinglab/notizen/${encodeURIComponent(id)}`,
+          )
+          .then(
+            (n) => {
+              // Der Titel steht schon in der Zeile; die Überschrift der Datei wäre doppelt.
+              const html = renderMarkdown(n.text.replace(/^# .*\n+/, ""));
+              notizen.set(id, html);
+              if (ziel) ziel.innerHTML = html;
+            },
+            (error) => {
+              if (ziel)
+                ziel.innerHTML = `<p class="card__hint">${escapeHtml(describeApiError(error))}</p>`;
+            },
+          );
+      },
+      true,
+    );
     const kuroEl = q<HTMLElement>("kuro");
     const archivEl = q<HTMLElement>("archiv");
     const personalEl = q<HTMLElement>("personal");
@@ -832,17 +983,21 @@ export const systemView: View = {
       void ladeAbo();
       void ladeNachtbau();
     }, TAKT_MS);
+    // Der Lehrgang ändert sich höchstens einmal je Video, und sein Stand liest jedes Transkript.
+    const lehrgangTakt = globalThis.setInterval(() => void ladeLehrgang(), LEHRGANG_TAKT_MS);
 
     void ladeOrchestrator();
     void ladeAbo();
     void ladeRueckfragen();
     void ladeArchiv();
     void ladeNachtbau();
+    void ladeLehrgang();
 
     return () => {
       weg = true;
       if (plan !== null) globalThis.clearTimeout(plan);
       globalThis.clearInterval(takt);
+      globalThis.clearInterval(lehrgangTakt);
       abmelden();
     };
   },

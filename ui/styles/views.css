@@ -3373,3 +3373,29 @@ body.ist-sprechtaste::after {
 .system-nachtbau__status {
   opacity: 0.7;
 }
+
+/* Lehrgang (N8, 2026-09-28): die jüngsten Notizen, zugeklappt, ruhig wie der Nachtbau. */
+.system-lehrgang__liste {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: 0.35rem;
+  font-size: 0.9rem;
+}
+.system-lehrgang summary {
+  cursor: pointer;
+}
+.system-lehrgang__wann,
+.system-lehrgang__grund {
+  color: var(--fg-muted);
+}
+.system-lehrgang .ist-gescheitert {
+  opacity: 0.75;
+}
+.system-lehrgang details .markdown {
+  margin: 0.5rem 0 0.75rem;
+  max-height: 28rem;
+  overflow: auto;
+  font-size: 0.85rem;
+}
