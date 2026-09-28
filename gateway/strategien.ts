@@ -50,6 +50,37 @@ export interface UniversumVermerk {
 }
 
 /**
+ * Wo die Regel im Versuchsbuch steht (`versuche.ts`), seit 28.09. am Eintrag: der wievielte
+ * Versuch sie war und ob ihr Ergebnis die Hürde nach allen Versuchen nimmt.
+ */
+export interface VersuchVermerk {
+  nr: number;
+  z: number;
+  huerde: number;
+  haelt: boolean;
+}
+
+/**
+ * Die Schlussprobe (`schlussprobe.ts`): die unveränderte Regel auf den Kursen nach `gesehenBis`,
+ * genau einmal. „zu wenig Handel" ist nicht endgültig — die Probe darf später noch einmal laufen,
+ * wenn mehr Kerzen da sind; „bestanden" und „nicht bestanden" sind es.
+ */
+export interface SchlussprobeVermerk {
+  am: string;
+  /** Erster und letzter Tag der Probe. */
+  von: string;
+  bis: string;
+  maerkte: string[];
+  anzahl: number;
+  erwartungswertR: number;
+  konfidenz?: Konfidenz;
+  /** Der Erwartungswert aus der Suche, an dem gemessen wird. */
+  vorherR: number;
+  urteil: "bestanden" | "nicht bestanden" | "zu wenig Handel";
+  begruendung: string;
+}
+
+/**
  * Das Urteil der letzten Gegenprobe des Prüfers (`gegenprobe.ts`), seit 2026-09-27 am Eintrag.
  * Vorher ging es nur als Text an den Prüfer zurück — und woraus niemand lesen kann, daraus lernt
  * auch der Stratege nichts (`lehren.ts`).
@@ -84,6 +115,15 @@ export interface StrategieKopf {
   universum?: UniversumVermerk;
   /** Die letzte Gegenprobe; fehlt, solange keine lief. */
   gegenprobe?: GegenprobeVermerk;
+  /**
+   * Bis wohin die Entwicklung dieser Regel Kurse gesehen hat (`YYYY-MM-DD`, ausschließlich) —
+   * dort beginnt ihre Schlussprobe. Fehlt bei Einträgen vor dem 28.09.; dann gilt `bis`.
+   */
+  gesehenBis?: string;
+  /** Die weiteren Märkte, die beim Ablegen mitgerechnet wurden — die Schlussprobe nimmt dieselben. */
+  maerkte?: string[];
+  versuch?: VersuchVermerk;
+  schlussprobe?: SchlussprobeVermerk;
   /**
    * ISO-Zeitpunkt der Ablage ins Archiv, oder fehlt: nicht archiviert.
    *
@@ -121,6 +161,9 @@ export interface StrategienArchiv {
     bericht: string;
     status?: StrategieStatus;
     universum?: UniversumVermerk;
+    gesehenBis?: string;
+    maerkte?: string[];
+    versuch?: VersuchVermerk;
   }): Promise<StrategieKopf>;
   /**
    * `mitArchiv` (Vorgabe `true`) entscheidet, ob Archiviertes mitgezählt wird — die alten
@@ -130,7 +173,12 @@ export interface StrategienArchiv {
   lies(id: string): Promise<StrategieEintrag | null>;
   aendere(
     id: string,
-    felder: { status?: StrategieStatus; notiz?: string; gegenprobe?: GegenprobeVermerk },
+    felder: {
+      status?: StrategieStatus;
+      notiz?: string;
+      gegenprobe?: GegenprobeVermerk;
+      schlussprobe?: SchlussprobeVermerk;
+    },
   ): Promise<StrategieEintrag | null>;
   /** Ins Archiv legen. `null`, wenn es die Strategie nicht gibt. */
   archiviere(id: string): Promise<StrategieKopf | null>;
@@ -194,8 +242,28 @@ interface Probe {
  * 2026-09-21: „Es ist auch okay, wenn eine Strategie nur in einem Produkt läuft, muss dann halt
  * so gekennzeichnet sein." Deshalb reicht ein belegter Heimatmarkt, auch wenn der Topf es nicht
  * ist; der Vermerk steht am Kopf des Eintrags, als Marke in der Liste und im Bericht.
+ *
+ * **Seit 28.09. zählen die Versuche mit** (`zulassung`). Ein Intervall über null ist nach hundert
+ * probierten Varianten nichts Besonderes mehr. `kandidat` verlangt dann zusätzlich eins von
+ * beidem: das Ergebnis hält die Hürde nach allen Versuchen im Versuchsbuch, oder die Regel hat
+ * die Schlussprobe auf den gesperrten Kursen bestanden. Ohne `zulassung` (Einträge von vorher,
+ * `bau/neu-bewerten.ts`) gilt die alte Regel.
  */
 export function bewerte(
+  kennzahlen: Kennzahlen | null,
+  outOfSample: Abschnitt | null,
+  warnungen: readonly string[],
+  universum?: UniversumVermerk,
+  zulassung?: { haeltNachVersuchen: boolean; schlussprobe?: SchlussprobeVermerk["urteil"] },
+): StrategieStatus {
+  const status = bewerteKennzahlen(kennzahlen, outOfSample, warnungen, universum);
+  if (status !== "kandidat" || zulassung === undefined) return status;
+  return zulassung.haeltNachVersuchen || zulassung.schlussprobe === "bestanden"
+    ? "kandidat"
+    : "geprueft";
+}
+
+function bewerteKennzahlen(
   kennzahlen: Kennzahlen | null,
   outOfSample: Abschnitt | null,
   warnungen: readonly string[],
@@ -277,10 +345,14 @@ export function createStrategien(deps: StrategienDeps): StrategienArchiv {
             eintrag.outOfSample,
             eintrag.warnungstexte,
             eintrag.universum,
+            eintrag.versuch ? { haeltNachVersuchen: eintrag.versuch.haelt } : undefined,
           ),
         kennzahlen: eintrag.kennzahlen,
         warnungen: eintrag.warnungstexte.length,
         ...(eintrag.universum === undefined ? {} : { universum: eintrag.universum }),
+        ...(eintrag.gesehenBis === undefined ? {} : { gesehenBis: eintrag.gesehenBis }),
+        ...(eintrag.maerkte === undefined ? {} : { maerkte: eintrag.maerkte }),
+        ...(eintrag.versuch === undefined ? {} : { versuch: eintrag.versuch }),
         strategie: eintrag.strategie,
         inSample: eintrag.inSample,
         outOfSample: eintrag.outOfSample,
@@ -324,6 +396,7 @@ export function createStrategien(deps: StrategienDeps): StrategienArchiv {
         ...(felder.status ? { status: felder.status } : {}),
         ...(felder.notiz !== undefined ? { notiz: felder.notiz } : {}),
         ...(felder.gegenprobe ? { gegenprobe: felder.gegenprobe } : {}),
+        ...(felder.schlussprobe ? { schlussprobe: felder.schlussprobe } : {}),
       };
       await writeFile(path.join(ordner, datei), `${JSON.stringify(neu, null, 2)}\n`, "utf8");
       return neu;

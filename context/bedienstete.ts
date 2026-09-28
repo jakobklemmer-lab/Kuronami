@@ -65,7 +65,12 @@ const LABOR = [
 ];
 const LABOR_ABLEGEN = [...LABOR, "mcp__labor__strategie_ablegen"];
 /** Der Prüfer rechnet nach und sieht dem Betrieb zu — er legt nichts ab und startet nichts. */
-const LABOR_PRUEFEN = [...LABOR, "mcp__labor__gegenprobe", "mcp__labor__papier_stand"];
+const LABOR_PRUEFEN = [
+  ...LABOR,
+  "mcp__labor__gegenprobe",
+  "mcp__labor__schlussprobe",
+  "mcp__labor__papier_stand",
+];
 
 /**
  * Das Trading Journal in Notion (`gateway/journal.ts`): Trades, Lektionen, Watchlist, dazu
@@ -683,6 +688,18 @@ Schraube nicht, bis es passt. Wer zwanzig Varianten durchprobiert und die beste 
 nicht eine gute Strategie gefunden, sondern den besten Zufall — und der wiederholt sich nicht.
 Nimm wenige, begründete Varianten und sag, welche du probiert hast.
 
+**Jeder Versuch wird gezählt.** \`backtest\`, \`universum\` und die Ablage schreiben jede Regel
+ins Versuchsbuch, über alle Aufträge und alle Kollegen hinweg, und unter jedem Ergebnis steht,
+der wievielte Versuch es war und wie hoch die Hürde danach liegt. Nach tausend Versuchen ist ein
+Intervall knapp über null nichts Besonderes mehr. Nenne die Zeile im Bericht, so wie sie steht.
+
+**Die jüngsten Kurse siehst du nicht.** Sie sind für die Schlussprobe gesperrt (1d zwei Jahre,
+1h ein halbes Jahr, 15m/30m drei Monate, 5m zwei, 1m einen). Deine Werkzeuge rechnen bis zur
+Grenze und sagen es dazu. Kandidat wird eine Regel entweder, weil sie die Hürde des
+Versuchsbuchs nimmt, oder weil sie die Schlussprobe des Prüfers auf genau diesen Kursen
+besteht. Eine Regel, deren Schlussprobe gerechnet ist, änderst du nicht mehr und legst sie
+nicht neu ab — der gesperrte Zeitraum wäre dann ein gesehener.
+
 Jede Strategie braucht einen Grund, warum sie funktionieren *sollte*: wer handelt gegen dich,
 und warum verliert er. Ohne diesen Satz ist es Kurvenanpassung, egal wie die Zahlen aussehen.
 
@@ -747,6 +764,17 @@ Prüfe außerdem:
 - **Gibt es einen Grund, warum es funktionieren sollte?** Wer handelt dagegen, und warum
   verliert er. Fehlt dieser Satz, ist es Kurvenanpassung mit guten Zahlen.
 - **Schlägt sie Buy-and-Hold?** Wenn nicht, ist sie mehr Arbeit für weniger Ertrag.
+- **Wie viele Versuche stecken dahinter?** Der Bericht der Ablage nennt die Zeile aus dem
+  Versuchsbuch. Liegt das Ergebnis unter der Hürde, ist es ohne Schlussprobe kein Beleg.
+
+## Die Schlussprobe
+
+Die jüngsten Kurse (1d zwei Jahre, 1h ein halbes Jahr, darunter weniger) hat bei der
+Entwicklung niemand gesehen — sie sind gesperrt. \`schlussprobe\` rechnet die abgelegte Regel
+**unverändert** genau einmal darauf. Rechne sie **nach** der Gegenprobe und nur, wenn die
+Gegenprobe nicht „fragil“ ergab: eine fragile Regel verbraucht sonst den einzigen ungesehenen
+Zeitraum, den es für sie gibt. Bestanden hebt eine geprüfte Regel zum Kandidaten; das Ergebnis
+ist endgültig, außer bei „zu wenig Handel“.
 
 ## Der laufende Betrieb
 

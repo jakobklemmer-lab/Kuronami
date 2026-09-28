@@ -5,6 +5,7 @@ import {
   backtest,
   einstiegErlaubt,
   kerzenProJahr,
+  stopFuer,
 } from "./backtest.js";
 import { atrReihe, ema, rollendesHoch, rollendesTief, rsi, sma, stdabw } from "./indikatoren.js";
 import type { MarketCandle } from "./integrations/markets.js";
@@ -523,6 +524,32 @@ describe("Stop an einer Linie (stopAn) — gebaut für die Kalibrierung an Tradi
     expect(ergebnis.handel).toHaveLength(0);
     expect(ergebnis.ohneStop).toBe(1);
     expect(ergebnis.warnungen.join(" ")).toMatch(/falschen Seite/);
+  });
+
+  it("handelt nicht, wenn die Eröffnung schon jenseits der Linie liegt — auch wenn der Schlupf sie zurückschiebt", () => {
+    // Eröffnung 110, Linie 110,2 darüber: der Stop ist gerissen, bevor der Handel beginnt.
+    // Mit 1 % Schlupf läge der Einstieg bei 111,1 — über der Linie, mit 0,9 Risiko.
+    const ergebnis = backtest(
+      {
+        ...KREUZT_UEBER_SMA,
+        stopProzent: undefined,
+        stopAn: { art: "wert", wert: 110.2 },
+        schlupfProzent: 1,
+      },
+      kerzen(sprung, 0),
+      { intervall: "1d" },
+    );
+    expect(ergebnis.handel).toHaveLength(0);
+    expect(ergebnis.ohneStop).toBe(1);
+    // Der Fall aus AAPL 1d (Short, 06.07.2021): Eröffnung 140,07, Swing-Hoch 140,00.
+    const short: Strategie = {
+      ...KREUZT_UEBER_SMA,
+      richtung: "short",
+      stopProzent: undefined,
+      stopAn: { art: "swing_hoch", periode: 5 },
+    };
+    expect(stopFuer(short, 140.07 * 0.9995, undefined, 140, 140.07)).toBeNull();
+    expect(stopFuer(short, 139.9 * 0.9995, undefined, 140, 139.9)).toBe(140);
   });
 
   it("weist einen Stop an einer Linie ab, die kein Kurs ist, und zwei Stop-Arten zugleich", () => {

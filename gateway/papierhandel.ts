@@ -10,7 +10,8 @@ import {
   stopLinieAm,
 } from "./backtest.js";
 import { imFenster, minuteAus } from "./indikatoren.js";
-import type { MarketCandle, MarketsClient } from "./integrations/markets.js";
+import type { ChartInterval, MarketCandle, MarketsClient } from "./integrations/markets.js";
+import type { Kerzenquelle } from "./kerzen.js";
 import type { StrategienArchiv } from "./strategien.js";
 
 /**
@@ -217,6 +218,7 @@ export function verarbeite(
         kurs,
         atrAm(abgeschlossen, i - 1),
         stopLinieAm(strategie, abgeschlossen, i - 1),
+        roh,
       );
       konto.wartetAufEinstieg = false;
       if (stop === null) {
@@ -353,8 +355,20 @@ export interface PapierhandelDeps {
   grenzen?: PapierGrenzen;
   /** Wie viele Tage Kursgeschichte je Tick geladen werden — genug für lange Durchschnitte. */
   historieTage?: number;
+  /**
+   * Die Kerzen mit Speicher dahinter (`kerzen.ts`), seit 28.09. Mit ihr läuft jedes Konto in
+   * **seinem** Zeitrahmen und aus seiner Quelle — `binance:BTCUSDT` à 1h ebenso wie
+   * `yahoo:^GDAXI` à 1d. Vorher kamen immer Yahoo-Tageskerzen: eine 1h-Regel wäre im Betrieb
+   * eine andere Regel gewesen als im Backtest, und ein `binance:`-Symbol kannte Yahoo gar nicht.
+   * Ohne sie (Tests) bleibt es bei Tageskerzen über `markets`.
+   */
+  kerzen?: Kerzenquelle;
   onEreignis?(text: string): void;
 }
+
+/** Unter der Tageskerze genügen 120 Tage: selbst eine DEMA 200 auf 1h ist nach 400 Kerzen eingeschwungen. */
+const INTRADAY_TAGE = 120;
+const GROBE_INTERVALLE = ["1d", "1wk", "1mo"];
 
 export interface Papierhandel {
   /** Ein Konto für eine abgelegte Strategie eröffnen. Nur für geprüfte Kandidaten. */
@@ -469,13 +483,23 @@ export function createPapierhandel(deps: PapierhandelDeps): Papierhandel {
         }
         try {
           const bis = Math.floor(Date.now() / 1000);
-          const chart = await deps.markets.zeitraum(
-            konto.symbol,
-            bis - historieTage * 86_400,
-            bis,
-            "1d",
-          );
-          const { ereignisse: neue } = verarbeite(konto, eintrag.strategie, chart.candles, grenzen);
+          // Die Binance-Quelle liefert nur abgeschlossene Kerzen; `verarbeite` lässt die letzte
+          // trotzdem weg. Das kostet eine Kerze Verzögerung, aber keine Genauigkeit.
+          const kerzen = deps.kerzen
+            ? (
+                await deps.kerzen.hole({
+                  symbol: konto.symbol,
+                  intervall: konto.intervall as ChartInterval,
+                  vonUnix:
+                    bis -
+                    (GROBE_INTERVALLE.includes(konto.intervall) ? historieTage : INTRADAY_TAGE) *
+                      86_400,
+                  bisUnix: bis,
+                })
+              ).kerzen
+            : (await deps.markets.zeitraum(konto.symbol, bis - historieTage * 86_400, bis, "1d"))
+                .candles;
+          const { ereignisse: neue } = verarbeite(konto, eintrag.strategie, kerzen, grenzen);
           if (neue.length > 0) {
             ereignisse.push(...neue);
             for (const zeile of neue) deps.onEreignis?.(zeile);

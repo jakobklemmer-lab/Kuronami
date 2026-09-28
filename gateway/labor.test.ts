@@ -70,3 +70,10 @@ describe("Die Werkzeuge des Labors kommen an", () => {
     expect(LABOR_PRUEFEN).not.toContain("mcp__labor__strategie_ablegen");
   });
 });
+
+describe("Die Schlussprobe hat nur der Prüfer", () => {
+  it("gibt sie dem Prüfer und nicht dem Strategen, der die Regel entwickelt", () => {
+    expect(HANDELSTISCH.pruefer.tools ?? []).toContain("mcp__labor__schlussprobe");
+    expect(HANDELSTISCH.stratege.tools ?? []).not.toContain("mcp__labor__schlussprobe");
+  });
+});

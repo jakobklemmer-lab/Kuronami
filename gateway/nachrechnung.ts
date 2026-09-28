@@ -16,6 +16,7 @@
  * Aufgerufen wird das aus den vier Skripten in `werkzeuge/nachrechnen/` (`macd.ts`, `bollinger.ts`, `scalping.ts`,
  * `supertrend.ts`), die nur festlegen, welche Regeln gerechnet werden.
  */
+import { createHash } from "node:crypto";
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { createAnalysen } from "./analysen.js";
@@ -24,7 +25,11 @@ import type { ChartInterval, MarketCandle } from "./integrations/markets.js";
 import { type Quellregel, vereine } from "./kalibrierung.js";
 import { createKerzenquelle } from "./kerzen.js";
 import { type Konfidenz, konfidenz } from "./konfidenz.js";
+import { sperrgrenze } from "./sperre.js";
 import { HANDEL_FUER_URTEIL } from "./strategien.js";
+import { createVersuchsbuch, strengeHuerde, zWert } from "./versuche.js";
+
+export { strengeHuerde, zWert };
 
 // ------------------------------------------------------------------------------ Was gerechnet wird
 
@@ -58,7 +63,9 @@ export const BOERSE = [
 /**
  * Wie weit zurück, je Zeitrahmen und Quelle. Bei Yahoo sind das die gemessenen Grenzen des
  * Anbieters (1m ~8 Tage, 5m–30m 60 Tage, 1h 730 Tage), bei Binance eine Wahl: 1m über drei
- * Monate sind schon 130.000 Kerzen je Markt.
+ * Monate sind schon 130.000 Kerzen je Markt. Gezählt wird seit 28.09. von der Sperrgrenze aus
+ * (`sperre.ts`) — Yahoo-Intraday liegt damit ganz im gesperrten Zeitraum und fällt weg; es waren
+ * ohnehin nur 5 bis 100 Handel je Markt.
  */
 const RUECKBLICK: Record<Intervall, { binance: string | number; yahoo: string | number }> = {
   "1m": { binance: 92, yahoo: 7 },
@@ -108,41 +115,6 @@ export function urteile(anzahl: number, k: Konfidenz | undefined, ungesehenR: nu
   if (k.oben < 0) return "widerlegt";
   if (k.unten > 0 && ungesehenR > 0) return "belegt";
   return "nicht belegt";
-}
-
-/** Verteilungsfunktion der Standardnormalverteilung (Abramowitz/Stegun 7.1.26, Fehler < 1e-7). */
-function normalVerteilung(z: number): number {
-  const t = 1 / (1 + 0.3275911 * (Math.abs(z) / Math.SQRT2));
-  const polynom =
-    t *
-    (0.254829592 + t * (-0.284496736 + t * (1.421413741 + t * (-1.453152027 + t * 1.061405429))));
-  const erf = 1 - polynom * Math.exp(-(z * z) / 2);
-  return z >= 0 ? (1 + erf) / 2 : (1 - erf) / 2;
-}
-
-/**
- * Die Hürde nach `versuche` Varianten (Bonferroni, einseitig 2,5 % insgesamt). Wer 80 Varianten
- * rechnet, findet bei 95 % Sicherheit rund zwei „belegte" ganz ohne Kante — dieselbe Regel
- * muss dann so deutlich über null liegen, dass sie das auch nach 80 Versuchen noch tut.
- */
-export function strengeHuerde(versuche: number): number {
-  const ziel = 1 - 0.025 / Math.max(1, versuche);
-  let unten = 0;
-  let oben = 10;
-  for (let i = 0; i < 60; i += 1) {
-    const mitte = (unten + oben) / 2;
-    if (normalVerteilung(mitte) < ziel) unten = mitte;
-    else oben = mitte;
-  }
-  return (unten + oben) / 2;
-}
-
-/** Wie viele Standardfehler der Mittelwert über null liegt. */
-export function zWert(r: readonly number[]): number {
-  if (r.length < 2) return 0;
-  const mittel = r.reduce((a, b) => a + b, 0) / r.length;
-  const varianz = r.reduce((a, b) => a + (b - mittel) ** 2, 0) / (r.length - 1);
-  return varianz > 0 ? mittel / Math.sqrt(varianz / r.length) : 0;
 }
 
 // ------------------------------------------------------------------------------ Eine Zeile
@@ -229,10 +201,14 @@ export function zeileAus(
 }
 
 /** Setzt `streng` an jeder belegten Zeile — nach der Zahl der Varianten, die überhaupt ein
- *  Urteil bekommen konnten. Zurück kommt diese Zahl und die Hürde. */
-export function pruefeMehrfach(zeilen: Zeile[]): { versuche: number; huerde: number } {
+ *  Urteil bekommen konnten, oder, wenn bekannt, nach allen Versuchen im Versuchsbuch
+ *  (`versuche.ts`). Zurück kommen die Zahl dieses Laufs und die Hürde. */
+export function pruefeMehrfach(
+  zeilen: Zeile[],
+  versucheGesamt?: number,
+): { versuche: number; huerde: number } {
   const versuche = zeilen.filter((z) => z.urteil !== "zu wenig Handel").length;
-  const huerde = strengeHuerde(versuche);
+  const huerde = strengeHuerde(Math.max(versuche, versucheGesamt ?? 0));
   for (const z of zeilen) if (z.urteil === "belegt") z.streng = z.z > huerde;
   return { versuche, huerde };
 }
@@ -302,6 +278,27 @@ export function schalter(argv: readonly string[]): Omit<Aufruf, "name" | "regeln
 
 const TAG = 86_400;
 
+/**
+ * Der Schlüssel eines Laufs im Versuchsbuch: dieselben Regeln über dieselben Zeitrahmen und
+ * Märkte sind derselbe Versuch, auch wenn sie noch einmal gerechnet werden.
+ */
+export function laufSchluessel(
+  aufruf: Pick<Aufruf, "regeln" | "intervalle" | "maerkte" | "ohneSitzungen">,
+): string {
+  const hash = createHash("sha1")
+    .update(
+      JSON.stringify({
+        regeln: aufruf.regeln.map((r) => r.teile.map((t) => t.strategie)),
+        intervalle: aufruf.intervalle ?? INTERVALLE,
+        maerkte: aufruf.maerkte ?? [...KRYPTO, ...BOERSE],
+        ohneSitzungen: aufruf.ohneSitzungen ?? false,
+      }),
+    )
+    .digest("hex")
+    .slice(0, 16);
+  return `nachrechnung:${hash}`;
+}
+
 function vonUnix(rueck: string | number, bis: number): number {
   return typeof rueck === "number"
     ? bis - rueck * TAG
@@ -312,18 +309,22 @@ export async function rechneNach(aufruf: Aufruf): Promise<Zeile[]> {
   const workdir = aufruf.workdir ?? process.env.KURO_WORKDIR ?? "/opt/kuronami/workspace";
   const quelle = createKerzenquelle({ workdir });
   const heute = new Date();
-  const bis = Math.floor(
-    Date.UTC(heute.getUTCFullYear(), heute.getUTCMonth(), heute.getUTCDate()) / 1000,
-  );
   const intervalle = aufruf.intervalle ?? INTERVALLE;
   const maerkte = aufruf.maerkte ?? [...KRYPTO, ...BOERSE];
   const log = (s: string) => console.error(s);
 
-  // Kerzen einmal je Markt und Zeitrahmen — alle Regeln rechnen auf denselben.
-  const kerzen = new Map<string, { symbol: string; kerzen: MarketCandle[] }>();
+  // Ein Zeitrahmen nach dem anderen: seine Kerzen laden, alle Regeln darauf rechnen, loslassen.
+  // Alle Zeitrahmen auf einmal waren 2,7 Mio. Kerzen und ~770 MB, bevor der erste Backtest lief;
+  // auf dem 3,7-GB-Rechner ohne Swap hat der Kernel die Läufe am 28.09. mit Exit 137 beendet.
+  const zeilen: Zeile[] = [];
   const fehlt: string[] = [];
+  const abgewiesen = new Map<string, number>();
   for (const intervall of intervalle) {
-    log(`Kerzen ${intervall} …`);
+    // Die Nachrechnung ist Suche: sie sieht nur bis zur Sperrgrenze (`sperre.ts`), der Rest
+    // gehört der Schlussprobe. Die Rückblicke in Tagen zählen von der Grenze aus.
+    const bis = Math.floor(Date.parse(`${sperrgrenze(intervall, heute)}T00:00:00Z`) / 1000);
+    log(`Kerzen ${intervall} bis ${sperrgrenze(intervall, heute)} …`);
+    const kerzen = new Map<string, MarketCandle[]>();
     for (const symbol of maerkte) {
       const binance = symbol.startsWith("binance:");
       const rueck = RUECKBLICK[intervall][binance ? "binance" : "yahoo"];
@@ -338,28 +339,22 @@ export async function rechneNach(aufruf: Aufruf): Promise<Zeile[]> {
           fehlt.push(`${symbol} ${intervall}: nur ${g.kerzen.length} Kerzen`);
           continue;
         }
-        kerzen.set(`${symbol}|${intervall}`, { symbol, kerzen: g.kerzen });
+        kerzen.set(symbol, g.kerzen);
         log(`  ${symbol}: ${g.kerzen.length} Kerzen (${g.neuGeholt} neu)`);
       } catch (e) {
         fehlt.push(`${symbol} ${intervall}: ${(e as Error).message.slice(0, 120)}`);
       }
     }
-  }
 
-  const zeilen: Zeile[] = [];
-  const abgewiesen = new Map<string, number>();
-  for (const regel of aufruf.regeln) {
-    for (const intervall of intervalle) {
-      const sitzungen =
-        intervall === "1d" || aufruf.ohneSitzungen ? SITZUNGEN.slice(0, 1) : SITZUNGEN;
+    const sitzungen =
+      intervall === "1d" || aufruf.ohneSitzungen ? SITZUNGEN.slice(0, 1) : SITZUNGEN;
+    for (const regel of aufruf.regeln) {
       for (const sitzung of sitzungen) {
         const laeufe: MarktLauf[] = [];
-        for (const symbol of maerkte) {
-          const reihe = kerzen.get(`${symbol}|${intervall}`);
-          if (!reihe) continue;
+        for (const [symbol, reihe] of kerzen) {
           const lauf: MarktLauf = {
             symbol,
-            wochen: (reihe.kerzen[reihe.kerzen.length - 1].time - reihe.kerzen[0].time) / (7 * TAG),
+            wochen: (reihe[reihe.length - 1].time - reihe[0].time) / (7 * TAG),
             teile: [],
             ungesehenAb: Number.POSITIVE_INFINITY,
           };
@@ -369,10 +364,10 @@ export async function rechneNach(aufruf: Aufruf): Promise<Zeile[]> {
               ...(sitzung.fenster ? { zone: sitzung.zone, fenster: sitzung.fenster } : {}),
             };
             try {
-              const mit = backtest(mitFenster, reihe.kerzen, { symbol, intervall });
+              const mit = backtest(mitFenster, reihe, { symbol, intervall });
               const ohne = backtest(
                 { ...mitFenster, gebuehrProzent: 0, schlupfProzent: 0 },
-                reihe.kerzen,
+                reihe,
                 { symbol, intervall },
               );
               lauf.teile.push({
@@ -401,7 +396,24 @@ export async function rechneNach(aufruf: Aufruf): Promise<Zeile[]> {
       log(`${regel.titel} · ${intervall} gerechnet`);
     }
   }
-  const { versuche, huerde } = pruefeMehrfach(zeilen);
+  // Reihenfolge wie vorher: nach Regel, darin nach Zeitrahmen.
+  const rang = new Map(aufruf.regeln.map((r, i) => [r.titel, i]));
+  zeilen.sort((a, b) => (rang.get(a.regel) ?? 0) - (rang.get(b.regel) ?? 0));
+
+  // Ins Versuchsbuch, über alle Läufe hinweg. Dieselben Regeln über dieselben Zeitrahmen und
+  // Märkte noch einmal gerechnet zählen nicht doppelt.
+  const lokal = zeilen.filter((z) => z.urteil !== "zu wenig Handel").length;
+  const gesamt = await createVersuchsbuch({ workdir })
+    .zaehle({
+      wer: "nachrechnung",
+      werkzeug: "nachrechnung",
+      schluessel: laufSchluessel(aufruf),
+      name: `Nachrechnung ${aufruf.name}: ${aufruf.regeln.map((r) => r.titel).join(" · ")}`,
+      varianten: lokal,
+    })
+    .then((s) => s.versuche)
+    .catch(() => lokal);
+  const { versuche, huerde } = pruefeMehrfach(zeilen, gesamt);
 
   // ------------------------------------------------------------------ Bericht
   const datum = heute.toISOString().slice(0, 10);
@@ -412,9 +424,11 @@ export async function rechneNach(aufruf: Aufruf): Promise<Zeile[]> {
     "",
     `**Urteil wie in der Strategie-Ablage:** erst ab ${HANDEL_FUER_URTEIL} Handeln über alle Märkte zusammen; belegt, wenn das 95-%-Intervall ganz über null liegt und der ungesehene Teil (die letzten 30 % jedes Marktes) im Plus ist; widerlegt nur ganz unter null. „Ø R“ ist der Durchschnitt je Handel, Verlierer eingerechnet. „€ je Woche“: Handel je Woche und Markt × Ø R × 15 € Risiko.`,
     "",
-    `**Mehrfachtest:** ${versuche} Varianten konnten ein Urteil bekommen. Ohne jede Kante wären davon rund ` +
+    `**Sperrfrist:** gerechnet bis ${intervalle.map((i) => `${i} ${sperrgrenze(i, heute)}`).join(", ")} (jeweils ausschließlich). Die Kurse danach gehören der Schlussprobe einer abgelegten Regel und sind hier nicht dabei.`,
+    "",
+    `**Mehrfachtest:** ${versuche} Varianten konnten in diesem Lauf ein Urteil bekommen, ${Math.max(gesamt, versuche)} sind es im Versuchsbuch insgesamt. Ohne jede Kante wären in diesem Lauf rund ` +
       `${komma(versuche * 0.025, 1)} zufällig „belegt“. „Streng belegt“ heißt: der Mittelwert liegt mehr als ` +
-      `${komma(huerde, 2)} Standardfehler über null — so deutlich, dass es auch nach ${versuche} Versuchen kein Zufall ist.`,
+      `${komma(huerde, 2)} Standardfehler über null — so deutlich, dass es auch nach ${Math.max(gesamt, versuche)} Versuchen insgesamt kein Zufall ist.`,
     "",
   ];
   const belegt = zeilen.filter((z) => z.urteil === "belegt");

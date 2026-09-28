@@ -31,8 +31,23 @@ import {
   weiter,
 } from "./replay.js";
 import { formatiereRueckblick, werteIdeeAus } from "./rueckblick.js";
-import type { StrategienArchiv, UniversumVermerk } from "./strategien.js";
+import { type ProbenReihe, formatiereSchlussprobe, rechneSchlussprobe } from "./schlussprobe.js";
+import { kappe, sperrHinweis } from "./sperre.js";
+import {
+  type StrategienArchiv,
+  type UniversumVermerk,
+  type VersuchVermerk,
+  bewerte,
+} from "./strategien.js";
 import { type MarktKerzen, formatiereUniversum, ueberMaerkte } from "./universum.js";
+import {
+  type Versuchsbuch,
+  createVersuchsbuch,
+  formatiereVersuch,
+  regelSchluessel,
+  zAusIntervall,
+  zWert,
+} from "./versuche.js";
 
 /**
  * Das Labor des Handelstischs: Vergangenheit ohne Zukunft, Rückblick auf alte Ideen,
@@ -64,6 +79,8 @@ export interface LaborDeps {
   darfStarten?: boolean;
   /** Das Prognosebuch. Ohne es fehlen die drei Werkzeuge für Einzelideen. */
   prognosen?: Prognosenbuch;
+  /** Das Versuchsbuch (`versuche.ts`). Ohne es wird über `workdir` eins gebaut, ohne beides nicht gezählt. */
+  versuche?: Versuchsbuch;
 }
 
 const TAG = /^\d{4}-\d{2}-\d{2}$/;
@@ -78,6 +95,11 @@ function heute(): string {
 
 function tagVon(unixSekunden: number): string {
   return new Date(unixSekunden * 1000).toISOString().slice(0, 10);
+}
+
+/** Der Tag davor, `YYYY-MM-DD`. */
+function tagVor(datum: string): string {
+  return tagVon(unix(datum) - 86_400);
 }
 
 /** Das Zod-Schema einer Bedingung — dieselbe Form wie `Bedingung` in `backtest.ts`. */
@@ -177,12 +199,31 @@ const strategieSchema = {
   stopProzent: z.number().positive().max(90).optional().describe("Stop in Prozent vom Einstieg."),
   stopAn: z
     .object({
-      art: z.enum(["ema", "sma", "swing_tief", "swing_hoch", "bollinger_mitte", "wert"]),
+      art: z.enum([
+        "ema",
+        "sma",
+        "dema",
+        "swing_tief",
+        "swing_hoch",
+        "bollinger_mitte",
+        "supertrend",
+        "spanne_unter",
+        "spanne_ueber",
+        "wert",
+      ]),
       periode: z.number().int().positive().max(500).optional(),
+      faktor: z
+        .number()
+        .positive()
+        .max(10)
+        .optional()
+        .describe("SuperTrend: Multiplikator (3). Spanne: wie viele Kerzenlängen (2)."),
       wert: z.number().optional(),
     })
     .optional()
-    .describe("Stop an einer Linie, ihr Wert auf der Signalkerze — z. B. unter der EMA 200."),
+    .describe(
+      "Stop an einer Linie, ihr Wert auf der Signalkerze — z. B. unter der EMA 200 oder auf der SuperTrend-Linie.",
+    ),
   zielR: z.number().positive().max(50).optional().describe("Ziel als Vielfaches des Risikos."),
   zielProzent: z.number().positive().max(500).optional(),
   maxKerzen: z.number().int().positive().max(500).optional(),
@@ -226,6 +267,61 @@ function text(inhalt: string, fehler = false) {
 export function createLabor(deps: LaborDeps = {}) {
   const markets = deps.markets ?? createYahooMarkets();
   const kerzenquelle = deps.kerzen ?? createKerzenquelle({ workdir: deps.workdir, markets });
+  const versuchsbuch =
+    deps.versuche ?? (deps.workdir ? createVersuchsbuch({ workdir: deps.workdir }) : undefined);
+
+  /**
+   * Einen Versuch ins Versuchsbuch schreiben und den Satz dazu liefern. Ein Fehler beim Schreiben
+   * nimmt niemandem sein Ergebnis — der Satz sagt dann aber, dass nicht gezählt wurde, statt zu
+   * schweigen.
+   */
+  async function zaehle(
+    werkzeug: string,
+    strategie: Strategie,
+    symbole: readonly string[],
+    intervall: string,
+    ergebnis: { anzahl: number; erwartungswertR: number; z: number },
+  ): Promise<{ satz: string; vermerk?: VersuchVermerk }> {
+    if (!versuchsbuch) return { satz: "" };
+    try {
+      const stand = await versuchsbuch.zaehle({
+        wer: deps.wer ?? "handelstisch",
+        werkzeug,
+        schluessel: regelSchluessel(strategie, symbole, intervall),
+        name: strategie.name,
+        varianten: 1,
+        ...ergebnis,
+      });
+      return {
+        satz: formatiereVersuch(stand, ergebnis.z),
+        vermerk: {
+          nr: stand.versuche,
+          z: ergebnis.z,
+          huerde: stand.huerde,
+          haelt: ergebnis.z > stand.huerde,
+        },
+      };
+    } catch (error) {
+      return {
+        satz: `**Versuchsbuch:** nicht gezählt — ${error instanceof Error ? error.message : error}.`,
+      };
+    }
+  }
+
+  /** Das Ende eines Suchlaufs: gewünscht oder heute, aber nie hinter der Sperrgrenze (`sperre.ts`). */
+  function suchEnde(
+    von: string,
+    bis: string | undefined,
+    intervall: string,
+  ): { ende: string; hinweis: string; grenze: string } | { fehler: string } {
+    const k = kappe(bis ?? heute(), intervall);
+    if (von >= k.grenze) {
+      return {
+        fehler: `„${von}" liegt schon im gesperrten Zeitraum (ab ${k.grenze}) — der gehört der Schlussprobe. Wähle einen früheren Beginn.`,
+      };
+    }
+    return { ende: k.bis, hinweis: k.gekappt ? sperrHinweis(k.grenze) : "", grenze: k.grenze };
+  }
 
   /**
    * Die Übertragbarkeit zur Ablage — **gerechnet und dann behalten**.
@@ -508,7 +604,9 @@ export function createLabor(deps: LaborDeps = {}) {
     },
     async (eingabe) => {
       const { symbol, von, bis, intervall, ...rest } = eingabe;
-      const ende = bis ?? heute();
+      const zeitraum = suchEnde(von, bis, intervall);
+      if ("fehler" in zeitraum) return text(zeitraum.fehler, true);
+      const ende = zeitraum.ende;
       const intervallWahl = intervall as ChartInterval;
       try {
         const geholt = await kerzenquelle.hole({
@@ -518,13 +616,23 @@ export function createLabor(deps: LaborDeps = {}) {
           bisUnix: unix(ende) + 86_400,
         });
         const strategie = rest as unknown as Strategie;
+        const marktsymbol = `${geholt.quelle}:${geholt.symbol}`;
         const ergebnis = backtest(strategie, geholt.kerzen, {
-          symbol: `${geholt.quelle}:${geholt.symbol}`,
+          symbol: marktsymbol,
           intervall: intervallWahl,
+        });
+        const { satz } = await zaehle("backtest", strategie, [marktsymbol], intervall, {
+          anzahl: ergebnis.gesamt.anzahl,
+          erwartungswertR: ergebnis.gesamt.erwartungswertR,
+          z: zWert(ergebnis.handel.map((h) => h.r)),
         });
         // Die Herkunft steht **unter** dem Ergebnis, nicht daneben: wer die Kennzahlen
         // abschreibt, soll im selben Atemzug lesen, worauf sie stehen.
-        return text(`${formatiereBacktest(ergebnis)}\n\n${formatiereHerkunft(geholt)}`);
+        return text(
+          [formatiereBacktest(ergebnis), zeitraum.hinweis, satz, formatiereHerkunft(geholt)]
+            .filter((teil) => teil !== "")
+            .join("\n\n"),
+        );
       } catch (error) {
         if (error instanceof StrategieFehler)
           return text(`Nicht gerechnet: ${error.message}`, true);
@@ -572,7 +680,9 @@ export function createLabor(deps: LaborDeps = {}) {
     },
     async (eingabe) => {
       const { symbole, intervall, von, bis, ...rest } = eingabe;
-      const ende = bis ?? heute();
+      const zeitraum = suchEnde(von, bis, intervall);
+      if ("fehler" in zeitraum) return text(zeitraum.fehler, true);
+      const ende = zeitraum.ende;
       const strategie = rest as unknown as Strategie;
       const maerkte: MarktKerzen[] = [];
       const fehlend: string[] = [];
@@ -596,7 +706,24 @@ export function createLabor(deps: LaborDeps = {}) {
       try {
         const ergebnis = ueberMaerkte(strategie, maerkte, { intervall });
         const anhang = fehlend.length > 0 ? `\n\nNicht abrufbar:\n  ${fehlend.join("\n  ")}` : "";
-        return text(formatiereUniversum(ergebnis) + anhang);
+        const { satz } = await zaehle(
+          "universum",
+          strategie,
+          maerkte.map((m) => m.symbol),
+          intervall,
+          {
+            anzahl: ergebnis.gesamtHandel,
+            erwartungswertR: ergebnis.gemeinsamErwartungswertR,
+            z: ergebnis.gemeinsam
+              ? zAusIntervall(ergebnis.gemeinsamErwartungswertR, ergebnis.gemeinsam)
+              : 0,
+          },
+        );
+        return text(
+          [formatiereUniversum(ergebnis) + anhang, zeitraum.hinweis, satz]
+            .filter((teil) => teil !== "")
+            .join("\n\n"),
+        );
       } catch (error) {
         if (error instanceof StrategieFehler)
           return text(`Nicht gerechnet: ${error.message}`, true);
@@ -824,7 +951,17 @@ export function createLabor(deps: LaborDeps = {}) {
       if (!eintrag) return text(`Keine Strategie mit der Kennung ${id}.`, true);
 
       const beginn = von ?? eintrag.von;
-      const ende = bis ?? eintrag.bis;
+      // Die Gegenprobe gehört zur Entwicklung: sie sieht nichts, was die Regel beim Ablegen
+      // nicht auch sah — der Rest ist für die Schlussprobe gesperrt.
+      const letzterSichtbarer = eintrag.gesehenBis ? tagVor(eintrag.gesehenBis) : undefined;
+      const gewuenscht = bis ?? eintrag.bis;
+      const ende =
+        letzterSichtbarer !== undefined && gewuenscht > letzterSichtbarer
+          ? letzterSichtbarer
+          : gewuenscht;
+      // Im Zeitrahmen und aus der Quelle der Strategie, nicht auf Yahoo-Tageskerzen: eine
+      // Regel für BTCUSDT 1h auf Tageskerzen zu prüfen, hieße eine andere Regel zu prüfen.
+      const intervall = eintrag.intervall as ChartInterval;
       const varianten = [
         { name: "Original", strategie: eintrag.strategie },
         ...nachbarschaft(eintrag.strategie),
@@ -833,10 +970,16 @@ export function createLabor(deps: LaborDeps = {}) {
       const ergebnisse = [];
 
       for (const symbol of symbole) {
-        let kerzen: Awaited<ReturnType<typeof markets.zeitraum>>["candles"];
+        let kerzen: MarktKerzen["kerzen"];
         try {
-          kerzen = (await markets.zeitraum(symbol, unix(beginn), unix(ende) + 86_400, "1d"))
-            .candles;
+          kerzen = (
+            await kerzenquelle.hole({
+              symbol,
+              intervall,
+              vonUnix: unix(beginn),
+              bisUnix: unix(ende) + 86_400,
+            })
+          ).kerzen;
         } catch (error) {
           return text(
             `Kurse zu ${symbol} nicht abrufbar: ${error instanceof Error ? error.message : error}`,
@@ -847,7 +990,7 @@ export function createLabor(deps: LaborDeps = {}) {
         // Parameter — und vier Varianten je Markt wären eine Zahlenwand ohne Mehrwert.
         const zuPruefen = symbol === eintrag.symbol ? varianten : [varianten[0]];
         for (const variante of zuPruefen) {
-          ergebnisse.push(pruefeVariante(variante, kerzen, symbol));
+          ergebnisse.push(pruefeVariante(variante, kerzen, symbol, intervall));
         }
       }
 
@@ -875,6 +1018,81 @@ export function createLabor(deps: LaborDeps = {}) {
       return text(tabelle);
     },
     { annotations: { title: "Strategie gegenprüfen" } },
+  );
+
+  const schlussprobe = tool(
+    "schlussprobe",
+    [
+      "Die **Schlussprobe** einer abgelegten Strategie: dieselbe Regel, unverändert, auf den",
+      "Kursen, die bei ihrer Entwicklung gesperrt waren — genau einmal.",
+      "",
+      "Die Suche (`backtest`, `universum`, Ablage, Gegenprobe) sieht die jüngsten Monate nicht;",
+      "wie viele, hängt am Zeitrahmen (1d zwei Jahre, 1h ein halbes Jahr). Diese Probe rechnet",
+      "genau diesen Zeitraum. Bestanden heißt: mindestens 30 Handel, positiver Erwartungswert,",
+      "und davon mindestens die Hälfte dessen, was die Suche versprach.",
+      "",
+      "Sie ist der zweite Weg zum Kandidaten neben der Hürde des Versuchsbuchs. **Ein Ergebnis",
+      "ist endgültig** — außer „zu wenig Handel“, dann darf sie später noch einmal laufen.",
+      "Rechne sie erst, wenn die Gegenprobe durch ist: wer danach an der Regel weiterschraubt",
+      "und sie neu ablegt, hat den gesperrten Zeitraum gesehen.",
+    ].join("\n"),
+    { id: z.string().regex(/^[0-9a-f]{12}$/) },
+    async ({ id }) => {
+      if (!deps.strategien) return text("Ohne Strategie-Archiv gibt es nichts zu prüfen.", true);
+      const eintrag = await deps.strategien.lies(id);
+      if (!eintrag) return text(`Keine Strategie mit der Kennung ${id}.`, true);
+      const vorige = eintrag.schlussprobe;
+      if (vorige && vorige.urteil !== "zu wenig Handel") {
+        return text(
+          `${formatiereSchlussprobe(eintrag.name, vorige)}\n\nGerechnet am ${vorige.am.slice(0, 10)}. Eine zweite gibt es nicht — sonst wäre der gesperrte Zeitraum nach dem ersten Blick ein gesehener.`,
+        );
+      }
+
+      // Einträge von vor dem 28.09. kennen `gesehenBis` nicht; sie haben bis `bis` gesehen.
+      const ab = eintrag.gesehenBis ?? tagVon(unix(eintrag.bis) + 86_400);
+      const intervall = eintrag.intervall as ChartInterval;
+      const reihen: ProbenReihe[] = [];
+      const fehlend: string[] = [];
+      for (const symbol of [eintrag.symbol, ...(eintrag.maerkte ?? [])]) {
+        try {
+          // Ab dem Beginn der Suche geladen, damit lange Durchschnitte am Beginn der Probe
+          // eingeschwungen sind; gezählt wird erst ab `ab`.
+          const geholt = await kerzenquelle.hole({
+            symbol,
+            intervall,
+            vonUnix: unix(eintrag.von),
+            bisUnix: Math.floor(Date.now() / 1000),
+          });
+          reihen.push({ symbol, kerzen: geholt.kerzen });
+        } catch (error) {
+          fehlend.push(`${symbol}: ${error instanceof Error ? error.message : error}`);
+        }
+      }
+      const vorherR =
+        eintrag.maerkte && eintrag.maerkte.length > 0 && eintrag.universum
+          ? eintrag.universum.gemeinsamErwartungswertR
+          : (eintrag.kennzahlen?.erwartungswertR ?? 0);
+      const vermerk = rechneSchlussprobe(eintrag.strategie, reihen, unix(ab), vorherR, intervall);
+
+      // Nur hinauf, nie hinab: ein Status, den Jakob gesetzt hat, bleibt stehen. Bestanden hebt
+      // `geprueft` auf `kandidat`, wenn die Kennzahlen es ohnehin trugen und nur die Hürde fehlte.
+      const hebt =
+        vermerk.urteil === "bestanden" &&
+        eintrag.status === "geprueft" &&
+        bewerte(eintrag.kennzahlen, eintrag.outOfSample, eintrag.warnungstexte, eintrag.universum, {
+          haeltNachVersuchen: false,
+          schlussprobe: "bestanden",
+        }) === "kandidat";
+      await deps.strategien.aendere(id, {
+        schlussprobe: vermerk,
+        ...(hebt ? { status: "kandidat" as const } : {}),
+      });
+      const nicht = fehlend.length > 0 ? `\n\nNicht abrufbar:\n  ${fehlend.join("\n  ")}` : "";
+      return text(
+        `${formatiereSchlussprobe(eintrag.name, vermerk)}${nicht}\n\nStatus: **${hebt ? "kandidat" : eintrag.status}**${hebt ? " (vorher geprueft)" : ""}.`,
+      );
+    },
+    { annotations: { title: "Schlussprobe rechnen" } },
   );
 
   /**
@@ -993,7 +1211,9 @@ export function createLabor(deps: LaborDeps = {}) {
         },
         async (eingabe) => {
           const { symbol, intervall, von, bis, weitereMaerkte, ...rest } = eingabe;
-          const ende = bis ?? heute();
+          const zeitraum = suchEnde(von, bis, intervall);
+          if ("fehler" in zeitraum) return text(zeitraum.fehler, true);
+          const ende = zeitraum.ende;
           const intervallWahl = intervall as ChartInterval;
           try {
             const geholt = await kerzenquelle.hole({
@@ -1019,6 +1239,35 @@ export function createLabor(deps: LaborDeps = {}) {
               ende,
               intervallWahl,
             );
+            // Gezählt wird der stärkere Beleg — derselbe, der auch über den Status entscheidet:
+            // der Heimatmarkt allein oder der gemeinsame Topf.
+            const zHeimat = zWert(ergebnis.handel.map((h) => h.r));
+            const zTopf = vermerk?.gemeinsam
+              ? zAusIntervall(vermerk.gemeinsamErwartungswertR, vermerk.gemeinsam)
+              : Number.NEGATIVE_INFINITY;
+            const topf = zTopf > zHeimat && vermerk !== undefined;
+            const maerkte = weitereMaerkte ?? [];
+            const versuch = await zaehle(
+              "ablage",
+              strategie,
+              [marktsymbol, ...maerkte],
+              intervall,
+              {
+                anzahl: topf ? vermerk.gesamtHandel : ergebnis.gesamt.anzahl,
+                erwartungswertR: topf
+                  ? vermerk.gemeinsamErwartungswertR
+                  : ergebnis.gesamt.erwartungswertR,
+                z: Math.max(zHeimat, zTopf),
+              },
+            );
+            const bericht = [
+              formatiereBacktest(ergebnis),
+              universumBericht,
+              zeitraum.hinweis,
+              versuch.satz,
+            ]
+              .filter((teil) => teil !== "")
+              .join("\n\n");
             const kopf = await archiv.lege({
               name: strategie.name,
               wer: deps.wer ?? "handelstisch",
@@ -1031,12 +1280,13 @@ export function createLabor(deps: LaborDeps = {}) {
               inSample: ergebnis.inSample,
               outOfSample: ergebnis.outOfSample,
               warnungstexte: ergebnis.warnungen,
-              bericht: `${formatiereBacktest(ergebnis)}\n\n${universumBericht}`,
+              bericht,
+              gesehenBis: zeitraum.grenze,
+              maerkte,
               ...(vermerk === undefined ? {} : { universum: vermerk }),
+              ...(versuch.vermerk === undefined ? {} : { versuch: versuch.vermerk }),
             });
-            return text(
-              `Abgelegt als ${kopf.id} — Status **${kopf.status}**.\n\n${formatiereBacktest(ergebnis)}\n\n${universumBericht}`,
-            );
+            return text(`Abgelegt als ${kopf.id} — Status **${kopf.status}**.\n\n${bericht}`);
           } catch (error) {
             if (error instanceof StrategieFehler)
               return text(`Nicht abgelegt: ${error.message}`, true);
@@ -1230,6 +1480,7 @@ export function createLabor(deps: LaborDeps = {}) {
       replayStand,
       replayEnde,
       gegenprobe,
+      schlussprobe,
       ...(deps.papier ? papierWerkzeuge(deps.papier) : []),
       ...(deps.strategien ? archivWerkzeuge(deps.strategien) : []),
       ...(deps.prognosen ? prognoseWerkzeuge(deps.prognosen) : []),
@@ -1245,6 +1496,7 @@ export const LABOR_TOOLS = [
   "mcp__labor__backtest",
   "mcp__labor__universum",
   "mcp__labor__gegenprobe",
+  "mcp__labor__schlussprobe",
   "mcp__labor__replay_start",
   "mcp__labor__replay_weiter",
   "mcp__labor__replay_handeln",

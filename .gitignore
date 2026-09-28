@@ -33,6 +33,8 @@ venv/
 /workspace/analysen/
 # Das Verbrauchsbuch (`gateway/verbrauch.ts`): eine Zeile je Lauf, wächst mit jedem Zug.
 /workspace/verbrauch/
+# Das Versuchsbuch (`gateway/versuche.ts`): eine Zeile je gerechneter Regel, wächst mit jedem Backtest.
+/workspace/labor/
 # Das Gesprächsarchiv (`gateway/gespraeche.ts`): Kuros Gespräche mit Jakob im Wortlaut, jede Nacht
 # ein Tag mehr — privat, und das Repo hat einen Remote. Die Übergabe wechselt mit jedem Archivieren.
 /workspace/ablage/gespraeche/

@@ -71,6 +71,10 @@ export function nachbarschaft(strategie: Strategie): Variante[] {
       links: mitPeriode(b.links, anteil),
       rechts: mitPeriode(b.rechts, anteil),
     }));
+  // Die Stoplinie wandert mit: beim SuperTrend kommen Signal und Stop aus derselben Linie, und
+  // ein Signal aus ST(10) mit dem Stop an ST(12) wäre eine dritte Regel, keine Nachbarin.
+  const verschiebeStop = (anteil: number) =>
+    strategie.stopAn ? { stopAn: mitPeriode(strategie.stopAn, anteil) } : {};
 
   return [
     {
@@ -79,6 +83,7 @@ export function nachbarschaft(strategie: Strategie): Variante[] {
         ...strategie,
         einstieg: verschiebeBedingungen(-0.2),
         ...(strategie.ausstieg ? { ausstieg: verschiebeAusstieg(-0.2) } : {}),
+        ...verschiebeStop(-0.2),
       },
     },
     {
@@ -87,6 +92,7 @@ export function nachbarschaft(strategie: Strategie): Variante[] {
         ...strategie,
         einstieg: verschiebeBedingungen(0.2),
         ...(strategie.ausstieg ? { ausstieg: verschiebeAusstieg(0.2) } : {}),
+        ...verschiebeStop(0.2),
       },
     },
     {
@@ -105,9 +111,10 @@ export function pruefeVariante(
   variante: Variante,
   kerzen: readonly MarketCandle[],
   symbol: string,
+  intervall = "1d",
 ): VarianteErgebnis {
   try {
-    const e = backtest(variante.strategie, kerzen, { symbol, intervall: "1d" });
+    const e = backtest(variante.strategie, kerzen, { symbol, intervall });
     return {
       name: variante.name,
       symbol,

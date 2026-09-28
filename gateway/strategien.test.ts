@@ -169,6 +169,34 @@ describe("bewerte", () => {
     );
   });
 
+  it("verlangt seit dem Versuchsbuch die Hürde oder eine bestandene Schlussprobe", () => {
+    const k = kennzahlen({ anzahl: 1200, konfidenz: belegt });
+    expect(bewerte(k, abschnitt(0.2), [], undefined, { haeltNachVersuchen: false })).toBe(
+      "geprueft",
+    );
+    expect(bewerte(k, abschnitt(0.2), [], undefined, { haeltNachVersuchen: true })).toBe(
+      "kandidat",
+    );
+    expect(
+      bewerte(k, abschnitt(0.2), [], undefined, {
+        haeltNachVersuchen: false,
+        schlussprobe: "bestanden",
+      }),
+    ).toBe("kandidat");
+    expect(
+      bewerte(k, abschnitt(0.2), [], undefined, {
+        haeltNachVersuchen: false,
+        schlussprobe: "zu wenig Handel",
+      }),
+    ).toBe("geprueft");
+    // Die Zulassung hebt nichts, was die Kennzahlen nicht tragen.
+    expect(
+      bewerte(kennzahlen({ anzahl: 35 }), abschnitt(0.2), [], undefined, {
+        haeltNachVersuchen: true,
+      }),
+    ).toBe("geprueft");
+  });
+
   it("verlangt vom Kandidaten weiter, dass der Markt selbst trägt", () => {
     const k = (teil: Partial<Kennzahlen> = {}) =>
       kennzahlen({ anzahl: 1200, konfidenz: belegt, ...teil });
@@ -273,6 +301,47 @@ describe("Archiv", () => {
   beforeEach(async () => {
     ordner = await mkdtemp(path.join(tmpdir(), "kuro-strategien-"));
     archiv = createStrategien({ workdir: ordner });
+  });
+
+  it("hält Sichtgrenze, Märkte und Versuch fest und hält ohne Hürde vom Kandidaten zurück", async () => {
+    const belegt = konfidenz(rWerte(1200, 0.4, 2));
+    const kopf = await archiv.lege({
+      ...eintrag(),
+      kennzahlen: kennzahlen({ anzahl: 1200, konfidenz: belegt }),
+      outOfSample: abschnitt(0.2),
+      gesehenBis: "2026-04-01",
+      maerkte: ["binance:ETHUSDT"],
+      versuch: { nr: 900, z: 3.1, huerde: 4.0, haelt: false },
+    });
+    expect(kopf.status).toBe("geprueft");
+    expect(kopf.gesehenBis).toBe("2026-04-01");
+    expect(kopf.maerkte).toEqual(["binance:ETHUSDT"]);
+    const nachher = await archiv.aendere(kopf.id, {
+      status: "kandidat",
+      schlussprobe: {
+        am: "2026-09-28T18:00:00.000Z",
+        von: "2026-04-01",
+        bis: "2026-09-27",
+        maerkte: ["binance:BTCUSDT"],
+        anzahl: 40,
+        erwartungswertR: 0.2,
+        vorherR: 0.25,
+        urteil: "bestanden",
+        begruendung: "Test.",
+      },
+    });
+    expect(nachher?.status).toBe("kandidat");
+    expect(nachher?.schlussprobe?.urteil).toBe("bestanden");
+  });
+
+  it("urteilt ohne Versuch wie vorher — alte Einträge und `bau/neu-bewerten.ts`", async () => {
+    const belegt = konfidenz(rWerte(1200, 0.4, 2));
+    const kopf = await archiv.lege({
+      ...eintrag(),
+      kennzahlen: kennzahlen({ anzahl: 1200, konfidenz: belegt }),
+      outOfSample: abschnitt(0.2),
+    });
+    expect(kopf.status).toBe("kandidat");
   });
 
   it("blendet Archiviertes standardmäßig aus, zeigt es aber auf Wunsch", async () => {

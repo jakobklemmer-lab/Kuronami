@@ -308,6 +308,7 @@ export class KuroAgent {
       createPapierhandel({
         workdir: this.#workdir,
         markets: createYahooMarkets(),
+        kerzen: createKerzenquelle({ workdir: this.#workdir, markets: createYahooMarkets() }),
         strategien: this.#strategien,
         // Was im Betrieb passiert, gehört auf den Bus: die Oberfläche zeigt es, und ein
         // gesperrtes Konto soll niemand erst beim nächsten Nachfragen erfahren.

@@ -3,6 +3,7 @@ import {
   MINDEST_BEHALTEN,
   type VarianteErgebnis,
   formatiereGegenprobe,
+  nachbarschaft,
   urteile,
 } from "./gegenprobe.js";
 
@@ -115,5 +116,28 @@ describe("formatiereGegenprobe", () => {
     const text = formatiereGegenprobe("Test", reihe, urteile(reihe, -0.1));
     expect(text).toContain("behält");
     expect(text).toContain("—");
+  });
+});
+
+describe("nachbarschaft", () => {
+  it("verschiebt die Stoplinie mit — Signal und Stop kommen beim SuperTrend aus derselben Linie", () => {
+    const varianten = nachbarschaft({
+      name: "SuperTrend",
+      richtung: "long",
+      einstieg: [
+        {
+          links: { art: "supertrend_richtung", periode: 12, faktor: 3 },
+          vergleich: "kreuzt_ueber",
+          rechts: { art: "wert", wert: 0 },
+        },
+      ],
+      stopAn: { art: "supertrend", periode: 12, faktor: 3 },
+    });
+    const minus = varianten.find((v) => v.name === "Perioden −20 %");
+    const plus = varianten.find((v) => v.name === "Perioden +20 %");
+    expect(minus?.strategie.einstieg[0].links.periode).toBe(10);
+    expect(minus?.strategie.stopAn?.periode).toBe(10);
+    expect(plus?.strategie.stopAn?.periode).toBe(14);
+    expect(plus?.strategie.stopAn?.faktor).toBe(3);
   });
 });

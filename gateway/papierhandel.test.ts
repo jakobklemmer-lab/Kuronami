@@ -1,13 +1,19 @@
+import { mkdtemp } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import path from "node:path";
 import { describe, expect, it } from "vitest";
 import type { Strategie } from "./backtest.js";
-import type { MarketCandle } from "./integrations/markets.js";
+import type { MarketCandle, MarketsClient } from "./integrations/markets.js";
+import type { KerzenAnfrage, Kerzenquelle } from "./kerzen.js";
 import {
   type PapierKonto,
   VORGABE_GRENZEN,
+  createPapierhandel,
   grenzeGerissen,
   papierKennzahlen,
   verarbeite,
 } from "./papierhandel.js";
+import type { StrategienArchiv } from "./strategien.js";
 
 /**
  * Der Papierhandel führt echtes Verhalten mit Buchgeld aus — geprüft wird hier, dass er
@@ -205,5 +211,57 @@ describe("papierKennzahlen", () => {
     expect(z.trefferquote).toBeCloseTo(1 / 3);
     expect(z.erwartungswertR).toBeCloseTo(0);
     expect(z.profitFaktor).toBeCloseTo(1);
+  });
+});
+
+describe("createPapierhandel", () => {
+  it("holt die Kerzen im Zeitrahmen und aus der Quelle des Kontos, nicht als Yahoo-Tageskerzen", async () => {
+    const workdir = await mkdtemp(path.join(tmpdir(), "kuro-papier-"));
+    const anfragen: KerzenAnfrage[] = [];
+    const quelle = {
+      async hole(anfrage: KerzenAnfrage) {
+        anfragen.push(anfrage);
+        return {
+          kerzen: kerzen(Array.from({ length: 60 }, (_, i) => 100 + i)),
+          quelle: "binance" as const,
+          symbol: "BTCUSDT",
+          intervall: anfrage.intervall,
+          ausSpeicher: 60,
+          neuGeholt: 0,
+          berichtigt: 0,
+          luecken: [],
+        };
+      },
+      async bestandVon() {
+        throw new Error("nicht gebraucht");
+      },
+    } as unknown as Kerzenquelle;
+    const eintrag = {
+      id: "0123456789ab",
+      name: "SuperTrend 1h",
+      symbol: "binance:BTCUSDT",
+      intervall: "1h",
+      status: "kandidat",
+      strategie: STRATEGIE,
+      kennzahlen: null,
+    };
+    const papier = createPapierhandel({
+      workdir,
+      markets: {
+        zeitraum: async () => {
+          throw new Error("Yahoo darf hier nicht gefragt werden");
+        },
+      } as unknown as MarketsClient,
+      kerzen: quelle,
+      strategien: { lies: async () => eintrag } as unknown as StrategienArchiv,
+    });
+    await papier.starte("0123456789ab");
+    const ereignisse = await papier.tick();
+    expect(ereignisse.join(" ")).not.toMatch(/fehlgeschlagen/);
+    expect(anfragen).toHaveLength(1);
+    expect(anfragen[0].symbol).toBe("binance:BTCUSDT");
+    expect(anfragen[0].intervall).toBe("1h");
+    // Unter der Tageskerze 120 Tage Vorlauf, nicht 500.
+    expect(anfragen[0].bisUnix - anfragen[0].vonUnix).toBe(120 * TAG);
   });
 });

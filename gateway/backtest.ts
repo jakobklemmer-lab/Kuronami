@@ -505,12 +505,19 @@ export function stopLinieAm(
  * **falschen Seite** — ein Long mit der EMA 200 über dem Einstieg. Den Stop dann still
  * irgendwohin zu legen hieße, eine andere Regel zu rechnen als die genannte; wie oft es
  * vorkam, steht im Ergebnis.
+ *
+ * Geprüft wird die Linie gegen die **rohe Eröffnung** `roh`, nicht gegen den um den Schlupf
+ * verschlechterten `kurs`. Eröffnet ein Short bei 140,07 über seinem Stop bei 140,00, ist der
+ * Stop gerissen, bevor der Handel beginnt — der Schlupf schob den Einstieg aber auf 139,99996
+ * zurück unter die Linie, und AAPL 1d rechnete so am 28.09. einen Handel mit 0,00004 $ Risiko
+ * und −15.179 R.
  */
 export function stopFuer(
   strategie: Strategie,
   kurs: number,
   atrWert: number | undefined,
   linienWert: number | undefined,
+  roh: number = kurs,
 ): number | null {
   const long = strategie.richtung === "long";
   if (strategie.stopAtr !== undefined) {
@@ -519,7 +526,8 @@ export function stopFuer(
   }
   if (strategie.stopAn !== undefined) {
     if (linienWert === undefined) return null;
-    if (long ? linienWert >= kurs : linienWert <= kurs) return null;
+    const naechster = long ? Math.min(kurs, roh) : Math.max(kurs, roh);
+    if (long ? linienWert >= naechster : linienWert <= naechster) return null;
     return linienWert;
   }
   const anteil = (strategie.stopProzent ?? 0) / 100;
@@ -873,7 +881,7 @@ export function backtest(
     ) {
       const roh = kerzen[i + 1].open;
       const kurs = long ? roh * (1 + schlupf) : roh * (1 - schlupf);
-      const stop = stopFuer(strategie, kurs, atr[i], stopLinie?.[i]);
+      const stop = stopFuer(strategie, kurs, atr[i], stopLinie?.[i], roh);
       if (stop === null) {
         if (stopLinie?.[i] !== undefined) falscheSeite += 1;
         kapitalkurve.push(kapital);
