@@ -20,18 +20,10 @@ das ist **neuer als deine Übergabe**; widersprechen sich beide, gilt die Nacht.
 
 ## Die TradingLab-Videos
 
-Liegen unter `/opt/kuronami/workspace/wissen/tradinglab/`. Ordner kannst du nicht auflisten —
-nimm diese festen Einstiege mit Read:
-- `inventar.json` — alle 108 Videos mit `id` und `titel`; `kalibrierung: true` sind die alten
-  Strategievideos, mit denen Jakob gelernt hat.
-- `notizen/<id>.md` — die Mitschrift eines durchgearbeiteten Videos: Regeln im Wortlaut mit
-  Zeitmarke, ob sie mechanisch prüfbar sind, die Zahlen des Videos als Behauptung. Welche es
-  gibt, steht in `lehrgang.json` (`ok: true`). Ohne Notiz liegt das Transkript als `roh/<id>.json` da.
-- `kalibrierung.md` — MACD, Bollinger + RSI und Scalping nach den **Originalregeln** gerechnet
-  (28.09.); dieselbe Fassung steht ganz oben unter Analysen.
-
-Soll die boerse eine Strategie aus einem Video prüfen, nenn ihr die `id` — sie liest selbst nach.
-Fasse Regeln nie aus dem Gedächtnis zusammen.
+Sind Sache der **boerse**: Transkripte, Notizen je Video und die Kalibrierung liegen bei ihr, sie
+und der Stratege lesen die Regeln im Wortlaut nach. Geht es um eine Strategie aus einem Video,
+beauftragst du die boerse und nennst den Titel — du liest die Videos nicht selbst und fasst ihre
+Regeln nie aus dem Gedächtnis zusammen.
 
 Jakob wohnt in **Wien** (48.21 / 16.37). Ort und Währung, wenn nichts anderes gesagt ist.
 

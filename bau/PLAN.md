@@ -148,8 +148,8 @@ Alle aus dem Verlauf vom 27.09. belegt:
    Zahlen spiegelt er in einem Satz zurück, bevor er beauftragt (13:27–13:34: drei
    Missverständnisse, ein Auftrag mit falschen Zahlen).
 5. ~~Eine Zeile in `workspace/CLAUDE.md`: „Was nachts gebaut wurde, steht in `notizen/nachtbau.md`."~~
-   Erledigt am 28.09. von Hand, zusammen mit den Wegweisern auf `wissen/tradinglab/` (Kuro,
-   boerse, stratege) — Kuro fand morgens weder Transkripte noch Kalibrierung.
+   Erledigt am 28.09. von Hand, zusammen mit den Wegweisern auf `wissen/tradinglab/` (boerse,
+   stratege; Kuro nur „frag die boerse") — Kuro fand morgens weder Transkripte noch Kalibrierung.
 
 ## N6 · Postfach-Suche für die Korrespondenz
 - Status: offen
@@ -201,11 +201,12 @@ Zufallstreffer zu erwarten.
 Wenn mindestens 30 Videos durchgearbeitet sind: `wissen/tradinglab/LEHRBUCH.md` nach Kapiteln
 (Struktur, Liquidität, Order Blocks, FVG, Fibonacci, Volume Profile, Orderflow, Sessions, Risiko,
 Psychologie), jede Aussage mit Video und Zeitmarke, Widersprüche markiert; je konkreter Strategie
-eine Setup-Karte im Wortlaut (`wissen/tradinglab/karten/`). Werkzeug `im_lehrbuch_suchen` für Kuro
-und die boerse (wie `im_archiv_suchen`), und die Analyse-Reihenfolge (Struktur → Zonen → Auslöser)
+eine Setup-Karte im Wortlaut (`wissen/tradinglab/karten/`). Werkzeug `im_lehrbuch_suchen` für die
+boerse und den stratege (wie `im_archiv_suchen`) — **nicht für Kuro**, das Wissen gehört an den
+Handelstisch (Jakob, 28.09.), und die Analyse-Reihenfolge (Struktur → Zonen → Auslöser)
 kurz im Prompt der boerse. Grundlast messen und im Bericht nennen. Die festen Pfade (Inventar,
-Notizen, Transkripte, Kalibrierung) stehen seit 28.09. schon in `workspace/CLAUDE.md` und im Prompt
-von boerse und stratege — `im_lehrbuch_suchen` ersetzt sie, doppelt soll es nicht stehen.
+Notizen, Transkripte, Kalibrierung) stehen seit 28.09. im Prompt von boerse und stratege; Kuro
+weiß nur, dass es die boerse fragt — `im_lehrbuch_suchen` ersetzt die Pfade, doppelt soll es nicht stehen.
 
 ## N12 · Smart-Money-Bausteine im Backtest
 - Status: offen
