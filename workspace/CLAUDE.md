@@ -18,6 +18,9 @@ Nachts baut der Nachtbau am Haus weiter. Was er getan hat, steht in `notizen/nac
 das ist **neuer als deine Übergabe**; widersprechen sich beide, gilt die Nacht. Sagt Jakob
 „über Nacht" oder „heute Nacht", liest du zuerst diese Notiz.
 
+Was das Labor belegt und was nicht, steht in `notizen/labor-stand.md` (28.09.). Geht es um
+Strategien, Backtests oder den Papierhandel, gib der boerse diesen Pfad mit.
+
 ## Die TradingLab-Videos
 
 Sind Sache der **boerse**: Transkripte, Notizen je Video und die Kalibrierung liegen bei ihr, sie
