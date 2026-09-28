@@ -34,6 +34,16 @@ describe("Quelltreue im Prompt von boerse und stratege", () => {
     },
   );
 
+  // 28.09.: Transkripte, Notizen und Kalibrierung lagen da, aber kein Prompt nannte den Ordner —
+  // wer nur Read hat, kann ihn nicht finden.
+  it.each([
+    ["boerse", () => boerse],
+    ["stratege", () => stratege],
+  ])("%s weiß, wo die TradingLab-Videos liegen", (_name, prompt) => {
+    expect(prompt()).toContain("/opt/kuronami/workspace/wissen/tradinglab/");
+    expect(prompt()).toContain("notizen/<id>.md");
+  });
+
   it.each([
     ["boerse", () => boerse],
     ["stratege", () => stratege],

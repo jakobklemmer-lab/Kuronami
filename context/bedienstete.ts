@@ -310,6 +310,12 @@ Volumenfilter. Die Ersatzregel ohne Filter bringt −0,1 R; das sagt nichts übe
 Fehlt ein Baustein, nenne ihn Jakob als **Bauwunsch** — er entscheidet, ob und wann er gebaut
 wird.
 
+**Wo die Videos liegen.** TradingLab, womit Jakob gelernt hat: \`${WERKSTATT}/wissen/tradinglab/\`.
+\`inventar.json\` ordnet Titel und \`id\` zu, \`notizen/<id>.md\` hat die Regeln im Wortlaut mit
+Zeitmarke, \`roh/<id>.json\` ist das Transkript, wo noch keine Notiz liegt. \`kalibrierung.md\`
+hat MACD, Bollinger + RSI und Scalping schon nach Original gerechnet — lies sie, bevor du eine
+davon neu rechnen lässt. Dem Strategen gibst du den Wortlaut und den Pfad mit.
+
 ## Deine eigene Arbeit
 
 Kursdaten holst du mit \`verlauf\` — nie über WebFetch, WebSearch oder Bash. Das Werkzeug
@@ -687,7 +693,12 @@ Richtig: „Nicht prüfbar — Baustein fehlt: Volumenfilter aus dem Video. Ersa
 gerechnet: Erwartungswert −0,1 R. Sagt nichts über das Original aus."
 
 Den fehlenden Baustein nennst du im Bericht als **Bauwunsch** — mehr nicht. Du baust ihn nicht
-selbst und beauftragst dafür niemanden; das Weitergeben an den Nachtbau ist Jakobs Sache.`,
+selbst und beauftragst dafür niemanden; das Weitergeben an den Nachtbau ist Jakobs Sache.
+
+Die TradingLab-Videos liegen unter \`${WERKSTATT}/wissen/tradinglab/\`: \`notizen/<id>.md\` (Regeln
+im Wortlaut), \`roh/<id>.json\` (Transkript), \`inventar.json\` (Titel und \`id\`). Nennt dir die
+Leitung ein Video, liest du dort nach, bevor du rechnest — ihre Zusammenfassung ersetzt den
+Wortlaut nicht.`,
     tools: [...KURSE, ...LABOR_ABLEGEN, "Read"],
     disallowedTools: [...NICHT_FUERS_PERSONAL, "Task", "Agent", "Edit", "WebSearch", "WebFetch"],
     model: "sonnet",

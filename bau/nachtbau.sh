@@ -5,7 +5,8 @@
 #   systemctl start kuronami-nachtbau   ·   Protokoll: bau/protokoll/<Tag>.log
 #
 # Je Aufgabe ein eigener Claude-Code-Lauf (frischer Kontext = billiger) im Worktree
-# /opt/kuronami-nachtbau. Übernommen wird nur, was Tests und Typecheck besteht; danach Neustart
+# /opt/kuronami-nachtbau, immer mit Opus 5.5 — auch für Unteragenten. Jakob am 28.09.: „ich ertrage
+# Sonnet als Codingmaschine nicht mehr." Die Zeile „Modell:" im Plan zählt dafür nicht mehr. Übernommen wird nur, was Tests und Typecheck besteht; danach Neustart
 # des Gateways und Gesundheitsprüfung — startet er nicht, wird zurückgerollt.
 #
 # Stellschrauben in /opt/kuronami/.env (Vorgabe):
@@ -156,7 +157,7 @@ uebernimm() {  # $1 = Aufgabe; neue Commits auf nachtbau ins laufende System
   fi
 }
 
-modell_id() { case "$1" in opus) echo claude-opus-5-5 ;; *) echo claude-sonnet-5 ;; esac; }
+MODELL_ID=claude-opus-5-5
 
 VERSUCHT=""
 while :; do
@@ -174,11 +175,11 @@ while :; do
   if [[ -z "${ID:-}" ]]; then log "Keine Aufgabe bereit."; break; fi
   VERSUCHT="$VERSUCHT,$ID"
   vorher_stand=$STAND
-  log "--- $ID mit $MODELL beginnt ($STAND)"
+  log "--- $ID mit $MODELL_ID beginnt ($STAND)"
 
   AUFTRAG=$(sed "s/{AUFGABE}/$ID/g" "$LIVE/bau/auftrag.md")
-  ( cd "$BAU" && ENABLE_CLAUDEAI_MCP_SERVERS=false exec timeout --signal=INT --kill-after=120 "$((MIN * 60))" \
-      claude -p "$AUFTRAG" --model "$(modell_id "$MODELL")" --permission-mode auto \
+  ( cd "$BAU" && ENABLE_CLAUDEAI_MCP_SERVERS=false CLAUDE_CODE_SUBAGENT_MODEL=$MODELL_ID exec timeout --signal=INT --kill-after=120 "$((MIN * 60))" \
+      claude -p "$AUFTRAG" --model "$MODELL_ID" --permission-mode auto \
         --strict-mcp-config --mcp-config '{"mcpServers":{}}' \
         --settings '{"enabledPlugins":{"hyperframes@claude-plugins-official":false}}' \
         --output-format stream-json --verbose ) >"$PROT/$TAG-$ID.jsonl" 2>>"$LOGDATEI" &
@@ -224,7 +225,10 @@ mkdir -p "$LIVE/workspace/notizen"
 {
   echo "# Nachtbau vom $(date '+%d.%m.%Y')"
   echo
-  echo "Stand am Ende: $STAND. Bericht für Jakob: bau/berichte/$TAG.md (im Quellbaum /opt/kuronami)."
+  # Beginnt die Nacht vor Mitternacht, stehen die Berichte in zwei Dateien.
+  berichte="bau/berichte/$TAG.md"
+  [[ "$(date +%F)" != "$TAG" ]] && berichte="$berichte und bau/berichte/$(date +%F).md"
+  echo "Stand am Ende: $STAND. Bericht für Jakob: $berichte (im Quellbaum /opt/kuronami)."
   echo
   grep -E " (--- |beendet|übernommen|blockiert|Schluss|Wächter|zurück|ACHTUNG)" "$LOGDATEI" | tail -40
 } > "$LIVE/workspace/notizen/nachtbau.md"

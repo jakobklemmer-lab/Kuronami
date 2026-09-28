@@ -6,6 +6,10 @@ jede Nacht außerhalb meiner Nutzerzeiten automatisch nach Plan fertig gebaut wi
 `wartet`, deren „Braucht" erledigt ist, und arbeitet sie in einem eigenen Lauf ab. Die
 Arbeitsregeln stehen in `bau/auftrag.md`, die Berichte unter `bau/berichte/`.
 
+**Modell:** seit 28.09. baut der Nachtbau jede Aufgabe mit **Opus 5.5**, in einem eigenen Lauf je
+Aufgabe (Jakob: „ich ertrage Sonnet als Codingmaschine nicht mehr"). Die Zeilen „Modell:" unten sind
+nur noch Beschreibung; der Läufer setzt das Modell fest.
+
 **Status-Werte:** `offen` · `in Arbeit (Stand …)` · `wartet (worauf)` · `erledigt (Datum, Commit)` ·
 `blockiert (Grund)`. Eine zu große Aufgabe darf in Teilaufgaben (N7a, N7b …) zerlegt werden. **Die Reihenfolge im
 Plan ist die Reihenfolge der Arbeit**, nicht die Nummer: das Wochenbudget reicht nur für wenige
@@ -21,7 +25,7 @@ die Agenten fehlerhaft sind und durch die TradingLab-Videos besser werden. Beide
 
 ## N1 · Quelltreue: Ersatzregeln widerlegen kein Original
 - Status: erledigt (2026-09-27, „Nachtbau N1: Quelltreue …")
-- Modell: sonnet
+- Modell: opus
 
 Die boerse und der stratege (`context/bedienstete.ts`, Handelstisch) bekommen eine Regel im
 Prompt, mit Beispiel richtig/falsch (der Ton steht in Beispielen, nicht in Adjektiven):
@@ -35,7 +39,7 @@ Fertig, wenn: Prompttexte stehen, ein Test prüft, dass die Sätze im Prompt der
 
 ## N2 · Archiv für Strategien und Analysen
 - Status: erledigt (2026-09-28, „Nachtbau N2: Archiv für Strategien und Analysen")
-- Modell: sonnet
+- Modell: opus
 
 Jakob: „wir brauchen Archive für Strategien und Analysen, sonst müllt mir das die Website zu."
 - Strategien (`gateway/strategien.ts`, `ui/views/strategien.ts`) und Analysen
@@ -54,7 +58,7 @@ Daten (read-only aus `/opt/kuronami/workspace`) weniger Einträge als vorher —
 
 ## N3 · Strategie-Ablage kennt Intervall und Quelle
 - Status: erledigt (2026-09-28, „Nachtbau N3: Strategie-Ablage kennt Intervall und Quelle")
-- Modell: sonnet
+- Modell: opus
 
 `strategie_ablegen` (`gateway/labor.ts`) rechnet fest mit `"1d"` und Yahoo. Es bekommt
 `intervall` und die Quelle (wie `backtest`: `binance:`-Symbole, Zeitfenster), damit Intraday-Tests
@@ -130,7 +134,7 @@ Fertig, wenn: Tests mit nachgestellter Grenzmeldung decken Antwort, Parken und N
 
 ## N5 · Kleine Reparaturen an Kuro
 - Status: offen
-- Modell: sonnet
+- Modell: opus
 
 Alle aus dem Verlauf vom 27.09. belegt:
 1. Bricht Kuro selbst einen Auftrag ab (`abbrechen`), kommt **kein** „Bericht eingetroffen"
@@ -143,11 +147,13 @@ Alle aus dem Verlauf vom 27.09. belegt:
    Kuro spricht nie in der dritten Person über sich („Kuro hat sich verhört, äh —"); ein Ziel mit
    Zahlen spiegelt er in einem Satz zurück, bevor er beauftragt (13:27–13:34: drei
    Missverständnisse, ein Auftrag mit falschen Zahlen).
-5. Eine Zeile in `workspace/CLAUDE.md`: „Was nachts gebaut wurde, steht in `notizen/nachtbau.md`."
+5. ~~Eine Zeile in `workspace/CLAUDE.md`: „Was nachts gebaut wurde, steht in `notizen/nachtbau.md`."~~
+   Erledigt am 28.09. von Hand, zusammen mit den Wegweisern auf `wissen/tradinglab/` (Kuro,
+   boerse, stratege) — Kuro fand morgens weder Transkripte noch Kalibrierung.
 
 ## N6 · Postfach-Suche für die Korrespondenz
 - Status: offen
-- Modell: sonnet
+- Modell: opus
 
 `liste` zeigt nur die 50 neuesten Mails; deshalb blieb der TradingLab-Newsletter unauffindbar.
 Neues Werkzeug `suche` in `gateway/postfach-werkzeuge.ts` über IMAP-SEARCH; bei Gmail mit
@@ -160,7 +166,7 @@ Inhalte ins Git).
 
 ## N7 · Kapitalplan statt Wochenziel
 - Status: offen
-- Modell: sonnet
+- Modell: opus
 
 Jakob am 27.09. um 13:34: Start [Kapital], **[Einzahlung] Einzahlung je Monat**, Ziel **~[Ziel] nach 12
 Monaten**. Die boerse hat gerechnet: 3,84 % (Einzahlung Monatsanfang) bis 4,17 % (Monatsende) je
@@ -189,7 +195,7 @@ Zufallstreffer zu erwarten.
 
 ## N11 · Lehrbuch und Setup-Karten
 - Status: offen
-- Modell: sonnet
+- Modell: opus
 - Braucht: N8
 
 Wenn mindestens 30 Videos durchgearbeitet sind: `wissen/tradinglab/LEHRBUCH.md` nach Kapiteln
@@ -197,7 +203,9 @@ Wenn mindestens 30 Videos durchgearbeitet sind: `wissen/tradinglab/LEHRBUCH.md` 
 Psychologie), jede Aussage mit Video und Zeitmarke, Widersprüche markiert; je konkreter Strategie
 eine Setup-Karte im Wortlaut (`wissen/tradinglab/karten/`). Werkzeug `im_lehrbuch_suchen` für Kuro
 und die boerse (wie `im_archiv_suchen`), und die Analyse-Reihenfolge (Struktur → Zonen → Auslöser)
-kurz im Prompt der boerse. Grundlast messen und im Bericht nennen.
+kurz im Prompt der boerse. Grundlast messen und im Bericht nennen. Die festen Pfade (Inventar,
+Notizen, Transkripte, Kalibrierung) stehen seit 28.09. schon in `workspace/CLAUDE.md` und im Prompt
+von boerse und stratege — `im_lehrbuch_suchen` ersetzt sie, doppelt soll es nicht stehen.
 
 ## N12 · Smart-Money-Bausteine im Backtest
 - Status: offen
@@ -213,7 +221,7 @@ Zerlegen in N12a–c. Danach die Setup-Karten (N11) 1:1 rechnen (Skript, wie N9)
 
 ## N13 · Längere Intraday-Historie für Forex und Indizes
 - Status: offen
-- Modell: sonnet
+- Modell: opus
 
 Yahoo hat EUR/USD 1h nur ~2 Jahre. Dukascopy (kostenlos, ohne Konto) als Quelle `dukascopy:`
 prüfen und anbinden, in den Kerzenspeicher (`gateway/kerzenspeicher.ts`). Fallen messen, nicht
@@ -231,7 +239,7 @@ nur das Werkzeug und beschreibt im Bericht den Satz, den Jakob sagen kann.
 
 ## N15 · Neue Videos von selbst
 - Status: offen
-- Modell: sonnet
+- Modell: opus
 
 Wöchentlich das Inventar auffrischen (`werkzeuge/bin/yt-dlp --flat-playlist`, vom Server aus
 möglich), neue Videos hinten anhängen, Kalibrierungs-Reihenfolge nicht verändern.
