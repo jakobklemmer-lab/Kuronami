@@ -6,7 +6,9 @@ import {
   adx,
   atrReihe,
   bollinger,
+  dema,
   ema,
+  engulfing,
   fraktale,
   hatVolumen,
   imFenster,
@@ -18,8 +20,10 @@ import {
   rsi,
   schlusskurse,
   sma,
+  spannenStop,
   stdabw,
   stochastik,
+  supertrend,
   swingHoch,
   swingTief,
   vwap,
@@ -82,7 +86,13 @@ export type IndikatorArt =
   | "swing_tief"
   | "swing_hoch"
   | "fraktal_tief"
-  | "fraktal_hoch";
+  | "fraktal_hoch"
+  | "dema"
+  | "supertrend"
+  | "supertrend_richtung"
+  | "engulfing"
+  | "spanne_unter"
+  | "spanne_ueber";
 
 export interface Indikator {
   art: IndikatorArt;
@@ -334,6 +344,18 @@ function reiheFuer(ind: Indikator, kerzen: readonly MarketCandle[], zone = "UTC"
       return fraktale(kerzen, ind.periode ?? 2).tief;
     case "fraktal_hoch":
       return fraktale(kerzen, ind.periode ?? 2).hoch;
+    case "dema":
+      return dema(schluss, ind.periode ?? 200);
+    case "supertrend":
+      return supertrend(kerzen, ind.periode ?? 10, ind.faktor ?? 3).linie;
+    case "supertrend_richtung":
+      return supertrend(kerzen, ind.periode ?? 10, ind.faktor ?? 3).richtung;
+    case "engulfing":
+      return engulfing(kerzen);
+    case "spanne_unter":
+      return spannenStop(kerzen, ind.faktor ?? 2).unter;
+    case "spanne_ueber":
+      return spannenStop(kerzen, ind.faktor ?? 2).ueber;
     default:
       throw new StrategieFehler(`Unbekannter Indikator: ${String((ind as Indikator).art)}`);
   }
@@ -459,6 +481,10 @@ const KURSLINIEN: readonly IndikatorArt[] = [
   "swing_hoch",
   "fraktal_tief",
   "fraktal_hoch",
+  "dema",
+  "supertrend",
+  "spanne_unter",
+  "spanne_ueber",
 ];
 
 /** Der Wert der Stoplinie (`stopAn`) an einer Kerze — der Papierhandel fragt ihn wie `atrAm`. */

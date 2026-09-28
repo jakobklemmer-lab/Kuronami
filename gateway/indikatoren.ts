@@ -634,3 +634,107 @@ export function vwap(kerzen: readonly MarketCandle[], zone = "UTC", faktor = 1):
   }
   return raus;
 }
+
+/**
+ * Double EMA (Mulloy 1994): 2·EMA − EMA(EMA), wie TradingViews `DEMA`. Die zweite Glättung
+ * beginnt, sobald die erste steht — bei 200 Kerzen Periode also erst nach rund 400 Kerzen.
+ * Gebaut am 28.09. für das SuperTrend-Video von TradingLab (DEMA 200 als Trendfilter).
+ */
+export function dema(werte: readonly number[], periode: number): Reihe {
+  const raus: Reihe = new Array(werte.length).fill(undefined);
+  const e1 = ema(werte, periode);
+  const start = e1.findIndex((w) => w !== undefined);
+  if (start < 0) return raus;
+  const e2 = ema(e1.slice(start) as number[], periode);
+  for (let i = 0; i < e2.length; i += 1) {
+    const a = e1[start + i];
+    const b = e2[i];
+    if (a !== undefined && b !== undefined) raus[start + i] = 2 * a - b;
+  }
+  return raus;
+}
+
+/**
+ * SuperTrend wie TradingViews `ta.supertrend(faktor, periode)`: Bänder um (Hoch+Tief)/2 im
+ * Abstand faktor·ATR, die nur nachziehen, nie zurückweichen. Der ATR ist hier der nach Wilder
+ * (RMA, Start auf dem Mittel der ersten Spannen) wie bei TradingView — nicht der gleitende
+ * Mittelwert aus `atrReihe`, sonst läge die Linie woanders als im Chart.
+ *
+ * `linie` ist das aktive Band: unter dem Kurs im Aufwärtstrend, darüber im Abwärtstrend.
+ * `richtung` ist +1 aufwärts, −1 abwärts (TradingView zählt umgekehrt). Ein Kaufsignal ist der
+ * Wechsel auf +1 — der Schluss kreuzt die Linie nach oben, weil sie dabei vom oberen aufs untere
+ * Band springt.
+ */
+export function supertrend(
+  kerzen: readonly MarketCandle[],
+  periode = 10,
+  faktor = 3,
+): { linie: Reihe; richtung: Reihe } {
+  const n = kerzen.length;
+  const linie: Reihe = new Array(n).fill(undefined);
+  const richtung: Reihe = new Array(n).fill(undefined);
+  if (periode <= 0 || n < periode) return { linie, richtung };
+  const spanne = (i: number): number => {
+    const k = kerzen[i];
+    if (i === 0) return k.high - k.low;
+    const v = kerzen[i - 1].close;
+    return Math.max(k.high - k.low, Math.abs(k.high - v), Math.abs(k.low - v));
+  };
+  let atr = 0;
+  for (let i = 0; i < periode; i += 1) atr += spanne(i);
+  atr /= periode;
+  let vorOben: number | undefined;
+  let vorUnten: number | undefined;
+  let warOben = true;
+  for (let i = periode - 1; i < n; i += 1) {
+    if (i >= periode) atr = (atr * (periode - 1) + spanne(i)) / periode;
+    const k = kerzen[i];
+    const mitte = (k.high + k.low) / 2;
+    let oben = mitte + faktor * atr;
+    let unten = mitte - faktor * atr;
+    let auf = false;
+    if (vorOben !== undefined && vorUnten !== undefined) {
+      const vorSchluss = kerzen[i - 1].close;
+      unten = unten > vorUnten || vorSchluss < vorUnten ? unten : vorUnten;
+      oben = oben < vorOben || vorSchluss > vorOben ? oben : vorOben;
+      auf = warOben ? k.close > oben : !(k.close < unten);
+    }
+    linie[i] = auf ? unten : oben;
+    richtung[i] = auf ? 1 : -1;
+    vorOben = oben;
+    vorUnten = unten;
+    warOben = !auf;
+  }
+  return { linie, richtung };
+}
+
+/**
+ * Engulfing-Kerze: +1, wenn eine grüne Kerze den Körper einer roten Vorkerze ganz umschließt
+ * (Eröffnung ≤ Vorschluss, Schluss ≥ Voreröffnung, größerer Körper), −1 gespiegelt, sonst 0.
+ * Das ist die Lehrbuchform; der Indikator im BEST-Scalping-Video ist ein fremdes Skript, dessen
+ * Zusatzbedingungen niemand kennt.
+ */
+export function engulfing(kerzen: readonly MarketCandle[]): Reihe {
+  return kerzen.map((k, i) => {
+    if (i === 0) return undefined;
+    const v = kerzen[i - 1];
+    const koerper = Math.abs(k.close - k.open);
+    const vorKoerper = Math.abs(v.close - v.open);
+    if (koerper <= vorKoerper) return 0;
+    if (v.close < v.open && k.close > k.open && k.open <= v.close && k.close >= v.open) return 1;
+    if (v.close > v.open && k.close < k.open && k.open >= v.close && k.close <= v.open) return -1;
+    return 0;
+  });
+}
+
+/** Schluss minus bzw. plus `faktor` Kerzenspannen (Hoch−Tief) — ein Stop „zweimal die Länge
+ *  der Einstiegskerze" (TradingLab, BEST Scalping, 05:13). */
+export function spannenStop(
+  kerzen: readonly MarketCandle[],
+  faktor = 2,
+): { unter: Reihe; ueber: Reihe } {
+  return {
+    unter: kerzen.map((k) => k.close - faktor * (k.high - k.low)),
+    ueber: kerzen.map((k) => k.close + faktor * (k.high - k.low)),
+  };
+}

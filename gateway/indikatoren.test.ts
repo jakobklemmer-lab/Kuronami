@@ -1,11 +1,16 @@
 import { describe, expect, it } from "vitest";
 import {
   ZeitzoneFehler,
+  dema,
+  ema,
+  engulfing,
   fraktale,
   hatVolumen,
   imFenster,
   minuteAus,
   ortszeit,
+  spannenStop,
+  supertrend,
   swingHoch,
   swingTief,
   vwap,
@@ -216,5 +221,90 @@ describe("fraktale", () => {
       [5, 11],
     ]);
     expect(fraktale(mitHoch, 2).hoch[4]).toBe(15);
+  });
+});
+
+/** Kerzen aus [Eröffnung, Hoch, Tief, Schluss], eine je Minute. */
+function ohlc(werte: ReadonlyArray<[number, number, number, number]>): MarketCandle[] {
+  return werte.map(([open, high, low, close], i) => ({ time: i * 60, open, high, low, close }));
+}
+
+describe("dema", () => {
+  it("ist 2·EMA − EMA(EMA) und steht erst, wenn beide Glättungen stehen", () => {
+    const werte = Array.from({ length: 30 }, (_, i) => 100 + i + (i % 3));
+    const d = dema(werte, 5);
+    const e1 = ema(werte, 5);
+    const e2 = ema(e1.slice(4) as number[], 5);
+    expect(d.slice(0, 8).every((w) => w === undefined)).toBe(true);
+    expect(d[8]).toBeCloseTo(2 * (e1[8] as number) - (e2[4] as number), 10);
+    expect(d[29]).toBeCloseTo(2 * (e1[29] as number) - (e2[25] as number), 10);
+  });
+});
+
+describe("supertrend", () => {
+  // Zwanzig Kerzen abwärts, dann ein kräftiger Anstieg: die Linie muss vom oberen aufs untere
+  // Band springen, genau auf der Kerze, deren Schluss das obere Band überwindet.
+  const ab = Array.from({ length: 20 }, (_, i): [number, number, number, number] => {
+    const k = 200 - i * 2;
+    return [k + 1, k + 2, k - 2, k - 1];
+  });
+  const auf = Array.from({ length: 20 }, (_, i): [number, number, number, number] => {
+    const k = 162 + i * 6;
+    return [k - 2, k + 3, k - 3, k + 2];
+  });
+  const kerzen = ohlc([...ab, ...auf]);
+  const { linie, richtung } = supertrend(kerzen, 5, 2);
+
+  it("liegt über dem Kurs im Abwärtstrend und darunter im Aufwärtstrend", () => {
+    expect(richtung[15]).toBe(-1);
+    expect(linie[15] as number).toBeGreaterThan(kerzen[15].close);
+    expect(richtung[39]).toBe(1);
+    expect(linie[39] as number).toBeLessThan(kerzen[39].close);
+  });
+
+  it("wechselt einmal, und der Schluss kreuzt dabei die Linie nach oben", () => {
+    const wechsel = richtung.findIndex((r, i) => i > 0 && r === 1 && richtung[i - 1] === -1);
+    expect(wechsel).toBeGreaterThan(19);
+    expect(richtung.slice(wechsel).every((r) => r === 1)).toBe(true);
+    // Auf der Linie ist noch kein Wechsel — deshalb fragen Regeln die Richtung, nicht die Kreuzung.
+    expect(kerzen[wechsel - 1].close).toBeLessThanOrEqual(linie[wechsel - 1] as number);
+    expect(kerzen[wechsel].close).toBeGreaterThan(linie[wechsel] as number);
+  });
+
+  it("zieht im Aufwärtstrend nur nach, nie zurück", () => {
+    const wechsel = richtung.findIndex((r, i) => i > 0 && r === 1 && richtung[i - 1] === -1);
+    for (let i = wechsel + 1; i < 40; i += 1) {
+      expect(linie[i] as number).toBeGreaterThanOrEqual(linie[i - 1] as number);
+    }
+  });
+
+  it("schaut nicht in die Zukunft: spätere Kerzen ändern keinen früheren Wert", () => {
+    const kurz = supertrend(kerzen.slice(0, 25), 5, 2);
+    expect(kurz.linie).toEqual(linie.slice(0, 25));
+    expect(kurz.richtung).toEqual(richtung.slice(0, 25));
+  });
+});
+
+describe("engulfing", () => {
+  it("erkennt die bullische und die bärische Form und sonst nichts", () => {
+    const e = engulfing(
+      ohlc([
+        [10, 10.5, 9, 9.5], // rot
+        [9.4, 11, 9.3, 10.6], // grün, umschließt den Körper → +1
+        [10.6, 10.8, 10, 10.2], // rot, klein → 0
+        [10.3, 10.4, 9.5, 9.6], // rot, umschließt die rote Vorkerze nicht als Gegenfarbe → 0
+        [9.6, 10.2, 9.5, 10], // grün
+        [10.1, 10.2, 9, 9.2], // rot, umschließt den grünen Körper → −1
+      ]),
+    );
+    expect(e).toEqual([undefined, 1, 0, 0, 0, -1]);
+  });
+});
+
+describe("spannenStop", () => {
+  it("legt den Stop zwei Kerzenspannen unter bzw. über den Schluss", () => {
+    const { unter, ueber } = spannenStop(ohlc([[10, 12, 9, 11]]), 2);
+    expect(unter[0]).toBe(5);
+    expect(ueber[0]).toBe(17);
   });
 });

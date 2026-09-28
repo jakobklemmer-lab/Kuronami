@@ -580,7 +580,11 @@ die Trendstärke; rsi, stoch_k/stoch_d fürs Momentum; atr, stdabw, bollinger_ob
 und bollinger_breite für die Volatilität; obv fürs Volumen (fehlt bei Indizes und Devisen);
 vwap samt vwap_oben/vwap_unten für die Sitzung; dazu kurs, wert, hoch und tief;
 swing_tief/swing_hoch (Tief/Hoch der letzten periode Kerzen samt aktueller, für \`stopAn\`);
-fraktal_tief/fraktal_hoch (Williams, Wert erst auf der Kerze, auf der das Fraktal feststeht).
+fraktal_tief/fraktal_hoch (Williams, Wert erst auf der Kerze, auf der das Fraktal feststeht);
+dema (Double EMA); supertrend (die aktive Linie, periode = ATR-Periode, faktor; taugt für
+\`stopAn\`) und supertrend_richtung (+1/−1; ein Kaufsignal ist supertrend_richtung kreuzt_ueber wert 0);
+engulfing (+1 bullisch, −1 bärisch, 0); spanne_unter/spanne_ueber (Schluss ∓ faktor Kerzenspannen,
+für \`stopAn\`).
 
 ## Das Intervall ist eine Entscheidung, keine Einstellung
 

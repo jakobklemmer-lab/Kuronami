@@ -18,7 +18,9 @@ for (const kopf of await archiv.liste(undefined, true)) {
   const neu = bewerte(e.kennzahlen, e.outOfSample, e.warnungstexte, e.universum);
   if (neu === e.status) continue;
   const bleibt = NICHT_ANFASSEN.has(e.id);
-  console.log(`${bleibt ? "bleibt " : ""}${e.status} → ${neu}  ${e.kennzahlen?.anzahl ?? 0} Handel  ${e.name}`);
+  console.log(
+    `${bleibt ? "bleibt " : ""}${e.status} → ${neu}  ${e.kennzahlen?.anzahl ?? 0} Handel  ${e.name}`,
+  );
   if (!schreib || bleibt) continue;
   const zeile = `Status am 28.09.2026 neu gerechnet (Urteil erst ab 200 Handeln, verworfen nur mit Beleg): vorher „${e.status}", jetzt „${neu}".`;
   await archiv.aendere(e.id, { status: neu, notiz: e.notiz ? `${e.notiz}\n\n${zeile}` : zeile });

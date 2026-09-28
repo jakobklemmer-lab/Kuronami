@@ -113,6 +113,12 @@ const indikator = z.object({
       "swing_hoch",
       "fraktal_tief",
       "fraktal_hoch",
+      "dema",
+      "supertrend",
+      "supertrend_richtung",
+      "engulfing",
+      "spanne_unter",
+      "spanne_ueber",
     ])
     .describe(
       "Trend: sma, ema, macd, macd_signal, macd_histogramm, adx (mit di_plus/di_minus). " +

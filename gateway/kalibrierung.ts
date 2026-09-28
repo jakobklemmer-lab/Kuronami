@@ -309,6 +309,141 @@ export const SCALPING_VIDEO: Quellregel = {
   nichtPruefbar: [],
 };
 
+/** Highly Profitable DEMA + SuperTrend Trading Strategy — `g-PLctW8aU0` (seit 28.09.). */
+const DEMA200: Indikator = { art: "dema", periode: 200 };
+const ST_LINIE: Indikator = { art: "supertrend", periode: 12, faktor: 3 };
+const ST_RICHTUNG: Indikator = { art: "supertrend_richtung", periode: 12, faktor: 3 };
+
+function supertrendTeil(
+  richtung: "long" | "short",
+  ausloeser: "signal" | "dema",
+): Quellregel["teile"][number] {
+  const long = richtung === "long";
+  const seite = long ? "ueber" : "unter";
+  const wechsel = long ? "kreuzt_ueber" : "kreuzt_unter";
+  const gegen = long ? "kreuzt_unter" : "kreuzt_ueber";
+  const einstieg =
+    ausloeser === "signal"
+      ? [
+          { links: ST_RICHTUNG, vergleich: wechsel, rechts: wert(0) },
+          { links: KURS, vergleich: seite, rechts: DEMA200 },
+        ]
+      : [
+          { links: KURS, vergleich: wechsel, rechts: DEMA200 },
+          { links: ST_RICHTUNG, vergleich: seite, rechts: wert(0) },
+        ];
+  const wie = ausloeser === "signal" ? "SuperTrend-Signal" : "Kreuzung der DEMA nach dem Signal";
+  return {
+    teil: `${richtung}, ${wie}`,
+    strategie: {
+      name: `TradingLab · DEMA + SuperTrend (Original, ${richtung}, ${wie})`,
+      richtung,
+      einstieg: einstieg as Strategie["einstieg"],
+      ausstieg: [{ links: ST_RICHTUNG, vergleich: gegen, rechts: wert(0) }],
+      stopAn: ST_LINIE,
+    },
+  };
+}
+
+export const SUPERTREND_VIDEO: Quellregel = {
+  video: "g-PLctW8aU0",
+  titel: "Highly Profitable DEMA + SuperTrend Trading Strategy",
+  behauptung:
+    "„130 % in 2 Monaten“ (00:00); Grundlage laut Video 100 Handel über rund 2,5 Monate auf DOGE/USD und LTC/USD, 60 Gewinner und 40 Verlierer (07:22–07:42).",
+  teile: [
+    supertrendTeil("long", "signal"),
+    supertrendTeil("long", "dema"),
+    supertrendTeil("short", "signal"),
+    supertrendTeil("short", "dema"),
+  ],
+  belege: [
+    { zeit: "01:44–01:51", regel: "Double EMA mit Länge 200." },
+    { zeit: "02:11–02:16", regel: "SuperTrend mit ATR-Periode 12 und Multiplikator 3." },
+    {
+      zeit: "02:24–03:00",
+      regel:
+        "Long nur, wenn der Kurs über der DEMA 200 liegt und der SuperTrend ein Kaufsignal gibt; Einstieg nach Schluss der Signalkerze. Beispiel DOGE/USD auf 15 Minuten.",
+    },
+    { zeit: "03:15–03:21", regel: "Stop auf der Linie des Kaufsignals." },
+    {
+      zeit: "03:38–04:05",
+      regel: "Kein festes Ziel: raus erst, wenn der SuperTrend ein Verkaufssignal gibt.",
+    },
+    {
+      zeit: "04:44–04:58",
+      regel:
+        "Short gespiegelt: unter der DEMA, Verkaufssignal, Stop auf der Linie, raus beim Kaufsignal.",
+    },
+    {
+      zeit: "05:11–05:33",
+      regel:
+        "Kam das Signal, bevor der Kurs die DEMA überquert hat, trotzdem einsteigen, sobald er sie kreuzt.",
+    },
+  ],
+  annahmen: [
+    "SuperTrend wie bei TradingView: Mitte (Hoch+Tief)/2, ATR nach Wilder.",
+    "Der Stop liegt auf dem Wert der Linie an der Signalkerze und bleibt dort; das Nachziehen übernimmt der Ausstieg beim Gegensignal.",
+    "Ausstieg zur Eröffnung nach der Kerze, auf der der SuperTrend dreht.",
+    "Der zweite Einstiegsweg (Kreuzung der DEMA, während der SuperTrend schon auf Kauf steht) ist ein eigener Teil; beide laufen in einem Handelsbuch, nie zwei Positionen zugleich.",
+    "Zeitrahmen: 15 Minuten im Beispiel, sonst nicht festgelegt — deshalb alle gerechnet.",
+  ],
+  nichtPruefbar: [
+    "Zusatz mit Fibonacci-Bollinger-Bändern (06:15–06:59): sofort raus, wenn der Kurs das äußere Band berührt — nicht gerechnet; das Video hat ihn selbst nicht getestet (05:53) und nennt die Berechnung des Bands nicht.",
+  ],
+};
+
+/** BEST Scalping Trading Strategy For Beginners — `XBcMiYK7qYY` (seit 28.09.). */
+function bestScalpingTeil(richtung: "long" | "short"): Quellregel["teile"][number] {
+  const long = richtung === "long";
+  const seite = long ? "ueber" : "unter";
+  return {
+    teil: long ? "long" : "short (gespiegelt)",
+    strategie: {
+      name: `TradingLab · BEST Scalping (Original, ${long ? "long" : "short gespiegelt"})`,
+      richtung,
+      einstieg: [
+        { links: KURS, vergleich: seite, rechts: ema(200) },
+        { links: { art: "rsi", periode: 14 }, vergleich: seite, rechts: wert(50) },
+        { links: { art: "engulfing" }, vergleich: seite, rechts: wert(long ? 0.5 : -0.5) },
+      ],
+      stopAn: { art: long ? "spanne_unter" : "spanne_ueber", faktor: 2 },
+      zielR: 2,
+    },
+  };
+}
+
+export const BEST_SCALPING_VIDEO: Quellregel = {
+  video: "XBcMiYK7qYY",
+  titel: "BEST Scalping Trading Strategy For Beginners (How To Scalp Forex, Stocks, and Crypto)",
+  behauptung:
+    "„back tested and proven to work“ und „works with almost all markets all time frames“ (00:00) — ohne Zahlen.",
+  teile: [bestScalpingTeil("long"), bestScalpingTeil("short")],
+  belege: [
+    { zeit: "00:42–01:24", regel: "Long nur über der 200er-EMA (Länge 200, 01:10)." },
+    {
+      zeit: "02:08–02:28",
+      regel: "Nur einsteigen, wenn die RSI-Linie über der Mittellinie liegt.",
+    },
+    {
+      zeit: "03:34–03:52",
+      regel:
+        "Engulfing-Kerze: eröffnet auf oder unter dem Vorschluss, ihr Körper umschließt die rote Vorkerze, sie schließt über deren Eröffnung.",
+    },
+    { zeit: "04:12–04:16", regel: "In diesem Beispiel nur long, die roten Pfeile ignorieren." },
+    { zeit: "04:53–05:13", regel: "Erst nach Schluss der Pfeilkerze einsteigen." },
+    { zeit: "05:13–05:19", regel: "Stop zweimal die Länge der Einstiegskerze, Ziel 2:1." },
+  ],
+  annahmen: [
+    "RSI(14) auf den Schlusskursen; das Video nimmt das Skript „RSI Divergence“ und ändert nur die Anzeige, keine Länge.",
+    "„Länge der Kerze“ ist Hoch minus Tief, gemessen vom Schluss der Pfeilkerze.",
+    "Short gespiegelt (unter der EMA, RSI unter 50, bärische Engulfing-Kerze) — das Video zeigt „in diesem Beispiel“ nur long.",
+    "Kein Zeitrahmen genannt („all time frames“) — deshalb alle gerechnet.",
+  ],
+  nichtPruefbar: [
+    "Bullische Divergenz am RSI als Zusatzzeichen (02:28–02:49, 04:32–04:53) — keine Pflicht laut Video, nicht gerechnet.",
+  ],
+};
+
 export interface Vereint {
   anzahl: number;
   /** Anteil der Handel mit positivem Ergebnis **nach** Kosten. */
