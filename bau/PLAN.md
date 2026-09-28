@@ -89,7 +89,7 @@ Rate"), `pCmJ8wsAS_w` (Bollinger + RSI), `bKPs2aOsvsk` (EASY Scalping).
 Wartet, solange die drei Transkripte fehlen (`wartet (Transkripte)`).
 
 ## N8 · Lehrgang: jedes Video wird durchgearbeitet
-- Status: offen
+- Status: erledigt (2026-09-28, „Nachtbau N8: Lehrgang — jedes Video wird nachts durchgearbeitet")
 - Modell: opus
 
 Die Transkripte kommen von Jakobs PC (`werkzeuge/pc/tradinglab_transkripte.py`) nach
