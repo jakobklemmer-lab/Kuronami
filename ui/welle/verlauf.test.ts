@@ -3,6 +3,7 @@ import {
   HOECHSTENS,
   type Umgebung,
   type Verlauf,
+  abSeit,
   abgeschlossen,
   antwort,
   beantwortet,
@@ -205,5 +206,18 @@ describe("Aufbewahren", () => {
     for (let i = 0; i < HOECHSTENS; i++) v = antwort(frage(v, `f${i}`, u), `a${i}`, u);
     expect(v.eintraege).toHaveLength(HOECHSTENS);
     expect(letzteAntwort(v)?.text).toBe(`a${HOECHSTENS - 1}`);
+  });
+});
+
+describe("nach dem Archivieren", () => {
+  it("bleibt nur, was danach begann — und was noch läuft", () => {
+    let v = frage(leer(), "Wie steht der DAX?", { jetzt: 1000, id: () => "a" });
+    v = antwort(v, "24.310 Punkte.", { jetzt: 1200, id: () => "b" });
+    v = frage(v, "Und Gold?", { jetzt: 5000, id: () => "c" });
+    expect(texte(abSeit(v, 3000))).toEqual(["jakob:Und Gold?:fertig", "kuro::wartet"]);
+    // Alles Fertige weg, das Wartende bleibt.
+    expect(texte(abSeit(v, Number.POSITIVE_INFINITY))).toEqual(["kuro::wartet"]);
+    // Nichts zu tun: derselbe Verlauf, kein neues Zeichnen.
+    expect(abSeit(v, 0)).toBe(v);
   });
 });

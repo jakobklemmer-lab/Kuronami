@@ -322,6 +322,18 @@ export function beantwortet(v: Verlauf, askId: string, label: string): Verlauf {
 }
 
 /** Ob gerade eine Antwort entsteht. */
+/**
+ * Nur, was ab `ab` (ms) begann — und was noch wartet oder läuft. Jakob am 02.10.: „Chat
+ * verschwindet nicht, auch wenn man das Gespräch archiviert." Nach dem Archivieren beginnt Kuro
+ * frisch; was davor hier stand, steht im Archiv und nicht mehr auf der Startseite.
+ */
+export function abSeit(v: Verlauf, ab: number): Verlauf {
+  const eintraege = v.eintraege.filter(
+    (e) => e.zeit >= ab || e.stand === "wartet" || e.stand === "laeuft",
+  );
+  return eintraege.length === v.eintraege.length ? v : { eintraege };
+}
+
 export function laeuft(v: Verlauf): boolean {
   return findeLaufend(v) >= 0;
 }

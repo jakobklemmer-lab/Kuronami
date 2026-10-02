@@ -78,12 +78,18 @@ interface NachrichtAntwort {
 interface OffeneAntwort {
   pending?: V.OffeneFrage[];
 }
+interface GespraecheAntwort {
+  /** Kuros laufende Sitzung; `null`, wenn seit dem letzten Archivieren keine begann. */
+  lage?: { seit: string | null } | null;
+}
 interface PostfachAntwort {
   deliveries?: Array<{ message: { kind: string; text?: string } }>;
 }
 
 const SPEICHER_SCHLUESSEL = "kuronami.welle.verlauf";
 const FEHLER_STEHT_MS = 4000;
+/** Uhr der Seite gegen Uhr des Gateways, und Jakobs erste Frage steht vor Kuros erster Zeile. */
+const SITZUNG_SPIELRAUM_MS = 2 * 60_000;
 const OFFLINE_NACH_MS = 4000;
 
 const KANAL: Record<string, string> = {
@@ -178,6 +184,10 @@ export function oeffneGespraech(opt: GespraechsOptionen): Gespraech {
     const text = (x: unknown): string => (typeof x === "string" ? x : "");
 
     switch (m.type) {
+      case "gespraech.archiviert":
+        // Kuro beginnt frisch — das alte Gespräch geht von der Startseite ins Archiv.
+        setze(V.abSeit(verlauf, Date.now()));
+        return;
       case "turn.started": {
         const zug = text(d.turn_id);
         lage.zugLaeuft = true;
@@ -351,6 +361,19 @@ export function oeffneGespraech(opt: GespraechsOptionen): Gespraech {
     if (lage.unterwegs || lage.zugLaeuft || fragenTakt % 6 === 0) void holeFragen();
   }, 1500);
   void holeFragen();
+
+  // Wurde Kuros Gespräch archiviert, während diese Seite zu war (nachts, oder auf einem anderen
+  // Gerät), gehört der gespeicherte Verlauf zum alten. Maßgeblich ist, seit wann Kuros jetzige
+  // Sitzung läuft; ohne Sitzung gehört nichts Fertiges mehr hierher.
+  void opt.api
+    .get<GespraecheAntwort>("/integrations/gespraeche")
+    .then((a) => {
+      if (weg || !a || !("lage" in a)) return;
+      const seit = a.lage?.seit ? Date.parse(a.lage.seit) : Number.NaN;
+      if (!a.lage) setze(V.abSeit(verlauf, Number.POSITIVE_INFINITY));
+      else if (Number.isFinite(seit)) setze(V.abSeit(verlauf, seit - SITZUNG_SPIELRAUM_MS));
+    })
+    .catch(() => undefined);
 
   // --------------------------------------------------------- Postfach
   // Beim Öffnen liegen im Postfach des Web-Kanals oft Reste früherer Sitzungen. Die werden

@@ -623,6 +623,30 @@ code {
   display: block;
 }
 
+/* Leise unter dem Gruß, nur solange ein Gespräch dasteht. */
+.k-leeren {
+  display: none;
+  margin: 14px 0 0;
+  padding: 4px 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  font-size: 13.5px;
+  color: var(--nebel);
+  cursor: pointer;
+  text-shadow: 0 1px 14px rgba(0, 0, 0, 0.6);
+  transition: color 0.2s ease;
+}
+
+.ist-im-gespraech .k-leeren {
+  display: inline-block;
+}
+
+.k-leeren:hover,
+.k-leeren:focus-visible {
+  color: var(--laterne);
+}
+
 .ist-im-gespraech .k-gruss {
   font-size: clamp(2.2rem, 3.6vw, 3.6rem);
 }
