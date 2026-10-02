@@ -1,5 +1,6 @@
 import type { Pool } from "pg";
 import type { IndexedNote } from "../../tools/memory/index-db.js";
+import { type KalenderDienst, kalenderDienst, wienerZeit } from "../kalender.js";
 
 /**
  * Die Datenquellen der Startseite und der Detailansichten, die nicht Markt oder Mail sind
@@ -26,9 +27,43 @@ export interface CalendarData {
   events: AgendaEvent[];
 }
 
-/** Noch ohne Quelle: n8n ist ausgebaut (02.10.), der Apple-Kalender kommt über CalDAV. */
-export function loadCalendar(): CalendarData {
-  return { connected: false, reason: "Noch kein Kalender verbunden.", events: [] };
+/** Die Termine von heute aus dem Apple-Kalender (CalDAV, `gateway/kalender.ts`). */
+export async function loadCalendar(
+  dienst: KalenderDienst | null = kalenderDienst(),
+  jetzt: Date = new Date(),
+): Promise<CalendarData> {
+  if (!dienst) {
+    return {
+      connected: false,
+      reason:
+        "Noch kein Kalender verbunden: KALENDER_USER und KALENDER_PASS (App-Passwort) fehlen in der .env.",
+      events: [],
+    };
+  }
+  const heute = jetzt.toLocaleDateString("sv-SE", { timeZone: "Europe/Vienna" });
+  const von = wienerZeit(`${heute}T00:00`);
+  try {
+    const termine = await dienst.termine(von, new Date(von.getTime() + 86_400_000));
+    return {
+      connected: true,
+      reason: null,
+      events: termine.map((t) => ({
+        id: t.id,
+        title: t.titel,
+        startsAt: t.ganztags ? `${t.start}T00:00:00` : t.start,
+        endsAt: t.ganztags ? `${t.ende}T00:00:00` : t.ende,
+        location: t.ort,
+        allDay: t.ganztags,
+        account: t.kalender,
+      })),
+    };
+  } catch (fehler) {
+    return {
+      connected: false,
+      reason: fehler instanceof Error ? fehler.message : String(fehler),
+      events: [],
+    };
+  }
 }
 
 // ---------------------------------------------------------------------------

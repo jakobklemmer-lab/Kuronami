@@ -922,7 +922,7 @@ export function createServer(deps: ServerDeps): express.Express {
     try {
       const principal = webPrincipal(req, res);
       if (!principal) return;
-      res.json(loadCalendar());
+      res.json(await loadCalendar());
     } catch (error) {
       next(error);
     }

@@ -29,6 +29,12 @@ import {
 } from "./gespraeche.js";
 import { HAUS_TOOLS, createHaus } from "./haus.js";
 import { createYahooMarkets } from "./integrations/markets.js";
+import {
+  KALENDER_LESEN,
+  beschreibeEintrag,
+  createKalenderWerkzeuge,
+} from "./kalender-werkzeuge.js";
+import { kalenderDienst } from "./kalender.js";
 import { createKerzenquelle } from "./kerzen.js";
 import { type Lehrbuch, createLehren } from "./lehren.js";
 import { type Lehrgang, createLehrgang } from "./lehrgang.js";
@@ -92,6 +98,8 @@ const ALLOWED_WITHOUT_ASKING = [
   // Nur lesend, nur im eigenen Archiv — dafür muss niemand gefragt werden.
   ARCHIV_TOOL,
   BRAIN_TOOL,
+  // Termine ansehen; eintragen fragt (`termine_eintragen` steht bewusst nicht hier).
+  KALENDER_LESEN,
 ];
 
 /**
@@ -758,6 +766,13 @@ export class KuroAgent {
             // Der Versand liegt bei Kuro, nicht beim Sekretär — und steht bewusst **nicht**
             // in `ALLOWED_WITHOUT_ASKING`. Er fragt also vor jeder Mail, die hinausgeht.
             ...(konten().length > 0 ? { versand: createSendePostfach() } : {}),
+            ...(kalenderDienst()
+              ? {
+                  kalender: createKalenderWerkzeuge(
+                    kalenderDienst() as NonNullable<ReturnType<typeof kalenderDienst>>,
+                  ),
+                }
+              : {}),
           },
           // Obergrenze für Kuros eigenen Lauf. Die Aufträge an Bedienstete haben je eine
           // eigene (`haus.ts`), damit ein Bauauftrag nicht sein Gesprächsbudget aufzehrt.
@@ -1016,6 +1031,7 @@ function beschreibe(toolName: string, input: Record<string, unknown>): string {
   const befehl = typeof input.command === "string" ? input.command : null;
 
   if (toolName === "Bash" && befehl) return `Ich möchte ausführen: ${befehl}`;
+  if (toolName === "mcp__kalender__termine_eintragen") return beschreibeEintrag(input);
   if (pfad) return `Ich möchte ${toolName} auf ${pfad} anwenden`;
   return `Ich möchte ${toolName} benutzen`;
 }

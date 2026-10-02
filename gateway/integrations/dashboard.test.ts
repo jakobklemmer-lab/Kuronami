@@ -3,10 +3,34 @@ import type { IndexedNote } from "../../tools/memory/index-db.js";
 import { displayNameOf, loadCalendar, notesAsFiles, summarizeNotes } from "./dashboard.js";
 
 describe("loadCalendar", () => {
-  it("meldet: nicht verbunden", () => {
-    const result = loadCalendar();
+  it("meldet ohne Zugang: nicht verbunden, mit Grund", async () => {
+    const result = await loadCalendar(null);
     expect(result.connected).toBe(false);
+    expect(result.reason).toContain("KALENDER_USER");
     expect(result.events).toEqual([]);
+  });
+
+  it("formt die Termine von heute für die Oberfläche", async () => {
+    const result = await loadCalendar(
+      {
+        kalender: async () => [],
+        lege: async () => ({ uid: "x", kalender: "Privat" }),
+        termine: async () => [
+          {
+            id: "a",
+            titel: "Lernen",
+            start: "2026-10-02T12:00:00.000Z",
+            ende: "2026-10-02T13:00:00.000Z",
+            ganztags: false,
+            ort: null,
+            kalender: "Privat",
+          },
+        ],
+      },
+      new Date("2026-10-02T08:00:00Z"),
+    );
+    expect(result.connected).toBe(true);
+    expect(result.events[0]).toMatchObject({ title: "Lernen", account: "Privat", allDay: false });
   });
 });
 
