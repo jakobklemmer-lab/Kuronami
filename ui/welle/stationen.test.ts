@@ -20,6 +20,7 @@ describe("Stationen der Welle", () => {
   it("stellt die Einstellungen nicht in den Weg", () => {
     expect(WEG.map((s) => s.route)).not.toContain("settings");
     expect(WEG[0].route).toBe("praesenz");
+    expect(WEG.map((s) => s.route)).toEqual(["praesenz", "mail", "calendar"]);
   });
 
   it("hat für jede Station ein scharfes Bild, in beiden Größen", () => {

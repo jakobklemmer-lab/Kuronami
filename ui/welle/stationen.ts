@@ -57,5 +57,10 @@ export function stationFuer(route: RouteId): Station {
   return station;
 }
 
-/** Stationen, die in der Leiste oben stehen. Die Einstellungen stehen rechts für sich. */
-export const WEG = STATIONEN.filter((s) => s.route !== "settings");
+/**
+ * Stationen, die in der Leiste oben stehen. Seit dem 02.10. nur Kuro, Post und Kalender — Jakob:
+ * alles außer Mail und Kalender wandert nach Kuro OS (`/os/`), das Web bleibt für leichte
+ * Anfragen. Die übrigen Bereiche bleiben über ⌘K und ihre Adresse erreichbar, ihre Orte im Film
+ * bleiben, wo sie sind.
+ */
+export const WEG = STATIONEN.filter((s) => ["praesenz", "mail", "calendar"].includes(s.route));

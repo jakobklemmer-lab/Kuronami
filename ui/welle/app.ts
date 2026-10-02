@@ -142,6 +142,7 @@ export function mountWelle(opt: WelleOptionen): void {
             (s) =>
               `<li><a class="w-weg__ort" data-route="${s.route}" href="#/${s.route}">${escapeHtml(s.name)}</a></li>`,
           ).join("")}
+          <li><a class="w-weg__ort w-weg__ort--os" href="/os/" title="Trading, Brain und System in Kuro OS">Kuro OS</a></li>
         </ol>
         <span class="w-weg__licht" aria-hidden="true"></span>
       </nav>
@@ -165,10 +166,11 @@ export function mountWelle(opt: WelleOptionen): void {
 
     <nav class="w-menue" id="w-menue" data-role="menue-blatt" hidden aria-label="Bereiche">
       <ol>
-        ${STATIONEN.map(
+        ${WEG.map(
           (s) =>
             `<li><a data-route="${s.route}" href="#/${s.route}">${escapeHtml(s.name)}</a></li>`,
         ).join("")}
+        <li><a href="/os/">Kuro OS</a></li>
       </ol>
     </nav>
 

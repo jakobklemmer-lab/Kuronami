@@ -2196,3 +2196,8 @@ body[data-fokus="an"] .w-schleier {
     transition-duration: 0.001ms !important;
   }
 }
+
+/* Der Weg hinüber nach Kuro OS (02.10.): leiser als die Orte der Welle. */
+.w-weg__ort--os {
+  color: var(--dunst);
+}
