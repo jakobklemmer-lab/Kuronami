@@ -179,7 +179,7 @@ export function mountOs(opt: OsOptionen): void {
             </nav>
             <button type="button" class="o-zu" data-role="blattzu" aria-label="Schließen" title="Schließen (Esc)">${icon("close")}</button>
           </header>
-          <div class="o-blatt__inhalt" data-role="blattinhalt"></div>
+          <div class="o-blatt__inhalt w-raum" data-role="blattinhalt"></div>
         </section>
       </div>
 

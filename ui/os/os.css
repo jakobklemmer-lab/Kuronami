@@ -1476,17 +1476,49 @@ body.ist-sprechtaste .o-eingabe__mikro,
   }
 }
 
+/* Schmal (Telefon, halbes Fenster): das Gespräch füllt den Desktop, der Orb steht klein darüber;
+   ein Raum nimmt die ganze Breite, Kuro ist über ⌘1 oder die Raumleiste zurück. */
 @media (max-width: 760px) {
   .ist-os {
     --gespraech-b: calc(100vw - 2 * var(--rand));
-    --platz-b: var(--streifen-b);
+  }
+  .o-os.ist-fenster,
+  .o-os.ist-fenster.ist-platz-zu {
+    --spalte-b: calc(-1 * var(--rand));
   }
   .o-abo,
-  .o-empfang {
+  .o-empfang,
+  .o-os.ist-fenster .o-platz,
+  .o-os.ist-fenster .o-orb,
+  .o-platz__kopf {
+    display: none;
+  }
+  .o-os[data-raum="kuro"] .o-platz__orbraum {
+    display: block;
+  }
+  .o-os:not(.ist-fenster) .o-orb {
+    left: var(--rand);
+    top: calc(var(--kopf-h) + 4px);
+    width: var(--gespraech-b);
+    height: var(--orb-klein-h);
+  }
+  .o-orb .ko-caption,
+  .o-orb .ko-tags {
+    display: none;
+  }
+  .o-kopf {
+    gap: 14px;
+  }
+  .o-uhr {
     display: none;
   }
   .o-raeume {
     gap: 14px;
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+  .o-raum.ist-hier span {
+    font-size: 21px;
   }
 }
 
