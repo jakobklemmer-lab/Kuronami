@@ -6,9 +6,10 @@ jede Nacht außerhalb meiner Nutzerzeiten automatisch nach Plan fertig gebaut wi
 `wartet`, deren „Braucht" erledigt ist, und arbeitet sie in einem eigenen Lauf ab. Die
 Arbeitsregeln stehen in `bau/auftrag.md`, die Berichte unter `bau/berichte/`.
 
-**Modell:** seit 28.09. baut der Nachtbau jede Aufgabe mit **Opus 5.5**, in einem eigenen Lauf je
-Aufgabe (Jakob: „ich ertrage Sonnet als Codingmaschine nicht mehr"). Die Zeilen „Modell:" unten sind
-nur noch Beschreibung; der Läufer setzt das Modell fest.
+**Modell:** seit 02.10. gilt wieder die Zeile „Modell:" je Aufgabe — `sonnet` (Vorgabe) baut mit
+**Sonnet 5.5**, `opus` mit **Opus 5.5**; Opus nur für den Bau von Kuro OS (Jakob am 02.10.). Damit
+Sonnet ohne Rückfrage durchkommt, schreibt Claude jede Aufgabe tagsüber genau vor: Dateien,
+Funktionen, Prüfkriterien, was nicht angefasst wird.
 
 **Status-Werte:** `offen` · `in Arbeit (Stand …)` · `wartet (worauf)` · `erledigt (Datum, Commit)` ·
 `blockiert (Grund)`. Eine zu große Aufgabe darf in Teilaufgaben (N7a, N7b …) zerlegt werden. **Die Reihenfolge im
@@ -116,57 +117,129 @@ Kalibrierungsvideo, falls dessen Transkript schon da ist — sonst Status `erled
 
 ## N4 · Das Abo-Limit reißt den Faden nicht mehr
 - Status: offen
-- Modell: opus
+- Modell: sonnet
 
-Am 27.09. um 13:49 stand in Kuros Antwort zweimal „You've hit your session limit · resets
-5:20pm (UTC)"; der fertige Bericht der boerse lag da und kam erst, als Jakob um 17:28 „mach
-weiter" schrieb.
-- `gateway/agent.ts` erkennt die Grenze (Fehlertext und `SDKRateLimitInfo`) und antwortet selbst,
-  ohne Modellaufruf, auf Deutsch in Kuros Ton mit Wiener Uhrzeit: wann es weitergeht.
-- Berichte, die in dieser Zeit eintreffen (`#trageNach`), werden geparkt und nach dem Reset von
-  selbst vorgetragen (Zeitpunkt aus der Grenzmeldung, sonst Abo-Stand aus `gateway/abo.ts`).
-- Die SDK-Floskeln „Continue from where you left off." / „No response requested." dürfen nicht
-  in Jakobs Verlauf oder die Sprachausgabe.
-- Ein Bediensteter, der an die Grenze läuft, meldet „unterbrochen durch Abo-Limit bis HH:MM",
-  nicht den englischen Rohtext.
+**Warum:** Am 27.09. stand in Kuros Antwort zweimal der englische Rohtext „You've hit your session
+limit · resets 5:20pm (UTC)"; der fertige Bericht der boerse kam erst, als Jakob um 17:28 „mach
+weiter" schrieb. Belege: `workspace/ablage/gespraeche/2026/2026-09-27.md` Zeilen 225–245.
 
-Fertig, wenn: Tests mit nachgestellter Grenzmeldung decken Antwort, Parken und Nachtragen ab.
+**Was das SDK liefert** (nachgesehen in `@anthropic-ai/claude-agent-sdk` `sdk.d.ts`):
+- Nachricht `type: "rate_limit_event"` mit `rate_limit_info: { status: "allowed" | "allowed_warning"
+  | "rejected", resetsAt?: number (Unix-Sekunden), rateLimitType?: "five_hour" | "seven_day" | … }`.
+  `gateway/agent.ts` speichert sie schon in `#grenze` (Zeile ~866), benutzt sie aber nicht.
+- Läuft Kuro an die Grenze, kommt als Assistententext genau ein Block, der mit
+  `You've hit your` beginnt (Muster wie in `gateway/gespraeche.ts` Zeile ~174:
+  `/^You've hit your .*limit/i`). Bei einem Bediensteten wirft `query()` und `gateway/haus.ts`
+  (`fuehreAus`, catch-Zweig ~Zeile 488) macht daraus „<wer> konnte den Auftrag nicht ausführen:
+  Claude Code returned an error result: You've hit your …".
+
+**Bauen:**
+1. Neues Modul `gateway/abogrenze.ts`, rein und ohne SDK-Aufruf, mit `gateway/abogrenze.test.ts`:
+   - `istGrenzText(text: string): boolean` — erkennt beide Formen oben (auch eingebettet im
+     haus-Fehlertext).
+   - `zurueckUm(text: string, info?: { resetsAt?: number } | null, jetzt?: Date): Date | null` —
+     zuerst `info.resetsAt` (Sekunden → Date), sonst die Uhrzeit aus dem Text („resets 5:20pm (UTC)",
+     auch „resets 17:20", mit/ohne Zeitzone in Klammern; ohne Zeitzone gilt UTC), immer der nächste
+     solche Zeitpunkt nach `jetzt`. Nicht lesbar → `null`.
+   - `grenzSatz(zurueck: Date | null): string` — ein deutscher Satz in Kuros Ton (siezt, Butler, kein
+     Englisch), Uhrzeit in Wiener Zeit über `wienerZeit` aus `gateway/gespraeche.ts`. Beispiel:
+     „Ich bin für den Moment an der Grenze des Abos und kann erst wieder ab 19:20 Uhr arbeiten. Was
+     bis dahin an Berichten eintrifft, trage ich Ihnen danach von selbst vor." Ohne Zeitpunkt: „…
+     sobald das Abo wieder frei ist."
+2. `gateway/agent.ts`, in der Textauswertung der Assistentennachrichten (die Funktion um Zeile
+   ~840–870, die `text` aus `nachricht.message.content` zusammensetzt): ist `istGrenzText(text)`,
+   wird der Text **nicht** an Jakob gegeben, sondern `grenzSatz(zurueckUm(text, this.#grenze))`;
+   `#gesperrtBis` (neues Feld, `Date | null`) wird gesetzt.
+3. `#trageNach` (Zeile ~660): ist `#gesperrtBis` in der Zukunft, wird der Bericht in einer Liste
+   `#geparkt` abgelegt statt vorgetragen, und ein `setTimeout` (mit `.unref()`) auf `#gesperrtBis +
+   60 s` trägt alle geparkten Berichte nacheinander über den normalen `#trageNach`-Weg vor. Nur ein
+   Zeitgeber gleichzeitig.
+4. `gateway/haus.ts`, catch-Zweig in `fuehreAus`: ist `istGrenzText(grund)`, lautet die Rückgabe
+   „<wer> wurde vom Abo-Limit unterbrochen, weiter ab HH:MM Uhr." (Wiener Zeit, `zurueckUm(grund)`),
+   ohne den englischen Rohtext.
+5. Die Floskeln `Continue from where you left off.` und `No response requested.` gehen nie an Jakob:
+   dieselbe Stelle wie in Schritt 2 lässt Text, der nach `trim()` genau einer davon ist, weg
+   (`gespraeche.ts` macht das für das Archiv schon so).
+
+**Nicht anfassen:** `gateway/abo.ts`, die Sprachschicht (`voice/`), die Oberfläche.
+
+**Fertig, wenn:** `abogrenze.test.ts` deckt ab: beide Textformen erkannt, normaler Text nicht;
+`resetsAt` vor Text; „5:20pm (UTC)" am 27.09. um 15:49 UTC → 17:20 UTC; „resets 1am" kurz vor
+Mitternacht → nächster Tag; `grenzSatz` enthält „19:20" für 17:20 UTC im Sommer und kein englisches
+Wort. `pnpm test` und `pnpm typecheck` grün. Bericht nennt die Testfälle.
 
 ## N5 · Kleine Reparaturen an Kuro
 - Status: offen
-- Modell: opus
+- Modell: sonnet
 
-Alle aus dem Verlauf vom 27.09. belegt:
-1. Bricht Kuro selbst einen Auftrag ab (`abbrechen`), kommt **kein** „Bericht eingetroffen"
-   zurück (`gateway/haus.ts`, „auf Zuruf abgebrochen"). 13:35 führte das zu einem dritten Auftrag.
-2. `ToolSearch` in `NICHT_FUER_EINEN_BUTLER` (`gateway/agent.ts`): Kuro suchte dreimal nach
+Vier unabhängige Stellen, jede ein eigener Commit. Alle aus dem Verlauf vom 27.09. belegt.
+
+1. **Abgebrochener Auftrag meldet sich nicht als „Bericht".** `gateway/haus.ts`, im Werkzeug
+   `beauftrage` (~Zeile 211): `void lauf.then((ergebnis) => deps.onNachgereicht?.(wer, ergebnis))`
+   ruft den Nachtrag auch dann, wenn Kuro den Auftrag selbst mit `abbrechen` beendet hat — Kuro las
+   „Bericht eingetroffen: … auf Zuruf abgebrochen" und gab um 13:35 einen dritten Auftrag. Ändern:
+   kein `onNachgereicht`, wenn `abbruch.signal.aborted`. Test in einer neuen
+   `gateway/haus.test.ts` nur, wenn es ohne SDK geht (die Bedingung in eine kleine exportierte
+   Funktion ziehen, z. B. `sollNachtragen(abgebrochen: boolean): boolean`, und die testen) — sonst
+   im Bericht begründen.
+2. **`ToolSearch` gehört nicht in Kuros Katalog.** `gateway/agent.ts`, Liste
+   `NICHT_FUER_EINEN_BUTLER` (~Zeile 105): `"ToolSearch"` ergänzen. Kuro suchte dreimal nach
    `beauftrage`, das längst im Katalog stand.
-3. Berichte ohne englischen Vorspann („I have enough now for a solid… Let me compile…") — der
-   Bericht beginnt bei der ersten Überschrift oder dem ersten deutschen Absatz.
-4. Persona (`context/persona.ts` bzw. `workspace/CLAUDE.md`): alle drei Postfächer gehören Jakob;
-   Kuro spricht nie in der dritten Person über sich („Kuro hat sich verhört, äh —"); ein Ziel mit
-   Zahlen spiegelt er in einem Satz zurück, bevor er beauftragt (13:27–13:34: drei
-   Missverständnisse, ein Auftrag mit falschen Zahlen).
-5. ~~Eine Zeile in `workspace/CLAUDE.md`: „Was nachts gebaut wurde, steht in `notizen/nachtbau.md`."~~
-   Erledigt am 28.09. von Hand, zusammen mit den Wegweisern auf `wissen/tradinglab/` (boerse,
-   stratege; Kuro nur „frag die boerse") — Kuro fand morgens weder Transkripte noch Kalibrierung.
+3. **Berichte ohne englischen Vorspann.** `gateway/haus.ts` ~Zeile 507: der Bericht ist der letzte
+   Textblock. Beginnt er mit einem englischen Arbeitssatz („I have enough now for a solid… Let me
+   compile…"), wird alles vor der ersten Markdown-Überschrift (`#`) bzw. vor dem ersten Absatz, der
+   kein englischer Arbeitssatz ist, abgeschnitten. Als reine Funktion `ohneVorspann(text: string):
+   string` in `haus.ts` exportieren, Tests: englischer Vorspann + `## Bericht` → ab `## Bericht`;
+   rein deutscher Text bleibt unverändert; nur englischer Text ohne Überschrift bleibt unverändert
+   (lieber zu viel als nichts).
+4. **Persona.** `context/persona.ts` (der Kuro-Prompt; Größe vorher/nachher in Zeichen im Bericht):
+   - Alle drei Postfächer gehören Jakob (konto1, konto2, konto3 sind seine Konten).
+   - Kuro spricht nie in der dritten Person über sich.
+   - Nennt Jakob ein Ziel mit Zahlen, wiederholt Kuro es in einem Satz, bevor er beauftragt.
+   Je höchstens zwei Zeilen; im Stil der vorhandenen Regeln (richtig/falsch-Beispiel, wenn die Datei
+   das an der Stelle so macht).
+
+**Nicht anfassen:** Bedienstete-Prompts in `context/bedienstete.ts`, die Oberfläche.
+
+**Fertig, wenn:** vier Commits, Tests für 1 (falls ohne SDK möglich) und 3, `pnpm test` +
+`pnpm typecheck` grün, Prompt-Größe vorher/nachher im Bericht.
 
 ## N6 · Postfach-Suche für die Korrespondenz
 - Status: offen
-- Modell: opus
+- Modell: sonnet
 
-`liste` zeigt nur die 50 neuesten Mails; deshalb blieb der TradingLab-Newsletter unauffindbar.
-Neues Werkzeug `suche` in `gateway/postfach-werkzeuge.ts` über IMAP-SEARCH; bei Gmail mit
-`X-GM-RAW` (Gmails eigene Syntax: `from:tradinglab older_than:2y`), sonst Absender/Betreff/Text/
-Zeitraum. Dazu `vor` (Blättern) in `liste`. Nur lesen, wie bisher.
+**Warum:** `liste` zeigt höchstens die 50 neuesten Mails; der TradingLab-Newsletter blieb deshalb
+unauffindbar.
 
-Fertig, wenn: Tests mit nachgestelltem IMAP; im Bericht ein echter Suchlauf über
-konto1 nach `from:tradinglab` mit der Zahl der Treffer (nur Zahl und Betreffzeilen, keine
-Inhalte ins Git).
+**Bauen:**
+1. `gateway/postfach.ts`: neue Funktion `suche(alle: Konto[], opts: { konto?: string; abfrage:
+   string; anzahl?: number }): Promise<Kopf[]>` neben `liste` (~Zeile 176), gleicher Rückgabetyp
+   `Kopf`, gleiches Verbinden/Schließen wie `liste`. Bei Gmail-Konten (`imap.gmail.com`)
+   IMAP-SEARCH mit `{ gmailRaw: abfrage }` (imapflow: `client.search({ gmailRaw })`), sonst
+   `{ or: [{ from: abfrage }, { subject: abfrage }] }`. Treffer absteigend nach Datum, höchstens
+   `anzahl` (Vorgabe 20, Höchstwert 50), dann die Köpfe per `client.fetch(uids, { envelope: true,
+   flags: true }, { uid: true })`.
+2. `gateway/postfach-werkzeuge.ts`, in `createLesePostfach`: Werkzeug `suche` (Felder `konto`,
+   `abfrage` mit Beschreibung „Gmail-Syntax, z. B. from:tradinglab older_than:2y", `anzahl`), Ausgabe
+   im selben Zeilenformat wie `liste`, `readOnlyHint: true`. Nur lesen — kein Verschieben, kein
+   Markieren (`fetch` mit `markAsSeen: false` bzw. `BODY.PEEK`, wie `liste` es macht).
+3. `liste` bekommt `vor?: number` (UID): nur Nachrichten mit kleinerer UID — zum Blättern.
+4. Prompt der korrespondenz in `context/bedienstete.ts`: ein Satz, wann `suche` statt `liste`.
+
+**Testen:** neue `gateway/postfach.test.ts`. Die Wahl des Suchkriteriums als reine Funktion
+exportieren — `suchKriterium(konto: Konto, abfrage: string)` → `{ gmailRaw }` für Gmail-Konten (Host
+aus `Konto`, wie `konten()` ihn setzt: Vorgabe `imap.gmail.com`), sonst `{ or: [{ from }, { subject }] }`
+— und die testen, dazu die Begrenzung von `anzahl` (1–50). Kein echtes IMAP im Test.
+
+**Echter Lauf:** einmal `suche` über konto1 mit `from:tradinglab` (Skript mit `npx tsx`, liest
+die `.env` nur über den Code, der das ohnehin tut). Im Bericht **nur** die Zahl der Treffer und
+höchstens fünf Betreffzeilen — keine Inhalte, nichts davon ins Git.
+
+**Fertig, wenn:** Tests grün, Typecheck grün, Trefferzahl im Bericht.
 
 ## N7 · Kapitalplan statt Wochenziel
-- Status: offen
-- Modell: opus
+- Status: blockiert (wird für Sonnet genau beschrieben, Stand 02.10.)
+- Modell: sonnet
 
 Jakob am 27.09. um 13:34: Start [Kapital], **[Einzahlung] Einzahlung je Monat**, Ziel **~[Ziel] nach 12
 Monaten**. Die boerse hat gerechnet: 3,84 % (Einzahlung Monatsanfang) bis 4,17 % (Monatsende) je
@@ -179,7 +252,7 @@ Monat, ohne Handel ~5.100 €. `gateway/wochenziel.ts` rechnet noch gegen 100 �
   Jakob sie selbst ändert.
 
 ## N10 · Versuchsbuch und Mehrfachtest
-- Status: offen
+- Status: erledigt (2026-09-28, 4007b11 „Prüfung ehrlicher: Versuchsbuch, Sperrfrist, Schlussprobe“, von Hand; die Anzeige je Suche kommt mit Kuro OS)
 - Modell: opus
 
 „Nichts zählt die Zahl der probierten Varianten" ist seit S44 offen; am 27.09. waren es 22 an
@@ -194,8 +267,8 @@ Zufallstreffer zu erwarten.
 - Strategie-Ansicht: je Suche „n Versuche, k Kandidaten" (Versuche selbst im Archiv, N2).
 
 ## N11 · Lehrbuch und Setup-Karten
-- Status: offen
-- Modell: opus
+- Status: blockiert (wird für Sonnet genau beschrieben, Stand 02.10.)
+- Modell: sonnet
 - Braucht: N8
 
 Wenn mindestens 30 Videos durchgearbeitet sind: `wissen/tradinglab/LEHRBUCH.md` nach Kapiteln
@@ -209,8 +282,8 @@ Notizen, Transkripte, Kalibrierung) stehen seit 28.09. im Prompt von boerse und 
 weiß nur, dass es die boerse fragt — `im_lehrbuch_suchen` ersetzt die Pfade, doppelt soll es nicht stehen.
 
 ## N12 · Smart-Money-Bausteine im Backtest
-- Status: offen
-- Modell: opus
+- Status: blockiert (wird für Sonnet genau beschrieben, Stand 02.10.)
+- Modell: sonnet
 - Braucht: N9
 
 Als Code, ohne Blick in die Zukunft, je mit Test: Swing-Hochs/-Tiefs (Swing-Tief der letzten N
@@ -221,16 +294,16 @@ zum letzten Swing, Vortages- und Sitzungs-Hoch/-Tief, höheres Intervall als Fil
 Zerlegen in N12a–c. Danach die Setup-Karten (N11) 1:1 rechnen (Skript, wie N9).
 
 ## N13 · Längere Intraday-Historie für Forex und Indizes
-- Status: offen
-- Modell: opus
+- Status: blockiert (wird für Sonnet genau beschrieben, Stand 02.10.)
+- Modell: sonnet
 
 Yahoo hat EUR/USD 1h nur ~2 Jahre. Dukascopy (kostenlos, ohne Konto) als Quelle `dukascopy:`
 prüfen und anbinden, in den Kerzenspeicher (`gateway/kerzenspeicher.ts`). Fallen messen, nicht
 der Doku glauben (siehe `kuronami-kerzen-datenquellen`: CFD-Volumen, Zeitzonen, Lücken).
 
 ## N14 · Das Urteil im Bar-Replay prüfen
-- Status: offen
-- Modell: opus
+- Status: blockiert (wird für Sonnet genau beschrieben, Stand 02.10.)
+- Modell: sonnet
 - Braucht: N11
 
 Was sich nicht mechanisieren lässt, spielt die boerse blind im Replay mit dem Lehrbuch durch
@@ -239,8 +312,8 @@ im Prognosebuch. Gebaut wird die Runde als Auftrag, den **Jakob** Kuro gibt — 
 nur das Werkzeug und beschreibt im Bericht den Satz, den Jakob sagen kann.
 
 ## N15 · Neue Videos von selbst
-- Status: offen
-- Modell: opus
+- Status: blockiert (wird für Sonnet genau beschrieben, Stand 02.10.)
+- Modell: sonnet
 
 Wöchentlich das Inventar auffrischen (`werkzeuge/bin/yt-dlp --flat-playlist`, vom Server aus
 möglich), neue Videos hinten anhängen, Kalibrierungs-Reihenfolge nicht verändern.

@@ -5,9 +5,11 @@
 #   systemctl start kuronami-nachtbau   ·   Protokoll: bau/protokoll/<Tag>.log
 #
 # Je Aufgabe ein eigener Claude-Code-Lauf (frischer Kontext = billiger) im Worktree
-# /opt/kuronami-nachtbau, immer mit Opus 5.5 — auch für Unteragenten. Jakob am 28.09.: „ich ertrage
-# Sonnet als Codingmaschine nicht mehr." Die Zeile „Modell:" im Plan zählt dafür nicht mehr. Übernommen wird nur, was Tests und Typecheck besteht; danach Neustart
-# des Gateways und Gesundheitsprüfung — startet er nicht, wird zurückgerollt.
+# /opt/kuronami-nachtbau. Modell nach der Zeile „Modell:" der Aufgabe: `opus` → Opus 5.5 (der Bau
+# von Kuro OS), sonst Sonnet 5.5 — Jakob am 02.10., die Aufgaben schreibt dafür Claude im Tag genau
+# vor. Unteragenten laufen mit demselben Modell. Übernommen wird nur, was Tests und Typecheck
+# besteht; danach Neustart des Gateways und Gesundheitsprüfung — startet er nicht, wird
+# zurückgerollt.
 #
 # Stellschrauben in /opt/kuronami/.env (Vorgabe):
 #   NACHTBAU=aus                   schaltet ihn ab
@@ -168,7 +170,6 @@ uebernimm() {  # $1 = Aufgabe; neue Commits auf nachtbau ins laufende System
   fi
 }
 
-MODELL_ID=claude-opus-5-5
 
 VERSUCHT=""
 while :; do
@@ -184,6 +185,7 @@ while :; do
 
   read -r ID MODELL <<<"$(python3 "$LIVE/bau/naechste.py" "$BAU/bau/PLAN.md" "$VERSUCHT")"
   if [[ -z "${ID:-}" ]]; then log "Keine Aufgabe bereit."; break; fi
+  if [[ "${MODELL,,}" == opus* ]]; then MODELL_ID=claude-opus-5-5; else MODELL_ID=claude-sonnet-5-5; fi
   VERSUCHT="$VERSUCHT,$ID"
   vorher_stand=$STAND
   log "--- $ID mit $MODELL_ID beginnt ($STAND)"

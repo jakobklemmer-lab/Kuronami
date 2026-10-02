@@ -12,8 +12,10 @@ Rückfragen. Deine Aufgabe in diesem Lauf: **{AUFGABE}** aus `bau/PLAN.md`.
   Arbeit` war.
 
 ## Wie du baust
-- Schreib Code wie der umgebende: deutsche Namen und Kommentare, Kommentardichte wie nebenan,
-  Tests mit vitest neben dem Code.
+- Schreib Code wie der umgebende: deutsche Namen und Kommentare, Tests mit vitest neben dem Code.
+- Kommentare knapp: warum etwas so ist, in ein, zwei Zeilen. Keine Geschichte („am 27.09. …"),
+  keine Zitate — die gehören in die Commit-Nachricht und den Bericht. Jakob am 02.10.: zu viele
+  Notizen im Code.
 - Vor jedem Commit müssen grün sein: `pnpm test`, `pnpm typecheck`,
   `npx biome check <geänderte Dateien>` (mit `--write` für Formatierung).
 - Committe in kleinen, jeweils grünen Schritten auf `nachtbau`. Commit-Nachricht auf Deutsch wie
