@@ -220,6 +220,33 @@ export function mountOs(opt: OsOptionen): void {
   const starterFeld = q<HTMLInputElement>("starterfeld");
   const starterListe = q<HTMLElement>("starterliste");
 
+  /**
+   * Der Orb wechselt seine Lage (Zimmer, Platz, Streifen) mit einer Bewegung statt eines
+   * Sprungs. Seine Größe springt sofort, gleiten tut nur `transform`: eine WebGL-Leinwand, die
+   * jedes Bild neu bemessen wird, ist zwischendurch leer.
+   */
+  function bewegeOrb(aendern: () => void) {
+    const vorher = orbEl.getBoundingClientRect();
+    for (const a of orbEl.getAnimations()) a.cancel();
+    aendern();
+    const nachher = orbEl.getBoundingClientRect();
+    if (
+      globalThis.matchMedia?.("(prefers-reduced-motion: reduce)").matches ||
+      nachher.width === 0 ||
+      vorher.width === 0
+    )
+      return;
+    // Der Kern ist ein Kreis über der kürzeren Seite der Lage — darum gleichmäßig skalieren.
+    const s = Math.min(vorher.width, vorher.height) / Math.min(nachher.width, nachher.height);
+    const dx = vorher.left + vorher.width / 2 - (nachher.left + nachher.width / 2);
+    const dy = vorher.top + vorher.height / 2 - (nachher.top + nachher.height / 2);
+    if (Math.abs(dx) < 1 && Math.abs(dy) < 1 && Math.abs(s - 1) < 0.01) return;
+    orbEl.animate(
+      [{ transform: `translate(${dx}px, ${dy}px) scale(${s})` }, { transform: "none" }],
+      { duration: 340, easing: "cubic-bezier(0.22, 1, 0.36, 1)" },
+    );
+  }
+
   // ------------------------------------------------------------ Gruß, Uhr, Abo
   const datumEl = q<HTMLElement>("datum");
   const grussEl = q<HTMLElement>("gruss");
@@ -378,7 +405,7 @@ export function mountOs(opt: OsOptionen): void {
     fenster.hidden = false;
     fenster.classList.remove("ist-gehend");
     fenster.classList.add("ist-kommend");
-    os.classList.add("ist-fenster");
+    bewegeOrb(() => os.classList.add("ist-fenster"));
     requestAnimationFrame(() =>
       requestAnimationFrame(() => fenster.classList.remove("ist-kommend")),
     );
@@ -387,7 +414,7 @@ export function mountOs(opt: OsOptionen): void {
 
   const schliesseFenster = () => {
     if (fenster.hidden) return;
-    os.classList.remove("ist-fenster");
+    bewegeOrb(() => os.classList.remove("ist-fenster"));
     fenster.classList.add("ist-gehend");
     setzeFaden();
     if (fensterUhr) globalThis.clearTimeout(fensterUhr);
@@ -555,7 +582,7 @@ export function mountOs(opt: OsOptionen): void {
 
   const klappePlatz = (zu: boolean) => {
     platzZu = zu;
-    os.classList.toggle("ist-platz-zu", zu);
+    bewegeOrb(() => os.classList.toggle("ist-platz-zu", zu));
     if (!zu) os.classList.remove("hat-neues");
     merke(SPEICHER_PLATZ, zu ? "zu" : "auf");
   };
