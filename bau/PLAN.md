@@ -115,6 +115,38 @@ Die Transkripte kommen von Jakobs PC (`werkzeuge/pc/tradinglab_transkripte.py`) 
 Fertig, wenn: Tests (Parser der Markierungen, Takt, Grenze), und ein echter Lauf über **ein**
 Kalibrierungsvideo, falls dessen Transkript schon da ist — sonst Status `erledigt` mit Hinweis.
 
+## N16 · Slack-Kanal ausbauen
+- Status: offen
+- Modell: sonnet
+
+**Warum:** Slack war nie eingerichtet (in der `.env` stehen die drei `SLACK_*`-Zeilen leer), Jakob
+nutzt es nicht, und der Kanal sind rund 1.000 Zeilen plus Verweise in zehn Dateien. Teil der
+Entschlackung vom 02.10. Telegram **bleibt** (künftiger Weg für Erinnerungen aufs Telefon).
+
+**Bauen:**
+1. `gateway/channels/slack/` ganz löschen (`git rm -r`).
+2. `gateway/types.ts`: `"slack"` aus `ChannelId` und `CHANNEL_IDS`.
+3. `gateway/identity.ts`: `slackSigningSecret`, `slackUserIds`, `verifySlackSignature`,
+   `SlackCredential`, `authenticateSlack` und die Slack-Zeilen in `identityFromEnv` und
+   `configuredChannels` entfernen; Kommentare, die Slack nur als Vergleich nennen, auf Telegram
+   allein umformulieren.
+4. `gateway/index.ts`: Import und Aufbau des Slack-Kanals (`createSlackChannel`, `createSlackClient`,
+   `SlackChannelDeps`, `SLACK_BOT_TOKEN`) entfernen; die Übergabe an den Server ebenso.
+5. `gateway/server.ts`: die Slack-Route(n) und das Feld in den Server-Abhängigkeiten entfernen.
+6. `gateway/gespraeche.ts` (`KANAL`) und `ui/welle/gespraech.ts` (`KANAL`): den Eintrag `slack`.
+7. `runtime/redaction/patterns.ts`: das Muster für Slack-Token **bleibt** (es schützt auch Text, der
+   von außen kommt) — nicht anfassen, auch nicht den Test dazu.
+8. Tests: In `gateway/identity.test.ts` die Slack-Fälle löschen; in den übrigen Tests
+   (`voice/channel.test.ts`, `chart-routen.test.ts`, `mcp-servers-settings.test.ts`,
+   `restart.test.ts`, `settings.test.ts`, `voice-config.test.ts`) nur die Slack-Erwähnungen
+   entfernen, die den Typ `ChannelId` oder Objekte mit `slack`-Feld betreffen.
+9. `.env.example`, `README.md`, `AGENTS.md`: die Slack-Zeilen streichen. Die echte `.env` **nicht**.
+
+**Prüfen:** `git grep -n -i slack -- '*.ts'` findet danach nur noch `runtime/redaction/`.
+`pnpm test`, `pnpm typecheck`, `npx biome check` grün; Gateway startet (der Läufer prüft das).
+
+**Fertig, wenn:** obiges gilt; im Bericht die Zahl der gelöschten Zeilen (`git diff --shortstat`).
+
 ## N4 · Das Abo-Limit reißt den Faden nicht mehr
 - Status: offen
 - Modell: sonnet
@@ -167,6 +199,63 @@ weiter" schrieb. Belege: `workspace/ablage/gespraeche/2026/2026-09-27.md` Zeilen
 `resetsAt` vor Text; „5:20pm (UTC)" am 27.09. um 15:49 UTC → 17:20 UTC; „resets 1am" kurz vor
 Mitternacht → nächster Tag; `grenzSatz` enthält „19:20" für 17:20 UTC im Sommer und kein englisches
 Wort. `pnpm test` und `pnpm typecheck` grün. Bericht nennt die Testfälle.
+
+## N18 · Kuro archiviert bei vollem Kontext
+- Status: offen
+- Modell: sonnet
+
+**Warum:** Kuros Kontext wächst an einem regen Tag von 18.000 auf über 100.000 Token (gemessen
+27.09.: 93.238 → 101.423 bis 18:38); jeder Zug liest das ganze Gespräch mit, das zehrt am Abo.
+Archiviert wird bisher nur nachts (`gateway/gespraeche.ts`, `ARCHIV_FENSTER` 3–6 Uhr).
+
+**Bauen:**
+1. `gateway/gespraeche.ts`: neue reine Funktion `istKontextVoll(kontext: number | null, grenze:
+   number): boolean` und Konstante `KONTEXT_GRENZE = 80_000` (überschreibbar mit
+   `KURO_KONTEXT_GRENZE` in der Umgebung, wie `ausUmgebung` im Lehrgang liest).
+2. Wo der nächtliche Takt `archiviereGespraech` aufruft (in `gateway/index.ts`, Suche nach
+   `istArchivZeit`): zusätzlich tagsüber archivieren, wenn `agent.kontext` (Getter in
+   `gateway/agent.ts`) über der Grenze liegt **und** seit dem letzten Zug von Jakob mindestens
+   10 Minuten vergangen sind (Zeitpunkt aus dem Verbrauchsbuch wie `jakob_aktiv` in
+   `bau/nachtbau.sh`, oder einem neuen Getter `letzterZug` am Agent — einfacher, bevorzugt).
+   Anlass `"Kontext voll"`. `archiviereGespraech` verschiebt ohnehin, solange eine Rückfrage offen
+   ist oder ein Bediensteter arbeitet.
+3. Die System-Seite zeigt den Anlass schon über das Archiv; nichts in der Oberfläche ändern.
+
+**Testen:** `istKontextVoll` (null → false, Grenze genau → true) und die Zeitbedingung als reine
+Funktion `darfJetztArchivieren(kontext, letzterZug, jetzt, grenze)`.
+
+**Fertig, wenn:** Tests grün; im Bericht, bei welcher Grenze und warum 80.000 (Übergabe kostet
+gemessen 7–8k Token, lohnt also ab etwa dem Zehnfachen).
+
+## N17 · Kommentare kürzen
+- Status: offen
+- Modell: sonnet
+- Braucht: N16
+
+**Warum:** Jakob am 02.10.: „zu viele Notizen im Code". Gemessen: 8.671 Kommentarzeilen auf
+40.401 Zeilen Code (18 %), in `runtime/` 32 %. Viele erzählen Geschichte („am 27.09. …", Zitate,
+Sitzungsnummern wie S36), die im Git und in den Berichten steht.
+
+**Regeln für jeden Kommentar:**
+- Bleibt: *warum* etwas so ist, wenn man es dem Code nicht ansieht (eine Falle, eine Grenze, ein
+  Messwert, der eine Zahl im Code begründet) — in höchstens zwei Zeilen.
+- Fällt weg: Datum, Sitzungsnummer, Zitate von Jakob, Erzählung des Hergangs, Wiederholung dessen,
+  was der Code sagt, Verweise auf längst Entferntes (n8n, alter Motor, Mock-Daten).
+- JSDoc an exportierten Funktionen: ein Satz, was sie tut, plus Fallen; keine Absätze.
+- Deutsch bleibt Deutsch; nichts übersetzen, nichts umbenennen.
+- **Nur Kommentare ändern.** Kein Zeichen Code, keine Formatierung von Code, keine Datei löschen.
+
+**In Paketen, je Paket ein Lauf und ein Commit:** N17a `runtime/` + `tools/` · N17b `gateway/`
+Dateien A–H · N17c `gateway/` Dateien I–Z (ohne `channels/`) · N17d `gateway/channels/` + `context/`
+· N17e `ui/` ohne `ui/welle/` · N17f `ui/welle/`. Testdateien zählen mit. Die Aufgabe beim ersten
+Lauf in diese Teilaufgaben zerlegen und N17a bauen.
+
+**Prüfen, vor jedem Commit:** `npx tsx bau/nur-kommentare.ts HEAD` (gegen den Stand vor deinen
+Änderungen; nach dem Commit `… HEAD~1`) muss `ok` melden — sonst ist Code mitgeändert worden:
+zurücknehmen, nicht reparieren. Dazu `pnpm test`, `pnpm typecheck`.
+
+**Fertig, wenn:** im Bericht je Paket Kommentarzeilen vorher/nachher (gezählt wie am 02.10.: Zeilen,
+die mit `//`, `/*` oder `*` beginnen, ohne `.test.ts` nicht mitzuzählen — Testdateien gesondert).
 
 ## N5 · Kleine Reparaturen an Kuro
 - Status: offen
