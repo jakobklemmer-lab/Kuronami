@@ -7,6 +7,7 @@ import {
   ZUSATZ_DOMAENEN,
 } from "../context/bedienstete.js";
 import { redactText } from "../runtime/redaction/redact.js";
+import { grenzBericht, istGrenzText, zurueckUm } from "./abogrenze.js";
 import { nurEigeneServer } from "./abschottung.js";
 import { crvVermerk } from "./crv.js";
 import { FRAGE_TEAM_TOOL, createHandelstisch } from "./handelstisch.js";
@@ -486,6 +487,7 @@ async function fuehreAus(
       return `${wer} hat den Auftrag auf Zuruf abgebrochen.`;
     }
     const grund = error instanceof Error ? error.message : String(error);
+    if (istGrenzText(grund)) return grenzBericht(wer, zurueckUm(grund));
     // Auch die Fehlermeldung: eine gescheiterte Anmeldung nennt gern den Schlüssel, mit dem
     // sie es versucht hat.
     return redactText(`${wer} konnte den Auftrag nicht ausführen: ${grund}`);

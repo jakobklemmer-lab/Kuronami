@@ -126,7 +126,7 @@ Kalibrierungsvideo, falls dessen Transkript schon da ist — sonst Status `erled
 Der nie eingerichtete Slack-Kanal fliegt raus; Telegram bleibt.
 
 ## N4 · Das Abo-Limit reißt den Faden nicht mehr
-- Status: offen
+- Status: erledigt (2026-10-02, von Hand — der Probelauf war der Bau)
 - Modell: sonnet
 - Anweisung: `bau/aufgaben/N4.md`
 

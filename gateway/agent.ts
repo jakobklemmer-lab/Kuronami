@@ -13,6 +13,7 @@ import { BEDIENSTETE, HANDELSTISCH } from "../context/bedienstete.js";
 import { KURO_PERSONA } from "../context/persona.js";
 import { redactText } from "../runtime/redaction/redact.js";
 import { type AboGrenzen, createAboGrenzen } from "./abo.js";
+import { grenzSatz, istFloskel, istGrenzText, zurueckUm } from "./abogrenze.js";
 import { nurEigeneServer } from "./abschottung.js";
 import { type AnalysenArchiv, createAnalysen } from "./analysen.js";
 import { BUEHNE_TOOLS, createBuehne } from "./buehne.js";
@@ -296,6 +297,10 @@ export class KuroAgent {
   #kontext: number | null = null;
   /** Die jüngste Grenzmeldung des Anbieters aus einem Zug, falls eine kam. */
   #grenze: (SDKRateLimitInfo & { um: string }) | null = null;
+  /** Bis wann das Abo gesperrt ist — Berichte, die bis dahin eintreffen, werden geparkt. */
+  #gesperrtBis: Date | null = null;
+  #geparkt: Array<{ wer: string; bericht: string }> = [];
+  #nachtragsUhr: ReturnType<typeof setTimeout> | null = null;
 
   constructor(deps: AgentDeps) {
     this.#deps = deps;
@@ -649,6 +654,18 @@ export class KuroAgent {
     return lauf;
   }
 
+  /** Trägt die geparkten Berichte vor, eine Minute nachdem die Sperre fällt. Nur ein Zeitgeber. */
+  #planeNachtrag(): void {
+    if (this.#nachtragsUhr || !this.#gesperrtBis) return;
+    const warte = Math.max(0, this.#gesperrtBis.getTime() + 60_000 - Date.now());
+    this.#nachtragsUhr = setTimeout(() => {
+      this.#nachtragsUhr = null;
+      this.#gesperrtBis = null;
+      for (const { wer, bericht } of this.#geparkt.splice(0)) void this.#trageNach(wer, bericht);
+    }, warte);
+    this.#nachtragsUhr.unref?.();
+  }
+
   /**
    * Einen nachgereichten Bericht vortragen.
    *
@@ -658,6 +675,11 @@ export class KuroAgent {
    * darauf antworten, als hätte Kuro von sich aus etwas gesagt.
    */
   async #trageNach(wer: string, bericht: string): Promise<void> {
+    if (this.#gesperrtBis && this.#gesperrtBis.getTime() > Date.now()) {
+      this.#geparkt.push({ wer, bericht });
+      this.#planeNachtrag();
+      return;
+    }
     const to = this.#letzterSender;
     if (!to) return;
 
@@ -857,6 +879,12 @@ export class KuroAgent {
       let text = "";
       for (const block of nachricht.message.content) {
         if (block.type === "text") text += block.text;
+      }
+      if (istFloskel(text)) return null;
+      if (istGrenzText(text)) {
+        const zurueck = zurueckUm(text, this.#grenze);
+        this.#gesperrtBis = zurueck;
+        text = grenzSatz(zurueck);
       }
       // Diese Wortmeldung ist zu Ende. Kommt später noch eine, gehört ein Absatz dazwischen.
       if (text) this.#absatzOffen = true;
