@@ -48,6 +48,25 @@ aufnehmen und in Kuro speichern." Entschieden:
   `POST /integrations/brain/eingang`). N19e baut sie als Begleiter in die Desktop-App ein; der
   große Orb im Raum Kuro bleibt der Orb.
 
+### Zweiter Nachtrag, 21:55 — Kuro ist der Desktop
+
+Jakob: „Kuro muss trotzdem direkt beim Start präsent sein, du kannst die cmd1-Seite als
+Standardansicht machen und alles andere als Fenster." Entschieden:
+
+- **Der Raum Kuro (⌘1) ist der Desktop**: beim Start da, immer darunter — Zimmerbild, großer Orb
+  mit Satelliten, Gruß, Gespräch, Heute, Im Haus.
+- **⌘2–5 öffnen die anderen Räume als großes Fenster über Kuro** (eine Tafel, ≈ 92 % der Fläche,
+  mittig, abgerundet, matt; die Teile des Raums oben in ihrem Kopf). Ein weiteres ⌘-Zahl wechselt
+  den Inhalt des Fensters mit kurzer Überblendung; **Esc oder ⌘1 schließt es**, Kuro ist wieder
+  ganz da. Zuletzt geöffneter Raum und Teil bleiben gemerkt. Ein zweites Fenster daneben
+  (geteilt, z. B. Handel links, Brain rechts) ist erlaubt, wenn es ohne Fenster-Wirrwarr geht:
+  höchstens zwei, fest nebeneinander, ⌘⇧-Zahl öffnet einen Raum als zweites Fenster.
+- **Kuro bleibt sichtbar**, solange ein Fenster offen ist: Kuros Platz (Orb klein, Zustand, Im
+  Haus, Eingabe) als schmale Spalte am rechten Rand des Desktops neben dem Fenster — das ist der
+  „Kuros Platz" aus dem Abschnitt „Aufbau", jetzt Teil des Desktops statt jedes Raums.
+- Die Raumleiste oben zeigt alle fünf Räume mit ihrer Ziffer; Kuro ist hervorgehoben, wenn kein
+  Fenster offen ist.
+
 ## Die Idee: Kuros Arbeitszimmer
 
 Ein Haus mit **drei Räumen** und Kuro, der in jedem Raum seinen Platz hat.
