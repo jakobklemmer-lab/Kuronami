@@ -119,7 +119,7 @@ Fertig, wenn: Tests (Parser der Markierungen, Takt, Grenze), und ein echter Lauf
 Kalibrierungsvideo, falls dessen Transkript schon da ist — sonst Status `erledigt` mit Hinweis.
 
 ## N16 · Slack-Kanal ausbauen
-- Status: offen
+- Status: erledigt (2026-10-02, von Hand — der Probelauf war der Bau)
 - Modell: sonnet
 - Anweisung: `bau/aufgaben/N16.md`
 

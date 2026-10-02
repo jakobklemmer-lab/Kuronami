@@ -18,8 +18,6 @@ const identity: GatewayIdentity = {
   webToken: TOKEN,
   telegramSecret: "",
   telegramUserIds: [],
-  slackSigningSecret: "",
-  slackUserIds: [],
   voiceToken: "",
   voiceSessionToken: "",
 };

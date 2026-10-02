@@ -262,7 +262,7 @@ export function tagName(tag: string): string {
   }).format(new Date(Date.UTC(j ?? 1970, (m ?? 1) - 1, t ?? 1)));
 }
 
-const KANAL: Record<string, string> = { voice: "gesprochen", telegram: "Telegram", slack: "Slack" };
+const KANAL: Record<string, string> = { voice: "gesprochen", telegram: "Telegram" };
 
 export function eintragMarkdown(e: Eintrag, zone = ZONE): string {
   const { uhr } = wienerZeit(e.zeit, zone);

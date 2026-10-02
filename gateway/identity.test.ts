@@ -18,8 +18,6 @@ const identity: GatewayIdentity = {
   webToken: "web-geheim-1234",
   telegramSecret: "webhook-geheim-5678",
   telegramUserIds: ["11111111", "22222222"],
-  slackSigningSecret: "slack-geheim-9012",
-  slackUserIds: ["U111", "U222"],
   voiceToken: "sprach-geheim-3456",
   voiceSessionToken: "",
 };
@@ -144,8 +142,6 @@ describe("Identitätstabelle aus der Umgebung", () => {
       webToken: "abc",
       telegramSecret: "def",
       telegramUserIds: ["111", "222"],
-      slackSigningSecret: "",
-      slackUserIds: [],
       voiceToken: "",
       voiceSessionToken: "",
     });
@@ -162,18 +158,6 @@ describe("Identitätstabelle aus der Umgebung", () => {
     // Es schaltet keinen Kanal frei: der Gateway prüft diesen Token nie, er reicht ihn nur an
     // eine bereits ausgewiesene Oberfläche weiter. Der Sprach-Kanal hängt an VOICE_BRIDGE_TOKEN.
     expect(configuredChannels(found)).toEqual(["web"]);
-  });
-
-  it("liest das Slack-Signiergeheimnis und die Absenderliste, kommagetrennt und getrimmt", () => {
-    const found = identityFromEnv({
-      GATEWAY_WEB_TOKEN: "abc",
-      SLACK_SIGNING_SECRET: " shh ",
-      SLACK_ALLOWED_USER_IDS: " U111 , U222 ,, ",
-    } as NodeJS.ProcessEnv);
-
-    expect(found.slackSigningSecret).toBe("shh");
-    expect(found.slackUserIds).toEqual(["U111", "U222"]);
-    expect(configuredChannels(found)).toEqual(["web", "slack"]);
   });
 
   it("schaltet einen Kanal ab, für den nichts gesetzt ist", () => {

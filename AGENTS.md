@@ -27,7 +27,7 @@ liegen unter `ui/vendor/` — die Anbindung an Kuros Ereignisse gehört nach
 ## Der Motor ist das Agent-SDK
 
 `gateway/agent.ts` fährt jeden Zug über `query()` aus `@anthropic-ai/claude-agent-sdk`.
-`gateway/core.ts` ist nur noch der Adapter dorthin; die Kanäle (Web, Telegram, Slack, Sprache)
+`gateway/core.ts` ist nur noch der Adapter dorthin; die Kanäle (Web, Telegram, Sprache)
 kennen ausschließlich `receiveMessage`/`receiveDecision`/`redeliverPending`.
 
 Neue Fähigkeiten kommen als **MCP-Server im Prozess** (`gateway/haus.ts`, `kurse.ts`,

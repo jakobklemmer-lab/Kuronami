@@ -15,7 +15,7 @@ import type { ChannelRegistry, InboundDecision, InboundMessage, Outbound } from 
  *
  * Die **Signaturen bleiben unverändert**. Das ist Absicht und der Grund, warum der Wechsel
  * nicht durch das ganze Projekt schneidet: `receiveMessage`, `receiveDecision` und
- * `redeliverPending` werden an sieben Stellen aufgerufen — Web, Telegram, Slack, Sprachschicht
+ * `redeliverPending` werden an sieben Stellen aufgerufen — Web, Telegram, Sprachschicht
  * —, und keine davon muss wissen, dass darunter ein anderer Motor läuft.
  *
  * Die alte Fassung liegt vollständig in `archiv/eigener-motor`.

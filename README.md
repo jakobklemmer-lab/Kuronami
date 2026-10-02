@@ -8,7 +8,7 @@ die Arbeitsregeln stehen in [`AGENTS.md`](AGENTS.md).
 
 | Teil | Aufgabe | Ordner |
 |---|---|---|
-| Gateway | Motor, Personal, Kanäle (Web, Telegram, Slack, Sprache), HTTP-API | `gateway/` |
+| Gateway | Motor, Personal, Kanäle (Web, Telegram, Sprache), HTTP-API | `gateway/` |
 | Oberfläche | Präsenz, Kurstafel, Postfach, Analysen, Einstellungen | `ui/` |
 | Zustand | Postgres-Schema, Ereignisprotokoll, Sessions, Artefakte, Redaction | `runtime/` |
 | Kontext | Persona, Bedienstete, Kostentabellen | `context/` |

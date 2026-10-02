@@ -95,7 +95,6 @@ const OFFLINE_NACH_MS = 4000;
 const KANAL: Record<string, string> = {
   voice: "gesprochen",
   telegram: "über Telegram",
-  slack: "über Slack",
   heartbeat: "von selbst",
 };
 

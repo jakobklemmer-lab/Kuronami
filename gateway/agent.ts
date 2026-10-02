@@ -47,7 +47,7 @@ import { type WissenAblage, createWissen } from "./wissen.js";
  * Freigaben, Subagenten, Prompt-Caching), bringt das Agent-SDK fertig mit.
  *
  * Die Kanäle merken davon nichts: rein kommt eine `InboundMessage`, raus geht `Outbound`
- * über denselben `ChannelPort`. Web, Telegram, Slack und die Sprachschicht bleiben
+ * über denselben `ChannelPort`. Web, Telegram und die Sprachschicht bleiben
  * unverändert.
  *
  * Drei Entscheidungen, die hier sichtbar sind:

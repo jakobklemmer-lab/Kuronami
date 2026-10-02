@@ -8,9 +8,6 @@ import { buildMemoryRoot, createMemoryStore } from "../tools/memory/store.js";
 import { KuroAgent } from "./agent.js";
 import { alarmText, createAlarme, starteAlarmTakt } from "./alarme.js";
 import { SITZUNG_GUELTIG_MS, anmeldungAusUmgebung } from "./anmeldung.js";
-import { createSlackChannel } from "./channels/slack/channel.js";
-import type { SlackChannelDeps } from "./channels/slack/channel.js";
-import { createSlackClient } from "./channels/slack/client.js";
 import { createTelegramChannel, startTelegramPolling } from "./channels/telegram/channel.js";
 import type { TelegramChannelDeps } from "./channels/telegram/channel.js";
 import { createTelegramClient } from "./channels/telegram/client.js";
@@ -141,24 +138,6 @@ async function main(): Promise<void> {
     channels.set("telegram", createTelegramChannel(telegram));
   }
 
-  const slackToken = process.env.SLACK_BOT_TOKEN?.trim();
-  let slack: SlackChannelDeps | undefined;
-  if (available.includes("slack")) {
-    if (!slackToken) {
-      throw new Error(
-        "SLACK_ALLOWED_USER_IDS ist gesetzt, aber SLACK_BOT_TOKEN fehlt — der Kanal könnte annehmen, aber nichts zustellen.",
-      );
-    }
-    if (!identity.slackSigningSecret) {
-      throw new Error(
-        "SLACK_ALLOWED_USER_IDS ist gesetzt, aber SLACK_SIGNING_SECRET fehlt — ohne Signaturprüfung nimmt der Kanal nichts an.",
-      );
-    }
-    const client = createSlackClient({ token: slackToken });
-    slack = { client, identity, gateway, pendingByTs: new Map() };
-    channels.set("slack", createSlackChannel(slack));
-  }
-
   // Der Sprach-Kanal (S30). Er braucht keinen Client nach draußen — die Gegenstelle ruft **uns**
   // an (`voice/pipeline/gateway.py`), und was hinausgeht, liegt solange im Postfach. Deshalb
   // reicht hier der Token als Schalter; ein fehlender Sprachprozess ist kein Startfehler,
@@ -220,7 +199,6 @@ async function main(): Promise<void> {
     anmeldung: anmeldung ?? undefined,
     web,
     telegram,
-    slack,
     voice,
     secrets,
     memory,
@@ -432,7 +410,6 @@ async function main(): Promise<void> {
       : undefined;
   if (polling) console.log("Telegram: Long-Polling läuft.");
   else if (telegram) console.log("Telegram: Webhook-Betrieb (POST /channels/telegram/webhook).");
-  if (slack) console.log("Slack: Events API (POST /channels/slack/events).");
   if (voice) {
     console.log(
       "Sprache: POST /channels/voice/messages und /answers. Der Sprachprozess läuft eigenständig (voice/, Python).",

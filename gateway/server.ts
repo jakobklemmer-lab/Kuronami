@@ -16,9 +16,6 @@ import { readSecretStatus, upsertSecrets } from "../runtime/secrets/env-file.js"
 import type { MemoryStore } from "../tools/memory/store.js";
 import type { AlarmeAblage } from "./alarme.js";
 import { type Anmeldung, SITZUNG_GUELTIG_MS } from "./anmeldung.js";
-import { handleSlackEvent } from "./channels/slack/channel.js";
-import type { SlackChannelDeps } from "./channels/slack/channel.js";
-import { isUrlVerification } from "./channels/slack/normalize.js";
 import { handleUpdate } from "./channels/telegram/channel.js";
 import type { TelegramChannelDeps } from "./channels/telegram/channel.js";
 import type { VoiceChannel } from "./channels/voice/channel.js";
@@ -32,7 +29,6 @@ import {
   authenticateVoice,
   authenticateWeb,
   bearerToken,
-  verifySlackSignature,
 } from "./identity.js";
 import {
   displayNameOf,
@@ -81,8 +77,6 @@ export interface ServerDeps {
   web: WebChannel;
   /** Fehlt sie, gibt es keinen Telegram-Webhook — das Long-Polling braucht ihn nicht. */
   telegram?: TelegramChannelDeps;
-  /** Fehlt sie, gibt es keine Slack-Route — der Kanal ist dann nicht konfiguriert. */
-  slack?: SlackChannelDeps;
   /** Fehlt sie, gibt es keine Sprach-Routen (S30). Der Python-Prozess läuft dann ins Leere. */
   voice?: VoiceChannel;
   /** Fehlt sie, gibt es keine Schlüsselverwaltung (S32-Nachtrag) — `.env` bleibt dann nur von
@@ -149,12 +143,6 @@ export interface RestartDeps {
 export interface SettingsSecretsDeps {
   read(): Promise<string>;
   write(contents: string): Promise<void>;
-}
-
-/** `express.json({verify})` legt hier die rohen Bytes ab — die Slack-Signatur läuft über genau
- * diese, nicht über den (möglicherweise anders serialisierten) geparsten Body. */
-interface RequestWithRawBody extends express.Request {
-  rawBody?: Buffer;
 }
 
 interface WebAttachmentBody {
@@ -250,13 +238,6 @@ export function createServer(deps: ServerDeps): express.Express {
   app.use(
     express.json({
       limit: MAX_REQUEST_BODY,
-      // Nötig für die Slack-Signaturprüfung (`/channels/slack/events`): sie läuft über die
-      // rohen Bytes des Anfragekörpers, die `express.json()` sonst restlos verbraucht. Für
-      // jede andere Route ist das Feld ungenutzt, kostet aber nur eine zusätzliche Referenz auf
-      // denselben Puffer, den Express ohnehin schon einliest.
-      verify: (req, _res, buf) => {
-        (req as RequestWithRawBody).rawBody = Buffer.from(buf);
-      },
     }),
   );
 
@@ -266,7 +247,6 @@ export function createServer(deps: ServerDeps): express.Express {
       channels: [
         deps.web.id,
         ...(deps.telegram ? ["telegram"] : []),
-        ...(deps.slack ? ["slack"] : []),
         ...(deps.voice ? ["voice"] : []),
       ],
       user: deps.identity.userId,
@@ -1708,50 +1688,6 @@ export function createServer(deps: ServerDeps): express.Express {
     } catch (error) {
       next(error);
     }
-  });
-
-  /**
-   * Slacks Events API, ein Endpunkt für zwei Formen (Auftrag S26): einmalig die
-   * `url_verification`-Herausforderung beim Einrichten, sonst laufende Zustellungen
-   * (`event_callback`).
-   *
-   * **Die 3-Sekunden-Frist.** Slack verlangt eine HTTP-Antwort innerhalb von drei Sekunden,
-   * sonst wird dieselbe Zustellung wiederholt — anders als beim Telegram-Webhook oben, der
-   * `handleUpdate` komplett awaitet, bevor er antwortet. Ein voller Gateway-Zug (Modellaufruf,
-   * Werkzeugaufrufe) kann das Vielfache davon dauern. Deshalb antwortet diese Route **sofort**
-   * mit `200 {ok:true}` und lässt `handleSlackEvent` danach unabhängig davon weiterlaufen
-   * (fire-and-forget) — eine trotzdem eintreffende Wiederholung fängt die bestehende
-   * `externalId`/`hasReceived`-Idempotenz aus `gateway/core.ts` sauber ab, wie bei Telegram.
-   */
-  app.post("/channels/slack/events", (req, res) => {
-    if (!deps.slack) {
-      res.status(404).json({ error: "Der Slack-Kanal ist in diesem Gateway nicht aktiv." });
-      return;
-    }
-
-    const rawBody = (req as RequestWithRawBody).rawBody?.toString("utf8") ?? "";
-    const timestamp = req.header("x-slack-request-timestamp") ?? null;
-    const signature = req.header("x-slack-signature") ?? null;
-
-    if (isUrlVerification(req.body)) {
-      // Die Signatur gilt auch für diese Anfrage — ohne Prüfung könnte jeder Dritte die
-      // Request-URL "bestätigen".
-      if (
-        !timestamp ||
-        !signature ||
-        !verifySlackSignature(deps.identity.slackSigningSecret, timestamp, rawBody, signature)
-      ) {
-        res.status(401).json({ error: "Slack-Signatur fehlt oder stimmt nicht." });
-        return;
-      }
-      res.status(200).json({ challenge: req.body.challenge });
-      return;
-    }
-
-    res.status(200).json({ ok: true });
-    handleSlackEvent(deps.slack, req.body, { timestamp, signature, rawBody }).catch((error) => {
-      console.error("[gateway] Slack-Event:", error);
-    });
   });
 
   app.use(

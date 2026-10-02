@@ -1,4 +1,4 @@
-import { createHmac, timingSafeEqual } from "node:crypto";
+import { timingSafeEqual } from "node:crypto";
 import { type ChannelId, type Sender, isChannelId } from "./types.js";
 
 /**
@@ -87,10 +87,6 @@ export interface GatewayIdentity {
   telegramSecret: string;
   /** Erlaubte Telegram-Nutzerkennungen. Leer: Telegram nimmt nichts an. */
   telegramUserIds: readonly string[];
-  /** Signiergeheimnis der Slack-App (Basic Information → Signing Secret). Leer: Slack nimmt nichts an. */
-  slackSigningSecret: string;
-  /** Erlaubte Slack-Nutzerkennungen. Leer: Slack nimmt nichts an. */
-  slackUserIds: readonly string[];
   /**
    * Bearer-Token des Sprach-Kanals (S30). Leer heißt: der Kanal nimmt nichts an.
    *
@@ -189,7 +185,7 @@ export interface VoiceCredential {
 /**
  * Sprache: ein Bearer-Token, mehr nicht — dasselbe Muster wie beim Web-Kanal.
  *
- * **Eine Prüfung genügt hier, anders als bei Telegram und Slack**, und der Unterschied ist kein
+ * **Eine Prüfung genügt hier, anders als bei Telegram**, und der Unterschied ist kein
  * Nachlassen: dort beweist das Geheimnis nur, dass die Zustellung *vom Anbieter* kommt, während
  * jeder Fremde dem Bot schreiben kann — deshalb dort zusätzlich die Absenderliste. Hier gibt es
  * keinen fremden Absender: die Gegenstelle ist der eigene Sprachprozess, und wer seinen Token
@@ -308,102 +304,6 @@ export function authenticateTelegram(
   };
 }
 
-/**
- * Slack: **keine** Geheimnis-Kopfzeile wie bei Telegram, sondern eine HMAC-Signatur über den
- * rohen Request-Body (Slacks Rezept: `v0:<timestamp>:<rawBody>`, HMAC-SHA256 mit dem
- * Signiergeheimnis, als `v0=<hex>` im Header `X-Slack-Signature`). Das beweist "von Slack",
- * nicht "von wem" — genau wie `TELEGRAM_WEBHOOK_SECRET` beweist auch dies nur die Herkunft; die
- * Absenderliste (`slackUserIds`) trägt die eigentliche Kontrolle, wie bei Telegram.
- *
- * Der Zeitstempel darf nicht älter als fünf Minuten sein — sonst könnte eine einmal
- * mitgeschnittene, gültig signierte Anfrage beliebig oft wiederholt werden (Replay).
- */
-export const SLACK_SIGNATURE_MAX_AGE_SECONDS = 5 * 60;
-
-export function verifySlackSignature(
-  signingSecret: string,
-  timestamp: string,
-  rawBody: string,
-  signature: string,
-  now: () => number = () => Date.now(),
-): boolean {
-  if (signingSecret.length === 0 || timestamp.length === 0 || signature.length === 0) return false;
-  const timestampSeconds = Number(timestamp);
-  if (!Number.isFinite(timestampSeconds)) return false;
-  if (Math.abs(now() / 1000 - timestampSeconds) > SLACK_SIGNATURE_MAX_AGE_SECONDS) return false;
-
-  const base = `v0:${timestamp}:${rawBody}`;
-  const expected = `v0=${createHmac("sha256", signingSecret).update(base, "utf8").digest("hex")}`;
-  return secretEquals(signature, expected);
-}
-
-export interface SlackCredential {
-  timestamp: string | null;
-  rawBody: string;
-  signature: string | null;
-  fromId: string;
-  channelId: string;
-  displayName: string;
-}
-
-/**
- * Slack: Signatur **und** Absenderliste, dasselbe Zwei-Prüfungen-Muster wie bei Telegram
- * (`authenticateTelegram`). Jeder Mensch kann eine Nachricht an den Bot schicken, und ihre
- * Zustellung trägt dieselbe gültige Signatur wie die des Betreibers — ohne die Absenderliste
- * wäre der Bot eine offene Fernbedienung für Fremde.
- */
-export function authenticateSlack(
-  identity: GatewayIdentity,
-  credential: SlackCredential,
-): AuthResult {
-  if (identity.slackUserIds.length === 0) {
-    return {
-      ok: false,
-      reason: "channel_not_configured",
-      message: "Der Slack-Kanal ist ohne SLACK_ALLOWED_USER_IDS nicht bedienbar.",
-    };
-  }
-  if (identity.slackSigningSecret.length === 0) {
-    return {
-      ok: false,
-      reason: "channel_not_configured",
-      message: "Der Slack-Kanal ist ohne SLACK_SIGNING_SECRET nicht bedienbar.",
-    };
-  }
-  if (credential.timestamp === null || credential.signature === null) {
-    return {
-      ok: false,
-      reason: "missing_credential",
-      message: "Es fehlt X-Slack-Request-Timestamp oder X-Slack-Signature.",
-    };
-  }
-  if (
-    !verifySlackSignature(
-      identity.slackSigningSecret,
-      credential.timestamp,
-      credential.rawBody,
-      credential.signature,
-    )
-  ) {
-    return { ok: false, reason: "bad_credential", message: "Die Slack-Signatur stimmt nicht." };
-  }
-  if (!identity.slackUserIds.includes(credential.fromId)) {
-    return {
-      ok: false,
-      reason: "unknown_sender",
-      message: `Slack-Absender ${credential.fromId} steht nicht in SLACK_ALLOWED_USER_IDS.`,
-    };
-  }
-
-  const sender: Sender = {
-    channel: "slack",
-    channelUserId: credential.fromId,
-    displayName: credential.displayName.trim() || credential.fromId,
-    replyTo: credential.channelId,
-  };
-  return { ok: true, principal: new Identity(identity.userId, sender, "slack:webhook") };
-}
-
 /** Baut die Identitätstabelle aus der Umgebung. Fehlende Werte schalten ihren Kanal ab. */
 export function identityFromEnv(env: NodeJS.ProcessEnv = process.env): GatewayIdentity {
   return {
@@ -411,11 +311,6 @@ export function identityFromEnv(env: NodeJS.ProcessEnv = process.env): GatewayId
     webToken: env.GATEWAY_WEB_TOKEN?.trim() ?? "",
     telegramSecret: env.TELEGRAM_WEBHOOK_SECRET?.trim() ?? "",
     telegramUserIds: (env.TELEGRAM_ALLOWED_USER_IDS ?? "")
-      .split(",")
-      .map((entry) => entry.trim())
-      .filter((entry) => entry.length > 0),
-    slackSigningSecret: env.SLACK_SIGNING_SECRET?.trim() ?? "",
-    slackUserIds: (env.SLACK_ALLOWED_USER_IDS ?? "")
       .split(",")
       .map((entry) => entry.trim())
       .filter((entry) => entry.length > 0),
@@ -429,7 +324,6 @@ export function configuredChannels(identity: GatewayIdentity): ChannelId[] {
   const found: ChannelId[] = [];
   if (identity.webToken.length > 0) found.push("web");
   if (identity.telegramUserIds.length > 0) found.push("telegram");
-  if (identity.slackUserIds.length > 0) found.push("slack");
   if (identity.voiceToken.length > 0) found.push("voice");
   return found.filter(isChannelId);
 }
