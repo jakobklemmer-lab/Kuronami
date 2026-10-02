@@ -172,7 +172,7 @@ bleiben, keine Mac-Nachbildung, kein Dock, Kuro optional als Begleiter auf dem D
 - Modell: opus
 
 ## N19b · Der Raum „Kuro": Empfang mit Fenster, Orb und „Heute"
-- Status: offen
+- Status: erledigt (2026-10-03, 5d89b27)
 - Modell: opus
 - Braucht: N19a
 
