@@ -8,10 +8,10 @@
 .ist-os {
   --kopf-h: 52px;
   --rand: 14px;
-  --gespraech-b: clamp(380px, 30vw, 540px);
+  --gespraech-b: clamp(380px, 28vw, 540px);
   --platz-b: clamp(320px, 19vw, 380px);
   --streifen-b: 64px;
-  --orb-klein-h: 196px;
+  --orb-klein-h: 228px;
   --kuro-licht: var(--kuro);
   --tafel: linear-gradient(180deg, rgba(11, 18, 21, 0.95), rgba(14, 20, 18, 0.95));
   --tafel-licht: rgba(232, 239, 241, 0.035);
@@ -57,7 +57,7 @@
   inset: 0;
   background: linear-gradient(to bottom, rgba(3, 8, 11, 0.55), rgba(3, 8, 11, 0) 18%),
     linear-gradient(to left, rgba(3, 8, 11, 0.5), rgba(3, 8, 11, 0) 40%), url("../assets/night.jpg")
-    center / cover no-repeat, var(--tusche);
+    100% 50% / cover no-repeat, var(--tusche);
   transition: filter 0.4s var(--gleiten-os);
 }
 
@@ -306,11 +306,15 @@
  * klein im eingeklappten Streifen. Er gleitet zwischen ihnen, statt neu zu starten.
  */
 .o-orb {
-  --buehne-b: calc(100vw - var(--gespraech-b) - 2 * var(--rand));
-  --orb-s: min(64vh, calc(var(--buehne-b) - 96px), 820px);
+  /* Vor der rechten Scheibe des Zimmers: night.jpg ist 16:9, rechtsbündig gedeckt (so bleibt
+     der Mond links der Gesprächstafel), seine Fenstersprosse steht bei 36 % der Bildbreite. */
+  --bild-b: max(100vw, 100vh * 16 / 9);
+  --sprosse: calc(100vw - 0.64 * var(--bild-b));
+  --buehne-r: calc(100vw - var(--gespraech-b) - 2 * var(--rand));
+  --orb-s: min(64vh, calc(var(--buehne-r) - var(--sprosse) - 32px), 820px);
   position: fixed;
   z-index: 30;
-  left: calc(var(--buehne-b) / 2 - var(--orb-s) / 2 + var(--rand));
+  left: calc((var(--sprosse) + var(--buehne-r)) / 2 - var(--orb-s) / 2);
   top: calc(var(--kopf-h) + (100vh - var(--kopf-h)) / 2 - var(--orb-s) / 2 + 3vh);
   width: var(--orb-s);
   height: var(--orb-s);
@@ -405,6 +409,25 @@
   height: 46px;
   padding: 0 8px 0 22px;
   border-bottom: 1px solid var(--haarlinie);
+}
+
+/* Ohne Reiter (Brain) bleibt vom Kopf nur der Knopf, oben rechts über der Ansicht. */
+.o-fenster.ohne-reiter .o-fenster__kopf {
+  position: absolute;
+  top: 0;
+  right: 0;
+  z-index: 3;
+  height: 40px;
+  padding: 0 4px;
+  border: 0;
+}
+
+.o-fenster.ohne-reiter .o-teile {
+  display: none;
+}
+
+.o-fenster.ohne-reiter .b-kopf {
+  padding-right: 48px;
 }
 
 .o-teile {
@@ -602,7 +625,7 @@
   width: var(--spalte-b);
   padding: 18px 18px 12px;
   overflow: hidden;
-  background: linear-gradient(180deg, rgba(8, 14, 17, 0.8), rgba(10, 16, 15, 0.86));
+  background: linear-gradient(180deg, rgba(8, 14, 17, 0.9), rgba(10, 16, 15, 0.92));
   border: 1px solid var(--haarlinie);
   border-radius: 14px;
   transition: width 0.22s var(--gleiten-os), padding 0.22s var(--gleiten-os);

@@ -321,6 +321,7 @@ export function mountOs(opt: OsOptionen): void {
       )
       .join("");
     fenster.setAttribute("aria-label", RAUM_NAME[ort.raum]);
+    fenster.classList.toggle("ohne-reiter", zeigen.length === 0);
   };
 
   function zeigeTeil(ziel: Ort, vorher: Ort) {
