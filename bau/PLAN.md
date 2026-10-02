@@ -168,7 +168,7 @@ bleiben, keine Mac-Nachbildung, kein Dock, Kuro optional als Begleiter auf dem D
 `bau/kuro-os-konzept.md`. Er gab die Nacht vom 02. auf den 03.10. frei, ohne Grenzen, Schluss 08:00.
 
 ## N19a · Grundgerüst: drei Räume, Kopf, Kuros Platz, Blatt für System
-- Status: offen
+- Status: erledigt (2026-10-03, f8b9abb)
 - Modell: opus
 
 ## N19b · Der Raum „Kuro": Empfang mit Fenster, Orb und „Heute"
