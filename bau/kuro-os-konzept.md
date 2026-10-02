@@ -48,6 +48,16 @@ aufnehmen und in Kuro speichern." Entschieden:
   `POST /integrations/brain/eingang`). N19e baut sie als Begleiter in die Desktop-App ein; der
   große Orb im Raum Kuro bleibt der Orb.
 
+### Dritter Nachtrag, 22:00 — das Wichtigste
+
+Jakob über den zweiten Wurf: „das Kuro-Fenster ist übrigens immer noch ein Fenster, nicht die
+Oberfläche der App wie es sein sollte, und sie sieht katastrophal aus, das ist eigentlich fast das
+wichtigste. Sonst ist es einfach nur eine OS mit coolem Hintergrundbild, aber nicht Kuro."
+**Darum zuerst:** Kuro ist die Oberfläche der App, kein Fenster. N19a und N19b bauen den Raum
+Kuro als Desktop mit aller Sorgfalt (großer Orb mit Satelliten im Zimmer, Gespräch, Heute, Im
+Haus), mehrfach ansehen und verbessern, bevor irgendetwas anderes poliert wird. Erst wenn Kuro
+gut aussieht, kommen die Fenster der anderen Räume.
+
 ### Zweiter Nachtrag, 21:55 — Kuro ist der Desktop
 
 Jakob: „Kuro muss trotzdem direkt beim Start präsent sein, du kannst die cmd1-Seite als
