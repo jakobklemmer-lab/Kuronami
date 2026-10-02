@@ -52,6 +52,41 @@ export function loeseLinks(
   return ziele;
 }
 
+export interface BrainGraph {
+  knoten: Array<{ pfad: string; titel: string; ordner: string }>;
+  kanten: Array<[string, string]>;
+}
+
+/** Alle Notizen und ihre aufgelösten Links — für die Graph-Ansicht und die Rückverweise. */
+export function baueGraph(notizen: ReadonlyMap<string, string>): BrainGraph {
+  const pfade = [...notizen.keys()];
+  const kanten = new Set<string>();
+  const knoten: BrainGraph["knoten"] = [];
+  for (const [pfad, roh] of notizen) {
+    const { inhalt } = leseNotiz(roh);
+    knoten.push({
+      pfad,
+      titel: erstenTitel(inhalt, path.posix.basename(pfad, ".md")),
+      ordner: pfad.includes("/") ? (pfad.split("/")[0] as string) : "",
+    });
+    for (const ziel of Object.values(loeseLinks(pfad, inhalt, pfade))) {
+      if (ziel && ziel !== pfad) kanten.add(`${pfad}\u0000${ziel}`);
+    }
+  }
+  return {
+    knoten,
+    kanten: [...kanten].map((k) => k.split("\u0000") as [string, string]),
+  };
+}
+
+async function liesAlle(workdir: string): Promise<Map<string, string>> {
+  const notizen = new Map<string, string>();
+  for (const pfad of await alleNotizen(workdir)) {
+    notizen.set(pfad, await readFile(brainPfad(workdir, pfad), "utf8"));
+  }
+  return notizen;
+}
+
 /** Höchstens so groß darf eine abgelegte Datei sein (Base64 im JSON, Grenze des Gateways 32 MB). */
 export const EINGANG_HOECHSTENS = 20 * 1024 * 1024;
 
@@ -109,13 +144,22 @@ export function brainRouten(
         return;
       }
       const { felder, inhalt } = leseNotiz(roh);
-      const pfade = await alleNotizen(deps.workdir());
+      const graph = baueGraph(await liesAlle(deps.workdir()));
+      const titel = new Map(graph.knoten.map((k) => [k.pfad, k.titel]));
       res.json({
         pfad,
         titel: erstenTitel(inhalt, path.posix.basename(pfad, ".md")),
         felder,
         inhalt,
-        links: loeseLinks(pfad, inhalt, pfade),
+        roh,
+        links: loeseLinks(
+          pfad,
+          inhalt,
+          graph.knoten.map((k) => k.pfad),
+        ),
+        rueckverweise: graph.kanten
+          .filter(([, nach]) => nach === pfad)
+          .map(([von]) => ({ pfad: von, titel: titel.get(von) ?? von })),
       });
     } catch (error) {
       next(error);
@@ -158,6 +202,51 @@ export function brainRouten(
       await mkdir(path.dirname(brainPfad(workdir, notiz)), { recursive: true });
       await writeFile(brainPfad(workdir, notiz), text, "utf8");
       res.json({ pfad: notiz });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.get("/integrations/brain/graph", async (req, res, next) => {
+    try {
+      if (!deps.webPrincipal(req, res)) return;
+      res.json(baueGraph(await liesAlle(deps.workdir())));
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  // Bearbeiten in Kuro OS. Erzeugte Notizen (Strategien, Analysen, Verzeichnisse) schreibt der
+  // Gateway neu — dort ginge eine Änderung beim nächsten Abgleich verloren, also gar nicht erst.
+  app.put("/integrations/brain/notiz", async (req, res, next) => {
+    try {
+      if (!deps.webPrincipal(req, res)) return;
+      const pfad = sichererPfad(req.body?.pfad);
+      const inhalt = typeof req.body?.inhalt === "string" ? req.body.inhalt : null;
+      if (!pfad || inhalt === null || inhalt.length > 2_000_000) {
+        res.status(400).json({ error: "Pfad oder Inhalt fehlt." });
+        return;
+      }
+      const datei = brainPfad(deps.workdir(), pfad);
+      let alt: string | null = null;
+      try {
+        alt = await readFile(datei, "utf8");
+      } catch {
+        // neue Notiz
+      }
+      if (alt !== null && leseNotiz(alt).felder.erzeugt === true) {
+        res
+          .status(409)
+          .json({ error: "Diese Notiz wird erzeugt und lässt sich nicht bearbeiten." });
+        return;
+      }
+      if (alt === null && req.body?.neu !== true) {
+        res.status(404).json({ error: `${pfad} gibt es im Brain nicht.` });
+        return;
+      }
+      await mkdir(path.dirname(datei), { recursive: true });
+      await writeFile(datei, inhalt, "utf8");
+      res.json({ pfad });
     } catch (error) {
       next(error);
     }

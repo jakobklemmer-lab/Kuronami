@@ -1,36 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { bereichFuerTaste, kruemel, liesWeg, schreibeWeg, wikiLinks } from "./weg.js";
-
-describe("liesWeg", () => {
-  it("kennt die vier Bereiche und fällt sonst auf Kuro zurück", () => {
-    expect(liesWeg("")).toEqual({ bereich: "kuro", teil: null });
-    expect(liesWeg("#/system")).toEqual({ bereich: "system", teil: null });
-    expect(liesWeg("#/gibtsnicht")).toEqual({ bereich: "kuro", teil: null });
-  });
-
-  it("öffnet Trading auf den Märkten, wenn kein Reiter genannt ist", () => {
-    expect(liesWeg("#/trading")).toEqual({ bereich: "trading", teil: "maerkte" });
-    expect(liesWeg("#/trading/analysen")).toEqual({ bereich: "trading", teil: "analysen" });
-    expect(liesWeg("#/trading/quatsch")).toEqual({ bereich: "trading", teil: "maerkte" });
-  });
-
-  it("liest Notizpfade mit Umlauten und Leerzeichen hin und zurück", () => {
-    const w = { bereich: "brain" as const, teil: "Gespräche/2026/2026-10-02.md" };
-    expect(liesWeg(schreibeWeg(w))).toEqual(w);
-    const z = { bereich: "brain" as const, teil: "Bereiche/Studium und Arbeit.md" };
-    expect(liesWeg(schreibeWeg(z))).toEqual(z);
-    expect(liesWeg("#/brain")).toEqual({ bereich: "brain", teil: "START.md" });
-  });
-});
-
-describe("bereichFuerTaste", () => {
-  it("ordnet 1 bis 4 den Bereichen zu", () => {
-    expect(bereichFuerTaste("1")).toBe("kuro");
-    expect(bereichFuerTaste("3")).toBe("brain");
-    expect(bereichFuerTaste("5")).toBeNull();
-    expect(bereichFuerTaste("k")).toBeNull();
-  });
-});
+import { baum } from "./brain.js";
+import { umgebung } from "./graph-sim.js";
+import { wikiLinks } from "./weg.js";
 
 describe("wikiLinks", () => {
   it("ersetzt aufgelöste und offene Links durch Platzhalter", () => {
@@ -44,12 +15,32 @@ describe("wikiLinks", () => {
   });
 });
 
-describe("kruemel", () => {
-  it("zerlegt den Pfad ohne Endung", () => {
-    expect(kruemel("Trading/Journal/2026-10-01 DAX.md")).toEqual([
-      "Trading",
-      "Journal",
-      "2026-10-01 DAX",
+describe("baum", () => {
+  it("ordnet Pfade in Ordner und Dateien", () => {
+    const w = baum(["START.md", "Trading/Journal.md", "Trading/Strategien/A.md"]);
+    expect(w.dateien.map((d) => d.name)).toEqual(["START"]);
+    const trading = w.ordner.get("Trading");
+    expect(trading?.dateien.map((d) => d.name)).toEqual(["Journal"]);
+    expect(trading?.ordner.get("Strategien")?.pfad).toBe("Trading/Strategien");
+  });
+});
+
+describe("umgebung", () => {
+  it("nimmt nur die Notiz und ihre direkten Nachbarn", () => {
+    const knoten = ["a", "b", "c", "d"].map((p) => ({ pfad: p, titel: p, ordner: "" }));
+    const u = umgebung(
+      knoten,
+      [
+        ["a", "b"],
+        ["c", "a"],
+        ["c", "d"],
+      ],
+      "a",
+    );
+    expect(u.knoten.map((k) => k.pfad)).toEqual(["a", "b", "c"]);
+    expect(u.kanten).toEqual([
+      ["a", "b"],
+      ["c", "a"],
     ]);
   });
 });

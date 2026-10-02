@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { eingangsPlan, loeseLinks, sichererPfad } from "./brain-routen.js";
+import { baueGraph, eingangsPlan, loeseLinks, sichererPfad } from "./brain-routen.js";
 
 describe("sichererPfad", () => {
   it("lässt nur Notizen im Brain durch", () => {
@@ -44,5 +44,30 @@ describe("eingangsPlan", () => {
       anhang: "Anhänge/2026-10-02 Kontoauszug Sept.pdf",
       text: false,
     });
+  });
+});
+
+describe("baueGraph", () => {
+  it("sammelt Knoten mit Titel und Ordner und die aufgelösten Links als Kanten", () => {
+    const g = baueGraph(
+      new Map([
+        ["START.md", "# Brain\n[[Bereiche/Trading|Trading]] [[Fehlt]]"],
+        [
+          "Bereiche/Trading.md",
+          "---\nerzeugt: true\n---\n# Trading\n[[Trading/Journal|Journal]] [[START]]",
+        ],
+        ["Trading/Journal.md", "# Journal\n"],
+      ]),
+    );
+    expect(g.knoten).toEqual([
+      { pfad: "START.md", titel: "Brain", ordner: "" },
+      { pfad: "Bereiche/Trading.md", titel: "Trading", ordner: "Bereiche" },
+      { pfad: "Trading/Journal.md", titel: "Journal", ordner: "Trading" },
+    ]);
+    expect(g.kanten).toEqual([
+      ["START.md", "Bereiche/Trading.md"],
+      ["Bereiche/Trading.md", "Trading/Journal.md"],
+      ["Bereiche/Trading.md", "START.md"],
+    ]);
   });
 });

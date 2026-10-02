@@ -1,157 +1,153 @@
 /*
- * Kuro OS (2026-10-02) — der Rahmen. Farben und Schriften sind die der Welle (`welle.css`):
- * Tusche, Mond, Nebel; die Laterne trägt Jakobs Licht (seine Wahl, sein Senden, sein Tippen),
- * Kuros Licht wechselt mit seinem Zustand (`--kuro-licht`, aus `welle/zustand.ts`).
- *
- * Das eine auffällige Element ist die Insel oben in der Mitte: schwarz wie die Notch des
- * MacBooks, an deren Stelle sie sitzt. Von dort fällt Kuros Licht schwach in den Raum. Sonst ist
- * alles still; bewegt wird nur, was Jakob anstößt.
+ * Kuro OS (02.10., zweiter Wurf) — ein Desktop. Farben und Schriften der Welle (`welle.css`):
+ * Tusche, Mond, Nebel, die Laterne für Jakob, Kuros Licht nach Zustand (`--kuro-licht`).
+ * Hintergrund ist Kuros Raum bei Nacht. Bewegt wird nur, was Jakob anstößt: Fenster öffnen,
+ * schließen, minimieren, das Dock unter der Maus. Im Stand atmet nur Kuros Licht.
  */
 
 .ist-os {
-  --leiste-h: 52px;
-  --insel-zu: 248px;
-  --insel-auf: min(660px, calc(100vw - 32px));
-  --flaeche-x: clamp(20px, 4.5vw, 88px);
-  /* Auf breiten Schirmen (Jakob: 3440 px) stehen Leiste und Inhalt in einem Rahmen in der Mitte. */
-  --rahmen: 1800px;
-  --rand-x: max(var(--flaeche-x), calc((100vw - var(--rahmen)) / 2));
+  --menue-h: 32px;
   --kuro-licht: var(--kuro);
+  --glas: rgba(9, 17, 21, 0.8);
+  --glas-hell: rgba(232, 239, 241, 0.06);
+  --rand: rgba(232, 239, 241, 0.09);
   --gleiten-os: cubic-bezier(0.45, 0, 0.55, 1);
-  overflow-y: auto;
+  --link: #a99bff;
+  height: 100svh;
+  overflow: hidden;
 }
-
-/* --------------------------------------------------------------------- */
-/* Raum und Licht                                                         */
-/* --------------------------------------------------------------------- */
 
 .o-os {
-  position: relative;
-  min-height: 100svh;
-}
-
-.o-licht {
   position: fixed;
   inset: 0;
-  z-index: 0;
-  pointer-events: none;
+  overflow: hidden;
+}
+
+.o-menue,
+.o-dock,
+.f-titel,
+.o-starter,
+.o-kontext {
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+/* --------------------------------------------------------------------- */
+/* Hintergrund: Kuros Raum, von oben fällt sein Licht                     */
+/* --------------------------------------------------------------------- */
+
+.o-hintergrund {
+  position: fixed;
+  inset: 0;
+  background: linear-gradient(to bottom, rgba(3, 8, 11, 0.18), rgba(3, 8, 11, 0.42)),
+    url("../assets/night.jpg") center / cover no-repeat, var(--tusche);
+}
+
+.o-hintergrund::after {
+  content: "";
+  position: absolute;
+  inset: 0;
   background: radial-gradient(
-      ellipse 60vw 46vh at 50% -8vh,
-      color-mix(in srgb, var(--kuro-licht) 22%, transparent),
-      transparent 70%
-    ), linear-gradient(to bottom, var(--see), var(--tusche) 60vh);
-  opacity: 0.6;
+    ellipse 50vw 34vh at 50% -6vh,
+    color-mix(in srgb, var(--kuro-licht) 26%, transparent),
+    transparent 70%
+  );
+  opacity: 0.55;
   transition: opacity 1.2s var(--gleiten-os), background 1.2s var(--gleiten-os);
 }
 
-.o-os:not([data-kuro="ruhe"]):not([data-kuro="offline"]) .o-licht {
+.o-os:not([data-kuro="ruhe"]):not([data-kuro="offline"]) .o-hintergrund::after {
   opacity: 1;
 }
 
 /* --------------------------------------------------------------------- */
-/* Leiste                                                                 */
+/* Menüleiste                                                             */
 /* --------------------------------------------------------------------- */
 
-.o-leiste {
-  position: sticky;
-  top: 0;
-  z-index: 30;
+.o-menue {
+  position: fixed;
+  inset: 0 0 auto;
+  z-index: 1000;
   display: grid;
   grid-template-columns: 1fr auto 1fr;
   align-items: start;
-  height: var(--leiste-h);
-  padding: 0 var(--rand-x);
-  background: linear-gradient(to bottom, rgba(3, 8, 11, 0.94), rgba(3, 8, 11, 0));
+  height: var(--menue-h);
+  padding: 0 14px;
+  background: rgba(3, 8, 11, 0.46);
+  -webkit-backdrop-filter: blur(24px) saturate(140%);
+  backdrop-filter: blur(24px) saturate(140%);
+  border-bottom: 1px solid rgba(232, 239, 241, 0.06);
+  font-size: 13px;
 }
 
-.o-leiste {
-  grid-template-areas: "links insel rechts";
-}
-
-.o-links {
-  grid-area: links;
-  justify-self: start;
+.o-menue__links,
+.o-menue__rechts {
   display: flex;
   align-items: center;
-  gap: 30px;
-  height: var(--leiste-h);
+  gap: 16px;
+  height: var(--menue-h);
+}
+
+.o-menue__rechts {
+  justify-self: end;
 }
 
 .o-marke {
+  padding: 0 4px;
+  border: 0;
+  background: none;
+  color: var(--mond);
   font-family: var(--zeichen);
-  font-size: 18px;
-  color: var(--mond);
-  text-decoration: none;
-  opacity: 0.85;
+  font-size: 15px;
+  cursor: pointer;
 }
 
-.o-bereiche {
-  display: flex;
+.o-marke:hover {
+  color: var(--laterne);
+}
+
+.o-menue__app {
+  font-weight: 600;
+  color: var(--mond);
+}
+
+.o-abo {
+  display: inline-flex;
   align-items: center;
-  gap: 26px;
-}
-
-.o-bereich {
-  position: relative;
-  padding: 6px 0;
-  font-size: 14.5px;
-  font-weight: 500;
+  gap: 7px;
+  padding: 0;
+  border: 0;
+  background: none;
   color: var(--nebel);
-  text-decoration: none;
-  transition: color 0.2s ease;
+  font: inherit;
+  font-size: 12.5px;
+  font-variant-numeric: tabular-nums;
+  cursor: pointer;
 }
 
-.o-bereich:hover {
-  color: var(--mond);
-}
-
-/* Der Bereich, in dem Jakob ist: ein kurzer Strich in seinem Licht. */
-.o-bereich.ist-aktiv {
-  color: var(--mond);
-}
-.o-bereich.ist-aktiv::after {
-  content: "";
-  position: absolute;
-  left: 50%;
-  bottom: -2px;
-  width: 14px;
-  height: 2px;
-  margin-left: -7px;
+.o-abo__balken {
+  width: 26px;
+  height: 4px;
   border-radius: 2px;
+  background: rgba(232, 239, 241, 0.16);
+  overflow: hidden;
+}
+
+.o-abo__balken i {
+  display: block;
+  height: 100%;
+  background: var(--kuro);
+}
+
+.o-abo.ist-knapp .o-abo__balken i {
   background: var(--laterne);
 }
 
-.o-rechts {
-  grid-area: rechts;
-  justify-self: end;
-  height: var(--leiste-h);
-  display: flex;
-  align-items: center;
-  gap: 18px;
-}
-
 .o-uhr {
-  font-size: 13.5px;
+  font-weight: 500;
   font-variant-numeric: tabular-nums;
-  color: var(--nebel);
-}
-
-.o-zahnrad {
-  display: inline-grid;
-  place-items: center;
-  width: 30px;
-  height: 30px;
-  color: var(--dunst);
-  border-radius: 50%;
-  transition: color 0.2s ease;
-}
-.o-zahnrad svg {
-  width: 18px;
-  height: 18px;
-}
-.o-zahnrad:hover,
-.o-zahnrad.ist-aktiv {
   color: var(--mond);
+  white-space: pre;
 }
 
 /* --------------------------------------------------------------------- */
@@ -159,61 +155,58 @@
 /* --------------------------------------------------------------------- */
 
 .o-insel {
-  grid-area: insel;
   position: relative;
   z-index: 2;
-  width: var(--insel-zu);
+  width: 236px;
   background: #000;
   border: 1px solid rgba(232, 239, 241, 0.07);
   border-top: 0;
-  border-radius: 0 0 20px 20px;
-  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.45);
-  transition: width 0.28s var(--gleiten-os), border-radius 0.28s var(--gleiten-os);
+  border-radius: 0 0 16px 16px;
+  box-shadow: 0 10px 34px rgba(0, 0, 0, 0.5);
+  transition: width 0.26s var(--gleiten-os), border-radius 0.26s var(--gleiten-os);
 }
 
 .o-insel.ist-offen {
-  width: var(--insel-auf);
-  border-radius: 0 0 26px 26px;
+  width: min(660px, calc(100vw - 24px));
+  border-radius: 0 0 24px 24px;
 }
 
 .o-insel__griff {
   display: flex;
   align-items: center;
-  gap: 11px;
+  gap: 10px;
   width: 100%;
-  height: 36px;
-  padding: 0 18px 2px;
+  height: var(--menue-h);
+  padding: 0 16px;
   border: 0;
   background: none;
   color: var(--mond);
   font: inherit;
-  font-size: 13px;
-  text-align: left;
+  font-size: 12.5px;
   cursor: pointer;
 }
 
 .o-insel__licht {
   flex: none;
-  width: 9px;
-  height: 9px;
+  width: 8px;
+  height: 8px;
   border-radius: 50%;
   background: var(--kuro-licht);
-  box-shadow: 0 0 10px var(--kuro-licht);
-  transition: background 0.6s ease, box-shadow 0.6s ease;
+  box-shadow: 0 0 9px var(--kuro-licht);
 }
 
-/* Nur wenn Kuro etwas tut, atmet das Licht. */
 .o-os:not([data-kuro="ruhe"]):not([data-kuro="offline"]) .o-insel__licht {
   animation: o-atmen 1.6s var(--gleiten-os) infinite alternate;
 }
+
 @keyframes o-atmen {
   from {
-    box-shadow: 0 0 6px var(--kuro-licht);
-    opacity: 0.7;
+    opacity: 0.65;
+    box-shadow: 0 0 5px var(--kuro-licht);
   }
   to {
-    box-shadow: 0 0 16px var(--kuro-licht);
     opacity: 1;
+    box-shadow: 0 0 15px var(--kuro-licht);
   }
 }
 
@@ -236,8 +229,7 @@
   overflow-y: auto;
   overscroll-behavior: contain;
   padding: 10px 4px 4px;
-  scrollbar-width: thin;
-  scrollbar-color: var(--linie-stark) transparent;
+  user-select: text;
 }
 
 .o-insel__faden:empty::before {
@@ -252,13 +244,8 @@
   max-width: none;
 }
 
-/* Im Kuro-Bereich steht das Gespräch auf der Seite; die Insel zeigt dort nur den Zustand. */
-.o-os[data-bereich="kuro"] .o-insel__griff {
-  cursor: default;
-}
-
 /* --------------------------------------------------------------------- */
-/* Eingabe                                                                */
+/* Eingabe (Insel und Kuro-App)                                           */
 /* --------------------------------------------------------------------- */
 
 .o-eingabe {
@@ -269,7 +256,7 @@
   padding: 6px 6px 6px 16px;
   background: rgba(10, 23, 28, 0.9);
   border: 1px solid var(--linie-stark);
-  border-radius: 20px;
+  border-radius: 18px;
   transition: border-color 0.2s ease;
 }
 
@@ -298,14 +285,13 @@
 .o-eingabe button {
   display: inline-grid;
   place-items: center;
-  width: 36px;
-  height: 36px;
+  width: 34px;
+  height: 34px;
   border: 0;
   border-radius: 50%;
   background: none;
   color: var(--nebel);
   cursor: pointer;
-  transition: color 0.2s ease, background 0.2s ease;
 }
 
 .o-eingabe button svg {
@@ -322,468 +308,551 @@ body.ist-sprechtaste .o-eingabe__mikro,
   color: var(--kuro-licht);
 }
 
-.o-eingabe__senden {
-  background: rgba(244, 184, 96, 0.14) !important;
-  color: var(--laterne) !important;
+.o-eingabe .o-eingabe__senden {
+  background: rgba(244, 184, 96, 0.14);
+  color: var(--laterne);
 }
 
-.o-eingabe__senden:hover {
-  background: rgba(244, 184, 96, 0.26) !important;
-}
-
-.o-eingabe--gross {
-  padding: 8px 8px 8px 20px;
-  border-radius: 24px;
-}
-
-.o-eingabe--gross textarea {
-  font-size: 16px;
+.o-eingabe .o-eingabe__senden:hover {
+  background: rgba(244, 184, 96, 0.26);
 }
 
 /* --------------------------------------------------------------------- */
-/* Fläche und Bereichsköpfe                                               */
+/* Schreibtisch und Fenster                                               */
 /* --------------------------------------------------------------------- */
 
-.o-flaeche {
+.o-schreibtisch {
+  position: fixed;
+  inset: 0;
+  z-index: 10;
+}
+
+.o-andock {
+  position: fixed;
+  z-index: 900;
+  border: 1px solid rgba(109, 144, 255, 0.5);
+  border-radius: 12px;
+  background: rgba(109, 144, 255, 0.12);
+  -webkit-backdrop-filter: blur(4px);
+  backdrop-filter: blur(4px);
+  transition: all 0.12s var(--gleiten-os);
+  pointer-events: none;
+}
+
+.f-fenster {
+  position: absolute;
+  display: flex;
+  flex-direction: column;
+  background: var(--glas);
+  -webkit-backdrop-filter: blur(28px) saturate(150%);
+  backdrop-filter: blur(28px) saturate(150%);
+  border: 1px solid var(--rand);
+  border-radius: 12px;
+  box-shadow: 0 26px 70px rgba(0, 0, 0, 0.5), 0 0 0 0.5px rgba(0, 0, 0, 0.7);
+}
+
+.f-fenster:not(.ist-vorn) {
+  box-shadow: 0 14px 40px rgba(0, 0, 0, 0.38);
+}
+
+.f-fenster.ist-neu {
+  animation: f-auf 0.18s var(--gleiten-os);
+}
+
+.f-fenster.ist-weg {
+  animation: f-zu 0.14s var(--gleiten-os) forwards;
+  pointer-events: none;
+}
+
+@keyframes f-auf {
+  from {
+    opacity: 0;
+    transform: scale(0.97) translateY(6px);
+  }
+}
+
+@keyframes f-zu {
+  to {
+    opacity: 0;
+    transform: scale(0.97);
+  }
+}
+
+.f-fenster.ist-gezogen .f-inhalt {
+  pointer-events: none;
+}
+
+.f-titel {
+  position: relative;
+  display: flex;
+  align-items: center;
+  flex: none;
+  height: 38px;
+  padding: 0 13px;
+  border-bottom: 1px solid rgba(232, 239, 241, 0.06);
+  border-radius: 12px 12px 0 0;
+  background: linear-gradient(to bottom, rgba(255, 255, 255, 0.035), transparent);
+  cursor: default;
+}
+
+.f-name {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--nebel);
+  pointer-events: none;
+}
+
+.ist-vorn .f-name {
+  color: var(--mond);
+}
+
+.f-knoepfe {
   position: relative;
   z-index: 1;
-  padding: 26px var(--rand-x) 72px;
-  opacity: 0;
-  outline: none;
+  display: flex;
+  gap: 8px;
 }
 
-.o-flaeche.ist-da {
-  opacity: 1;
-  transition: opacity 0.18s ease;
+.f-knopf {
+  position: relative;
+  width: 12px;
+  height: 12px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: rgba(232, 239, 241, 0.16);
+  cursor: pointer;
 }
 
-.o-bereich-seite {
-  max-width: 1320px;
+.ist-vorn .f-knopf--zu,
+.f-knoepfe:hover .f-knopf--zu {
+  background: #e5776f;
+}
+.ist-vorn .f-knopf--min,
+.f-knoepfe:hover .f-knopf--min {
+  background: #e3b25a;
+}
+.ist-vorn .f-knopf--max,
+.f-knoepfe:hover .f-knopf--max {
+  background: #6fc495;
 }
 
-/* `w-raum` bringt das Kleid der Welle für die Fachansichten — ihren Seitenrand nicht. */
-.o-flaeche .w-raum {
-  max-width: 1320px;
+.f-knoepfe:hover .f-knopf::after {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 1;
+  color: rgba(0, 0, 0, 0.6);
+}
+.f-knoepfe:hover .f-knopf--zu::after {
+  content: "×";
+}
+.f-knoepfe:hover .f-knopf--min::after {
+  content: "–";
+}
+.f-knoepfe:hover .f-knopf--max::after {
+  content: "+";
+}
+
+.f-inhalt {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  border-radius: 0 0 12px 12px;
+  user-select: text;
+}
+
+.f-inhalt.w-raum {
+  max-width: none;
+  min-height: 0;
+  margin: 0;
+  padding: 18px 22px 24px;
+}
+
+.f-fenster[data-app="brain"] .f-inhalt,
+.f-fenster[data-app="kuro"] .f-inhalt {
+  padding: 0;
+  overflow: hidden;
+}
+
+.f-inhalt .detail-view {
+  max-width: none;
   margin: 0;
   padding: 0;
   min-height: 0;
 }
 
-.o-flaeche .o-bereich-seite--breit {
-  max-width: 2280px;
-}
-
-.o-titel {
-  margin: 6px 0 30px;
-  font-family: var(--zeichen);
-  font-weight: 500;
-  font-size: clamp(2.2rem, 3.2vw, 3.3rem);
-  line-height: 1;
-  color: var(--mond);
-}
-
-/* Die Märkte brauchen Breite wie bei TradingView. */
-.o-os[data-bereich="trading"] {
-  --rahmen: 2400px;
-  --rand-x: max(var(--flaeche-x), calc((100vw - var(--rahmen)) / 2));
-}
-
-/* Die Fachansichten stehen linksbündig unter dem Titel, nicht in der Mitte der Fläche. */
-.o-flaeche .detail-view {
-  margin-left: 0;
-  margin-right: 0;
-  padding-top: 0;
-}
-
-/* Die Fachansichten tragen ihre eigenen Titel; hier steht der des Bereichs. */
-.o-flaeche .detail-view__title,
-.o-flaeche .detail-view__icon {
+.f-inhalt .detail-view__title,
+.f-inhalt .detail-view__icon {
   display: none;
 }
-.o-flaeche .detail-view__subtitle {
+
+.f-inhalt .detail-view__subtitle {
   margin-top: 0;
 }
-.o-flaeche .detail-view__head {
-  margin-bottom: 0;
+
+.f-inhalt .markt {
+  --markt-hoehe: max(420px, calc(var(--f-hoehe, 700px) - 150px));
 }
 
-/* Trading: die drei Reiter sind die Überschrift — der gewählte groß, die anderen leise. */
-.o-reiter {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: baseline;
-  gap: 8px 30px;
-  margin: 6px 0 26px;
+.f-griff {
+  position: absolute;
+  z-index: 3;
 }
-
-.o-reiter__wort {
-  font-family: var(--zeichen);
-  font-weight: 500;
-  font-size: clamp(1.35rem, 1.9vw, 1.9rem);
-  line-height: 1;
-  color: var(--dunst);
-  text-decoration: none;
-  transition: color 0.2s ease;
+.f-griff--n,
+.f-griff--s {
+  left: 12px;
+  right: 12px;
+  height: 8px;
+  cursor: ns-resize;
 }
-
-.o-reiter__wort:hover {
-  color: var(--nebel);
+.f-griff--n {
+  top: -4px;
 }
-
-.o-reiter__wort.ist-aktiv {
-  font-size: clamp(2.2rem, 3.2vw, 3.3rem);
-  color: var(--mond);
+.f-griff--s {
+  bottom: -4px;
+}
+.f-griff--e,
+.f-griff--w {
+  top: 12px;
+  bottom: 12px;
+  width: 8px;
+  cursor: ew-resize;
+}
+.f-griff--e {
+  right: -4px;
+}
+.f-griff--w {
+  left: -4px;
+}
+.f-griff--ne,
+.f-griff--nw,
+.f-griff--se,
+.f-griff--sw {
+  width: 16px;
+  height: 16px;
+}
+.f-griff--ne {
+  top: -5px;
+  right: -5px;
+  cursor: nesw-resize;
+}
+.f-griff--sw {
+  bottom: -5px;
+  left: -5px;
+  cursor: nesw-resize;
+}
+.f-griff--nw {
+  top: -5px;
+  left: -5px;
+  cursor: nwse-resize;
+}
+.f-griff--se {
+  bottom: -5px;
+  right: -5px;
+  cursor: nwse-resize;
 }
 
 /* --------------------------------------------------------------------- */
-/* Kuro                                                                   */
+/* Dock                                                                   */
 /* --------------------------------------------------------------------- */
 
-.o-kuro {
-  display: grid;
-  grid-template-columns: minmax(280px, 0.85fr) minmax(420px, 1.15fr);
-  gap: clamp(32px, 5vw, 110px);
-  max-width: 1560px;
-  min-height: calc(100svh - var(--leiste-h) - 110px);
-}
-
-.o-kuro__seite {
+.o-dock {
+  position: fixed;
+  left: 50%;
+  bottom: 10px;
+  z-index: 950;
   display: flex;
-  flex-direction: column;
+  gap: 6px;
+  max-width: calc(100vw - 16px);
+  padding: 7px 9px 5px;
+  overflow-x: auto;
+  transform: translateX(-50%);
+  background: rgba(10, 20, 25, 0.44);
+  -webkit-backdrop-filter: blur(26px) saturate(150%);
+  backdrop-filter: blur(26px) saturate(150%);
+  border: 1px solid rgba(232, 239, 241, 0.1);
+  border-radius: 22px;
+  box-shadow: 0 18px 50px rgba(0, 0, 0, 0.45);
+  scrollbar-width: none;
 }
 
-.o-kuro__datum {
-  margin: 4px 0 0;
-  font-size: 14px;
-  color: var(--nebel);
-}
-
-.o-kuro__gruss {
-  margin: 8px 0 0;
-  font-family: var(--zeichen);
-  font-weight: 500;
-  font-size: clamp(2.4rem, 3.8vw, 4rem);
-  line-height: 1.05;
-  color: var(--mond);
-}
-
-.o-kuro__orb {
+.d-app {
   position: relative;
-  width: min(100%, 500px);
-  aspect-ratio: 1;
-  margin: 4px 0 0 -7%;
-  cursor: pointer;
-  outline-offset: -40px;
-}
-
-.o-kuro__orb.ist-ohne-orb {
-  aspect-ratio: auto;
-  margin: 24px 0;
-}
-
-.o-heute {
-  display: grid;
-  gap: 10px;
-  margin: 0;
-  padding: 0;
-  list-style: none;
-}
-
-.o-heute a,
-.o-heute button {
-  padding: 0;
-  border: 0;
-  background: none;
-  color: var(--nebel);
-  font: inherit;
-  font-size: 14.5px;
-  text-align: left;
-  text-decoration: none;
-  cursor: pointer;
-  transition: color 0.2s ease;
-}
-
-.o-heute a:hover,
-.o-heute button:hover {
-  color: var(--mond);
-}
-
-.o-kuro__gespraech {
   display: flex;
   flex-direction: column;
-  justify-content: flex-end;
-  gap: 14px;
-  min-width: 0;
-}
-
-.o-kuro__faden {
-  max-height: calc(100svh - var(--leiste-h) - 220px);
-  overflow-y: auto;
-  overscroll-behavior: contain;
-  padding: 30px 6px 4px 0;
-  scrollbar-width: thin;
-  scrollbar-color: var(--linie-stark) transparent;
-  -webkit-mask-image: linear-gradient(to bottom, transparent, #000 36px);
-  mask-image: linear-gradient(to bottom, transparent, #000 36px);
-}
-
-.o-kuro__faden:empty {
-  display: none;
-}
-
-.o-kuro__leer {
-  margin: 0 0 4px;
-  max-width: 44ch;
-  font-size: 15px;
-  color: var(--nebel);
-}
-
-.o-kuro__leeren {
-  align-self: flex-start;
+  align-items: center;
+  gap: 4px;
+  width: 58px;
   padding: 0;
   border: 0;
   background: none;
-  color: var(--dunst);
-  font: inherit;
-  font-size: 13px;
   cursor: pointer;
 }
 
-.o-kuro__leeren:hover {
-  color: var(--laterne);
+.d-kachel {
+  display: grid;
+  place-items: center;
+  width: 52px;
+  height: 52px;
+  border-radius: 13px;
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.08), inset 0 1px 0 rgba(255, 255, 255, 0.1), 0
+    6px 14px rgba(0, 0, 0, 0.35);
+  transition: transform 0.16s var(--gleiten-os);
 }
 
-.o-kuro__faden:empty ~ .o-kuro__leeren {
+.d-kachel svg {
+  width: 26px;
+  height: 26px;
+}
+
+.d-app:hover .d-kachel,
+.d-app:focus-visible .d-kachel {
+  transform: translateY(-5px) scale(1.06);
+}
+
+.d-app:active .d-kachel {
+  transform: translateY(-2px) scale(0.98);
+}
+
+.d-name {
+  position: fixed;
+  bottom: 96px;
+  padding: 4px 10px;
+  border-radius: 7px;
+  background: rgba(3, 8, 11, 0.86);
+  color: var(--mond);
+  font-size: 12.5px;
+  white-space: nowrap;
+  opacity: 0;
+  transform: translateX(-50%);
+  margin-left: 29px;
+  pointer-events: none;
+  transition: opacity 0.12s ease;
+}
+
+.d-app:hover .d-name {
+  opacity: 1;
+}
+
+.d-punkt {
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: var(--mond);
+  opacity: 0;
+}
+
+.d-app.ist-offen .d-punkt {
+  opacity: 0.7;
+}
+
+.d-app.ist-vorn .d-punkt {
+  opacity: 1;
+  background: var(--laterne);
+}
+
+.d-kachel--kuro {
+  background: radial-gradient(circle at 50% 35%, #142a3a, #050b10 75%);
+}
+.d-kugel {
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  background: radial-gradient(
+    circle,
+    #03080b 52%,
+    rgba(40, 60, 140, 0.6) 64%,
+    rgba(109, 144, 255, 0.95) 70%,
+    rgba(190, 210, 255, 0.9) 72%,
+    transparent 76%
+  );
+  box-shadow: 0 0 14px rgba(109, 144, 255, 0.45);
+}
+.d-kachel--brain {
+  background: linear-gradient(160deg, #2c2556, #14112a);
+  color: #b4a6ff;
+}
+.d-kachel--maerkte {
+  background: linear-gradient(160deg, #123326, #071810);
+  color: #7fd3a8;
+}
+.d-kachel--strategien {
+  background: linear-gradient(160deg, #33291a, #18120a);
+  color: #f4b860;
+}
+.d-kachel--analysen {
+  background: linear-gradient(160deg, #13283f, #0a1422);
+  color: #9cc4dc;
+}
+.d-kachel--post {
+  background: linear-gradient(160deg, #3a2a18, #1b1209);
+  color: #ffd08a;
+}
+.d-kachel--kalender {
+  background: linear-gradient(to bottom, #f7f9fa, #e2e8eb);
+  color: #0b1418;
+}
+.d-datum {
+  display: grid;
+  justify-items: center;
+  line-height: 1;
+}
+.d-datum small {
+  font-size: 10px;
+  font-weight: 600;
+  color: #d9534f;
+}
+.d-datum b {
+  margin-top: 2px;
+  font-size: 22px;
+  font-weight: 600;
+}
+.d-kachel--system {
+  background: linear-gradient(160deg, #1d2529, #0d1316);
+  color: #c9d4d8;
+}
+.d-kachel--einstellungen {
+  background: linear-gradient(160deg, #262d31, #11171a);
+  color: #c9d4d8;
+}
+
+/* --------------------------------------------------------------------- */
+/* Starter und Kontextmenü                                                */
+/* --------------------------------------------------------------------- */
+
+.o-starter {
+  position: fixed;
+  inset: 0;
+  z-index: 2000;
+  display: flex;
+  justify-content: center;
+  padding-top: 17vh;
+  background: rgba(3, 8, 11, 0.32);
+}
+
+.o-starter[hidden] {
   display: none;
 }
 
-/* --------------------------------------------------------------------- */
-/* Brain                                                                  */
-/* --------------------------------------------------------------------- */
-
-.o-brain {
-  display: grid;
-  grid-template-columns: 230px minmax(0, 1fr);
-  gap: clamp(32px, 4vw, 72px);
+.o-starter__feld {
+  align-self: flex-start;
+  width: min(640px, calc(100vw - 32px));
+  overflow: hidden;
+  background: rgba(12, 22, 27, 0.9);
+  -webkit-backdrop-filter: blur(30px) saturate(150%);
+  backdrop-filter: blur(30px) saturate(150%);
+  border: 1px solid rgba(232, 239, 241, 0.12);
+  border-radius: 16px;
+  box-shadow: 0 30px 80px rgba(0, 0, 0, 0.55);
+  animation: f-auf 0.14s var(--gleiten-os);
 }
 
-.o-brain__spur {
-  position: sticky;
-  top: calc(var(--leiste-h) + 18px);
-  align-self: start;
-}
-
-.o-brain__suche input {
+.o-starter__feld input {
   width: 100%;
-  padding: 8px 0;
+  padding: 18px 20px;
   border: 0;
-  border-bottom: 1px solid var(--linie-stark);
-  border-radius: 0;
+  border-bottom: 1px solid var(--linie);
   background: none;
   color: var(--mond);
   font: inherit;
-  font-size: 14.5px;
+  font-size: 20px;
   outline: none;
 }
 
-.o-brain__suche input:focus {
-  border-bottom-color: var(--laterne);
-}
-
-.o-brain__suche input::placeholder {
+.o-starter__feld input::placeholder {
   color: var(--dunst);
 }
 
-.o-brain__liste {
-  margin: 18px 0 22px;
-  padding: 0;
+.o-starter__liste {
+  max-height: 50vh;
+  margin: 0;
+  padding: 6px;
+  overflow-y: auto;
   list-style: none;
 }
 
-.o-brain__spurlink {
-  display: block;
-  padding: 7px 0 7px 12px;
-  color: var(--nebel);
-  font-size: 15px;
-  text-decoration: none;
-  box-shadow: inset 1px 0 0 var(--linie);
-  transition: color 0.2s ease, box-shadow 0.2s ease;
-}
-
-.o-brain__spurlink:hover {
-  color: var(--mond);
-}
-
-.o-brain__spurlink.ist-aktiv {
-  color: var(--mond);
-  box-shadow: inset 2px 0 0 var(--laterne);
-}
-
-.o-brain__fuss {
-  max-width: 24ch;
-  font-size: 12.5px;
-  line-height: 1.5;
-  color: var(--dunst);
-}
-
-.o-brain__blatt {
-  max-width: 74ch;
-  min-width: 0;
-}
-
-.o-brain__ort {
-  margin: 4px 0 0;
-  font-size: 13.5px;
-  color: var(--nebel);
-}
-
-.o-brain__hinweis {
-  margin: -14px 0 22px;
-  font-size: 13px;
-  color: var(--dunst);
-}
-
-.o-brain__text {
-  font-size: 16px;
-  line-height: 1.68;
-  color: rgba(232, 239, 241, 0.9);
-}
-
-.o-brain__titel {
-  margin: 8px 0 24px;
-  font-family: var(--zeichen);
-  font-weight: 500;
-  font-size: clamp(1.9rem, 2.6vw, 2.6rem);
-  line-height: 1.1;
-  color: var(--mond);
-}
-
-.o-brain__hinweis + .o-brain__text,
-.o-brain__titel + .o-brain__text {
-  margin-top: 0;
-}
-
-/* Der Markdown-Leser setzt `#` als h3, `##` als h4, `###` als h5. */
-.o-brain__text h3 {
-  margin: 1.6em 0 0.5em;
-  font-size: 1.3rem;
-  font-weight: 600;
-  color: var(--mond);
-}
-
-.o-brain__text h4 {
-  margin: 1.8em 0 0.5em;
-  font-size: 1.12rem;
-  font-weight: 600;
-  color: var(--mond);
-}
-
-.o-brain__text h5,
-.o-brain__text h6 {
-  margin: 1.5em 0 0.4em;
-  font-size: 1rem;
-  font-weight: 600;
-  color: var(--nebel);
-}
-
-.o-brain__text > :first-child {
-  margin-top: 0;
-}
-
-.o-brain__text p,
-.o-brain__text ul,
-.o-brain__text ol {
-  margin: 0 0 0.9em;
-}
-
-.o-brain__text ul,
-.o-brain__text ol {
-  padding-left: 1.2em;
-}
-
-.o-brain__text li + li {
-  margin-top: 0.25em;
-}
-
-.o-brain__text em {
-  color: var(--nebel);
-}
-
-.o-brain__text table {
-  width: 100%;
-  margin: 0 0 1.2em;
-  border-collapse: collapse;
+.o-starter__treffer {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 9px 14px;
+  border-radius: 9px;
   font-size: 14.5px;
-}
-
-.o-brain__text th,
-.o-brain__text td {
-  padding: 9px 16px 9px 0;
-  border-bottom: 1px solid var(--linie);
-  text-align: left;
-  vertical-align: top;
-}
-
-.o-brain__text th {
-  font-weight: 500;
-  color: var(--nebel);
-}
-
-.o-brain__link,
-.o-brain__fundtitel {
   color: var(--mond);
-  text-decoration: underline;
-  text-decoration-color: rgba(156, 196, 220, 0.45);
-  text-decoration-thickness: 1px;
-  text-underline-offset: 3px;
-  transition: text-decoration-color 0.2s ease;
+  cursor: pointer;
 }
 
-.o-brain__link:hover,
-.o-brain__fundtitel:hover {
-  text-decoration-color: var(--laterne);
-}
-
-.o-brain__offen {
-  color: var(--dunst);
-}
-
-.o-brain__funde {
-  margin: 18px 0 0;
-  padding: 0;
-  list-style: none;
-}
-
-.o-brain__funde li {
-  margin: 0 0 22px;
-}
-
-.o-brain__funde p {
-  margin: 4px 0 0;
-  font-size: 14px;
+.o-starter__treffer small {
+  font-size: 12.5px;
   color: var(--nebel);
+  white-space: nowrap;
 }
 
-.o-brain__leer,
-.o-brain__fehler {
-  color: var(--nebel);
+.o-starter__treffer.ist-gewaehlt {
+  background: rgba(109, 144, 255, 0.22);
 }
 
-.o-brain__fehler {
-  color: var(--faellt);
+.o-starter__treffer--kuro span {
+  color: var(--laterne-zeile);
 }
 
-/* Eine Datei wird über das Fenster gezogen. */
+.o-kontext {
+  position: fixed;
+  z-index: 2100;
+  display: grid;
+  min-width: 220px;
+  padding: 5px;
+  background: rgba(14, 24, 29, 0.92);
+  -webkit-backdrop-filter: blur(24px);
+  backdrop-filter: blur(24px);
+  border: 1px solid rgba(232, 239, 241, 0.12);
+  border-radius: 10px;
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.5);
+}
+
+.o-kontext[hidden] {
+  display: none;
+}
+
+.o-kontext button {
+  padding: 7px 12px;
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  color: var(--mond);
+  font: inherit;
+  font-size: 13.5px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.o-kontext button:hover {
+  background: rgba(109, 144, 255, 0.28);
+}
+
 .o-ablage {
   position: fixed;
   inset: 14px;
-  z-index: 60;
+  z-index: 3000;
   display: grid;
   place-items: center;
   border: 1.5px dashed rgba(244, 184, 96, 0.6);
   border-radius: 28px;
   background: rgba(3, 8, 11, 0.74);
   pointer-events: none;
+}
+
+.o-ablage[hidden] {
+  display: none;
 }
 
 .o-ablage p {
@@ -794,106 +863,609 @@ body.ist-sprechtaste .o-eingabe__mikro,
 }
 
 /* --------------------------------------------------------------------- */
-/* Desktop-App                                                            */
+/* Kuro als App                                                           */
 /* --------------------------------------------------------------------- */
 
-/* Am Mac liegen links die drei Fensterknöpfe in der Leiste; die Leiste zieht das Fenster. */
-.ist-desktop .o-leiste {
+.k-app {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  height: 100%;
+  padding: 14px 16px 12px;
+}
+
+.k-app__kopf {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.k-app__orb {
+  position: relative;
+  flex: none;
+  width: 96px;
+  height: 96px;
+  cursor: pointer;
+}
+
+.k-app__orb.ist-ohne-orb {
+  width: 0;
+}
+
+.k-app__orb .p-orb-fehler {
+  display: none;
+}
+
+.k-app__satz {
+  margin: 0;
+  font-size: 14px;
+  color: var(--nebel);
+}
+
+.k-app__faden {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 4px 4px 0 0;
+}
+
+.k-app__faden:empty {
+  display: none;
+}
+
+.k-app__leer {
+  flex: 1;
+  margin: 0;
+  font-size: 14.5px;
+  color: var(--nebel);
+}
+
+.k-app__leer[hidden] {
+  display: none;
+}
+
+.k-app__leeren {
+  align-self: flex-start;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--dunst);
+  font: inherit;
+  font-size: 12.5px;
+  cursor: pointer;
+}
+
+.k-app__leeren:hover {
+  color: var(--laterne);
+}
+
+/* --------------------------------------------------------------------- */
+/* Brain — wie Obsidian                                                   */
+/* --------------------------------------------------------------------- */
+
+.b-app {
+  display: grid;
+  grid-template-columns: 236px minmax(0, 1fr) 258px;
+  height: 100%;
+  container-type: inline-size;
+}
+
+.b-links,
+.b-rechts {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  background: rgba(3, 8, 11, 0.28);
+}
+
+.b-links {
+  padding: 10px 8px;
+  border-right: 1px solid var(--linie);
+}
+
+.b-rechts {
+  padding: 10px 14px 14px;
+  overflow-y: auto;
+  border-left: 1px solid var(--linie);
+}
+
+.b-suche input {
+  width: 100%;
+  padding: 7px 10px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: var(--glas-hell);
+  color: var(--mond);
+  font: inherit;
+  font-size: 13.5px;
+  outline: none;
+}
+
+.b-suche input:focus {
+  border-color: rgba(244, 184, 96, 0.5);
+}
+
+.b-leiste {
+  display: flex;
+  gap: 6px;
+  margin: 8px 0 6px;
+}
+
+.b-leiste button {
+  flex: 1;
+  padding: 6px;
+  border: 0;
+  border-radius: 7px;
+  background: var(--glas-hell);
+  color: var(--nebel);
+  font: inherit;
+  font-size: 12.5px;
+  cursor: pointer;
+}
+
+.b-leiste button:hover {
+  background: rgba(232, 239, 241, 0.11);
+  color: var(--mond);
+}
+
+.b-baum {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  font-size: 13.5px;
+  scrollbar-width: thin;
+}
+
+.b-zeile {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  width: 100%;
+  padding: 3px 8px 3px calc(10px + var(--tiefe, 0) * 14px);
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  color: var(--nebel);
+  font: inherit;
+  text-align: left;
+  text-decoration: none;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  cursor: pointer;
+}
+
+.b-zeile:hover {
+  background: rgba(232, 239, 241, 0.06);
+  color: var(--mond);
+}
+
+.b-zeile.ist-aktiv {
+  background: rgba(169, 155, 255, 0.2);
+  color: var(--mond);
+}
+
+.b-zeile--ordner {
+  padding-left: calc(4px + var(--tiefe, 0) * 14px);
+  color: rgba(232, 239, 241, 0.82);
+  font-weight: 500;
+}
+
+.b-zeile--ordner svg {
+  flex: none;
+  transform: rotate(90deg);
+  transition: transform 0.12s ease;
+}
+
+.ist-zu > .b-zeile--ordner svg {
+  transform: none;
+}
+
+.b-zeile--ordner span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.b-mitte {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+}
+
+.b-kopf {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  flex: none;
+  height: 40px;
+  padding: 0 10px;
+  border-bottom: 1px solid var(--linie);
+}
+
+.b-rund {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  color: var(--nebel);
+  cursor: pointer;
+}
+
+.b-rund:hover:not(:disabled) {
+  background: var(--glas-hell);
+  color: var(--mond);
+}
+
+.b-rund:disabled {
+  opacity: 0.28;
+  cursor: default;
+}
+
+.b-ort {
+  flex: 1;
+  margin: 0 8px;
+  overflow: hidden;
+  font-size: 12.5px;
+  color: var(--nebel);
+  text-align: center;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.b-modus {
+  padding: 5px 12px;
+  border: 0;
+  border-radius: 7px;
+  background: rgba(244, 184, 96, 0.14);
+  color: var(--laterne);
+  font: inherit;
+  font-size: 12.5px;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.b-modus:hover:not(:disabled) {
+  background: rgba(244, 184, 96, 0.26);
+}
+
+.b-modus:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+
+.b-inhalt {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.b-notiz {
+  max-width: 72ch;
+  margin: 0 auto;
+  padding: 34px 40px 64px;
+}
+
+.b-titel {
+  margin: 0 0 20px;
+  font-family: var(--zeichen);
+  font-weight: 500;
+  font-size: clamp(1.8rem, 3cqi, 2.4rem);
+  line-height: 1.12;
+  color: var(--mond);
+}
+
+.b-hinweis {
+  margin: -10px 0 22px;
+  font-size: 13px;
+  color: var(--dunst);
+}
+
+.b-text {
+  font-size: 15.5px;
+  line-height: 1.7;
+  color: rgba(232, 239, 241, 0.9);
+}
+
+.b-text h3 {
+  margin: 1.6em 0 0.5em;
+  font-size: 1.3rem;
+  font-weight: 600;
+  color: var(--mond);
+}
+
+.b-text h4 {
+  margin: 1.8em 0 0.5em;
+  font-size: 1.12rem;
+  font-weight: 600;
+  color: var(--mond);
+}
+
+.b-text h5,
+.b-text h6 {
+  margin: 1.5em 0 0.4em;
+  font-size: 1rem;
+  font-weight: 600;
+  color: var(--nebel);
+}
+
+.b-text > :first-child {
+  margin-top: 0;
+}
+
+.b-text p,
+.b-text ul,
+.b-text ol {
+  margin: 0 0 0.9em;
+}
+
+.b-text ul,
+.b-text ol {
+  padding-left: 1.2em;
+}
+
+.b-text code {
+  padding: 1px 5px;
+  border-radius: 4px;
+  background: rgba(232, 239, 241, 0.08);
+  font-size: 0.92em;
+}
+
+.b-text table {
+  width: 100%;
+  margin: 0 0 1.2em;
+  border-collapse: collapse;
+  font-size: 14px;
+}
+
+.b-text th,
+.b-text td {
+  padding: 8px 14px 8px 0;
+  border-bottom: 1px solid var(--linie);
+  text-align: left;
+  vertical-align: top;
+}
+
+.b-text th {
+  font-weight: 500;
+  color: var(--nebel);
+}
+
+.b-link {
+  color: var(--link);
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.b-link:hover {
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.b-link--offen {
+  color: rgba(169, 155, 255, 0.5);
+  cursor: default;
+}
+
+.b-link--offen:hover {
+  text-decoration: none;
+}
+
+.b-editor {
+  display: block;
+  width: 100%;
+  height: 100%;
+  padding: 34px max(40px, calc((100% - 72ch) / 2)) 64px;
+  border: 0;
+  background: none;
+  color: var(--mond);
+  font: inherit;
+  font-size: 15px;
+  line-height: 1.7;
+  resize: none;
+  outline: none;
+}
+
+.b-graph {
+  position: absolute;
+  inset: 0;
+}
+
+.b-graph__hilfe {
+  position: absolute;
+  left: 16px;
+  bottom: 10px;
+  margin: 0;
+  font-size: 12px;
+  color: var(--dunst);
+  pointer-events: none;
+}
+
+.g-leinwand {
+  display: block;
+  cursor: grab;
+  touch-action: none;
+}
+
+.b-rechts__titel {
+  margin: 16px 0 8px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--nebel);
+}
+
+.b-rechts__titel:first-child {
+  margin-top: 4px;
+}
+
+.b-lokal {
+  position: relative;
+  flex: none;
+  height: 220px;
+  overflow: hidden;
+  border: 1px solid var(--linie);
+  border-radius: 10px;
+  background: rgba(3, 8, 11, 0.35);
+}
+
+.b-verweise {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.b-verweise a {
+  display: block;
+  padding: 4px 6px;
+  border-radius: 5px;
+  color: var(--link);
+  font-size: 13px;
+  text-decoration: none;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.b-verweise a:hover {
+  background: var(--glas-hell);
+}
+
+.b-verweise__leer {
+  padding: 2px 6px;
+  font-size: 12.5px;
+  color: var(--dunst);
+}
+
+.b-funde {
+  max-width: 72ch;
+  margin: 0 auto;
+  padding: 28px 40px;
+  list-style: none;
+}
+
+.b-funde li {
+  margin-bottom: 18px;
+}
+
+.b-funde small {
+  display: block;
+  margin-top: 2px;
+  font-size: 12px;
+  color: var(--dunst);
+}
+
+.b-funde p {
+  margin: 4px 0 0;
+  font-size: 13.5px;
+  color: var(--nebel);
+}
+
+.b-leer,
+.b-fehler {
+  padding: 34px 40px;
+  color: var(--nebel);
+}
+
+.b-fehler {
+  color: var(--faellt);
+}
+
+@container (max-width: 960px) {
+  .b-app {
+    grid-template-columns: 220px minmax(0, 1fr);
+  }
+  .b-rechts {
+    display: none;
+  }
+}
+
+@container (max-width: 620px) {
+  .b-app {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .b-links {
+    display: none;
+  }
+  .b-notiz {
+    padding: 24px 22px 48px;
+  }
+}
+
+/* --------------------------------------------------------------------- */
+/* Desktop-App, Fokus, schmale Schirme, ruhige Bewegung                   */
+/* --------------------------------------------------------------------- */
+
+.ist-desktop .o-menue {
   -webkit-app-region: drag;
 }
-.ist-desktop .o-leiste a,
-.ist-desktop .o-leiste button,
+.ist-desktop .o-menue button,
 .ist-desktop .o-insel {
   -webkit-app-region: no-drag;
 }
-.ist-desktop.ist-darwin .o-leiste {
-  padding-left: max(88px, var(--rand-x));
+.ist-desktop.ist-darwin .o-menue {
+  padding-left: 82px;
 }
-/* Unter Windows liegen die Fensterknöpfe rechts über der Leiste. */
-.ist-desktop.ist-win32 .o-leiste {
-  padding-right: max(150px, var(--rand-x));
+.ist-desktop.ist-win32 .o-menue {
+  padding-right: 142px;
 }
 
-/* --------------------------------------------------------------------- */
-/* Fokus, schmale Fenster, ruhige Bewegung                                */
-/* --------------------------------------------------------------------- */
-
-.o-os a:focus-visible,
 .o-os button:focus-visible,
+.o-os a:focus-visible,
 .o-os [tabindex]:focus-visible {
   outline: 2px solid var(--laterne);
-  outline-offset: 3px;
-  border-radius: 4px;
+  outline-offset: 2px;
 }
 
-.o-insel__griff:focus-visible {
-  outline-offset: -3px;
-  border-radius: 0 0 20px 20px;
-}
-
-@media (max-width: 1100px) {
-  .o-kuro {
-    grid-template-columns: 1fr;
-    min-height: 0;
-  }
-  .o-kuro__orb {
-    width: min(70vw, 360px);
-    margin: 0 auto;
-  }
-  .o-kuro__faden {
-    max-height: none;
-  }
-}
-
-@media (max-width: 860px) {
-  .ist-os {
-    --insel-zu: 44px;
-  }
-  .o-leiste {
-    grid-template-columns: 1fr auto;
-    grid-template-areas: "links rechts";
-    padding: 0 16px;
+@media (max-width: 760px) {
+  .o-menue__app,
+  .o-abo {
+    display: none;
   }
   .o-insel {
-    position: fixed;
-    top: 0;
-    left: 50%;
-    transform: translateX(-50%);
+    width: 44px;
   }
   .o-insel:not(.ist-offen) .o-insel__satz {
     display: none;
   }
-  .o-links {
-    gap: 18px;
+  .f-fenster {
+    border-radius: 0;
   }
-  .o-bereiche {
-    gap: 16px;
-  }
-  .o-uhr {
+  .f-griff {
     display: none;
   }
-  .o-brain {
-    grid-template-columns: 1fr;
+  .d-kachel {
+    width: 46px;
+    height: 46px;
   }
-  .o-brain__spur {
-    position: static;
-  }
-  .o-flaeche {
-    padding: 22px 16px 56px;
+  .d-app {
+    width: 50px;
   }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .o-licht,
+  .o-hintergrund::after,
   .o-insel,
-  .o-flaeche.ist-da {
+  .d-kachel,
+  .o-andock {
     transition: none;
   }
+  .f-fenster.ist-neu,
+  .f-fenster.ist-weg,
+  .o-starter__feld,
   .o-os .o-insel__licht {
     animation: none !important;
   }
 }
 
-.o-brain__ort + .o-brain__text {
-  margin-top: 18px;
+/* Im großen Graphen braucht es keine Spalte für eine einzelne Notiz. */
+.b-app.ist-graph {
+  grid-template-columns: 236px minmax(0, 1fr);
+}
+.b-app.ist-graph .b-rechts {
+  display: none;
 }

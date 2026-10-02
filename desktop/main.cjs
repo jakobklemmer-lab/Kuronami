@@ -79,8 +79,8 @@ function erstelleHaupt() {
     backgroundColor: "#03080b",
     title: "Kuro OS",
     titleBarStyle: MAC ? "hiddenInset" : "hidden",
-    trafficLightPosition: { x: 20, y: 18 },
-    ...(MAC ? {} : { titleBarOverlay: { color: "#03080b", symbolColor: "#93a7b0", height: 52 } }),
+    trafficLightPosition: { x: 14, y: 10 },
+    ...(MAC ? {} : { titleBarOverlay: { color: "#0a1418", symbolColor: "#93a7b0", height: 32 } }),
     webPreferences: {
       preload: path.join(__dirname, "preload.cjs"),
       contextIsolation: true,
