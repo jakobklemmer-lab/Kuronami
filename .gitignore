@@ -35,6 +35,9 @@ venv/
 /workspace/verbrauch/
 # Stand des Wochenfensters zu Beginn jeder Nacht (`gateway/nachtbudget.ts`) — Betriebsdaten.
 /workspace/nacht/
+# Der Kerzenspeicher (`gateway/kerzenspeicher.ts`): ein Zwischenspeicher öffentlicher Kursdaten,
+# jederzeit neu ladbar — 169 MB, die bei jedem Abruf das Git verändern.
+/workspace/kerzen/
 # Das Versuchsbuch (`gateway/versuche.ts`): eine Zeile je gerechneter Regel, wächst mit jedem Backtest.
 /workspace/labor/
 # Das Gesprächsarchiv (`gateway/gespraeche.ts`): Kuros Gespräche mit Jakob im Wortlaut, jede Nacht
