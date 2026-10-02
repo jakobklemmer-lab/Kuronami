@@ -9,5 +9,11 @@ export function createPool(connectionString = process.env.DATABASE_URL): Pool {
   if (!connectionString) {
     throw new Error("DATABASE_URL ist nicht gesetzt");
   }
-  return new Pool({ connectionString });
+  const pool = new Pool({ connectionString });
+  // Bricht einer ruhenden Verbindung die Datenbank weg (Neustart des Containers), meldet der Pool
+  // das als Ereignis — ohne Zuhörer beendet es den ganzen Prozess. Die nächste Anfrage verbindet neu.
+  pool.on("error", (fehler) => {
+    console.warn(`[db] Verbindung verloren: ${fehler.message}`);
+  });
+  return pool;
 }

@@ -70,6 +70,9 @@ export async function freigabe(app: GoogleAnwendung, erneuerung: string): Promis
       grant_type: "refresh_token",
     }),
   });
+  if (antwort.status >= 500) {
+    throw new Error(`Google antwortet gerade nicht (HTTP ${antwort.status}) — später noch einmal.`);
+  }
   if (!antwort.ok) {
     throw new Error(
       `Google verweigert den Zugang (HTTP ${antwort.status}). Vermutlich wurde die Freigabe entzogen — dann hilft nur, das Konto unter /postfach/verbinden neu zu verbinden.`,
@@ -157,6 +160,11 @@ async function mitVerbindung<T>(konto: Konto, was: (client: ImapFlow) => Promise
     auth: await anmeldung(konto),
     // Die Bibliothek redet sonst in jeden Aufruf hinein; das Protokoll gehört dem Gateway.
     logger: false,
+  });
+  // Ohne Zuhörer beendet ein Socket-Fehler den ganzen Gateway (zweimal geschehen, 28.09. und
+  // 01.10.). Der laufende Befehl scheitert trotzdem und meldet sich über sein Promise.
+  client.on("error", (fehler: Error) => {
+    console.warn(`[postfach] ${konto.name}: ${fehler.message}`);
   });
   await client.connect();
   try {
