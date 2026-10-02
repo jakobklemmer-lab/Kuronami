@@ -76,9 +76,16 @@ export function createSprechtaste(o: SprechtastenOptionen): Sprechtaste {
   };
   // Fenster verlassen, während die Taste unten ist: kein `keyup` kommt je an.
   const weg = () => setze(false);
+  // Die Sprechtaste der Desktop-App wirkt systemweit und meldet sich als Ereignis am Fenster,
+  // auch wenn ein anderes Programm vorn ist (`desktop/preload.cjs`).
+  const extern = (e: Event) => {
+    if (!o.aktiv()) return;
+    setze((e as CustomEvent<{ an?: boolean }>).detail?.an === true);
+  };
   ziel.addEventListener("keydown", runter as EventListener, true);
   ziel.addEventListener("keyup", hoch as EventListener, true);
   ziel.addEventListener("blur", weg);
+  ziel.addEventListener("kuro:sprechtaste", extern);
 
   return {
     get offen() {
@@ -91,6 +98,7 @@ export function createSprechtaste(o: SprechtastenOptionen): Sprechtaste {
       ziel.removeEventListener("keydown", runter as EventListener, true);
       ziel.removeEventListener("keyup", hoch as EventListener, true);
       ziel.removeEventListener("blur", weg);
+      ziel.removeEventListener("kuro:sprechtaste", extern);
       setze(false);
     },
   };

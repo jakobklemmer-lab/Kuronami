@@ -40,3 +40,7 @@ werkzeuge/pc/schluessel.txt
 werkzeuge/pc/server.txt
 # Nachtbau: Berichte und Protokolle bleiben auf dem Server
 bau/protokoll/
+
+# Kuro OS als Desktop-App: Pakete baut Jakob am Mac (desktop/dist).
+desktop/dist/
+desktop/package-lock.json

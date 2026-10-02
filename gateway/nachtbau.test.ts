@@ -12,6 +12,8 @@ describe("leseAufgaben", () => {
       "- Status: offen",
       "## Anhang",
       "## N3 · Ohne Statuszeile",
+      "## N17a · Kommentare kürzen, Paket 1 von 8",
+      "- Status: offen",
     ].join("\n");
     expect(leseAufgaben(plan)).toEqual([
       {
@@ -21,6 +23,7 @@ describe("leseAufgaben", () => {
       },
       { id: "N2", titel: "Archiv für Strategien", status: "offen" },
       { id: "N3", titel: "Ohne Statuszeile", status: "offen" },
+      { id: "N17a", titel: "Kommentare kürzen, Paket 1 von 8", status: "offen" },
     ]);
   });
 });

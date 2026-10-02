@@ -30,11 +30,11 @@ export interface NachtbauStand {
 const PROTOKOLL_ZEILEN = 14;
 const BERICHT_ZEICHEN = 8000;
 
-/** Die Aufgaben aus `bau/PLAN.md`: je `## N<n> · Titel` mit der Zeile `- Status: …`. */
+/** Die Aufgaben aus `bau/PLAN.md`: je `## N<n> · Titel` (auch Teilaufgaben wie N17a) mit `- Status: …`. */
 export function leseAufgaben(plan: string): NachtbauAufgabe[] {
   const aufgaben: NachtbauAufgabe[] = [];
   for (const block of plan.split(/^## /m).slice(1)) {
-    const kopf = /^(N\d+)\s*·\s*(.+)$/.exec(block.split("\n", 1)[0] ?? "");
+    const kopf = /^(N\d+[a-z]?)\s*·\s*(.+)$/.exec(block.split("\n", 1)[0] ?? "");
     if (!kopf?.[1] || !kopf[2]) continue;
     const status = /^- Status:\s*(.+)$/m.exec(block)?.[1]?.trim() ?? "offen";
     aufgaben.push({ id: kopf[1], titel: kopf[2].trim(), status });

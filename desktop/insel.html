@@ -1,0 +1,69 @@
+<!doctype html>
+<html lang="de">
+  <head>
+    <meta charset="utf-8" />
+    <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'" />
+    <title>Kuro</title>
+    <style>
+      html, body { margin: 0; background: transparent; overflow: hidden; }
+      body {
+        font: 13px/1.45 -apple-system, "Segoe UI", system-ui, sans-serif;
+        color: #e8eff1;
+        -webkit-font-smoothing: antialiased;
+        user-select: none;
+        cursor: pointer;
+      }
+      .insel {
+        box-sizing: border-box;
+        margin: 0 auto;
+        width: 100%;
+        min-height: 36px;
+        padding: 9px 18px 11px;
+        background: #000;
+        border: 1px solid rgba(232, 239, 241, 0.08);
+        border-top: 0;
+        border-radius: 0 0 20px 20px;
+      }
+      .zeile { display: flex; align-items: center; gap: 10px; }
+      .licht {
+        flex: none; width: 9px; height: 9px; border-radius: 50%;
+        background: var(--licht, #6d90ff); box-shadow: 0 0 10px var(--licht, #6d90ff);
+      }
+      .ist-aktiv .licht { animation: atmen 1.6s ease-in-out infinite alternate; }
+      @keyframes atmen { from { opacity: .65; } to { opacity: 1; box-shadow: 0 0 16px var(--licht); } }
+      .satz { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: rgba(232, 239, 241, 0.88); }
+      .text {
+        display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden;
+        margin: 6px 0 0 19px; color: rgba(232, 239, 241, 0.78);
+      }
+      @media (prefers-reduced-motion: reduce) { .ist-aktiv .licht { animation: none; } }
+    </style>
+  </head>
+  <body>
+    <div class="insel" id="insel">
+      <div class="zeile"><span class="licht"></span><span class="satz" id="satz">Kuro ist da</span></div>
+      <div class="text" id="text" hidden></div>
+    </div>
+    <script>
+      const SATZ = {
+        ruhe: "Kuro ist da", zuhoeren: "Kuro hört zu", denken: "Kuro denkt nach",
+        sprechen: "Kuro antwortet", arbeiten: "Kuro arbeitet", rueckfrage: "Kuro wartet auf Sie",
+        fehler: "Der letzte Auftrag ist gescheitert", offline: "Keine Verbindung zum Gateway",
+      };
+      const el = document.getElementById("insel");
+      const satz = document.getElementById("satz");
+      const text = document.getElementById("text");
+      window.insel.beiLage((lage) => {
+        el.style.setProperty("--licht", lage.farbe || "#6d90ff");
+        el.classList.toggle("ist-aktiv", lage.gehalten || lage.zustand !== "ruhe");
+        satz.textContent = lage.gehalten ? "Ich höre" : lage.satz || SATZ[lage.zustand] || SATZ.ruhe;
+        const zeile = lage.neu && lage.text
+          ? lage.text.replace(/[#*_`>|]/g, "").split("\n").filter((z) => z.trim()).slice(0, 3).join(" ")
+          : "";
+        text.textContent = zeile;
+        text.hidden = zeile === "";
+      });
+      document.body.addEventListener("click", () => window.insel.klick());
+    </script>
+  </body>
+</html>

@@ -50,6 +50,9 @@ export const STATIC_FILES = [
   "welle/index.html",
   "welle/welle.css",
   "welle/raeume.css",
+  // Kuro OS (2026-10-02): Jakobs Arbeitsplatz unter `/os/`, auch die Seite der Desktop-App.
+  "os/index.html",
+  "os/os.css",
 ] as const;
 
 /** Ordner, die der Bau als Ganzes kopiert — heute nur die Einzelbilder des Films der Welle. */

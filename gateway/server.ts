@@ -16,6 +16,7 @@ import { readSecretStatus, upsertSecrets } from "../runtime/secrets/env-file.js"
 import type { MemoryStore } from "../tools/memory/store.js";
 import type { AlarmeAblage } from "./alarme.js";
 import { type Anmeldung, SITZUNG_GUELTIG_MS } from "./anmeldung.js";
+import { brainRouten } from "./brain-routen.js";
 import { handleUpdate } from "./channels/telegram/channel.js";
 import type { TelegramChannelDeps } from "./channels/telegram/channel.js";
 import type { VoiceChannel } from "./channels/voice/channel.js";
@@ -790,6 +791,7 @@ export function createServer(deps: ServerDeps): express.Express {
   // ihn ebenso dorthin zurück. Die Seite selbst gibt nichts preis, was nicht ohnehin bei
   // Google steht — den Schlüssel bekommt nur, wer sich dort erfolgreich angemeldet hat.
   postfachVerbindenRouten(app);
+  brainRouten(app, { workdir: () => deps.gateway.agent.workdir, webPrincipal });
   if (deps.wissen) {
     wissenRouten(app, {
       wissen: deps.wissen,

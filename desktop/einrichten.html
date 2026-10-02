@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="de">
+  <head>
+    <meta charset="utf-8" />
+    <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'" />
+    <title>Kuro OS einrichten</title>
+    <style>
+      :root { color-scheme: dark; }
+      html, body { height: 100%; margin: 0; }
+      body {
+        display: grid; place-items: center;
+        background: radial-gradient(ellipse 60vw 46vh at 50% -8vh, rgba(109, 144, 255, 0.18), transparent 70%), #03080b;
+        color: #e8eff1;
+        font: 15px/1.55 -apple-system, "Segoe UI", system-ui, sans-serif;
+        -webkit-app-region: drag;
+      }
+      main { width: min(460px, calc(100vw - 48px)); -webkit-app-region: no-drag; }
+      h1 { margin: 0 0 8px; font: 500 34px/1.1 "Hiragino Mincho ProN", "Yu Mincho", Georgia, serif; }
+      p { margin: 0 0 22px; color: #93a7b0; }
+      form { display: grid; grid-template-columns: 1fr auto; gap: 8px; }
+      input {
+        padding: 11px 14px; border: 1px solid rgba(232, 239, 241, 0.2); border-radius: 14px;
+        background: rgba(10, 23, 28, 0.9); color: #e8eff1; font: inherit; outline: none;
+      }
+      input:focus { border-color: rgba(244, 184, 96, 0.6); }
+      button {
+        padding: 0 18px; border: 0; border-radius: 14px; background: rgba(244, 184, 96, 0.18);
+        color: #f4b860; font: inherit; font-weight: 500; cursor: pointer;
+      }
+      button:hover { background: rgba(244, 184, 96, 0.3); }
+      .fehler { margin-top: 14px; color: #f08a8a; font-size: 14px; }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>Kuro OS</h1>
+      <p>Unter welcher Adresse läuft Kuronami? Die Oberfläche kommt von dort, angemeldet wird danach wie im Browser.</p>
+      <form id="form">
+        <input id="adresse" type="url" placeholder="https://kuronami.example.org" required autofocus autocomplete="off" />
+        <button type="submit">Verbinden</button>
+      </form>
+      <p class="fehler" id="fehler" hidden></p>
+    </main>
+    <script>
+      const fehler = document.getElementById("fehler");
+      const zeige = (t) => { fehler.textContent = t; fehler.hidden = !t; };
+      const grund = new URLSearchParams(location.search).get("fehler");
+      if (grund) zeige(`Kuronami war nicht erreichbar: ${grund}`);
+      window.kuroDesktop.adresseLesen().then((a) => { if (a) document.getElementById("adresse").value = a; });
+      document.getElementById("form").addEventListener("submit", async (e) => {
+        e.preventDefault();
+        const r = await window.kuroDesktop.adresseSetzen(document.getElementById("adresse").value);
+        if (!r.ok) zeige(r.grund);
+      });
+    </script>
+  </body>
+</html>

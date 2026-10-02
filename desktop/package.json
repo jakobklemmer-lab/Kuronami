@@ -1,0 +1,43 @@
+{
+  "name": "kuro-os",
+  "productName": "Kuro OS",
+  "version": "0.1.0",
+  "description": "Kuro OS — Jakobs Arbeitsplatz mit Kuro, als Desktop-App für Mac und Windows.",
+  "private": true,
+  "main": "main.cjs",
+  "scripts": {
+    "start": "electron .",
+    "paket:mac": "electron-builder --mac",
+    "paket:win": "electron-builder --win"
+  },
+  "dependencies": {
+    "uiohook-napi": "^1.5.5"
+  },
+  "devDependencies": {
+    "electron": "^44.5.1",
+    "electron-builder": "^26.15.3"
+  },
+  "build": {
+    "appId": "dev.kuronami.os",
+    "productName": "Kuro OS",
+    "directories": { "output": "dist", "buildResources": "bild" },
+    "files": ["main.cjs", "preload.cjs", "insel-preload.cjs", "*.html", "bild/**"],
+    "mac": {
+      "target": ["dmg"],
+      "category": "public.app-category.productivity",
+      "icon": "bild/icon.png",
+      "identity": null,
+      "extendInfo": {
+        "NSMicrophoneUsageDescription": "Kuro hört zu, solange Sie die Sprechtaste halten."
+      }
+    },
+    "win": {
+      "target": ["nsis"],
+      "icon": "bild/icon.png"
+    },
+    "nsis": {
+      "oneClick": true,
+      "perMachine": false
+    }
+  }
+}
