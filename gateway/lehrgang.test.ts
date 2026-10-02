@@ -23,6 +23,8 @@ import {
 } from "./lehrgang.js";
 import { type Transkript, type Video, createWissen } from "./wissen.js";
 
+const BRAIN_TL = path.join("brain", "Wissen", "TradingLab");
+
 // Die Tests rechnen mit der Vorgabe (nachts, 15) — nicht mit dem, was gerade in der .env steht.
 delete process.env.KURO_LEHRGANG_FENSTER;
 delete process.env.KURO_LEHRGANG_JE_NACHT;
@@ -356,7 +358,7 @@ const video = (id: string, kalibrierung = false): Video => ({
 describe("createLehrgang", () => {
   it("arbeitet in Kuros Schlange Video um Video ab, Kalibrierung zuerst, und legt Notizen ab", async () => {
     const liste = [video("a"), video("k", true), video("o", true)];
-    const { ordner, wissen, lehrgang, schreibe, schlange } = await aufbau({
+    const { workdir, wissen, lehrgang, schreibe, schlange } = await aufbau({
       videos: liste,
       ohne: [video("o").id],
     });
@@ -370,7 +372,7 @@ describe("createLehrgang", () => {
     expect(schreibe).toHaveBeenCalledTimes(2);
     expect(schreibe.mock.calls[0]?.[1]).toContain("Transcript of kxxxxxxxxxx");
     expect(schlange()).toBe(2);
-    const notiz = await readFile(path.join(ordner, "notizen", `${video("k").id}.md`), "utf8");
+    const notiz = await readFile(path.join(workdir, BRAIN_TL, `${video("k").id}.md`), "utf8");
     expect(notiz).toContain("# Video k");
     expect(notiz).toContain("Kalibrierungsvideo");
     expect(await wissen.stand("tradinglab")).toMatchObject({
@@ -466,13 +468,13 @@ describe("createLehrgang", () => {
   });
 
   it("schreibt nichts Geheimes in die Notiz", async () => {
-    const { ordner, lehrgang } = await aufbau({
+    const { workdir, lehrgang } = await aufbau({
       videos: [video("a")],
       antwort: () =>
         ANTWORT.replace("keine", "- Login mit postgres://kuro:geheim123@db:5432 [1:00]"),
     });
     await lehrgang.takt();
-    const notiz = await readFile(path.join(ordner, "notizen", `${video("a").id}.md`), "utf8");
+    const notiz = await readFile(path.join(workdir, BRAIN_TL, `${video("a").id}.md`), "utf8");
     expect(notiz).toContain("Login mit postgres://kuro:");
     expect(notiz).not.toContain("geheim123");
   });

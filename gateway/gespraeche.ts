@@ -2,6 +2,7 @@ import { mkdir, readFile, readdir, rename, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { createSdkMcpServer, tool } from "@anthropic-ai/claude-agent-sdk";
 import { z } from "zod";
+import { suche as brainSuche } from "./brain.js";
 
 /**
  * Das Gesprächsarchiv (2026-09-27): Kuros Unterhaltung wird regelmäßig abgelegt, nach Tagen, im
@@ -17,7 +18,7 @@ import { z } from "zod";
  * Deshalb nachts, wenn niemand spricht:
  *
  * 1. Die Rohdatei der Sitzung (`~/.claude/projects/…/<id>.jsonl`) wird gelesen und je Kalendertag
- *    (Wiener Zeit) als lesbarer Wortlaut abgelegt: `ablage/gespraeche/2026/2026-09-27.md`. Werkzeug-
+ *    (Wiener Zeit) als lesbarer Wortlaut abgelegt: `brain/Gespräche/2026/2026-09-27.md`. Werkzeug-
  *    aufrufe stehen als eine kursive Zeile da, Berichte der Bediensteten im Wortlaut, Gedanken und
  *    Rohdaten nicht.
  * 2. Ein Modell schreibt die **Übergabe**: was offen ist, was Jakob festgelegt hat, worauf er sich
@@ -506,7 +507,7 @@ export interface Gespraechsarchiv {
 }
 
 export function createGespraechsarchiv(deps: GespraecheDeps): Gespraechsarchiv {
-  const wurzel = path.join(deps.workdir, "ablage", "gespraeche");
+  const wurzel = path.join(deps.workdir, "brain", "Gespräche");
   const verzeichnisDatei = path.join(wurzel, "verzeichnis.json");
   const uebergabeDatei = path.join(deps.workdir, "notizen", "uebergabe.md");
   const jetzt = deps.jetzt ?? (() => new Date());
@@ -529,7 +530,7 @@ export function createGespraechsarchiv(deps: GespraecheDeps): Gespraechsarchiv {
     }
   }
 
-  function inhaltsverzeichnis(v: Verzeichnis): string {
+  function inhaltsverzeichnis(v: Verzeichnis, uebergaben: readonly string[] = []): string {
     const zeilen = Object.values(v.tage)
       .sort((a, b) => b.tag.localeCompare(a.tag))
       .map((t) => `| [${tagName(t.tag)}](${t.datei}) | ${t.nachrichten} | ${t.themen ?? "—"} |`);
@@ -543,6 +544,17 @@ export function createGespraechsarchiv(deps: GespraecheDeps): Gespraechsarchiv {
       "|---|---|---|",
       ...zeilen,
       "",
+      ...(uebergaben.length > 0
+        ? [
+            "## Übergaben",
+            "",
+            ...[...uebergaben]
+              .sort()
+              .reverse()
+              .map((tag) => `- [Übergabe bis ${tagName(tag)}](uebergaben/${tag}.md)`),
+            "",
+          ]
+        : []),
     ].join("\n");
   }
 
@@ -558,7 +570,7 @@ export function createGespraechsarchiv(deps: GespraecheDeps): Gespraechsarchiv {
       for (const name of await readdir(path.join(wurzel, jahr))) {
         if (!name.endsWith(".md")) continue;
         const inhalt = await lies(path.join(wurzel, jahr, name));
-        if (inhalt) funde.push({ pfad: `ablage/gespraeche/${jahr}/${name}`, inhalt });
+        if (inhalt) funde.push({ pfad: `brain/Gespräche/${jahr}/${name}`, inhalt });
       }
     }
     return funde;
@@ -604,7 +616,6 @@ export function createGespraechsarchiv(deps: GespraecheDeps): Gespraechsarchiv {
       const liste = [...tage.keys()];
       v.sitzungen[sitzung] = { archiviert: jetzt().toISOString(), anlass, tage: liste };
       await writeFile(verzeichnisDatei, JSON.stringify(v, null, 2), "utf8");
-      await writeFile(path.join(wurzel, "INDEX.md"), inhaltsverzeichnis(v), "utf8");
 
       const letzterTag = liste.at(-1) as string;
       await mkdir(path.join(wurzel, "uebergaben"), { recursive: true });
@@ -614,6 +625,10 @@ export function createGespraechsarchiv(deps: GespraecheDeps): Gespraechsarchiv {
         kopf + uebergabe,
         "utf8",
       );
+      const uebergaben = (await readdir(path.join(wurzel, "uebergaben")))
+        .filter((n) => n.endsWith(".md"))
+        .map((n) => n.replace(/\.md$/, ""));
+      await writeFile(path.join(wurzel, "INDEX.md"), inhaltsverzeichnis(v, uebergaben), "utf8");
       if (aktuell) {
         await mkdir(path.dirname(uebergabeDatei), { recursive: true });
         // Erst daneben, dann umbenennen: ein halb geschriebener Systemprompt wäre schlimmer als
@@ -637,7 +652,7 @@ export function createGespraechsarchiv(deps: GespraecheDeps): Gespraechsarchiv {
         "",
         "## Übergabe aus deinem letzten Gespräch",
         "",
-        `Dein voriges Gespräch mit Jakob${bis ? ` (bis ${tagName(bis)})` : ""} ist archiviert. Hier steht, was davon weiter gilt. Den Wortlaut findest du mit \`im_archiv_suchen\` oder über \`ablage/gespraeche/INDEX.md\` — schau dort nach, bevor du Jakob nach etwas fragst, das ihr schon besprochen habt.`,
+        `Dein voriges Gespräch mit Jakob${bis ? ` (bis ${tagName(bis)})` : ""} ist archiviert. Hier steht, was davon weiter gilt. Den Wortlaut findest du mit \`im_archiv_suchen\` oder über \`brain/Gespräche/INDEX.md\` — schau dort nach, bevor du Jakob nach etwas fragst, das ihr schon besprochen habt.`,
         "",
         roh.replace(/<!--[^>]*-->\n?/, "").trim(),
       ].join("\n");
@@ -657,7 +672,9 @@ export function createGespraechsarchiv(deps: GespraecheDeps): Gespraechsarchiv {
 
 export const ARCHIV_TOOL = "mcp__gedaechtnis__im_archiv_suchen";
 
-export function createGedaechtnis(archiv: Gespraechsarchiv) {
+export const BRAIN_TOOL = "mcp__gedaechtnis__im_brain_suchen";
+
+export function createGedaechtnis(archiv: Gespraechsarchiv, workdir?: string) {
   const suchen = tool(
     "im_archiv_suchen",
     [
@@ -674,11 +691,36 @@ export function createGedaechtnis(archiv: Gespraechsarchiv) {
       const funde = await archiv.suche(suche, hoechstens ?? 6);
       const text =
         funde.length === 0
-          ? `Nichts gefunden für „${suche}". Mit weniger oder anderen Wörtern versuchen; das Inhaltsverzeichnis steht in ablage/gespraeche/INDEX.md.`
+          ? `Nichts gefunden für „${suche}". Mit weniger oder anderen Wörtern versuchen; das Inhaltsverzeichnis steht in brain/Gespräche/INDEX.md.`
           : funde.map((f) => `${f.tag} ${f.kopf}\n${f.auszug}\n→ ${f.datei}`).join("\n\n");
       return { content: [{ type: "text" as const, text }] };
     },
     { annotations: { title: "Im Gesprächsarchiv suchen", readOnlyHint: true } },
   );
-  return createSdkMcpServer({ name: "gedaechtnis", version: "1.0.0", tools: [suchen] });
+  const imBrain = tool(
+    "im_brain_suchen",
+    [
+      "Im Brain suchen — Jakobs Obsidian-Vault unter workspace/brain: Journal, Watchlist, Regeln,",
+      "Strategien, Analysen, Wissen, Gespräche, Planung. Gefunden wird, wo alle Wörter vorkommen;",
+      "du bekommst Pfad und passende Zeilen. Ganz liest du mit Read (brain/<Pfad>).",
+    ].join("\n"),
+    {
+      suche: z.string().min(2).max(120).describe("Ein bis drei Wörter, z. B. „Siemens Watchlist“."),
+      hoechstens: z.number().int().min(1).max(12).optional(),
+    },
+    async ({ suche: s, hoechstens }) => {
+      if (!workdir)
+        return { content: [{ type: "text" as const, text: "Kein Brain eingerichtet." }] };
+      const funde = await brainSuche(workdir, s, hoechstens ?? 8);
+      const text =
+        funde.length === 0
+          ? `Nichts im Brain für „${s}". Mit weniger oder anderen Wörtern versuchen, oder bei START.md beginnen.`
+          : funde
+              .map((f) => `brain/${f.pfad}\n${f.zeilen.map((z) => `  ${z}`).join("\n")}`)
+              .join("\n\n");
+      return { content: [{ type: "text" as const, text }] };
+    },
+    { annotations: { title: "Im Brain suchen", readOnlyHint: true } },
+  );
+  return createSdkMcpServer({ name: "gedaechtnis", version: "1.0.0", tools: [suchen, imBrain] });
 }

@@ -2,6 +2,7 @@ import { timingSafeEqual } from "node:crypto";
 import { mkdir, readFile, readdir, rename, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
 import type { Express, NextFunction, Request, Response } from "express";
+import { WISSEN_ORDNER } from "./brain-pflege.js";
 import { bearerToken } from "./identity.js";
 
 /**
@@ -152,6 +153,9 @@ export function createWissen(opt: { workdir: string }): WissenAblage {
     if (!KANAL.test(kanal)) throw new WissenFehler("Unbekannter Kanal.");
     return path.join(opt.workdir, "wissen", kanal);
   };
+  // Die Notizen liegen im Brain (Wissen/<Ordner>); Liste und Transkripte bleiben in wissen/.
+  const notizOrdner = (kanal: string) =>
+    path.join(opt.workdir, "brain", "Wissen", WISSEN_ORDNER[kanal] ?? path.basename(ordner(kanal)));
 
   async function inventar(kanal: string): Promise<Video[]> {
     try {
@@ -169,7 +173,7 @@ export function createWissen(opt: { workdir: string }): WissenAblage {
   }
 
   async function notizen(kanal: string): Promise<Map<string, Date>> {
-    const ziel = path.join(ordner(kanal), "notizen");
+    const ziel = notizOrdner(kanal);
     const da = new Map<string, Date>();
     let dateien: string[];
     try {
@@ -263,7 +267,7 @@ export function createWissen(opt: { workdir: string }): WissenAblage {
 
     async notiz(kanal, id) {
       try {
-        return await readFile(path.join(ordner(kanal), "notizen", `${videoId(id)}.md`), "utf8");
+        return await readFile(path.join(notizOrdner(kanal), `${videoId(id)}.md`), "utf8");
       } catch (error) {
         if ((error as NodeJS.ErrnoException).code === "ENOENT") return null;
         throw error;
@@ -271,7 +275,7 @@ export function createWissen(opt: { workdir: string }): WissenAblage {
     },
 
     async legeNotiz(kanal, id, text) {
-      const ziel = path.join(ordner(kanal), "notizen");
+      const ziel = notizOrdner(kanal);
       await mkdir(ziel, { recursive: true });
       const datei = path.join(ziel, `${videoId(id)}.md`);
       // Erst daneben, dann umbenennen: eine halbe Notiz zählte sonst als durchgearbeitet.

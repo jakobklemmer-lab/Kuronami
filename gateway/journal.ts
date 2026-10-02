@@ -1,43 +1,33 @@
+import { randomBytes } from "node:crypto";
+import { mkdir, readFile, readdir, stat, writeFile } from "node:fs/promises";
+import path from "node:path";
 import { createSdkMcpServer, tool } from "@anthropic-ai/claude-agent-sdk";
 import { z } from "zod";
 import {
-  type NotionClient,
-  NotionFehler,
-  auswahl,
-  createNotionClient,
-  datum,
-  lies,
-  mehrfach,
-  status as statusWert,
-  text as textWert,
-  titel,
-  zahl,
-} from "./integrations/notion.js";
+  type Verzeichnis,
+  type Wert,
+  brainPfad,
+  dateiname,
+  leseNotiz,
+  schreibeNotiz,
+  schreibeVerzeichnis,
+} from "./brain.js";
 
 /**
- * Jakobs Trading Journal in Notion — die Werkzeuge, mit denen sein Personal darin schreibt.
+ * Jakobs Trading-Journal im Brain (seit 02.10., vorher Notion): eine Notiz je Trade, je
+ * Watchlist-Eintrag, je Lektion, dazu Regeln und Setups als eigene Seiten. Werkzeugnamen und
+ * Parameter sind geblieben — die Prompts von journal und boerse gelten unverändert.
  *
- * **Warum das ein Bediensteter bedient und nicht Kuro selbst.** Jakobs Einwand, wörtlich:
- * „bevor wir Kuro wieder zu viel erledigen lassen gib ihm einen Notion Agenten der Notion
- * bedienen kann für ihn, sonst läuft wieder zu viel Kontext mit." Jedes Werkzeugschema hier
- * kostet in **jedem** Modellaufruf Token, auch bei „wie wird das Wetter". Der Butler trägt
- * deshalb nichts selbst ein; er gibt es weiter, wie er es mit Post und Märkten auch tut.
- *
- * **Warum ein Regelverstoß den Eintrag nicht verhindert.** Jakobs Regelseite sagt: „Bei jedem
- * Verstoß gegen diese Regeln ist der Trade automatisch als ‚Plan befolgt = Nein' markiert,
- * unabhängig vom Ergebnis." Genau das tut `journal_anlegen` — es weist nicht ab, es
- * protokolliert. Ein Journal, das unbequeme Trades nicht enthält, ist die teuerste Art von
- * Statistik: eine, die immer gut aussieht. Die Regelseite sagt es selbst — „ein Journal, das
- * nicht aktualisiert wird, ist schlechter als keines".
+ * Ein Regelverstoß verhindert keinen Eintrag; er setzt `plan_befolgt: Nein` und steht in der
+ * Notiz. Ein Journal, das unbequeme Trades nicht enthält, sieht immer gut aus.
  */
 
-/** Die Kennungen aus Jakobs Notion-Arbeitsbereich — nur in der .env, das Repo ist öffentlich. */
-export const JOURNAL_IDS = {
-  trades: process.env.NOTION_TRADES_DB ?? "",
-  lektionen: process.env.NOTION_LEKTIONEN_DB ?? "",
-  regeln: process.env.NOTION_REGELN_PAGE ?? "",
-  setups: process.env.NOTION_SETUPS_PAGE ?? "",
-  watchlist: process.env.NOTION_WATCHLIST_DB ?? "",
+export const JOURNAL = {
+  trades: "Trading/Journal",
+  watchlist: "Trading/Watchlist",
+  lektionen: "Trading/Lektionen",
+  regeln: "Trading/Regeln.md",
+  setups: "Trading/Setups.md",
 } as const;
 
 /** Jakobs Kapitalregeln, als Zahlen — geprüft wird gegen diese, nicht gegen eine Erinnerung. */
@@ -47,10 +37,19 @@ export const KAPITALREGELN = {
   maxKumuliertesRisikoProzent: 3,
 } as const;
 
+export type Felder = Record<string, Wert>;
+export interface Notiz {
+  /** Pfad relativ zum Brain. */
+  datei: string;
+  felder: Felder;
+  inhalt: string;
+}
+
 export interface JournalDeps {
-  notion?: NotionClient;
-  /** Nur die drei Werkzeuge zum Nachsehen — für den Handelstisch, der nicht schreibt. */
+  workdir?: string;
+  /** Nur die Werkzeuge zum Nachsehen — für den Handelstisch, der nicht schreibt. */
   nurLesen?: boolean;
+  heute?: () => string;
 }
 
 function antwort(inhalt: string, fehler = false) {
@@ -60,36 +59,30 @@ function antwort(inhalt: string, fehler = false) {
   };
 }
 
-const NICHT_VERBUNDEN =
-  "Das Trading Journal ist nicht verbunden: in der Umgebung fehlt NOTION_TOKEN. Jakob legt " +
-  "dafür unter notion.so/my-integrations eine interne Integration an, trägt das Geheimnis in " +
-  "den Einstellungen ein und teilt die Seite „Trading Journal“ mit ihr. Bis dahin wird hier " +
-  "nichts eingetragen — und nichts behauptet.";
+const zahlAus = (f: Felder, k: string): number | null => {
+  const w = f[k];
+  return typeof w === "number" ? w : null;
+};
+const textAus = (f: Felder, k: string): string => {
+  const w = f[k];
+  return typeof w === "string" ? w : "";
+};
 
-function heute(): string {
-  return new Date().toISOString().slice(0, 10);
+export function neueKennung(): string {
+  return randomBytes(4).toString("hex");
 }
 
-/** Der Ergebnistext einer offenen Zeile, kurz. */
-export function zeileKurz(eigenschaften: Record<string, unknown>): string {
-  const nr = lies(eigenschaften["Trade-Nr"]);
-  const instrument = lies(eigenschaften.Instrument);
-  const richtung = lies(eigenschaften.Richtung);
-  const entry = lies(eigenschaften["Entry-Preis"]);
-  const stop = lies(eigenschaften["Initialer Stop"]);
-  const ziel = lies(eigenschaften.Ziel);
-  const risiko = lies(eigenschaften["Risiko %"]);
-  const risikoText = typeof risiko === "number" ? `${risiko.toFixed(2)} %` : "—";
-  return `${nr || "(ohne Nummer)"}  ${instrument || "?"} ${richtung || ""}  Entry ${entry ?? "?"}, Stop ${stop ?? "?"}, Ziel ${ziel ?? "?"}, Risiko ${risikoText}`;
+/** Ein Trade, kurz — mit Kennung, damit er sich schließen lässt. */
+export function zeileKurz(f: Felder): string {
+  const risiko = zahlAus(f, "risiko_prozent");
+  const risikoText = risiko !== null ? `${risiko.toFixed(2)} %` : "—";
+  return `${textAus(f, "nr") || "(ohne Nummer)"}  ${textAus(f, "instrument") || "?"} ${textAus(f, "richtung")}  Entry ${zahlAus(f, "entry") ?? "?"}, Stop ${zahlAus(f, "stop") ?? "?"}, Ziel ${zahlAus(f, "ziel") ?? "?"}, Risiko ${risikoText}  (Kennung ${textAus(f, "id") || "?"})`;
 }
 
-/**
- * Welche Kapitalregeln dieser Trade verletzt — geprüft gegen die offenen Zeilen im Journal,
- * nicht gegen das Gedächtnis des Modells.
- */
+/** Welche Kapitalregeln dieser Trade verletzt — gegen die offenen Trades im Journal. */
 export function regelverstoesse(
   neu: { risikoProzent?: number },
-  offene: readonly Record<string, unknown>[],
+  offene: readonly Felder[],
 ): string[] {
   const verstoesse: string[] = [];
   const risiko = neu.risikoProzent ?? 0;
@@ -103,11 +96,7 @@ export function regelverstoesse(
       `Mit diesem Trade wären ${offene.length + 1} Positionen offen; erlaubt sind ${KAPITALREGELN.maxOffenePositionen} (Kapitalregel 2).`,
     );
   }
-  const summe =
-    offene.reduce((a, zeile) => {
-      const wert = lies(zeile["Risiko %"]);
-      return a + (typeof wert === "number" ? wert : 0);
-    }, 0) + risiko;
+  const summe = offene.reduce((a, f) => a + (zahlAus(f, "risiko_prozent") ?? 0), 0) + risiko;
   if (summe > KAPITALREGELN.maxKumuliertesRisikoProzent) {
     verstoesse.push(
       `Kumuliertes Risiko der offenen Positionen wäre ${summe.toFixed(2)} %; erlaubt sind ${KAPITALREGELN.maxKumuliertesRisikoProzent} % (Kapitalregel 3).`,
@@ -116,8 +105,7 @@ export function regelverstoesse(
   return verstoesse;
 }
 
-/** Ein Trade, wie das Werkzeug ihn annimmt. Eigene Form, damit die Zuordnung auf die
- *  Notion-Spalten prüfbar ist, ohne einen Modellauf zu starten. */
+/** Ein Trade, wie das Werkzeug ihn annimmt. */
 export interface TradeEintrag {
   instrument: string;
   richtung: "Long" | "Short";
@@ -134,13 +122,7 @@ export interface TradeEintrag {
   tradeNr?: string;
 }
 
-/**
- * Liegen Stop und Ziel auf der richtigen Seite des Einstiegs?
- *
- * Das ist keine Geschmacksfrage: ein Long mit Stop über dem Einstieg ist keine Position,
- * sondern ein Tippfehler — und eine Zeile mit vertauschten Zahlen verdirbt jede spätere
- * Auswertung, ohne dass man es der Statistik ansieht. Deshalb wird sie nicht eingetragen.
- */
+/** Liegen Stop und Ziel auf der richtigen Seite des Einstiegs? Vertauschte Zahlen werden nicht eingetragen. */
 export function zahlenFehler(eingabe: {
   richtung: "Long" | "Short";
   entry: number;
@@ -157,60 +139,54 @@ export function zahlenFehler(eingabe: {
   return null;
 }
 
-/**
- * Der Trade als Notion-Eigenschaften.
- *
- * Die Spaltennamen stehen hier als Zeichenketten und müssen auf das Zeichen zu Jakobs
- * Datenbank passen — „Plan befolgt?" mit Fragezeichen, „Positionsgröße" mit ß, „Risiko %"
- * mit Leerzeichen. Notion nimmt eine unbekannte Spalte nicht stillschweigend an, aber sie
- * fällt erst beim Eintragen auf, und dann steht Jakob mit einem halben Journal da. Darum
- * eine eigene Funktion, die ein Test nachrechnen kann.
- */
-export function eintragEigenschaften(
+/** Die Eigenschaften einer Trade-Notiz. Prozent stehen als Prozent: 1 heißt ein Prozent. */
+export function tradeFelder(
   eingabe: TradeEintrag,
   verstoesse: readonly string[],
-  tag = heute(),
-): Record<string, unknown> {
-  const notizen = [
-    eingabe.notizen ?? "",
-    verstoesse.length > 0 ? `Regelverstoß: ${verstoesse.join(" ")}` : "",
-  ]
-    .filter((zeile) => zeile !== "")
-    .join("\n\n");
-
+  tag: string,
+  id: string,
+): Felder {
   return {
-    "Trade-Nr": titel(eingabe.tradeNr ?? `${eingabe.instrument} ${tag}`),
-    Datum: datum(tag),
-    Instrument: textWert(eingabe.instrument),
-    Richtung: auswahl(eingabe.richtung),
-    "Entry-Preis": zahl(eingabe.entry),
-    "Initialer Stop": zahl(eingabe.stop),
-    Ziel: zahl(eingabe.ziel),
-    Status: auswahl("Offen"),
-    "Plan befolgt?": auswahl(verstoesse.length > 0 ? "Nein" : "Ja"),
-    ...(eingabe.setup ? { Setup: auswahl(eingabe.setup) } : {}),
-    ...(eingabe.timeframe ? { Timeframe: auswahl(eingabe.timeframe) } : {}),
-    ...(eingabe.positionsgroesse ? { Positionsgröße: zahl(eingabe.positionsgroesse) } : {}),
-    // **Prozent stehen als Prozent in der Spalte, nicht als Dezimalanteil**: 1 heißt ein
-    // Prozent, nicht 0,01. Jakobs Vorgabe vom 2026-09-21 („zwecks Prüfzeile hätt ich gern,
-    // dass tatsächlich prozent geschrieben werden nicht prozent in dezimal") — und so stehen
-    // auch seine vorhandenen Zeilen da. Wer das später auf den Anteil umstellt, muss die drei
-    // Lesestellen mitnehmen: `zeileKurz`, `regelverstoesse` und die Summe in `journal_offen`.
-    ...(eingabe.risikoProzent !== undefined ? { "Risiko %": zahl(eingabe.risikoProzent) } : {}),
-    ...(eingabe.emotionVorher ? { "Emotion vorher": textWert(eingabe.emotionVorher) } : {}),
-    ...(notizen ? { Notizen: textWert(notizen) } : {}),
-    ...(eingabe.tags && eingabe.tags.length > 0 ? { Tags: mehrfach(eingabe.tags) } : {}),
+    art: "trade",
+    id,
+    nr: eingabe.tradeNr ?? `${eingabe.instrument} ${tag}`,
+    datum: tag,
+    instrument: eingabe.instrument,
+    richtung: eingabe.richtung,
+    entry: eingabe.entry,
+    stop: eingabe.stop,
+    ziel: eingabe.ziel,
+    status: "Offen",
+    plan_befolgt: verstoesse.length > 0 ? "Nein" : "Ja",
+    setup: eingabe.setup ?? null,
+    timeframe: eingabe.timeframe ?? null,
+    positionsgroesse: eingabe.positionsgroesse ?? null,
+    risiko_prozent: eingabe.risikoProzent ?? null,
+    emotion_vorher: eingabe.emotionVorher ?? null,
+    tags: eingabe.tags && eingabe.tags.length > 0 ? [...eingabe.tags] : null,
   };
 }
 
-/**
- * Welche der vorhandenen Optionen gemeint ist — oder keine.
- *
- * Erst genau (ohne Rücksicht auf Groß- und Kleinschreibung), dann eindeutig enthalten: „Setup 1"
- * trifft „Setup 1 Pullback EMA 20", solange es nur eines gibt, das so anfängt. Bei zwei
- * Treffern ist nichts gemeint — dann soll gefragt und nicht geraten werden. Ein Treffer ist
- * immer eine **vorhandene** Option; diese Funktion kann keine neue erfinden.
- */
+export function tradeInhalt(eingabe: TradeEintrag, verstoesse: readonly string[]): string {
+  const teile = [
+    `# ${eingabe.instrument} ${eingabe.richtung}`,
+    "",
+    "## These",
+    eingabe.notizen?.trim() || "_—_",
+  ];
+  if (verstoesse.length > 0) teile.push("", "## Regelverstöße", ...verstoesse.map((v) => `- ${v}`));
+  return teile.join("\n");
+}
+
+/** Ergebnis in R: wie viele Risikoeinheiten gewonnen oder verloren. */
+export function ergebnisR(f: Felder, exit: number): number | null {
+  const entry = zahlAus(f, "entry");
+  const stop = zahlAus(f, "stop");
+  if (entry === null || stop === null || entry === stop) return null;
+  return Math.round(((exit - entry) / (entry - stop)) * 100) / 100;
+}
+
+/** Welche vorhandene Option gemeint ist: erst genau, dann eindeutig enthalten; sonst keine. */
 export function passendeOption(wunsch: string, optionen: readonly string[]): string | null {
   const gesucht = wunsch.trim().toLowerCase();
   if (gesucht === "") return null;
@@ -222,71 +198,133 @@ export function passendeOption(wunsch: string, optionen: readonly string[]): str
   return enthalten.length === 1 ? enthalten[0] : null;
 }
 
-/** Eine Zeile der Watchlist, kurz — Instrument, Grund, die beiden Marken, der Auslöser. */
-export function watchlistKurz(eigenschaften: Record<string, unknown>): string {
-  const instrument = lies(eigenschaften.Instrument) || "?";
-  const grund = lies(eigenschaften.Grund);
-  const unten = lies(eigenschaften["Support-Level"]);
-  const oben = lies(eigenschaften["Resistance-Level"]);
-  const ausloeser = lies(eigenschaften["Setup-Trigger"]);
-  const status = lies(eigenschaften.Status);
+/** Ein Watchlist-Eintrag, kurz — Instrument, Status, Marken, Auslöser, Grund. */
+export function watchlistKurz(f: Felder): string {
+  const unten = zahlAus(f, "unterstuetzung");
+  const oben = zahlAus(f, "widerstand");
   const marken =
     unten !== null || oben !== null
       ? `  Unterstützung ${unten ?? "—"} / Widerstand ${oben ?? "—"}`
       : "";
-  return `${instrument}${status ? ` [${status}]` : ""}${marken}${ausloeser ? `  Auslöser: ${ausloeser}` : ""}${grund ? `  — ${grund}` : ""}`;
+  const ausloeser = textAus(f, "ausloeser");
+  const grund = textAus(f, "grund");
+  const status = textAus(f, "status");
+  return `${textAus(f, "instrument") || "?"}${status ? ` [${status}]` : ""}${marken}${ausloeser ? `  Auslöser: ${ausloeser}` : ""}${grund ? `  — ${grund}` : ""}`;
 }
 
-export function createJournal(deps: JournalDeps = {}) {
-  const notion =
-    deps.notion ??
-    (process.env.NOTION_TOKEN?.trim()
-      ? createNotionClient({ token: process.env.NOTION_TOKEN.trim() })
-      : null);
+// ------------------------------------------------------------------------------- Ablage
 
-  async function offeneZeilen(): Promise<Record<string, unknown>[]> {
-    if (!notion) return [];
-    const zeilen = await notion.frage(JOURNAL_IDS.trades, {
-      filter: { property: "Status", select: { equals: "Offen" } },
-      grenze: 25,
-    });
-    return zeilen.map((z) => z.eigenschaften);
+export async function liesOrdner(workdir: string, ordner: string): Promise<Notiz[]> {
+  let namen: string[];
+  try {
+    namen = (await readdir(brainPfad(workdir, ordner))).filter((n) => n.endsWith(".md"));
+  } catch {
+    return [];
   }
+  const notizen: Notiz[] = [];
+  for (const name of namen.sort()) {
+    const datei = path.join(ordner, name);
+    const { felder, inhalt } = leseNotiz(await readFile(brainPfad(workdir, datei), "utf8"));
+    notizen.push({ datei, felder, inhalt });
+  }
+  return notizen;
+}
+
+/** Die dokumentierten Setups: Eigenschaft `setups` der Setup-Seite. */
+export async function dokumentierteSetups(workdir: string): Promise<string[]> {
+  try {
+    const { felder } = leseNotiz(await readFile(brainPfad(workdir, JOURNAL.setups), "utf8"));
+    return Array.isArray(felder.setups) ? felder.setups : [];
+  } catch {
+    return [];
+  }
+}
+
+/** Ein freier Dateiname im Ordner: „Name.md", sonst „Name (2).md" … */
+async function freieDatei(workdir: string, ordner: string, titel: string): Promise<string> {
+  const basis = dateiname(titel);
+  for (let n = 1; ; n += 1) {
+    const datei = path.join(ordner, `${n === 1 ? basis : `${basis} (${n})`}.md`);
+    try {
+      await stat(brainPfad(workdir, datei));
+    } catch {
+      return datei;
+    }
+  }
+}
+
+async function lege(workdir: string, datei: string, text: string): Promise<void> {
+  await mkdir(path.dirname(brainPfad(workdir, datei)), { recursive: true });
+  await writeFile(brainPfad(workdir, datei), text, "utf8");
+}
+
+/** Die Verzeichnisseiten des Journals — über sie finden Kuro und Jakob jede Notiz. */
+export const JOURNAL_VERZEICHNISSE: Verzeichnis[] = [
+  {
+    seite: "Trading/Journal.md",
+    ordner: JOURNAL.trades,
+    titel: "Journal",
+    satz: "Jeder Trade eine Notiz, neueste zuerst. Geschlossene mit Ergebnis in R.",
+    absteigend: true,
+    anzeige: (f, name) => {
+      const ergebnis = typeof f.ergebnis_r === "number" ? `, ${f.ergebnis_r} R` : "";
+      return `${name} — ${f.status ?? "?"}${ergebnis}${f.plan_befolgt === "Nein" ? ", Plan nicht befolgt" : ""}`;
+    },
+  },
+  {
+    seite: "Trading/Watchlist.md",
+    ordner: JOURNAL.watchlist,
+    titel: "Watchlist",
+    satz: "Was Jakob beobachtet und auf welchen Auslöser er wartet.",
+    anzeige: (f, name) =>
+      `${name}${f.status ? ` [${f.status}]` : ""}${typeof f.grund === "string" ? ` — ${f.grund}` : ""}`,
+  },
+  {
+    seite: "Trading/Lektionen.md",
+    ordner: JOURNAL.lektionen,
+    titel: "Lektionen",
+    satz: "Erkenntnisse mit Konsequenz — jede mit der Regel, die daraus folgt.",
+  },
+];
+
+// ------------------------------------------------------------------------------ Werkzeuge
+
+export function createJournal(deps: JournalDeps = {}) {
+  const workdir = deps.workdir ?? process.env.KURO_WORKDIR?.trim() ?? "/opt/kuronami/workspace";
+  const heute = deps.heute ?? (() => new Date().toISOString().slice(0, 10));
+
+  const offeneTrades = async (): Promise<Notiz[]> =>
+    (await liesOrdner(workdir, JOURNAL.trades)).filter((n) => n.felder.status === "Offen");
+  const verzeichnis = async (seite: string): Promise<void> => {
+    const v = JOURNAL_VERZEICHNISSE.find((x) => x.seite === seite);
+    if (v) await schreibeVerzeichnis(workdir, v);
+  };
 
   const offen = tool(
     "journal_offen",
-    "Die offenen Trades im Journal — Instrument, Richtung, Einstieg, Stop, Ziel, Risiko. " +
+    "Die offenen Trades im Journal — Instrument, Richtung, Einstieg, Stop, Ziel, Risiko, Kennung. " +
       "Sieh hier nach, bevor eine neue Idee vorgeschlagen wird: Jakobs Regeln erlauben höchstens " +
       "drei offene Positionen und drei Prozent kumuliertes Risiko.",
     {},
     async () => {
-      if (!notion) return antwort(NICHT_VERBUNDEN, true);
-      try {
-        const zeilen = await offeneZeilen();
-        if (zeilen.length === 0) return antwort("Keine offenen Trades im Journal.");
-        const summe = zeilen.reduce((a, z) => {
-          const wert = lies(z["Risiko %"]);
-          return a + (typeof wert === "number" ? wert : 0);
-        }, 0);
-        return antwort(
-          [
-            `${zeilen.length} offene Position(en), zusammen ${summe.toFixed(2)} % Risiko (erlaubt: ${KAPITALREGELN.maxKumuliertesRisikoProzent} %):`,
-            "",
-            ...zeilen.map(zeileKurz),
-          ].join("\n"),
-        );
-      } catch (fehler) {
-        return antwort(fehler instanceof NotionFehler ? fehler.message : String(fehler), true);
-      }
+      const zeilen = (await offeneTrades()).map((n) => n.felder);
+      if (zeilen.length === 0) return antwort("Keine offenen Trades im Journal.");
+      const summe = zeilen.reduce((a, f) => a + (zahlAus(f, "risiko_prozent") ?? 0), 0);
+      return antwort(
+        [
+          `${zeilen.length} offene Position(en), zusammen ${summe.toFixed(2)} % Risiko (erlaubt: ${KAPITALREGELN.maxKumuliertesRisikoProzent} %):`,
+          "",
+          ...zeilen.map(zeileKurz),
+        ].join("\n"),
+      );
     },
     { annotations: { title: "Offene Trades ansehen", readOnlyHint: true } },
   );
 
   const regeln = tool(
     "journal_regeln",
-    "Jakobs Trading-Regeln und die dokumentierten Setups, direkt aus Notion gelesen. " +
-      "Er passt sie am Monatsende an — lies sie nach, statt dich auf eine ältere Fassung zu " +
-      "verlassen, wenn es um Regelkonformität geht.",
+    "Jakobs Trading-Regeln und die dokumentierten Setups im Wortlaut. Er passt sie am Monatsende " +
+      "an — lies sie nach, statt dich auf eine ältere Fassung zu verlassen.",
     {
       was: z
         .enum(["regeln", "setups", "beides"])
@@ -294,19 +332,19 @@ export function createJournal(deps: JournalDeps = {}) {
         .describe("Regelseite, Setup-Seite oder beides."),
     },
     async ({ was }) => {
-      if (!notion) return antwort(NICHT_VERBUNDEN, true);
-      try {
-        const teile: string[] = [];
-        if (was === "regeln" || was === "beides") {
-          teile.push(`# Meine Trading-Regeln\n${await notion.seitentext(JOURNAL_IDS.regeln)}`);
+      const teile: string[] = [];
+      for (const [art, datei] of [
+        ["regeln", JOURNAL.regeln],
+        ["setups", JOURNAL.setups],
+      ] as const) {
+        if (was !== "beides" && was !== art) continue;
+        try {
+          teile.push(leseNotiz(await readFile(brainPfad(workdir, datei), "utf8")).inhalt.trim());
+        } catch {
+          teile.push(`(${datei} fehlt im Brain)`);
         }
-        if (was === "setups" || was === "beides") {
-          teile.push(`# Strategie und Setups\n${await notion.seitentext(JOURNAL_IDS.setups)}`);
-        }
-        return antwort(teile.join("\n\n"));
-      } catch (fehler) {
-        return antwort(fehler instanceof NotionFehler ? fehler.message : String(fehler), true);
       }
+      return antwort(teile.join("\n\n"));
     },
     { annotations: { title: "Regeln und Setups lesen", readOnlyHint: true } },
   );
@@ -317,26 +355,20 @@ export function createJournal(deps: JournalDeps = {}) {
       "ob ein Muster sich wiederholt.",
     { grenze: z.number().int().min(1).max(25).default(10) },
     async ({ grenze }) => {
-      if (!notion) return antwort(NICHT_VERBUNDEN, true);
-      try {
-        const zeilen = await notion.frage(JOURNAL_IDS.trades, {
-          sorts: [{ property: "Datum", direction: "descending" }],
-          grenze,
-        });
-        if (zeilen.length === 0) return antwort("Das Journal ist leer.");
-        return antwort(
-          zeilen
-            .map((z) => {
-              const st = lies(z.eigenschaften.Status);
-              const plan = lies(z.eigenschaften["Plan befolgt?"]);
-              const exit = lies(z.eigenschaften["Exit-Preis"]);
-              return `${lies(z.eigenschaften.Datum) ?? "—"}  ${zeileKurz(z.eigenschaften)}  [${st ?? "?"}${exit !== null ? `, Exit ${exit}` : ""}${plan === "Nein" ? ", Plan NICHT befolgt" : ""}]`;
-            })
-            .join("\n"),
-        );
-      } catch (fehler) {
-        return antwort(fehler instanceof NotionFehler ? fehler.message : String(fehler), true);
-      }
+      const alle = (await liesOrdner(workdir, JOURNAL.trades)).sort((a, b) =>
+        String(b.felder.datum ?? "").localeCompare(String(a.felder.datum ?? "")),
+      );
+      if (alle.length === 0) return antwort("Das Journal ist leer.");
+      return antwort(
+        alle
+          .slice(0, grenze)
+          .map(({ felder: f }) => {
+            const exit = zahlAus(f, "exit");
+            const r = zahlAus(f, "ergebnis_r");
+            return `${f.datum ?? "—"}  ${zeileKurz(f)}  [${f.status ?? "?"}${exit !== null ? `, Exit ${exit}` : ""}${r !== null ? `, ${r} R` : ""}${f.plan_befolgt === "Nein" ? ", Plan NICHT befolgt" : ""}]`;
+          })
+          .join("\n"),
+      );
     },
     { annotations: { title: "Letzte Trades ansehen", readOnlyHint: true } },
   );
@@ -348,17 +380,9 @@ export function createJournal(deps: JournalDeps = {}) {
       "steht es schon drauf, ist die Frage nicht „ob“, sondern „ist der Auslöser da“.",
     {},
     async () => {
-      if (!notion) return antwort(NICHT_VERBUNDEN, true);
-      try {
-        const zeilen = await notion.frage(JOURNAL_IDS.watchlist, {
-          sorts: [{ property: "Aufnahme-Datum", direction: "descending" }],
-          grenze: 25,
-        });
-        if (zeilen.length === 0) return antwort("Die Watchlist ist leer.");
-        return antwort(zeilen.map((z) => watchlistKurz(z.eigenschaften)).join("\n"));
-      } catch (fehler) {
-        return antwort(fehler instanceof NotionFehler ? fehler.message : String(fehler), true);
-      }
+      const eintraege = await liesOrdner(workdir, JOURNAL.watchlist);
+      if (eintraege.length === 0) return antwort("Die Watchlist ist leer.");
+      return antwort(eintraege.map((n) => watchlistKurz(n.felder)).join("\n"));
     },
     { annotations: { title: "Watchlist ansehen", readOnlyHint: true } },
   );
@@ -369,10 +393,10 @@ export function createJournal(deps: JournalDeps = {}) {
       name: "journal",
       version: "1",
       instructions:
-        "Jakobs Trading Journal in Notion, lesend. `journal_offen` zeigt die offenen Positionen " +
+        "Jakobs Trading-Journal im Brain, lesend. `journal_offen` zeigt die offenen Positionen " +
         "samt Risiko, `journal_regeln` seine Regeln und Setups im Wortlaut, `journal_letzte` die " +
-        "jüngsten Einträge, `journal_watchlist` was er beobachtet. Eintragen und streichen tut " +
-        "der Bedienstete `journal`, nicht du — sag im Bericht, was eingetragen werden soll.",
+        "jüngsten Einträge, `journal_watchlist` was er beobachtet. Eintragen tut der Bedienstete " +
+        "`journal`, nicht du — sag im Bericht, was eingetragen werden soll.",
       tools: leseWerkzeuge,
     });
   }
@@ -386,9 +410,8 @@ export function createJournal(deps: JournalDeps = {}) {
       "offenen Positionen: höchstens 1 % Risiko je Trade, höchstens drei offene Positionen,",
       "höchstens 3 % kumuliertes Risiko.",
       "",
-      "Ein Verstoß verhindert den Eintrag **nicht** — er setzt „Plan befolgt?“ auf „Nein“ und",
-      "steht in den Notizen. So will Jakob es: das Journal soll die Wahrheit enthalten, auch",
-      "die unbequeme. Sag ihm im Bericht klar, welche Regel gerissen ist.",
+      "Ein Verstoß verhindert den Eintrag **nicht** — er setzt „Plan befolgt“ auf „Nein“ und",
+      "steht in der Notiz. Sag Jakob im Bericht klar, welche Regel gerissen ist.",
     ].join("\n"),
     {
       instrument: z.string().min(1).max(60).describe("Z. B. AAPL, ^GDAXI, BTC-USD."),
@@ -401,9 +424,8 @@ export function createJournal(deps: JournalDeps = {}) {
         .max(80)
         .optional()
         .describe(
-          'Name eines **dokumentierten** Setups, z. B. "Setup 1 Pullback EMA 20". Ein Name, ' +
-            "den die Setup-Seite nicht kennt, wird nicht eingetragen, sondern als Regelverstoß " +
-            "vermerkt — erfinde keinen.",
+          "Name eines **dokumentierten** Setups (Trading/Setups.md). Ein unbekannter Name wird nicht " +
+            "eingetragen, sondern als Regelverstoß vermerkt — erfinde keinen.",
         ),
       timeframe: z.enum(["Weekly", "Daily", "4h", "2h", "1h"]).optional(),
       positionsgroesse: z.number().positive().optional(),
@@ -423,50 +445,53 @@ export function createJournal(deps: JournalDeps = {}) {
         .describe("Eigene Nummer/Bezeichnung. Ohne Angabe: Instrument und Datum."),
     },
     async (eingabe) => {
-      if (!notion) return antwort(NICHT_VERBUNDEN, true);
       const fehler = zahlenFehler(eingabe);
       if (fehler) return antwort(fehler, true);
-
-      try {
-        const offene = await offeneZeilen();
-        const verstoesse = regelverstoesse({ risikoProzent: eingabe.risikoProzent }, offene);
-
-        // Das Setup muss auf Jakobs Setup-Seite stehen. Ein unbekannter Name legte in Notion
-        // sonst still eine **neue** Option an (passiert am 2026-09-21) — und seine
-        // Ausführungsregel 4 wäre damit nicht mehr prüfbar, sondern nur noch behauptet.
-        let setup = eingabe.setup;
-        if (setup) {
-          const optionen = await notion.auswahlOptionen(JOURNAL_IDS.trades, "Setup");
-          const treffer = passendeOption(setup, optionen);
-          if (treffer) {
-            setup = treffer;
-          } else {
-            verstoesse.push(
-              `Setup „${setup}“ ist nicht dokumentiert (Ausführungsregel 4: kein Trade, der nicht vollständig einem dokumentierten Setup entspricht). Dokumentiert sind: ${optionen.join(", ") || "noch keines"}. Die Spalte bleibt leer.`,
-            );
-            setup = undefined;
-          }
+      const verstoesse = regelverstoesse(
+        { risikoProzent: eingabe.risikoProzent },
+        (await offeneTrades()).map((n) => n.felder),
+      );
+      let setup = eingabe.setup;
+      if (setup) {
+        const optionen = await dokumentierteSetups(workdir);
+        const treffer = passendeOption(setup, optionen);
+        if (treffer) {
+          setup = treffer;
+        } else {
+          verstoesse.push(
+            `Setup „${setup}“ ist nicht dokumentiert (Ausführungsregel 4: kein Trade, der nicht vollständig einem dokumentierten Setup entspricht). Dokumentiert sind: ${optionen.join(", ") || "noch keines"}.`,
+          );
+          setup = undefined;
         }
-
-        const seite = await notion.erstelle(
-          JOURNAL_IDS.trades,
-          eintragEigenschaften({ ...eingabe, setup }, verstoesse),
-        );
-        const kopf = `Eingetragen: ${eingabe.instrument} ${eingabe.richtung}, Entry ${eingabe.entry}, Stop ${eingabe.stop}, Ziel ${eingabe.ziel} (Status Offen, Kennung ${seite.id.slice(0, 8)}).`;
-        if (verstoesse.length === 0) return antwort(`${kopf} Plan befolgt: Ja.`);
-        return antwort(
-          [
-            kopf,
-            "",
-            "**Plan befolgt: Nein** — so verlangt es Jakobs Regelseite bei jedem Verstoß:",
-            ...verstoesse.map((v) => `- ${v}`),
-            "",
-            "Sag ihm das im Bericht. Der Eintrag steht, der Verstoß auch.",
-          ].join("\n"),
-        );
-      } catch (fehler) {
-        return antwort(fehler instanceof NotionFehler ? fehler.message : String(fehler), true);
       }
+      const tag = heute();
+      const id = neueKennung();
+      const datei = await freieDatei(
+        workdir,
+        JOURNAL.trades,
+        `${tag} ${eingabe.instrument} ${eingabe.richtung}`,
+      );
+      await lege(
+        workdir,
+        datei,
+        schreibeNotiz(
+          tradeFelder({ ...eingabe, setup }, verstoesse, tag, id),
+          tradeInhalt(eingabe, verstoesse),
+        ),
+      );
+      await verzeichnis("Trading/Journal.md");
+      const kopf = `Eingetragen: ${eingabe.instrument} ${eingabe.richtung}, Entry ${eingabe.entry}, Stop ${eingabe.stop}, Ziel ${eingabe.ziel} (Status Offen, Kennung ${id}, ${datei}).`;
+      if (verstoesse.length === 0) return antwort(`${kopf} Plan befolgt: Ja.`);
+      return antwort(
+        [
+          kopf,
+          "",
+          "**Plan befolgt: Nein** — so verlangt es Jakobs Regelseite bei jedem Verstoß:",
+          ...verstoesse.map((v) => `- ${v}`),
+          "",
+          "Sag ihm das im Bericht. Der Eintrag steht, der Verstoß auch.",
+        ].join("\n"),
+      );
     },
     { annotations: { title: "Trade eintragen" } },
   );
@@ -474,12 +499,9 @@ export function createJournal(deps: JournalDeps = {}) {
   const schliessen = tool(
     "journal_schliessen",
     "Einen offenen Trade schließen: Ausstiegskurs, wie es lief, was zu lernen war. Setzt den " +
-      "Status auf „Geschlossen“. Jakobs Regel: am Tag des Ausstiegs, nicht später.",
+      "Status auf „Geschlossen“ und rechnet das Ergebnis in R. Jakobs Regel: am Tag des Ausstiegs.",
     {
-      seitenId: z
-        .string()
-        .min(8)
-        .describe("Kennung der Zeile aus `journal_offen` oder `journal_anlegen`."),
+      seitenId: z.string().min(6).describe("Kennung aus `journal_offen` oder `journal_anlegen`."),
       exit: z.number().positive(),
       rating: z
         .enum(["1", "2", "3", "4", "5"])
@@ -490,29 +512,33 @@ export function createJournal(deps: JournalDeps = {}) {
       planBefolgt: z.enum(["Ja", "Nein"]).optional(),
     },
     async ({ seitenId, exit, rating, emotionWaehrend, notizen, planBefolgt }) => {
-      if (!notion) return antwort(NICHT_VERBUNDEN, true);
-      try {
-        await notion.aktualisiere(seitenId, {
-          "Exit-Preis": zahl(exit),
-          Status: auswahl("Geschlossen"),
-          ...(rating ? { Rating: auswahl(rating) } : {}),
-          ...(emotionWaehrend ? { "Emotion während": textWert(emotionWaehrend) } : {}),
-          ...(notizen ? { Notizen: textWert(notizen) } : {}),
-          ...(planBefolgt ? { "Plan befolgt?": auswahl(planBefolgt) } : {}),
-        });
-        return antwort(`Geschlossen zu ${exit}. Das P&L rechnet Notion selbst aus der Formel.`);
-      } catch (fehler) {
-        return antwort(fehler instanceof NotionFehler ? fehler.message : String(fehler), true);
-      }
+      const trade = (await liesOrdner(workdir, JOURNAL.trades)).find(
+        (n) => n.felder.id === seitenId.trim(),
+      );
+      if (!trade) return antwort(`Kein Trade mit der Kennung ${seitenId} im Journal.`, true);
+      const r = ergebnisR(trade.felder, exit);
+      const felder: Felder = {
+        ...trade.felder,
+        status: "Geschlossen",
+        exit,
+        ausstieg: heute(),
+        ergebnis_r: r,
+        ...(rating ? { rating: Number(rating) } : {}),
+        ...(emotionWaehrend ? { emotion_waehrend: emotionWaehrend } : {}),
+        ...(planBefolgt ? { plan_befolgt: planBefolgt } : {}),
+      };
+      const inhalt = `${trade.inhalt.trim()}\n\n## Abschluss\nExit ${exit}${r !== null ? ` · ${r} R` : ""}${notizen ? `\n\n${notizen.trim()}` : ""}`;
+      await lege(workdir, trade.datei, schreibeNotiz(felder, inhalt));
+      await verzeichnis("Trading/Journal.md");
+      return antwort(`Geschlossen zu ${exit}${r !== null ? ` — ${r} R` : ""} (${trade.datei}).`);
     },
     { annotations: { title: "Trade schließen" } },
   );
 
   const lektion = tool(
     "journal_lektion",
-    "Eine Lektion in „Lessons Learned“ festhalten — was passiert ist und welche Regel daraus " +
-      "folgt. Nur für Erkenntnisse mit Konsequenz; eine Sammlung von Beobachtungen ohne Folge " +
-      "liest niemand zweimal.",
+    "Eine Lektion festhalten — was passiert ist und welche Regel daraus folgt. Nur für " +
+      "Erkenntnisse mit Konsequenz; Beobachtungen ohne Folge liest niemand zweimal.",
     {
       titel: z.string().min(3).max(120),
       kategorie: z.string().max(60).optional().describe("Z. B. Psychologie, Ausführung, Risiko."),
@@ -520,22 +546,22 @@ export function createJournal(deps: JournalDeps = {}) {
       konsequenz: z.string().max(600).optional().describe("Die neue oder geschärfte Regel."),
     },
     async (eingabe) => {
-      if (!notion) return antwort(NICHT_VERBUNDEN, true);
-      try {
-        const seite = await notion.erstelle(JOURNAL_IDS.lektionen, {
-          Titel: titel(eingabe.titel),
-          Datum: datum(heute()),
-          Beschreibung: textWert(eingabe.beschreibung),
-          Status: statusWert("Nicht begonnen"),
-          ...(eingabe.kategorie ? { Kategorie: textWert(eingabe.kategorie) } : {}),
-          ...(eingabe.konsequenz
-            ? { "Konsequenz / Neue Regel": textWert(eingabe.konsequenz) }
-            : {}),
-        });
-        return antwort(`Lektion festgehalten (${seite.id.slice(0, 8)}): ${eingabe.titel}`);
-      } catch (fehler) {
-        return antwort(fehler instanceof NotionFehler ? fehler.message : String(fehler), true);
-      }
+      const datei = await freieDatei(workdir, JOURNAL.lektionen, eingabe.titel);
+      await lege(
+        workdir,
+        datei,
+        schreibeNotiz(
+          {
+            art: "lektion",
+            datum: heute(),
+            kategorie: eingabe.kategorie ?? null,
+            status: "Nicht begonnen",
+          },
+          `# ${eingabe.titel}\n\n${eingabe.beschreibung.trim()}${eingabe.konsequenz ? `\n\n## Konsequenz\n${eingabe.konsequenz.trim()}` : ""}`,
+        ),
+      );
+      await verzeichnis("Trading/Lektionen.md");
+      return antwort(`Lektion festgehalten: ${eingabe.titel} (${datei}).`);
     },
     { annotations: { title: "Lektion festhalten" } },
   );
@@ -557,39 +583,38 @@ export function createJournal(deps: JournalDeps = {}) {
         .describe('Das Setup, auf das gewartet wird, z. B. "Setup 1 Pullback EMA 20".'),
     },
     async (eingabe) => {
-      if (!notion) return antwort(NICHT_VERBUNDEN, true);
-      try {
-        // Wie beim Eintragen: der Auslöser muss ein dokumentiertes Setup sein, sonst entsteht
-        // in Jakobs Spalte eine Option, die er nie angelegt hat.
-        let ausloeser = eingabe.ausloeser;
-        let hinweis = "";
-        if (ausloeser) {
-          const optionen = await notion.auswahlOptionen(JOURNAL_IDS.watchlist, "Setup-Trigger");
-          const treffer = passendeOption(ausloeser, optionen);
-          if (treffer) {
-            ausloeser = treffer;
-          } else {
-            hinweis = ` Der Auslöser „${ausloeser}“ steht nicht in der Spalte und wurde weggelassen — auswählbar sind: ${optionen.join(", ") || "noch nichts"}.`;
-            ausloeser = undefined;
-          }
+      let ausloeser = eingabe.ausloeser;
+      let hinweis = "";
+      if (ausloeser) {
+        const optionen = await dokumentierteSetups(workdir);
+        const treffer = passendeOption(ausloeser, optionen);
+        if (treffer) {
+          ausloeser = treffer;
+        } else {
+          hinweis = ` Der Auslöser „${ausloeser}“ ist kein dokumentiertes Setup und wurde weggelassen — dokumentiert sind: ${optionen.join(", ") || "noch keine"}.`;
+          ausloeser = undefined;
         }
-        await notion.erstelle(JOURNAL_IDS.watchlist, {
-          Instrument: titel(eingabe.instrument),
-          Grund: textWert(eingabe.grund),
-          "Aufnahme-Datum": datum(heute()),
-          Status: auswahl("Aktiv"),
-          ...(eingabe.unterstuetzung !== undefined
-            ? { "Support-Level": zahl(eingabe.unterstuetzung) }
-            : {}),
-          ...(eingabe.widerstand !== undefined
-            ? { "Resistance-Level": zahl(eingabe.widerstand) }
-            : {}),
-          ...(ausloeser ? { "Setup-Trigger": auswahl(ausloeser) } : {}),
-        });
-        return antwort(`${eingabe.instrument} steht auf der Watchlist: ${eingabe.grund}${hinweis}`);
-      } catch (fehler) {
-        return antwort(fehler instanceof NotionFehler ? fehler.message : String(fehler), true);
       }
+      const datei = await freieDatei(workdir, JOURNAL.watchlist, eingabe.instrument);
+      await lege(
+        workdir,
+        datei,
+        schreibeNotiz(
+          {
+            art: "watchlist",
+            instrument: eingabe.instrument,
+            status: "Aktiv",
+            aufnahme: heute(),
+            grund: eingabe.grund,
+            unterstuetzung: eingabe.unterstuetzung ?? null,
+            widerstand: eingabe.widerstand ?? null,
+            ausloeser: ausloeser ?? null,
+          },
+          `# ${eingabe.instrument}\n\n${eingabe.grund.trim()}`,
+        ),
+      );
+      await verzeichnis("Trading/Watchlist.md");
+      return antwort(`${eingabe.instrument} steht auf der Watchlist: ${eingabe.grund}${hinweis}`);
     },
     { annotations: { title: "Auf die Watchlist nehmen" } },
   );
@@ -598,7 +623,7 @@ export function createJournal(deps: JournalDeps = {}) {
     name: "journal",
     version: "1",
     instructions:
-      "Jakobs Trading Journal in Notion. `journal_anlegen` trägt einen Trade **vor** dem " +
+      "Jakobs Trading-Journal im Brain (Obsidian). `journal_anlegen` trägt einen Trade **vor** dem " +
       "Einstieg ein, `journal_schliessen` schließt ihn am Tag des Ausstiegs, `journal_offen` " +
       "zeigt die offenen Positionen samt Risiko, `journal_regeln` seine Regeln und Setups, " +
       "`journal_letzte` die jüngsten Einträge, `journal_lektion` hält eine Erkenntnis fest. " +

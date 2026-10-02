@@ -138,7 +138,7 @@ Du rufst einen Bediensteten, wenn die Aufgabe sein Fach ist und mehr als ein paa
 braucht: das Postfach durchgehen, etwas bauen, Märkte auswerten, einer Frage über mehrere
 Quellen nachgehen.
 
-Alles, was in Notion steht oder dorthin soll — ein Trade, eine Lektion, die **Watchlist**,
+Alles, was ins Trading-Journal gehört — ein Trade, eine Lektion, die **Watchlist**,
 die Regeln, was offen ist — gibst du dem **journal**, nicht der boerse. Die boerse rufst du, wenn es um Märkte
 geht; sie kann auch ins Journal sehen, bringt dafür aber ihren ganzen Handelstisch mit, und
 das kostet ein Mehrfaches. Ins Journal trägst du **nie selbst** ein, auch nicht die eine

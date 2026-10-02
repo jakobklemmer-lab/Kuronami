@@ -207,12 +207,12 @@ describe("leseUebergabe", () => {
 describe("sucheImArchiv", () => {
   const dateien = [
     {
-      pfad: "ablage/gespraeche/2026/2026-09-22.md",
+      pfad: "brain/Gespräche/2026/2026-09-22.md",
       inhalt:
         "# Tag\n\n### 17:36 · Jakob\n\nSiemens auf die Watchlist.\n\n### 17:40 · Kuro\n\nSehr wohl.",
     },
     {
-      pfad: "ablage/gespraeche/2026/2026-09-26.md",
+      pfad: "brain/Gespräche/2026/2026-09-26.md",
       inhalt: "# Tag\n\n### 09:00 · Jakob\n\nWas macht die Siemens Watchlist?",
     },
   ];
@@ -253,14 +253,17 @@ describe("das Archiv", () => {
     });
     const r = await archiv.archiviere("abc", roh, "nachts");
     expect(r).toMatchObject({ tage: ["2026-09-22", "2026-09-26", "2026-09-27"], nachrichten: 2 });
-    expect(await readdir(path.join(ordner, "ablage/gespraeche/2026"))).toEqual([
+    expect(await readdir(path.join(ordner, "brain/Gespräche/2026"))).toEqual([
       "2026-09-22.md",
       "2026-09-26.md",
       "2026-09-27.md",
     ]);
-    const index = await readFile(path.join(ordner, "ablage/gespraeche/INDEX.md"), "utf8");
+    const index = await readFile(path.join(ordner, "brain/Gespräche/INDEX.md"), "utf8");
     expect(index).toContain(
       "| [Dienstag, 22. September 2026](2026/2026-09-22.md) | 1 | Watchlist Deep Drive |",
+    );
+    expect(index).toContain(
+      "- [Übergabe bis Sonntag, 27. September 2026](uebergaben/2026-09-27.md)",
     );
     expect(await archiv.uebergabeAbschnitt()).toContain("Den Ticker von Deep Drive prüfen.");
     expect(await archiv.uebergabeAbschnitt()).toContain("bis Sonntag, 27. September 2026");

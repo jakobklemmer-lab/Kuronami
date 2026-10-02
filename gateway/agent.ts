@@ -16,11 +16,13 @@ import { type AboGrenzen, createAboGrenzen } from "./abo.js";
 import { grenzSatz, istFloskel, istGrenzText, zurueckUm } from "./abogrenze.js";
 import { nurEigeneServer } from "./abschottung.js";
 import { type AnalysenArchiv, createAnalysen } from "./analysen.js";
+import { startAbschnitt } from "./brain-pflege.js";
 import { BUEHNE_TOOLS, createBuehne } from "./buehne.js";
 import { schreibeEinmal } from "./einmal.js";
 import {
   ARCHIV_TOOL,
   type ArchivErgebnis,
+  BRAIN_TOOL,
   type Gespraechsarchiv,
   createGedaechtnis,
   createGespraechsarchiv,
@@ -88,6 +90,7 @@ const ALLOWED_WITHOUT_ASKING = [
   ...BUEHNE_TOOLS,
   // Nur lesend, nur im eigenen Archiv — dafür muss niemand gefragt werden.
   ARCHIV_TOOL,
+  BRAIN_TOOL,
 ];
 
 /**
@@ -370,7 +373,7 @@ export class KuroAgent {
           onVerbrauch: (posten) => this.#bucheVerbrauch(posten),
         }),
     });
-    this.#gedaechtnis = createGedaechtnis(this.#gespraeche);
+    this.#gedaechtnis = createGedaechtnis(this.#gespraeche, this.#workdir);
     // Der Lehrgang liest mit Sonnet: eine Notiz aus einem Transkript braucht kein großes Modell,
     // und über Nacht sind es bis zu fünfzehn. Gebucht wird unter Kuro, wofür: `lehrgang`.
     this.#wissen = createWissen({ workdir: this.#workdir });
@@ -726,7 +729,10 @@ export class KuroAgent {
           // auf eine Datei: den übergeht er, wenn er gerade etwas anderes vorhat.
           systemPrompt: {
             type: "custom",
-            prompt: KURO_PERSONA + (await this.#gespraeche.uebergabeAbschnitt()),
+            prompt:
+              KURO_PERSONA +
+              (await this.#gespraeche.uebergabeAbschnitt()) +
+              (await startAbschnitt(this.#workdir)),
           },
           // Lädt CLAUDE.md aus dem Arbeitsbereich — Kuros Hausregeln.
           settingSources: ["project"],

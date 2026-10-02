@@ -1,31 +1,32 @@
+import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { BEDIENSTETE } from "../context/bedienstete.js";
-import { istNotionId } from "./integrations/notion.js";
+import { brainPfad, leseNotiz, schreibeNotiz, schreibeVerzeichnis } from "./brain.js";
 import {
-  JOURNAL_IDS,
+  type Felder,
+  JOURNAL,
   JOURNAL_LESEN,
   JOURNAL_TOOLS,
+  JOURNAL_VERZEICHNISSE,
   KAPITALREGELN,
   type TradeEintrag,
-  eintragEigenschaften,
+  dokumentierteSetups,
+  ergebnisR,
+  liesOrdner,
   passendeOption,
   regelverstoesse,
+  tradeFelder,
+  tradeInhalt,
   watchlistKurz,
   zahlenFehler,
   zeileKurz,
 } from "./journal.js";
 
-/**
- * Was hier geprüft wird, ist nicht, ob ein Trade gut ist — das entscheidet der Handelstisch —,
- * sondern ob die Zeile stimmt, die im Journal landet. Eine verrutschte Spalte, ein Risiko um
- * den Faktor hundert daneben oder ein stillschweigend verschwiegener Regelverstoß fällt erst
- * in der Auswertung auf, und dann ist der Monat gelaufen.
- */
-
-/** Eine offene Zeile, wie Notion sie zurückgibt: in „Risiko %“ stehen **Prozent**, nicht der
- *  Dezimalanteil — 1 heißt ein Prozent (Jakobs Vorgabe, 2026-09-21). */
-function offeneZeile(risikoProzent: number): Record<string, unknown> {
-  return { "Risiko %": { type: "number", number: risikoProzent } };
+/** Eine offene Trade-Notiz, wie sie im Brain steht: `risiko_prozent` in Prozent (1 heißt ein Prozent). */
+function offen(risikoProzent: number): Felder {
+  return { status: "Offen", risiko_prozent: risikoProzent };
 }
 
 const TRADE: TradeEintrag = {
@@ -40,7 +41,7 @@ const TRADE: TradeEintrag = {
 describe("regelverstoesse", () => {
   it("lässt den regelkonformen Trade durch", () => {
     expect(regelverstoesse({ risikoProzent: 1 }, [])).toEqual([]);
-    expect(regelverstoesse({ risikoProzent: 1 }, [offeneZeile(1), offeneZeile(1)])).toEqual([]);
+    expect(regelverstoesse({ risikoProzent: 1 }, [offen(1), offen(1)])).toEqual([]);
   });
 
   it("erkennt zu viel Risiko im einzelnen Trade (Kapitalregel 1)", () => {
@@ -51,34 +52,25 @@ describe("regelverstoesse", () => {
 
   it("erkennt die vierte offene Position (Kapitalregel 2)", () => {
     const verstoesse = regelverstoesse({ risikoProzent: 0.5 }, [
-      offeneZeile(0.5),
-      offeneZeile(0.5),
-      offeneZeile(0.5),
+      offen(0.5),
+      offen(0.5),
+      offen(0.5),
     ]);
-    expect(verstoesse.some((v) => v.includes("Kapitalregel 2"))).toBe(true);
     expect(verstoesse.some((v) => v.includes("wären 4 Positionen"))).toBe(true);
   });
 
-  it("rechnet das kumulierte Risiko aus den offenen Zeilen, nicht aus dem Gedächtnis (Kapitalregel 3)", () => {
-    const verstoesse = regelverstoesse({ risikoProzent: 1 }, [offeneZeile(1), offeneZeile(1.5)]);
-    expect(verstoesse.some((v) => v.includes("Kapitalregel 3"))).toBe(true);
+  it("rechnet das kumulierte Risiko aus den offenen Trades (Kapitalregel 3)", () => {
+    const verstoesse = regelverstoesse({ risikoProzent: 1 }, [offen(1), offen(1.5)]);
     expect(verstoesse.some((v) => v.includes("3.50 %"))).toBe(true);
   });
 
-  it("hält die Grenzen selbst für erlaubt — genau 1 % und genau 3 % sind kein Verstoß", () => {
-    expect(regelverstoesse({ risikoProzent: 1 }, [offeneZeile(1), offeneZeile(1)])).toEqual([]);
+  it("hält die Grenzen selbst für erlaubt", () => {
+    expect(regelverstoesse({ risikoProzent: 1 }, [offen(1), offen(1)])).toEqual([]);
     expect(KAPITALREGELN).toEqual({
       maxRisikoProzent: 1,
       maxOffenePositionen: 3,
       maxKumuliertesRisikoProzent: 3,
     });
-  });
-
-  it("behandelt einen Trade ohne Risikoangabe als 0 — die Lage der offenen Zeilen zählt trotzdem", () => {
-    // Drei offene Positionen mit zusammen 3,6 %: die vierte ist eine zu viel, und das
-    // kumulierte Risiko liegt schon ohne sie über der Grenze.
-    const verstoesse = regelverstoesse({}, [offeneZeile(1.2), offeneZeile(1.2), offeneZeile(1.2)]);
-    expect(verstoesse.map((v) => v.slice(-16))).toEqual(["Kapitalregel 2).", "Kapitalregel 3)."]);
   });
 });
 
@@ -105,96 +97,6 @@ describe("zahlenFehler", () => {
   });
 });
 
-describe("eintragEigenschaften", () => {
-  it("trifft die Spaltennamen der Trades-Datenbank auf das Zeichen", () => {
-    const e = eintragEigenschaften(TRADE, [], "2026-09-21");
-    expect(Object.keys(e).sort()).toEqual(
-      [
-        "Datum",
-        "Entry-Preis",
-        "Initialer Stop",
-        "Instrument",
-        "Plan befolgt?",
-        "Richtung",
-        "Risiko %",
-        "Status",
-        "Trade-Nr",
-        "Ziel",
-      ].sort(),
-    );
-    expect(e.Status).toEqual({ select: { name: "Offen" } });
-    expect(e["Plan befolgt?"]).toEqual({ select: { name: "Ja" } });
-    expect(e.Datum).toEqual({ date: { start: "2026-09-21" } });
-  });
-
-  it("schreibt Prozent als Prozent, nicht als Dezimalanteil", () => {
-    // Jakobs Vorgabe vom 2026-09-21. Ein Anteil (0,01) sah in der Spalte als „0,01 %“ aus —
-    // um den Faktor hundert daneben, und quer zu seinen vorhandenen Zeilen.
-    expect(
-      eintragEigenschaften({ ...TRADE, risikoProzent: 1 }, [], "2026-09-21")["Risiko %"],
-    ).toEqual({ number: 1 });
-    expect(
-      eintragEigenschaften({ ...TRADE, risikoProzent: 0.75 }, [], "2026-09-21")["Risiko %"],
-    ).toEqual({ number: 0.75 });
-  });
-
-  it("markiert den Regelverstoß, statt den Eintrag zu verhindern", () => {
-    const e = eintragEigenschaften(TRADE, ["Risiko 1.50 % über der Grenze"], "2026-09-21");
-    expect(e["Plan befolgt?"]).toEqual({ select: { name: "Nein" } });
-    expect(JSON.stringify(e.Notizen)).toContain("Regelverstoß: Risiko 1.50 % über der Grenze");
-  });
-
-  it("hängt den Verstoß an die vorhandenen Notizen, statt sie zu überschreiben", () => {
-    const e = eintragEigenschaften(
-      { ...TRADE, notizen: "These: Ausbruch hält." },
-      ["Vierte Position"],
-      "2026-09-21",
-    );
-    const notiz = JSON.stringify(e.Notizen);
-    expect(notiz).toContain("These: Ausbruch hält.");
-    expect(notiz).toContain("Vierte Position");
-  });
-
-  it("nimmt Instrument und Datum als Nummer, wenn keine genannt ist", () => {
-    expect(eintragEigenschaften(TRADE, [], "2026-09-21")["Trade-Nr"]).toEqual({
-      title: [{ text: { content: "AAPL 2026-09-21" } }],
-    });
-    expect(
-      eintragEigenschaften({ ...TRADE, tradeNr: "T-014" }, [], "2026-09-21")["Trade-Nr"],
-    ).toEqual({ title: [{ text: { content: "T-014" } }] });
-  });
-
-  it("lässt weg, was nicht gesagt wurde — eine leere Spalte ist ehrlicher als eine geratene", () => {
-    const e = eintragEigenschaften({ ...TRADE, risikoProzent: undefined }, [], "2026-09-21");
-    expect(e).not.toHaveProperty("Risiko %");
-    expect(e).not.toHaveProperty("Setup");
-    expect(e).not.toHaveProperty("Timeframe");
-    expect(e).not.toHaveProperty("Positionsgröße");
-    expect(e).not.toHaveProperty("Tags");
-    expect(e).not.toHaveProperty("Notizen");
-  });
-
-  it("schreibt die Wahlspalten, wenn sie genannt sind", () => {
-    const e = eintragEigenschaften(
-      {
-        ...TRADE,
-        setup: "Setup 1 Pullback EMA 20",
-        timeframe: "Daily",
-        positionsgroesse: 40,
-        tags: ["Pullback"],
-        emotionVorher: "ruhig",
-      },
-      [],
-      "2026-09-21",
-    );
-    expect(e.Setup).toEqual({ select: { name: "Setup 1 Pullback EMA 20" } });
-    expect(e.Timeframe).toEqual({ select: { name: "Daily" } });
-    expect(e.Positionsgröße).toEqual({ number: 40 });
-    expect(e.Tags).toEqual({ multi_select: [{ name: "Pullback" }] });
-    expect(JSON.stringify(e["Emotion vorher"])).toContain("ruhig");
-  });
-});
-
 describe("passendeOption", () => {
   const optionen = ["Setup 1 Pullback EMA 20", "Setup 2 Ausbruch"];
 
@@ -205,8 +107,6 @@ describe("passendeOption", () => {
   });
 
   it("löst eine eindeutige Kurzform auf", () => {
-    // Genau dieser Fall trat am 2026-09-21 auf: der Journalführer schrieb „Setup 1“, und
-    // Notion legte daraufhin eine zweite Option an.
     expect(passendeOption("Setup 1", optionen)).toBe("Setup 1 Pullback EMA 20");
   });
 
@@ -221,50 +121,82 @@ describe("passendeOption", () => {
   });
 });
 
-describe("Zeilen für den Bericht", () => {
-  it("liest die offene Position zurück, Prozent unverändert als Prozent", () => {
-    const zeile = zeileKurz({
-      "Trade-Nr": { type: "title", title: [{ plain_text: "AAPL 2026-09-21" }] },
-      Instrument: { type: "rich_text", rich_text: [{ plain_text: "AAPL" }] },
-      Richtung: { type: "select", select: { name: "Long" } },
-      "Entry-Preis": { type: "number", number: 227.5 },
-      "Initialer Stop": { type: "number", number: 220 },
-      Ziel: { type: "number", number: 240 },
-      "Risiko %": { type: "number", number: 1 },
-    });
-    expect(zeile).toBe(
-      "AAPL 2026-09-21  AAPL Long  Entry 227.5, Stop 220, Ziel 240, Risiko 1.00 %",
+describe("Trade-Notiz", () => {
+  it("schreibt die Eigenschaften, Prozent als Prozent, und den Verstoß in die Notiz", () => {
+    const f = tradeFelder(
+      { ...TRADE, setup: "Setup 1 Pullback EMA 20" },
+      [],
+      "2026-10-02",
+      "a1b2c3d4",
     );
-  });
-
-  it("verschweigt nicht, was in der Zeile fehlt", () => {
-    expect(zeileKurz({})).toBe("(ohne Nummer)  ?   Entry ?, Stop ?, Ziel ?, Risiko —");
-  });
-
-  it("fasst eine Watchlist-Zeile zusammen", () => {
-    const zeile = watchlistKurz({
-      Instrument: { type: "title", title: [{ plain_text: "NVDA" }] },
-      Grund: { type: "rich_text", rich_text: [{ plain_text: "Pullback erwartet" }] },
-      "Support-Level": { type: "number", number: 150 },
-      "Resistance-Level": { type: "number", number: 190 },
-      "Setup-Trigger": { type: "select", select: { name: "Setup 1 Pullback EMA 20" } },
-      Status: { type: "select", select: { name: "Aktiv" } },
+    expect(f).toMatchObject({
+      art: "trade",
+      id: "a1b2c3d4",
+      nr: "AAPL 2026-10-02",
+      richtung: "Long",
+      status: "Offen",
+      plan_befolgt: "Ja",
+      risiko_prozent: 1,
     });
-    expect(zeile).toBe(
+    expect(tradeFelder(TRADE, ["Kapitalregel 1"], "2026-10-02", "x").plan_befolgt).toBe("Nein");
+    expect(tradeInhalt(TRADE, ["Risiko zu hoch"])).toContain("## Regelverstöße\n- Risiko zu hoch");
+    // Zurückgelesen bleibt alles, wie es war.
+    const { felder } = leseNotiz(schreibeNotiz(f, tradeInhalt(TRADE, [])));
+    expect(felder.entry).toBe(227.5);
+    expect(felder.setup).toBe("Setup 1 Pullback EMA 20");
+  });
+
+  it("rechnet das Ergebnis in R für Long und Short", () => {
+    expect(ergebnisR({ entry: 100, stop: 95 }, 110)).toBe(2);
+    expect(ergebnisR({ entry: 100, stop: 95 }, 97.5)).toBe(-0.5);
+    expect(ergebnisR({ entry: 100, stop: 105 }, 90)).toBe(2);
+    expect(ergebnisR({ entry: 100 }, 90)).toBeNull();
+  });
+
+  it("fasst Trade und Watchlist-Eintrag zusammen", () => {
+    expect(zeileKurz({ ...tradeFelder(TRADE, [], "2026-10-02", "a1b2c3d4") })).toBe(
+      "AAPL 2026-10-02  AAPL Long  Entry 227.5, Stop 220, Ziel 240, Risiko 1.00 %  (Kennung a1b2c3d4)",
+    );
+    expect(zeileKurz({})).toBe("(ohne Nummer)  ?   Entry ?, Stop ?, Ziel ?, Risiko —  (Kennung ?)");
+    expect(
+      watchlistKurz({
+        instrument: "NVDA",
+        status: "Aktiv",
+        unterstuetzung: 150,
+        widerstand: 190,
+        ausloeser: "Setup 1 Pullback EMA 20",
+        grund: "Pullback erwartet",
+      }),
+    ).toBe(
       "NVDA [Aktiv]  Unterstützung 150 / Widerstand 190  Auslöser: Setup 1 Pullback EMA 20  — Pullback erwartet",
     );
   });
 });
 
-describe("Verdrahtung", () => {
-  // Die echten Kennungen stehen nur in der .env (das Repo ist öffentlich); ohne sie bleibt eine
-  // Kennung leer. Gesetzt muss sie die Form einer Notion-Kennung haben.
-  it("hat für jede gesetzte Kennung die Form einer Notion-Kennung", () => {
-    for (const [name, id] of Object.entries(JOURNAL_IDS)) {
-      if (id) expect(istNotionId(id), `${name}: ${id}`).toBe(true);
-    }
+describe("Ablage im Brain", () => {
+  it("liest Ordner, Setups und schreibt das Verzeichnis", async () => {
+    const w = await mkdtemp(path.join(tmpdir(), "journal-"));
+    const lege = async (datei: string, text: string) => {
+      await mkdir(path.dirname(brainPfad(w, datei)), { recursive: true });
+      await writeFile(brainPfad(w, datei), text, "utf8");
+    };
+    await lege(
+      `${JOURNAL.trades}/2026-10-02 AAPL Long.md`,
+      schreibeNotiz(tradeFelder(TRADE, [], "2026-10-02", "a1b2c3d4"), tradeInhalt(TRADE, [])),
+    );
+    await lege(JOURNAL.setups, schreibeNotiz({ setups: ["Setup 1 Pullback EMA 20"] }, "# Setups"));
+    const trades = await liesOrdner(w, JOURNAL.trades);
+    expect(trades.map((t) => t.felder.id)).toEqual(["a1b2c3d4"]);
+    expect(await dokumentierteSetups(w)).toEqual(["Setup 1 Pullback EMA 20"]);
+    expect(await liesOrdner(w, "gibt-es-nicht")).toEqual([]);
+    await schreibeVerzeichnis(w, JOURNAL_VERZEICHNISSE[0]);
+    expect(await readFile(brainPfad(w, "Trading/Journal.md"), "utf8")).toContain(
+      "[[Trading/Journal/2026-10-02 AAPL Long|2026-10-02 AAPL Long — Offen]]",
+    );
   });
+});
 
+describe("Verdrahtung", () => {
   /**
    * Die Werkzeugnamen stehen zweimal: in `journal.ts` am Server und in `bedienstete.ts` als
    * Freigabeliste des Journalführers. Sie müssen zweimal stehen, weil `context/` nicht aus

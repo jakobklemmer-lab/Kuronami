@@ -41,7 +41,7 @@ describe("Quelltreue im Prompt von boerse und stratege", () => {
     ["stratege", () => stratege],
   ])("%s weiß, wo die TradingLab-Videos liegen", (_name, prompt) => {
     expect(prompt()).toContain("/opt/kuronami/workspace/wissen/tradinglab/");
-    expect(prompt()).toContain("notizen/<id>.md");
+    expect(prompt()).toContain("/opt/kuronami/workspace/brain/Wissen/TradingLab/<id>.md");
   });
 
   it.each([

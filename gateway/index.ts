@@ -8,6 +8,7 @@ import { buildMemoryRoot, createMemoryStore } from "../tools/memory/store.js";
 import { KuroAgent } from "./agent.js";
 import { alarmText, createAlarme, starteAlarmTakt } from "./alarme.js";
 import { SITZUNG_GUELTIG_MS, anmeldungAusUmgebung } from "./anmeldung.js";
+import { starteBrainTakt } from "./brain-pflege.js";
 import { createTelegramChannel, startTelegramPolling } from "./channels/telegram/channel.js";
 import type { TelegramChannelDeps } from "./channels/telegram/channel.js";
 import { createTelegramClient } from "./channels/telegram/client.js";
@@ -334,10 +335,16 @@ async function main(): Promise<void> {
   };
   const archivUhr = setInterval(() => void archivTick(), 15 * 60_000);
   archivUhr.unref();
+
+  // Das Brain (Obsidian-Vault): einrichten, Verzeichnisse und erzeugte Notizen pflegen, sichern.
+  starteBrainTakt(agent.workdir);
+  console.log(
+    `Brain: ${agent.workdir}/brain, alle 5 Minuten gepflegt und ins eigene Git gesichert.`,
+  );
   console.log(
     process.env.KURO_ARCHIV?.trim() === "aus"
       ? "Gesprächsarchiv: abgeschaltet (KURO_ARCHIV=aus)."
-      : `Gesprächsarchiv: nachts zwischen ${ARCHIV_FENSTER[0]} und ${ARCHIV_FENSTER[1]} Uhr (Wien), nach Tagen in ablage/gespraeche/.`,
+      : `Gesprächsarchiv: nachts zwischen ${ARCHIV_FENSTER[0]} und ${ARCHIV_FENSTER[1]} Uhr (Wien), nach Tagen in brain/Gespräche/.`,
   );
 
   /**
@@ -368,7 +375,7 @@ async function main(): Promise<void> {
   console.log(
     process.env.KURO_LEHRGANG?.trim() === "aus"
       ? "Lehrgang: abgeschaltet (KURO_LEHRGANG=aus)."
-      : `Lehrgang: zwischen ${ausUmgebung().fenster[0]} und ${ausUmgebung().fenster[1]} Uhr (Wien), höchstens ${ausUmgebung().jeNacht} am Tag, erst TradingLab, dann das Buch, Notizen in wissen/tradinglab/notizen/.`,
+      : `Lehrgang: zwischen ${ausUmgebung().fenster[0]} und ${ausUmgebung().fenster[1]} Uhr (Wien), höchstens ${ausUmgebung().jeNacht} am Tag, erst TradingLab, dann das Buch, Notizen im Brain unter Wissen/.`,
   );
 
   /**

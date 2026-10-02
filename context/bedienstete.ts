@@ -83,14 +83,12 @@ const LABOR_PRUEFEN = [
 ];
 
 /**
- * Das Trading Journal in Notion (`gateway/journal.ts`): Trades, Lektionen, Watchlist, dazu
- * Jakobs Regel- und Setup-Seiten im Wortlaut.
+ * Das Trading Journal im Brain (`gateway/journal.ts`, Obsidian unter workspace/brain/Trading):
+ * Trades, Lektionen, Watchlist, dazu Jakobs Regel- und Setup-Seiten im Wortlaut.
  *
  * Eingetragen wird nur von einem: dem `journal`. Der Handelstisch **sieht nach** — er soll
  * wissen, was offen ist und was die Regeln sagen, bevor er eine Idee vorlegt, aber nicht
- * selbst schreiben. Jakobs Einwand dazu wörtlich: „bevor wir Kuro wieder zu viel erledigen
- * lassen gib ihm einen Notion Agenten der Notion bedienen kann für ihn, sonst läuft wieder zu
- * viel Kontext mit." Kuro selbst bekommt keines dieser Werkzeuge.
+ * selbst schreiben. Kuro selbst bekommt keines dieser Werkzeuge — sonst läuft zu viel Kontext mit.
  */
 const JOURNAL_NACHSEHEN = [
   "mcp__journal__journal_offen",
@@ -197,16 +195,16 @@ gerade etwas anderes tut.`,
     model: "opus",
   },
 
-  // ---------------------------------------------------------------- Journal (Notion)
+  // ---------------------------------------------------------------- Journal (Brain)
   journal: {
     description:
-      "Notion: der einzige im Haus, der in Jakobs Trading Journal **schreiben** darf. " +
+      "Journal: der einzige im Haus, der in Jakobs Trading Journal im Brain **schreiben** darf. " +
       "Trade vor dem Einstieg anlegen, am Ausstiegstag schließen, Lektion festhalten, " +
       "etwas auf die **Watchlist** nehmen — und nachsehen, was offen ist, was auf der " +
       "Watchlist steht und was die Regeln und Setups im Wortlaut sagen. Einsetzen, sobald " +
-      "etwas in Notion eingetragen, geändert oder nachgesehen werden soll; er prüft dabei " +
+      "etwas im Journal eingetragen, geändert oder nachgesehen werden soll; er prüft dabei " +
       "selbst die Kapitalregeln. Nicht für Kurse und Marktfragen — das ist die boerse.",
-    prompt: `Du führst Jakobs Trading Journal in Notion. Was dort steht, ist die Grundlage
+    prompt: `Du führst Jakobs Trading Journal im Brain (Obsidian, Ordner Trading/). Was dort steht, ist die Grundlage
 seiner Auswertung — du bist der einzige im Haus, der hineinschreibt.
 
 Deine Werkzeuge: \`journal_offen\` (offene Positionen samt Risiko), \`journal_regeln\` (seine
@@ -326,13 +324,15 @@ Fehlt ein Baustein, nenne ihn Jakob als **Bauwunsch** — er entscheidet, ob und
 wird.
 
 **Wo die Videos liegen.** TradingLab, womit Jakob gelernt hat: \`${WERKSTATT}/wissen/tradinglab/\`.
-\`inventar.json\` ordnet Titel und \`id\` zu, \`notizen/<id>.md\` hat die Regeln im Wortlaut mit
-Zeitmarke, \`roh/<id>.json\` ist das Transkript, wo noch keine Notiz liegt. \`kalibrierung.md\`
+\`inventar.json\` ordnet Titel und \`id\` zu, die Notiz mit den Regeln im Wortlaut und Zeitmarke
+liegt im Brain unter \`${WERKSTATT}/brain/Wissen/TradingLab/<id>.md\`, \`roh/<id>.json\` ist das
+Transkript, wo noch keine Notiz liegt. \`kalibrierung.md\`
 hat MACD, Bollinger + RSI und Scalping schon nach Original gerechnet — lies sie, bevor du eine
 davon neu rechnen lässt. Dem Strategen gibst du den Wortlaut und den Pfad mit.
 
 **Das Buch.** John J. Murphy, „Technical Analysis of the Financial Markets“, liegt unter
-\`${WERKSTATT}/wissen/murphy/\`: \`notizen/<id>.md\` je Kapitel oder Kapitelteil, Regeln mit
+\`${WERKSTATT}/wissen/murphy/\` (Liste) und im Brain unter \`${WERKSTATT}/brain/Wissen/Murphy/<id>.md\`
+je Kapitel oder Kapitelteil, Regeln mit
 Seitenzahl [S. 123], \`inventar.json\` ordnet Kapitel und \`id\` zu. Die Notizen sind aus dem
 Text; Abbildungen sieht die Notiz nicht.
 
@@ -455,7 +455,7 @@ eine seiner Marken spricht.
 
 ## Das Journal
 
-Jakobs Trading Journal in Notion kannst du **lesen**: \`journal_offen\` zeigt die offenen
+Jakobs Trading Journal im Brain kannst du **lesen**: \`journal_offen\` zeigt die offenen
 Positionen samt Risiko, \`journal_regeln\` seine Regeln und Setups im Wortlaut,
 \`journal_letzte\` die jüngsten Einträge, \`journal_watchlist\` was er ohnehin beobachtet.
 
@@ -764,8 +764,9 @@ gerechnet: Erwartungswert −0,1 R. Sagt nichts über das Original aus."
 Den fehlenden Baustein nennst du im Bericht als **Bauwunsch** — mehr nicht. Du baust ihn nicht
 selbst und beauftragst dafür niemanden; das Weitergeben an den Nachtbau ist Jakobs Sache.
 
-Die TradingLab-Videos liegen unter \`${WERKSTATT}/wissen/tradinglab/\`: \`notizen/<id>.md\` (Regeln
-im Wortlaut), \`roh/<id>.json\` (Transkript), \`inventar.json\` (Titel und \`id\`). Nennt dir die
+Die TradingLab-Videos: die Notiz je Video (Regeln im Wortlaut) unter
+\`${WERKSTATT}/brain/Wissen/TradingLab/<id>.md\`, dazu unter \`${WERKSTATT}/wissen/tradinglab/\`
+\`roh/<id>.json\` (Transkript) und \`inventar.json\` (Titel und \`id\`). Nennt dir die
 Leitung ein Video, liest du dort nach, bevor du rechnest — ihre Zusammenfassung ersetzt den
 Wortlaut nicht.
 

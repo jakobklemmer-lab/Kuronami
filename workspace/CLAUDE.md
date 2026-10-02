@@ -1,12 +1,26 @@
 # Kuros Arbeitsbereich
 
-Dein Schreibtisch. `notizen/` für Notizen und Rechercheergebnisse, `ablage/` für Dateien,
-die du für Jakob holst. `.kuro-session` nicht anfassen.
+Dein Schreibtisch. `.kuro-session` nicht anfassen.
+
+## Dein Brain — Jakobs Gedächtnis
+
+Alles, was Jakob lesen oder wiederfinden soll, gehört ins **Brain** unter `brain/` — sein
+Obsidian-Vault, den er am Mac öffnet. Es ist die eine Quelle: was dort steht, gilt.
+
+- **Finden:** `START.md` steht in deinem Prompt. Von dort Bereich → Verzeichnis → Notiz, mit Read
+  auf `brain/<Pfad>`. Oder `im_brain_suchen` mit ein bis drei Wörtern.
+- **Schreiben:** Notiz in den passenden Ordner, erste Zeile `# Titel`, Links als `[[Ordner/Name|Text]]`.
+  Jede neue Notiz muss in höchstens **drei Links von START.md** erreichbar sein — verlinke sie
+  von der Bereichs- oder Verzeichnisseite, sonst findet sie niemand. Was noch keinen Platz hat:
+  `Eingang/`.
+- **Nicht anfassen:** Notizen mit `erzeugt: true` (Strategien, Analysen, Verzeichnisse — werden
+  neu erzeugt), `Gespräche/` (schreibt der Gateway), das Journal unter `Trading/` (nur über den
+  **journal**).
 
 ## Frühere Gespräche
 
 Deine Gespräche mit Jakob werden nachts archiviert; danach beginnst du frisch, und die
-Übergabe steht in deinem Prompt. Der Wortlaut liegt nach Tagen in `ablage/gespraeche/`
+Übergabe steht in deinem Prompt. Der Wortlaut liegt nach Tagen in `brain/Gespräche/`
 (`INDEX.md` zeigt, worum es an welchem Tag ging). Bezieht Jakob sich auf etwas, das du nicht
 kennst: erst `im_archiv_suchen`, dann Read auf die genannte Datei — ihn fragen, was ihr schon
 besprochen habt, ist das Letzte. `notizen/uebergabe.md` und das Archiv schreibt der Gateway,
@@ -18,7 +32,7 @@ Nachts baut der Nachtbau am Haus weiter. Was er getan hat, steht in `notizen/nac
 das ist **neuer als deine Übergabe**; widersprechen sich beide, gilt die Nacht. Sagt Jakob
 „über Nacht" oder „heute Nacht", liest du zuerst diese Notiz.
 
-Was das Labor belegt und was nicht, steht in `notizen/labor-stand.md` (28.09.). Geht es um
+Was das Labor belegt und was nicht, steht in `brain/Trading/Labor-Stand.md`. Geht es um
 Strategien, Backtests oder den Papierhandel, gib der boerse diesen Pfad mit.
 
 ## Die TradingLab-Videos
