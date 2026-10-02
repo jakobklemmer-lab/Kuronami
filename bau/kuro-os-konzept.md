@@ -36,7 +36,8 @@ aufnehmen und in Kuro speichern." Entschieden:
   Notizen, die Brain-App aus `ui/os/brain.ts` füllt ihn ganz) · 4 **Post** (Post, Kalender — was
   hereinkommt und was ansteht) · 5 **Studium** (Recherche; wächst mit den Studienwerkzeugen).
   System und Einstellungen bleiben das Blatt (⌘,). `ui/os/raeume.ts` ist entsprechend angepasst.
-- **Desktop-Anmutung erlaubt, aber ohne Dock und ohne Mac-Menüleiste.** Hintergrund ist Kuros
+- **Desktop-Anmutung erlaubt, aber ohne Dock und ohne Mac-Menüleiste.** (Hintergrund: überholt
+  durch den vierten Nachtrag — eigene Raumbilder statt Film.) Hintergrund ist Kuros
   Zimmer: je Raum eine andere Ecke aus den scharfen Standbildern des Welle-Films
   (`ui/welle/film/scharf/2k|4k/*.webp`, Auswahl je Raum festlegen), beim Wechsel 300 ms überblendet
   mit leichtem Versatz — die kleine Schwester der Kamerafahrt, die Jakob an der Welle mag. Darauf
@@ -47,6 +48,24 @@ aufnehmen und in Kuro speichern." Entschieden:
   Satelliten, und er **schluckt Dateien**, die man auf ihn zieht (→ Brain-Eingang über
   `POST /integrations/brain/eingang`). N19e baut sie als Begleiter in die Desktop-App ein; der
   große Orb im Raum Kuro bleibt der Orb.
+
+### Vierter Nachtrag, 22:05 — Reihenfolge und eigene Räume
+
+Jakob: „ich find den kleinen Kuro ultrageil. Man kann auch für alle Fenster eigene Räume entwerfen,
+sie müssen aber miteinander abgestimmt sein, es muss nicht dieselbe Kamerafahrt wie die Website
+sein … Prio Nummer zwei ist die Benutzbarkeit mit heute Morgen."
+
+**Reihenfolge der Nacht:** (1) Kuro ist die Oberfläche und sieht gut aus (N19a, N19b). (2) **Um 08:00
+ist alles benutzbar**: jeder Raum öffnet, jede Fachfunktion geht, nichts ist kaputt oder halb —
+lieber schlicht und vollständig als schön und lückenhaft. (3) Erst dann Schliff.
+
+**Eigene Räume statt Film-Standbilder:** Jeder Raum bekommt später ein eigenes, zu den anderen
+passendes Raumbild (gleiche Nacht, gleiches Holz, gleiche Laternen; z. B. Handel: Schreibtisch mit
+Bildschirmen, Brain: Bibliothek, Post: Eingang mit Briefablage, Studium: Lesetisch). Die Bilder
+erzeugt Claude **am Morgen mit Jakob** (Artlist, Vorlage `ui/assets/night.jpg`); der Nachtbau kann
+keine Bilder erzeugen. **Heute Nacht:** im Raum Kuro `night.jpg`; für die anderen Räume einen
+Platz vorbereiten — `ui/assets/raeume/<raum>.webp`, wenn die Datei fehlt, ein ruhiger, dunkler,
+leicht warmer Verlauf. Die Standbilder des Welle-Films werden **nicht** verwendet.
 
 ### Dritter Nachtrag, 22:00 — das Wichtigste
 
