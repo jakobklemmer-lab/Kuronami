@@ -104,7 +104,8 @@ function erstelleHaupt() {
     return { action: "deny" };
   });
   haupt.webContents.on("will-navigate", (e, url) => {
-    if (url.startsWith("file:") || gleicherUrsprung(url)) return;
+    // Auch keine abgelegte Datei als Seite: die nimmt Kuro OS selbst entgegen.
+    if (gleicherUrsprung(url)) return;
     e.preventDefault();
     void shell.openExternal(url);
   });

@@ -773,6 +773,26 @@ body.ist-sprechtaste .o-eingabe__mikro,
   color: var(--faellt);
 }
 
+/* Eine Datei wird über das Fenster gezogen. */
+.o-ablage {
+  position: fixed;
+  inset: 14px;
+  z-index: 60;
+  display: grid;
+  place-items: center;
+  border: 1.5px dashed rgba(244, 184, 96, 0.6);
+  border-radius: 28px;
+  background: rgba(3, 8, 11, 0.74);
+  pointer-events: none;
+}
+
+.o-ablage p {
+  margin: 0;
+  font-family: var(--zeichen);
+  font-size: clamp(1.4rem, 2.2vw, 2rem);
+  color: var(--mond);
+}
+
 /* --------------------------------------------------------------------- */
 /* Desktop-App                                                            */
 /* --------------------------------------------------------------------- */

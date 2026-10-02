@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { loeseLinks, sichererPfad } from "./brain-routen.js";
+import { eingangsPlan, loeseLinks, sichererPfad } from "./brain-routen.js";
 
 describe("sichererPfad", () => {
   it("lässt nur Notizen im Brain durch", () => {
@@ -28,6 +28,21 @@ describe("loeseLinks", () => {
   it("löst relative Links vom Ort der Notiz aus auf", () => {
     expect(loeseLinks("Bereiche/Trading.md", "[x](../Trading/Journal.md)", pfade)).toEqual({
       "../Trading/Journal.md": "Trading/Journal.md",
+    });
+  });
+});
+
+describe("eingangsPlan", () => {
+  it("legt Text als Notiz und alles andere als Anhang mit Notiz ab", () => {
+    expect(eingangsPlan("Ideen.md", "2026-10-02")).toEqual({
+      notiz: "Eingang/2026-10-02 Ideen.md",
+      anhang: null,
+      text: true,
+    });
+    expect(eingangsPlan("Kontoauszug: Sept.PDF", "2026-10-02")).toEqual({
+      notiz: "Eingang/2026-10-02 Kontoauszug Sept.md",
+      anhang: "Anhänge/2026-10-02 Kontoauszug Sept.pdf",
+      text: false,
     });
   });
 });

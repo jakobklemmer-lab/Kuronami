@@ -495,6 +495,61 @@ export function mountOs(opt: OsOptionen): void {
     });
   }
 
+  // ----------------------------------------------------- Drag-and-drop
+  // Eine Datei aufs Fenster gezogen landet im Eingang des Brain; dort findet Kuro sie.
+  const ablage = document.createElement("div");
+  ablage.className = "o-ablage";
+  ablage.hidden = true;
+  ablage.innerHTML = "<p>Loslassen legt die Datei in den Eingang des Brain.</p>";
+  os.append(ablage);
+  let ueber = 0;
+  const hatDateien = (e: DragEvent) => [...(e.dataTransfer?.types ?? [])].includes("Files");
+  document.addEventListener("dragenter", (e) => {
+    if (!hatDateien(e)) return;
+    ueber += 1;
+    ablage.hidden = false;
+  });
+  document.addEventListener("dragleave", (e) => {
+    if (!hatDateien(e)) return;
+    ueber = Math.max(0, ueber - 1);
+    if (ueber === 0) ablage.hidden = true;
+  });
+  document.addEventListener("dragover", (e) => {
+    if (hatDateien(e)) e.preventDefault();
+  });
+  document.addEventListener("drop", (e) => {
+    if (!hatDateien(e)) return;
+    e.preventDefault();
+    ueber = 0;
+    ablage.hidden = true;
+    for (const datei of e.dataTransfer?.files ?? []) void lege(datei);
+  });
+
+  async function lege(datei: File) {
+    if (datei.size > 20 * 1024 * 1024) {
+      opt.toast(`${datei.name} ist größer als 20 MB und bleibt draußen.`);
+      return;
+    }
+    const inhalt = await new Promise<string>((fertig, fehler) => {
+      const leser = new FileReader();
+      leser.onload = () => fertig(String(leser.result).replace(/^data:[^,]*,/, ""));
+      leser.onerror = () => fehler(leser.error);
+      leser.readAsDataURL(datei);
+    });
+    try {
+      const r = await api.post<{ pfad: string }>("/integrations/brain/eingang", {
+        name: datei.name,
+        inhalt,
+      });
+      opt.toast(`Im Brain abgelegt: ${r.pfad.replace(/\.md$/, "")}`);
+      if (weg.bereich === "brain") {
+        globalThis.location.hash = schreibeWeg({ bereich: "brain", teil: r.pfad });
+      }
+    } catch (error) {
+      opt.toast(error instanceof Error ? error.message : String(error));
+    }
+  }
+
   // ------------------------------------------------------------ Tasten
   globalThis.addEventListener("keydown", (e) => {
     const befehl = IST_MAC ? e.metaKey : e.ctrlKey;
