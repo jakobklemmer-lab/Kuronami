@@ -454,7 +454,11 @@ export const praesenzView: View = {
     micKnopf?.addEventListener("click", zuhoerenUmschalten);
     // Ein Tipp auf die Kugel (nicht aufs Ziehen, das dreht sie) schaltet das Mikrofon — wie
     // Enter oder Leertaste auf der Bühne, damit es auch ohne Maus geht.
-    sphaere.beimAntippen(zuhoerenUmschalten);
+    // Wie in der Welle: nach dem Klick keinen Fokus behalten (kein Rahmen, Leertaste frei).
+    sphaere.beimAntippen(() => {
+      zuhoerenUmschalten();
+      orbHost.blur();
+    });
     orbHost.addEventListener("keydown", (e) => {
       if (e.key !== "Enter" && e.key !== " ") return;
       e.preventDefault();

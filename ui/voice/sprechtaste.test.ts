@@ -3,6 +3,8 @@ import { createSprechtaste, schreibtGerade } from "./sprechtaste.js";
 
 class Ziel {
   hoerer = new Map<string, (e: unknown) => void>();
+  /** Kam das Ereignis noch bei einem Element an (z. B. beim fokussierten Orb)? */
+  angehalten = false;
   addEventListener(typ: string, f: (e: unknown) => void) {
     this.hoerer.set(typ, f);
   }
@@ -11,11 +13,15 @@ class Ziel {
   }
   taste(typ: "keydown" | "keyup", code = "Space", repeat = false) {
     let verhindert = false;
+    this.angehalten = false;
     this.hoerer.get(typ)?.({
       code,
       repeat,
       preventDefault: () => {
         verhindert = true;
+      },
+      stopPropagation: () => {
+        this.angehalten = true;
       },
     });
     return verhindert;
@@ -38,6 +44,9 @@ describe("Sprechtaste", () => {
     });
     expect(new Int16Array(t.filtere(ton))).toEqual(new Int16Array([0, 0, 0]));
     expect(ziel.taste("keydown")).toBe(true);
+    // Der fokussierte Orb bekommt die Taste nicht — er nahm sie am 02.10. als Klick und schaltete
+    // das Mikrofon wieder aus.
+    expect(ziel.angehalten).toBe(true);
     expect(new Int16Array(t.filtere(ton))).toEqual(new Int16Array([1000, -2000, 3000]));
     // Das Loslassen wird abgefangen — sonst klickte es den fokussierten Mikrofonknopf.
     expect(ziel.taste("keyup")).toBe(true);
@@ -58,6 +67,7 @@ describe("Sprechtaste", () => {
     const ziel = new Ziel();
     const t = createSprechtaste({ aktiv: () => false, ziel: ziel as never });
     expect(ziel.taste("keydown")).toBe(false);
+    expect(ziel.angehalten).toBe(false);
     expect(t.filtere(ton)).toBe(ton);
   });
 

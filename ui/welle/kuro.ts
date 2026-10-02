@@ -36,6 +36,8 @@ export function kuroAnsicht(opt: KuroOptionen): View {
             <div class="k-kopf">
               <p class="k-datum" data-role="datum"></p>
               <h1 class="k-gruss" data-role="gruss"></h1>
+              <button type="button" class="k-leeren" data-role="leeren"
+                      title="Leert nur diese Ansicht — Kuro erinnert sich weiter. Ganz frisch beginnt er nach „Gespräch archivieren“ unter System.">Verlauf leeren</button>
             </div>
             <div class="k-orb" data-role="orb" role="button" tabindex="0"
                  aria-label="Mikrofon an- oder ausschalten" aria-pressed="false"></div>
@@ -76,7 +78,12 @@ export function kuroAnsicht(opt: KuroOptionen): View {
         sphaere.bediensteterStand(werName(wer), a.stand);
       }
       const eingabeLoesen = sphaere.bindeEingabe(opt.eingabe);
-      sphaere.beimAntippen(opt.zuhoeren);
+      // Nach dem Klick gibt der Orb den Fokus wieder ab: sonst trägt er einen Fokusrahmen, und
+      // die Tastatur gehört ihm statt der Seite.
+      sphaere.beimAntippen(() => {
+        opt.zuhoeren();
+        orbEl.blur();
+      });
       const beiTaste = (e: KeyboardEvent): void => {
         if (e.key !== "Enter" && e.key !== " ") return;
         e.preventDefault();
@@ -112,6 +119,12 @@ export function kuroAnsicht(opt: KuroOptionen): View {
         beiLeere: (leer) => auftakt.classList.toggle("ist-im-gespraech", !leer),
       });
 
+      // Jakob am 02.10.: den ganzen Verlauf zu sehen „find ich eigentlich ganz cool, muss aber
+      // nicht immer sein". Der Knopf leert nur die Ansicht; Kuros Sitzung bleibt.
+      const leerenEl = q<HTMLButtonElement>("leeren");
+      const leeren = (): void => opt.gespraech.leere();
+      leerenEl?.addEventListener("click", leeren);
+
       // ---------------------------------------------------------- Dein Tag
       const tagLoesen = mountTag(tagEl, { api: opt.api, gespraech: opt.gespraech });
       const weiter = q<HTMLAnchorElement>("weiter");
@@ -123,6 +136,7 @@ export function kuroAnsicht(opt: KuroOptionen): View {
       return () => {
         globalThis.clearInterval(uhr);
         orbEl.removeEventListener("keydown", beiTaste);
+        leerenEl?.removeEventListener("click", leeren);
         orbAbo();
         eingabeLoesen();
         fadenLoesen();

@@ -14,6 +14,11 @@
  * der Befehlsleiste keine Leerzeichen mehr tippen. Und `keyup` wird ebenfalls abgefangen: auf einem
  * fokussierten Knopf löst die Leertaste beim Loslassen einen Klick aus, und der Knopf mit Fokus ist
  * oft gerade der Mikrofonknopf — das Loslassen hätte die Sprachschicht beendet.
+ *
+ * Und sie kommt bei niemandem sonst an (02.10.): Jakob klickte den Orb an, drückte die Leertaste —
+ * und der Orb, der den Fokus hatte, nahm sie als zweiten Klick und schaltete das Mikrofon wieder
+ * aus. Übrig blieb nur sein Fokusrahmen („ein markiertes Quadrat"). Der Lauscher sitzt auf dem
+ * Fenster in der Einfangphase; dort angehalten, erreicht das Ereignis kein Element mehr.
  */
 
 export interface Sprechtaste {
@@ -60,11 +65,13 @@ export function createSprechtaste(o: SprechtastenOptionen): Sprechtaste {
   const runter = (e: KeyboardEvent) => {
     if (e.code !== "Space" || !o.aktiv() || schreibtGerade(document.activeElement)) return;
     e.preventDefault();
+    e.stopPropagation();
     if (!e.repeat) setze(true);
   };
   const hoch = (e: KeyboardEvent) => {
     if (e.code !== "Space" || !gedrueckt) return;
     e.preventDefault();
+    e.stopPropagation();
     setze(false);
   };
   // Fenster verlassen, während die Taste unten ist: kein `keyup` kommt je an.
