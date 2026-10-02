@@ -1,21 +1,25 @@
 /**
  * Die Räume von Kuro OS und ihre Teile (Konzept: bau/kuro-os-konzept.md), ohne DOM.
- * Adressen: `#/kuro`, `#/handel/strategien`, `#/studium/brain/<Notizpfad>`.
+ * Adressen: `#/kuro`, `#/handel/strategien`, `#/brain/brain/<Notizpfad>`. ⌘/Strg + 1–5 wechselt.
  */
 
-export const RAEUME = ["kuro", "handel", "studium"] as const;
+export const RAEUME = ["kuro", "handel", "brain", "post", "studium"] as const;
 export type Raum = (typeof RAEUME)[number];
 
 export const RAUM_NAME: Record<Raum, string> = {
   kuro: "Kuro",
   handel: "Handel",
+  brain: "Brain",
+  post: "Post",
   studium: "Studium",
 };
 
 export const TEILE = {
   kuro: [],
   handel: ["maerkte", "strategien", "analysen"],
-  studium: ["brain", "post", "recherche", "kalender"],
+  brain: ["brain"],
+  post: ["post", "kalender"],
+  studium: ["recherche"],
 } as const satisfies Record<Raum, readonly string[]>;
 
 export type Teil = (typeof TEILE)[keyof typeof TEILE][number];
@@ -64,7 +68,7 @@ export function schreibeOrt(o: Ort): string {
   return `#/${o.raum}/${o.teil}${notiz}`;
 }
 
-/** ⌘1 … ⌘3 in der Reihenfolge der Räume. */
+/** ⌘1 … ⌘5 in der Reihenfolge der Räume. */
 export function raumFuerTaste(taste: string): Raum | null {
   const n = Number(taste);
   return Number.isInteger(n) && n >= 1 && n <= RAEUME.length ? RAEUME[n - 1] : null;
@@ -77,9 +81,9 @@ export function ortFuerRoute(route: string): Ort | "blatt-system" | "blatt-einst
     trading: { raum: "handel", teil: "maerkte", notiz: null },
     strategien: { raum: "handel", teil: "strategien", notiz: null },
     analysen: { raum: "handel", teil: "analysen", notiz: null },
-    mail: { raum: "studium", teil: "post", notiz: null },
+    mail: { raum: "post", teil: "post", notiz: null },
+    calendar: { raum: "post", teil: "kalender", notiz: null },
     research: { raum: "studium", teil: "recherche", notiz: null },
-    calendar: { raum: "studium", teil: "kalender", notiz: null },
   };
   if (route === "system") return "blatt-system";
   if (route === "settings") return "blatt-einstellungen";

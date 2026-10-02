@@ -23,6 +23,31 @@ außerhalb des Hauptfensters** als beweglicher Begleiter präsent sein — errei
 nie über wichtigen Inhalten. Eine 3D-Figur ist eine spätere Möglichkeit, kein Ersatz für den Orb.
 Keine erfundenen Daten, kein Framework-Wechsel.
 
+
+## Nachtrag 02.10., 21:45 — Jakobs Antwort, gilt vor allem darunter
+
+Jakob: „Es kann trotzdem wie ein Desktop aussehen, reviewe selbst und entscheide … Brain gehört
+aus Studium raus, genauso Post … mit cmd bzw strg und Zahlen zu wechseln find ich eine geile Idee.
+Teste direkt die Figur für die kleine Kuro-Version … wenn ich Dateien auf ihn droppe, soll er sie
+aufnehmen und in Kuro speichern." Entschieden:
+
+- **Fünf Räume, ⌘/Strg + 1–5, wie Arbeitsflächen eines Desktops:** 1 **Kuro** (Gespräch, Heute,
+  Im Haus) · 2 **Handel** (Märkte, Strategien, Analysen) · 3 **Brain** (eigener Raum: Graph und
+  Notizen, die Brain-App aus `ui/os/brain.ts` füllt ihn ganz) · 4 **Post** (Post, Kalender — was
+  hereinkommt und was ansteht) · 5 **Studium** (Recherche; wächst mit den Studienwerkzeugen).
+  System und Einstellungen bleiben das Blatt (⌘,). `ui/os/raeume.ts` ist entsprechend angepasst.
+- **Desktop-Anmutung erlaubt, aber ohne Dock und ohne Mac-Menüleiste.** Hintergrund ist Kuros
+  Zimmer: je Raum eine andere Ecke aus den scharfen Standbildern des Welle-Films
+  (`ui/welle/film/scharf/2k|4k/*.webp`, Auswahl je Raum festlegen), beim Wechsel 300 ms überblendet
+  mit leichtem Versatz — die kleine Schwester der Kamerafahrt, die Jakob an der Welle mag. Darauf
+  liegen die Inhalte als ruhige, gut lesbare Tafeln (dunkel genug für Text, Kontrast ≥ 4,5:1),
+  nicht überlappend, keine frei schwebenden Fenster. Die Raumleiste oben (Konzept „Aufbau") bleibt.
+- **Der kleine Kuro ist eine Figur** (gebaut von Claude am 02.10. abends, `ui/os/figur.ts`,
+  Seite `/os/begleiter/`): ein Tintentropfen mit Kuros Lichtband, Augen, Zuständen, Agenten-
+  Satelliten, und er **schluckt Dateien**, die man auf ihn zieht (→ Brain-Eingang über
+  `POST /integrations/brain/eingang`). N19e baut sie als Begleiter in die Desktop-App ein; der
+  große Orb im Raum Kuro bleibt der Orb.
+
 ## Die Idee: Kuros Arbeitszimmer
 
 Ein Haus mit **drei Räumen** und Kuro, der in jedem Raum seinen Platz hat.

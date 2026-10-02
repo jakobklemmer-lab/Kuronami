@@ -1,7 +1,7 @@
 <!-- Wird von jeder N19-Aufgabe gelesen. -->
 ## Für jede N19-Aufgabe
 
-- **Zuerst** `bau/kuro-os-konzept.md` ganz lesen. Es ist verbindlich; kleine Entscheidungen in
+- **Zuerst** `bau/kuro-os-konzept.md` ganz lesen — der **Nachtrag vom 02.10., 21:45** gilt vor allem anderen (fünf Räume, Desktop-Hintergrund, Figur). Es ist verbindlich; kleine Entscheidungen in
   seinem Rahmen triffst du selbst und nennst sie im Bericht.
 - Dann `git log --oneline -15` und den Status in `bau/PLAN.md`: Was hat ein früherer Lauf (oder
   Claude am Tag) von deiner Aufgabe schon gebaut? Darauf aufbauen, nichts doppelt.

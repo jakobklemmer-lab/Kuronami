@@ -181,7 +181,7 @@ bleiben, keine Mac-Nachbildung, kein Dock, Kuro optional als Begleiter auf dem D
 - Modell: opus
 - Braucht: N19a
 
-## N19d · Handel und Studium: die Teile im neuen Rahmen
+## N19d · Handel, Brain, Post, Studium: die Teile im neuen Rahmen, Hintergrund je Raum
 - Status: offen
 - Modell: opus
 - Braucht: N19a
