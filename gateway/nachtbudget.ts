@@ -98,7 +98,11 @@ export function nachtgrenzen(opts: {
  * Stand des Wochenfensters zu Beginn dieser Nacht: beim ersten Aufruf der Nacht `aktuell`
  * festhalten, danach das Festgehaltene lesen.
  */
-export async function wocheZuBeginn(workdir: string, jetzt: Date, aktuell: number): Promise<number> {
+export async function wocheZuBeginn(
+  workdir: string,
+  jetzt: Date,
+  aktuell: number,
+): Promise<number> {
   const tag = wienerZeit(jetzt.toISOString(), ZONE).tag;
   const datei = path.join(workdir, "nacht", `${tag}.json`);
   await mkdir(path.dirname(datei), { recursive: true });

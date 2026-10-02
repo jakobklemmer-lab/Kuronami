@@ -4,7 +4,7 @@ import path from "node:path";
 import { describe, expect, it } from "vitest";
 import type { AboStand, Fenster } from "./abo.js";
 import { grenzenJetzt } from "./lehrgang.js";
-import { inDerNacht, naechstesEnde, nachtgrenzen, wocheZuBeginn } from "./nachtbudget.js";
+import { inDerNacht, nachtgrenzen, naechstesEnde, wocheZuBeginn } from "./nachtbudget.js";
 
 const NORMAL = { sitzung: 85, woche: 85 };
 
@@ -48,14 +48,24 @@ describe("nachtgrenzen", () => {
   });
 
   it("nie über die eigene Grenze hinaus", () => {
-    const g = nachtgrenzen({ fenster: fenster(5, null, 80), wocheStart: 80, jetzt: nacht, normal: NORMAL });
+    const g = nachtgrenzen({
+      fenster: fenster(5, null, 80),
+      wocheStart: 80,
+      jetzt: nacht,
+      normal: NORMAL,
+    });
     expect(g.woche).toBe(85);
   });
 
   it("ein Fenster, das in den Morgen reicht, bleibt unter 30 %", () => {
     // 05:30 Wien: ein neues Fenster liefe bis 10:30 — über 08:00 hinaus.
     const frueh = new Date("2026-10-03T03:30:00Z");
-    const neu = nachtgrenzen({ fenster: fenster(0, null, 14), wocheStart: 12, jetzt: frueh, normal: NORMAL });
+    const neu = nachtgrenzen({
+      fenster: fenster(0, null, 14),
+      wocheStart: 12,
+      jetzt: frueh,
+      normal: NORMAL,
+    });
     expect(neu.letztesFenster).toBe(true);
     expect(neu.sitzung).toBe(30);
     // Läuft das Fenster vor acht ab, gilt die volle Grenze.
@@ -78,7 +88,12 @@ describe("nachtgrenzen", () => {
   });
 
   it("wird die Woche nachts zurückgesetzt, zählt der neue Stand", () => {
-    const g = nachtgrenzen({ fenster: fenster(5, null, 1), wocheStart: 70, jetzt: nacht, normal: NORMAL });
+    const g = nachtgrenzen({
+      fenster: fenster(5, null, 1),
+      wocheStart: 70,
+      jetzt: nacht,
+      normal: NORMAL,
+    });
     expect(g.wocheStart).toBe(1);
     expect(g.woche).toBe(11);
   });
@@ -112,7 +127,10 @@ describe("Lehrgang im Nachtbudget", () => {
     const nacht = new Date("2026-10-02T23:00:00Z");
     // Der Nachtbau hat um 00:30 bei 12 % festgehalten.
     await wocheZuBeginn(dir, new Date("2026-10-02T22:30:00Z"), 12);
-    expect(await grenzenJetzt(abo(10, 20), dir, nacht, "08:00")).toEqual({ sitzung: 70, woche: 22 });
+    expect(await grenzenJetzt(abo(10, 20), dir, nacht, "08:00")).toEqual({
+      sitzung: 70,
+      woche: 22,
+    });
     const tag = new Date("2026-10-03T10:00:00Z");
     expect(await grenzenJetzt(abo(10, 20), dir, tag, "08:00")).toEqual({ sitzung: 70, woche: 85 });
   });
