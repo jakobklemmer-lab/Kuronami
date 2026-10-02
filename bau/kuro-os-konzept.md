@@ -59,13 +59,10 @@ sein … Prio Nummer zwei ist die Benutzbarkeit mit heute Morgen."
 ist alles benutzbar**: jeder Raum öffnet, jede Fachfunktion geht, nichts ist kaputt oder halb —
 lieber schlicht und vollständig als schön und lückenhaft. (3) Erst dann Schliff.
 
-**Eigene Räume statt Film-Standbilder:** Jeder Raum bekommt später ein eigenes, zu den anderen
-passendes Raumbild (gleiche Nacht, gleiches Holz, gleiche Laternen; z. B. Handel: Schreibtisch mit
-Bildschirmen, Brain: Bibliothek, Post: Eingang mit Briefablage, Studium: Lesetisch). Die Bilder
-erzeugt Claude **am Morgen mit Jakob** (Artlist, Vorlage `ui/assets/night.jpg`); der Nachtbau kann
-keine Bilder erzeugen. **Heute Nacht:** im Raum Kuro `night.jpg`; für die anderen Räume einen
-Platz vorbereiten — `ui/assets/raeume/<raum>.webp`, wenn die Datei fehlt, ein ruhiger, dunkler,
-leicht warmer Verlauf. Die Standbilder des Welle-Films werden **nicht** verwendet.
+**Hintergründe:** Nur der Desktop (Raum Kuro) zeigt Kuros Zimmer (`ui/assets/night.jpg`). Die
+Fenster der anderen Räume haben **keinen eigenen Hintergrund** — sie liegen als ruhige, matte,
+gut lesbare Tafeln über dem Zimmer. Keine Film-Standbilder, keine eigenen Raumbilder (Jakob hatte
+das nur gefragt, nicht verlangt).
 
 ### Dritter Nachtrag, 22:00 — das Wichtigste
 
