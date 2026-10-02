@@ -1175,4 +1175,3 @@ Deployment-Ziel für den 24/7-Betrieb relevant, nicht als Entwicklungsumgebung.
 * Hermes Agent (Nous Research), als Blaupause geprüft, nicht geforkt
 * OpenJarvis (Stanford SAIL / Hazy Research): https://github.com/open-jarvis/OpenJarvis
 * awesome-harness-engineering: https://github.com/ai-boost/awesome-harness-engineering
-* Notion-Masterseite: https://app.notion.com/p/<notion-seite>

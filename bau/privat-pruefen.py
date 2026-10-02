@@ -51,6 +51,8 @@ def private_werte() -> dict[str, str]:
                 werte[wert.split("@")[0].lower()] = "Postfachname"
             elif name == "WEB_LOGIN_USER":
                 werte[wert.lower()] = "Anmeldename"
+            elif re.search(r"(TOKEN|KEY|SECRET|PASS|HASH|CLIENT_ID|_GOOGLE)$|^NOTION_\w+_(DB|PAGE)$", name):
+                werte[wert.lower()] = "Wert aus der .env"
             elif name == "KURO_KAPITAL_EURO" and wert.replace(".", "").isdigit():
                 n = int(float(wert))
                 for form in (f"{n:,}".replace(",", ".") + " €", f"{n} €", f"{n}€"):

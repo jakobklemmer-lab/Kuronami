@@ -31,13 +31,13 @@ import {
  * nicht aktualisiert wird, ist schlechter als keines".
  */
 
-/** Die Kennungen aus Jakobs Arbeitsbereich. Über die Umgebung überschreibbar, falls er umzieht. */
+/** Die Kennungen aus Jakobs Notion-Arbeitsbereich — nur in der .env, das Repo ist öffentlich. */
 export const JOURNAL_IDS = {
-  trades: process.env.NOTION_TRADES_DB ?? "<notion_trades_db>",
-  lektionen: process.env.NOTION_LEKTIONEN_DB ?? "<notion_lektionen_db>",
-  regeln: process.env.NOTION_REGELN_PAGE ?? "<notion_regeln_page>",
-  setups: process.env.NOTION_SETUPS_PAGE ?? "<notion_setups_page>",
-  watchlist: process.env.NOTION_WATCHLIST_DB ?? "<notion_watchlist_db>",
+  trades: process.env.NOTION_TRADES_DB ?? "",
+  lektionen: process.env.NOTION_LEKTIONEN_DB ?? "",
+  regeln: process.env.NOTION_REGELN_PAGE ?? "",
+  setups: process.env.NOTION_SETUPS_PAGE ?? "",
+  watchlist: process.env.NOTION_WATCHLIST_DB ?? "",
 } as const;
 
 /** Jakobs Kapitalregeln, als Zahlen — geprüft wird gegen diese, nicht gegen eine Erinnerung. */
