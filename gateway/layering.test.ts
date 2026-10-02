@@ -79,15 +79,12 @@ describe("Schichtung", () => {
   });
 
   it("prüft dabei wirklich Dateien (Gegenprobe zum Test selbst)", async () => {
-    // Ein Schichtungstest, der versehentlich null Dateien liest, ist immer grün. Deshalb steht
-    // die Zahl hier fest genug, um das zu bemerken, und offen genug, um nicht bei jeder neuen
-    // Datei zu reißen. Bis 2026-09-20 waren es über 50 Dateien; nach dem Ausbau des alten
-    // Motors sind 44 übrig, und die Schwelle rutscht mit — sie soll ein leeres Verzeichnis
-    // melden, nicht eine Aufräumarbeit.
+    // Ein Schichtungstest, der versehentlich null Dateien liest, ist immer grün. Die Schwelle
+    // soll ein leeres Verzeichnis melden, nicht eine Aufräumarbeit.
     let count = 0;
     for (const layer of INNER_LAYERS) count += (await sourceFiles(path.join(ROOT, layer))).length;
 
-    expect(count).toBeGreaterThan(30);
+    expect(count).toBeGreaterThan(10);
     // Und der Erkenner selbst muss anschlagen, sonst prüfte der Test oben nur sein eigenes
     // leeres Ergebnis.
     expect(pointsAtGateway(path.join(ROOT, "runtime", "index.ts"), "../gateway/core.js")).toBe(

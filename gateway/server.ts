@@ -14,7 +14,6 @@ import {
 } from "../runtime/mcp/config-store.js";
 import { readSecretStatus, upsertSecrets } from "../runtime/secrets/env-file.js";
 import type { MemoryStore } from "../tools/memory/store.js";
-import type { N8nBridge } from "../tools/n8n/bridge.js";
 import type { AlarmeAblage } from "./alarme.js";
 import { type Anmeldung, SITZUNG_GUELTIG_MS } from "./anmeldung.js";
 import { handleSlackEvent } from "./channels/slack/channel.js";
@@ -89,9 +88,6 @@ export interface ServerDeps {
   /** Fehlt sie, gibt es keine Schlüsselverwaltung (S32-Nachtrag) — `.env` bleibt dann nur von
    * Hand editierbar. */
   secrets?: SettingsSecretsDeps;
-  /** Die n8n-Brücke, heute nur noch für den Kalender (`/integrations/calendar`). Die Post
-   * läuft seit 2026-09-18 direkt über IMAP (`gateway/postfach.ts`). */
-  n8nBridge?: N8nBridge;
   /** Das Langzeitgedächtnis — Quelle für `/integrations/notes` (Nachtrag 2026-09-16: die
    * Startseite zeigt echte Notizen statt eines Mock-Zitats). Fehlt es, antwortet die Route leer. */
   memory?: Pick<MemoryStore, "all">;
@@ -893,13 +889,7 @@ export function createServer(deps: ServerDeps): express.Express {
     }
   });
 
-  /**
-   * Nachtrag 2026-09-16: die Oberfläche liest hier direkt, ohne den Agenten-Loop zu bemühen —
-   * dieselbe Haltung wie beim Trading-Chart (direkter Abruf, kein Modellaufruf). `mail.search`
-   * als Werkzeug bleibt für den Assistenten daneben bestehen (Artefakt, Redaction, Kontext-
-   * Kürzung); dieser Rand hier ist nur die Kurzfassung fürs Dashboard, dieselbe n8n-Brücke,
-   * ohne die Tool-/Policy-/Artefakt-Schicht dazwischen.
-   */
+  /** Die Post für die Oberfläche, direkt über IMAP (`postfach.ts`) — ohne Modellaufruf. */
   app.get("/integrations/mail", async (req, res, next) => {
     try {
       const principal = webPrincipal(req, res);
@@ -950,9 +940,7 @@ export function createServer(deps: ServerDeps): express.Express {
     try {
       const principal = webPrincipal(req, res);
       if (!principal) return;
-      const controller = new AbortController();
-      req.on("close", () => controller.abort());
-      res.json(await loadCalendar(deps.n8nBridge, controller.signal));
+      res.json(loadCalendar());
     } catch (error) {
       next(error);
     }

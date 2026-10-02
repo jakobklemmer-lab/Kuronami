@@ -5,7 +5,6 @@ import { attachEventSocket, eventBus } from "../runtime/events/bus.js";
 import { startEventNotifyListener } from "../runtime/events/notify.js";
 import { envFilePathFromEnv, readEnvFile, writeEnvFile } from "../runtime/secrets/env-file.js";
 import { buildMemoryRoot, createMemoryStore } from "../tools/memory/store.js";
-import { createN8nBridge } from "../tools/n8n/bridge.js";
 import { KuroAgent } from "./agent.js";
 import { alarmText, createAlarme, starteAlarmTakt } from "./alarme.js";
 import { SITZUNG_GUELTIG_MS, anmeldungAusUmgebung } from "./anmeldung.js";
@@ -84,7 +83,6 @@ async function main(): Promise<void> {
 
   const pool = createPool();
   const artifactRoot = artifactRootFromEnv();
-  const n8nBaseUrl = process.env.N8N_BASE_URL?.trim();
   const obsidianVault = process.env.OBSIDIAN_VAULT_PATH?.trim();
   // Ohne Modell kann das Gateway keine Nachricht beantworten. Anders als beim Runtime-Skelett
   // (das auch ohne Schlüssel eine Session eröffnen können soll) ist ein Start ohne Anbieter
@@ -182,14 +180,6 @@ async function main(): Promise<void> {
     write: (contents: string) => writeEnvFile(envFilePath, contents),
   };
 
-  // Dieselbe Brücke wie die mail.*/cal.*-Tools (S14/S15), hier ohne Tool-/Policy-/
-  // Artefaktschicht — Nachtrag 2026-09-16 für `/integrations/mail`, das Dashboard-Widget der
-  // Oberfläche. `undefined`, wenn keine n8n-Instanz hinterlegt ist (`configured` bleibt dann
-  // `false`, die Route antwortet mit 404 statt einem Fehler ohne Ursache).
-  const n8nBridge = n8nBaseUrl
-    ? createN8nBridge({ baseUrl: n8nBaseUrl, token: process.env.N8N_WEBHOOK_TOKEN?.trim() })
-    : undefined;
-
   // Die Postfächer warm halten (2026-09-20). Ohne das traf jeder Neuaufbau der Oberfläche auf
   // einen kalten Speicher und wartete auf drei IMAP-Runden — sichtbar als „Lädt …" über
   // Sekunden, bei jedem Neuladen. Der erste Abruf läuft hier sofort, damit schon der erste
@@ -233,7 +223,6 @@ async function main(): Promise<void> {
     slack,
     voice,
     secrets,
-    n8nBridge,
     memory,
     markets,
     chartdaten: createChartdaten({ markets }),
