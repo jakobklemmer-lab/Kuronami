@@ -1,113 +1,200 @@
 /*
- * Kuro OS (02.10., zweiter Wurf) — ein Desktop. Farben und Schriften der Welle (`welle.css`):
- * Tusche, Mond, Nebel, die Laterne für Jakob, Kuros Licht nach Zustand (`--kuro-licht`).
- * Hintergrund ist Kuros Raum bei Nacht. Bewegt wird nur, was Jakob anstößt: Fenster öffnen,
- * schließen, minimieren, das Dock unter der Maus. Im Stand atmet nur Kuros Licht.
+ * Kuro OS, dritter Wurf (`bau/kuro-os-konzept.md`). Kuros Zimmer ist der Desktop; die anderen
+ * Räume liegen als matte Tafeln darüber, Kuros Platz rechts daneben. Farben und Schriften der
+ * Welle (`welle.css`): Laterne für Jakob, Kuros Licht nach Zustand (`--kuro-licht`).
+ * Bewegt wird nur, was einen Zustand erklärt: Raumwechsel, der Platz, der Orb.
  */
 
 .ist-os {
-  --menue-h: 32px;
+  --kopf-h: 52px;
+  --rand: 14px;
+  --gespraech-b: clamp(380px, 30vw, 540px);
+  --platz-b: clamp(320px, 19vw, 380px);
+  --streifen-b: 64px;
+  --orb-klein-h: 196px;
   --kuro-licht: var(--kuro);
-  --glas: rgba(9, 17, 21, 0.8);
+  --tafel: linear-gradient(180deg, rgba(11, 18, 21, 0.95), rgba(14, 20, 18, 0.95));
+  --tafel-licht: rgba(232, 239, 241, 0.035);
+  --haarlinie: rgba(232, 239, 241, 0.07);
   --glas-hell: rgba(232, 239, 241, 0.06);
-  --rand: rgba(232, 239, 241, 0.09);
   --gleiten-os: cubic-bezier(0.45, 0, 0.55, 1);
   --link: #a99bff;
   height: 100svh;
   overflow: hidden;
+  background: linear-gradient(160deg, #0b1215, #0e1412);
 }
 
 .o-os {
+  --spalte-b: var(--gespraech-b);
   position: fixed;
   inset: 0;
   overflow: hidden;
 }
 
-.o-menue,
-.o-dock,
-.f-titel,
+.o-os.ist-fenster {
+  --spalte-b: var(--platz-b);
+}
+
+.o-os.ist-fenster.ist-platz-zu {
+  --spalte-b: var(--streifen-b);
+}
+
+.o-kopf,
 .o-starter,
-.o-kontext {
+.o-fenster__kopf,
+.o-platz__fuss,
+.o-streifen {
   user-select: none;
   -webkit-user-select: none;
 }
 
 /* --------------------------------------------------------------------- */
-/* Hintergrund: Kuros Raum, von oben fällt sein Licht                     */
+/* Das Zimmer: Kuros Raum bei Nacht, von oben fällt sein Licht            */
 /* --------------------------------------------------------------------- */
 
-.o-hintergrund {
+.o-zimmer {
   position: fixed;
   inset: 0;
-  background: linear-gradient(to bottom, rgba(3, 8, 11, 0.18), rgba(3, 8, 11, 0.42)),
-    url("../assets/night.jpg") center / cover no-repeat, var(--tusche);
+  background: linear-gradient(to bottom, rgba(3, 8, 11, 0.55), rgba(3, 8, 11, 0) 18%),
+    linear-gradient(to left, rgba(3, 8, 11, 0.5), rgba(3, 8, 11, 0) 40%), url("../assets/night.jpg")
+    center / cover no-repeat, var(--tusche);
+  transition: filter 0.4s var(--gleiten-os);
 }
 
-.o-hintergrund::after {
+.o-zimmer::after {
   content: "";
   position: absolute;
   inset: 0;
   background: radial-gradient(
-    ellipse 50vw 34vh at 50% -6vh,
-    color-mix(in srgb, var(--kuro-licht) 26%, transparent),
+    ellipse 50vw 34vh at 38% -6vh,
+    color-mix(in srgb, var(--kuro-licht) 24%, transparent),
     transparent 70%
   );
-  opacity: 0.55;
+  opacity: 0.5;
   transition: opacity 1.2s var(--gleiten-os), background 1.2s var(--gleiten-os);
 }
 
-.o-os:not([data-kuro="ruhe"]):not([data-kuro="offline"]) .o-hintergrund::after {
+.o-os:not([data-kuro="ruhe"]):not([data-kuro="offline"]) .o-zimmer::after {
   opacity: 1;
 }
 
+/* Liegt ein Raum darüber, tritt das Zimmer zurück. */
+.o-os.ist-fenster .o-zimmer {
+  filter: brightness(0.6) saturate(0.85);
+}
+
 /* --------------------------------------------------------------------- */
-/* Menüleiste                                                             */
+/* Kopf: die Räume als Überschrift                                        */
 /* --------------------------------------------------------------------- */
 
-.o-menue {
+.o-kopf {
   position: fixed;
   inset: 0 0 auto;
-  z-index: 1000;
-  display: grid;
-  grid-template-columns: 1fr auto 1fr;
-  align-items: start;
-  height: var(--menue-h);
-  padding: 0 14px;
-  background: rgba(3, 8, 11, 0.46);
-  -webkit-backdrop-filter: blur(24px) saturate(140%);
-  backdrop-filter: blur(24px) saturate(140%);
-  border-bottom: 1px solid rgba(232, 239, 241, 0.06);
-  font-size: 13px;
-}
-
-.o-menue__links,
-.o-menue__rechts {
+  z-index: 40;
   display: flex;
   align-items: center;
-  gap: 16px;
-  height: var(--menue-h);
-}
-
-.o-menue__rechts {
-  justify-self: end;
+  gap: 26px;
+  height: var(--kopf-h);
+  padding: 0 calc(var(--rand) + 8px) 0 calc(var(--rand) + 10px);
 }
 
 .o-marke {
-  padding: 0 4px;
+  flex: none;
+  padding: 0;
   border: 0;
   background: none;
   color: var(--mond);
   font-family: var(--zeichen);
-  font-size: 15px;
+  font-size: 19px;
   cursor: pointer;
+  opacity: 0.86;
 }
 
 .o-marke:hover {
-  color: var(--laterne);
+  opacity: 1;
+  color: var(--laterne-hell);
 }
 
-.o-menue__app {
-  font-weight: 600;
+.o-raeume {
+  display: flex;
+  align-items: baseline;
+  gap: 22px;
+  min-width: 0;
+}
+
+.o-raum {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 4px;
+  color: var(--nebel);
+  font-family: var(--zeichen);
+  font-size: 15px;
+  line-height: 1;
+  text-decoration: none;
+  white-space: nowrap;
+  transition: color 0.18s ease;
+}
+
+.o-raum span {
+  transition: font-size 0.18s var(--gleiten-os);
+}
+
+.o-raum small {
+  font-family: var(--schrift);
+  font-size: 10.5px;
+  color: var(--dunst);
+  font-variant-numeric: tabular-nums;
+  transform: translateY(-0.55em);
+}
+
+.o-raum:hover {
+  color: var(--mond);
+}
+
+.o-raum.ist-hier {
+  color: var(--mond);
+}
+
+.o-raum.ist-hier span {
+  font-size: 26px;
+  font-weight: 500;
+}
+
+.o-kopf__rechts {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  margin-left: auto;
+  color: var(--nebel);
+  font-size: 13px;
+}
+
+.o-suche {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  height: 30px;
+  padding: 0 8px 0 12px;
+  border: 1px solid var(--haarlinie);
+  border-radius: 9px;
+  background: rgba(3, 8, 11, 0.32);
+  color: var(--nebel);
+  font: inherit;
+  cursor: pointer;
+  transition: color 0.18s ease, border-color 0.18s ease;
+}
+
+.o-suche kbd {
+  padding: 2px 6px;
+  border-radius: 5px;
+  background: var(--tafel-licht);
+  font-family: var(--schrift);
+  font-size: 11.5px;
+  color: var(--dunst);
+}
+
+.o-suche:hover {
+  border-color: var(--linie-stark);
   color: var(--mond);
 }
 
@@ -120,132 +207,571 @@
   background: none;
   color: var(--nebel);
   font: inherit;
-  font-size: 12.5px;
   font-variant-numeric: tabular-nums;
   cursor: pointer;
 }
 
+.o-abo[hidden] {
+  display: none;
+}
+
 .o-abo__balken {
-  width: 26px;
-  height: 4px;
-  border-radius: 2px;
-  background: rgba(232, 239, 241, 0.16);
+  width: 24px;
+  height: 3px;
   overflow: hidden;
+  border-radius: 2px;
+  background: var(--linie-stark);
 }
 
 .o-abo__balken i {
   display: block;
   height: 100%;
-  background: var(--kuro);
-}
-
-.o-abo.ist-knapp .o-abo__balken i {
   background: var(--laterne);
 }
 
+.o-abo.ist-knapp .o-abo__balken i {
+  background: var(--faellt);
+}
+
 .o-uhr {
-  font-weight: 500;
-  font-variant-numeric: tabular-nums;
   color: var(--mond);
-  white-space: pre;
+  font-variant-numeric: tabular-nums;
+}
+
+.o-haus {
+  display: inline-grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: none;
+  color: var(--nebel);
+  cursor: pointer;
+  transition: color 0.18s ease, background 0.18s ease;
+}
+
+.o-haus svg {
+  width: 18px;
+  height: 18px;
+}
+
+.o-haus:hover {
+  background: var(--glas-hell);
+  color: var(--mond);
 }
 
 /* --------------------------------------------------------------------- */
-/* Die Insel                                                              */
+/* Der Desktop: Gruß und Orb im Zimmer                                    */
 /* --------------------------------------------------------------------- */
 
-.o-insel {
-  position: relative;
-  z-index: 2;
-  width: 236px;
-  background: #000;
-  border: 1px solid rgba(232, 239, 241, 0.07);
-  border-top: 0;
-  border-radius: 0 0 16px 16px;
-  box-shadow: 0 10px 34px rgba(0, 0, 0, 0.5);
-  transition: width 0.26s var(--gleiten-os), border-radius 0.26s var(--gleiten-os);
+.o-empfang {
+  position: fixed;
+  top: calc(var(--kopf-h) + 4vh);
+  left: calc(var(--rand) + 34px);
+  z-index: 5;
+  max-width: calc(100vw - var(--gespraech-b) - 120px);
+  pointer-events: none;
+  transition: opacity 0.3s var(--gleiten-os);
 }
 
-.o-insel.ist-offen {
-  width: min(660px, calc(100vw - 24px));
-  border-radius: 0 0 24px 24px;
+.o-os.ist-fenster .o-empfang {
+  opacity: 0;
 }
 
-.o-insel__griff {
+.o-empfang__datum {
+  margin: 0 0 10px;
+  font-size: 14px;
+  color: var(--nebel);
+  text-shadow: 0 1px 14px rgba(0, 0, 0, 0.8);
+}
+
+.o-empfang__gruss {
+  margin: 0;
+  font-family: var(--zeichen);
+  font-weight: 500;
+  font-size: clamp(2.1rem, 3.2vw, 3.6rem);
+  line-height: 1.12;
+  color: var(--mond);
+  text-shadow: 0 2px 30px rgba(0, 0, 0, 0.6);
+}
+
+.o-empfang__gruss span {
+  display: block;
+}
+
+/*
+ * Ein Orb für alle Lagen: groß in der Mitte des Zimmers, oben in Kuros Platz neben einem Fenster,
+ * klein im eingeklappten Streifen. Er gleitet zwischen ihnen, statt neu zu starten.
+ */
+.o-orb {
+  --buehne-b: calc(100vw - var(--gespraech-b) - 2 * var(--rand));
+  --orb-s: min(64vh, calc(var(--buehne-b) - 96px), 820px);
+  position: fixed;
+  z-index: 30;
+  left: calc(var(--buehne-b) / 2 - var(--orb-s) / 2 + var(--rand));
+  top: calc(var(--kopf-h) + (100vh - var(--kopf-h)) / 2 - var(--orb-s) / 2 + 3vh);
+  width: var(--orb-s);
+  height: var(--orb-s);
+  border-radius: 50%;
+  transition: left 0.32s var(--gleiten), top 0.32s var(--gleiten), width 0.32s var(--gleiten),
+    height 0.32s var(--gleiten);
+}
+
+.o-os.ist-fenster .o-orb {
+  left: calc(100vw - var(--rand) - var(--platz-b));
+  top: calc(var(--kopf-h) + 4px);
+  width: var(--platz-b);
+  height: var(--orb-klein-h);
+  border-radius: 14px;
+}
+
+.o-os.ist-fenster.ist-platz-zu .o-orb {
+  left: calc(100vw - var(--rand) - var(--streifen-b));
+  top: calc(var(--kopf-h) + 6px);
+  width: var(--streifen-b);
+  height: var(--streifen-b);
+}
+
+.o-orb .ko-root {
+  min-height: 0;
+}
+
+.o-orb .ko-caption {
+  top: auto;
+  bottom: 2%;
+}
+
+.o-os.ist-fenster .o-orb .ko-caption,
+.o-os.ist-fenster .o-orb .ko-tags {
+  display: none;
+}
+
+.o-orb.ist-ohne-orb {
+  display: grid;
+  place-items: center;
+}
+
+.o-orb .p-orb-fehler {
+  max-width: 34ch;
+  margin: 0;
+  font-size: 13px;
+  color: var(--nebel);
+  text-align: center;
+}
+
+.o-os.ist-fenster .o-orb .p-orb-fehler {
+  display: none;
+}
+
+/* --------------------------------------------------------------------- */
+/* Tafeln: das Fenster eines Raums und das Blatt                          */
+/* --------------------------------------------------------------------- */
+
+.o-fenster {
+  position: fixed;
+  top: var(--kopf-h);
+  bottom: var(--rand);
+  left: var(--rand);
+  right: calc(var(--spalte-b) + 2 * var(--rand));
+  z-index: 20;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background: var(--tafel);
+  border: 1px solid var(--haarlinie);
+  border-radius: 14px;
+  box-shadow: 0 28px 70px rgba(0, 0, 0, 0.38);
+  transition: right 0.22s var(--gleiten-os), opacity 0.2s var(--gleiten-os), transform 0.24s
+    var(--gleiten);
+}
+
+.o-fenster[hidden] {
+  display: none;
+}
+
+.o-fenster.ist-kommend,
+.o-fenster.ist-gehend {
+  opacity: 0;
+  transform: translateY(10px) scale(0.99);
+}
+
+.o-fenster__kopf {
   display: flex;
   align-items: center;
-  gap: 10px;
-  width: 100%;
-  height: var(--menue-h);
-  padding: 0 16px;
+  gap: 16px;
+  flex: none;
+  height: 46px;
+  padding: 0 8px 0 22px;
+  border-bottom: 1px solid var(--haarlinie);
+}
+
+.o-teile {
+  display: flex;
+  align-items: stretch;
+  gap: 24px;
+  height: 100%;
+}
+
+.o-teil {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  color: var(--nebel);
+  font-size: 14px;
+  text-decoration: none;
+  transition: color 0.18s ease;
+}
+
+.o-teil:hover {
+  color: var(--mond);
+}
+
+.o-teil.ist-hier {
+  color: var(--mond);
+}
+
+/* Der gewählte Teil trägt einen kurzen Strich im Licht der Laterne. */
+.o-teil.ist-hier::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  bottom: -1px;
+  width: 18px;
+  height: 2px;
+  border-radius: 2px;
+  background: var(--laterne);
+}
+
+.o-zu {
+  display: inline-grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  margin-left: auto;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: none;
+  color: var(--nebel);
+  cursor: pointer;
+  transition: color 0.18s ease, background 0.18s ease;
+}
+
+.o-zu svg {
+  width: 16px;
+  height: 16px;
+}
+
+.o-zu:hover {
+  background: var(--glas-hell);
+  color: var(--mond);
+}
+
+.o-fenster__buehne {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  --f-hoehe: calc(100vh - var(--kopf-h) - var(--rand) - 48px);
+}
+
+.o-teil-flaeche {
+  position: absolute;
+  inset: 0;
+  overflow: auto;
+  overscroll-behavior: contain;
+  user-select: text;
+  transition: opacity 0.18s var(--gleiten-os), transform 0.18s var(--gleiten-os);
+}
+
+.o-teil-flaeche[hidden] {
+  display: none;
+}
+
+.o-teil-flaeche.ist-kommend,
+.o-teil-flaeche.ist-gehend {
+  opacity: 0;
+  transform: translateX(var(--versatz, 0));
+}
+
+.o-teil-flaeche.ist-gehend {
+  pointer-events: none;
+}
+
+.o-teil-flaeche--brain {
+  overflow: hidden;
+}
+
+/* Die Fachansichten tragen ihren Namen schon im Kopf der Tafel. */
+.o-teil-flaeche.w-raum,
+.o-blatt__inhalt.w-raum {
+  max-width: none;
+  min-height: 0;
+  margin: 0;
+  padding: 22px 28px 24px;
+}
+
+.o-teil-flaeche .detail-view,
+.o-blatt__inhalt .detail-view {
+  max-width: none;
+  min-height: 0;
+  margin: 0;
+  padding: 0;
+}
+
+.o-teil-flaeche .detail-view__title,
+.o-teil-flaeche .detail-view__icon,
+.o-blatt__inhalt .detail-view__title,
+.o-blatt__inhalt .detail-view__icon {
+  display: none;
+}
+
+.o-teil-flaeche .detail-view__subtitle,
+.o-blatt__inhalt .detail-view__subtitle {
+  margin-top: 0;
+}
+
+.o-teil-flaeche .markt {
+  --markt-hoehe: max(420px, calc(var(--f-hoehe) - 100px));
+}
+
+.o-blatt {
+  position: fixed;
+  inset: 0;
+  z-index: 1500;
+}
+
+.o-blatt[hidden] {
+  display: none;
+}
+
+.o-blatt__grund {
+  position: absolute;
+  inset: 0;
+  background: rgba(3, 8, 11, 0.5);
+  opacity: 0;
+  transition: opacity 0.24s var(--gleiten-os);
+}
+
+.o-blatt__tafel {
+  position: absolute;
+  top: var(--rand);
+  right: var(--rand);
+  bottom: var(--rand);
+  display: flex;
+  flex-direction: column;
+  width: min(1180px, calc(100vw - 120px));
+  overflow: hidden;
+  background: var(--tafel);
+  border: 1px solid var(--haarlinie);
+  border-radius: 14px;
+  box-shadow: -24px 0 70px rgba(0, 0, 0, 0.42);
+  transform: translateX(calc(100% + 40px));
+  transition: transform 0.26s var(--gleiten);
+}
+
+.o-blatt.ist-offen .o-blatt__grund {
+  opacity: 1;
+}
+
+.o-blatt.ist-offen .o-blatt__tafel {
+  transform: none;
+}
+
+.o-blatt__inhalt {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  overscroll-behavior: contain;
+}
+
+/* --------------------------------------------------------------------- */
+/* Kuros Platz: das Gespräch auf dem Desktop, die Spalte neben dem Fenster */
+/* --------------------------------------------------------------------- */
+
+.o-platz {
+  position: fixed;
+  top: var(--kopf-h);
+  right: var(--rand);
+  bottom: var(--rand);
+  z-index: 20;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  width: var(--spalte-b);
+  padding: 18px 18px 12px;
+  overflow: hidden;
+  background: linear-gradient(180deg, rgba(8, 14, 17, 0.8), rgba(10, 16, 15, 0.86));
+  border: 1px solid var(--haarlinie);
+  border-radius: 14px;
+  transition: width 0.22s var(--gleiten-os), padding 0.22s var(--gleiten-os);
+}
+
+.o-platz > * {
+  animation: o-ein 0.26s var(--gleiten-os) both;
+}
+
+@keyframes o-ein {
+  from {
+    opacity: 0;
+  }
+}
+
+.o-platz__kopf h2 {
+  margin: 0;
+  font-family: var(--zeichen);
+  font-weight: 500;
+  font-size: 19px;
+  color: var(--mond);
+}
+
+.o-platz__orbraum {
+  flex: none;
+  height: calc(var(--orb-klein-h) - 18px);
+  margin: -14px -18px -6px;
+}
+
+.o-platz__satz {
+  margin: 0;
+  font-size: 13.5px;
+  line-height: 1.45;
+  color: var(--nebel);
+  text-align: center;
+}
+
+.o-os[data-raum="kuro"] .o-platz__orbraum,
+.o-os[data-raum="kuro"] .o-platz__satz,
+.o-os[data-raum="kuro"] .o-platz__klappe,
+.o-os.ist-fenster .o-platz__kopf {
+  display: none;
+}
+
+.o-imhaus:empty {
+  display: none;
+}
+
+/* Das Gespräch beginnt unten über der Eingabe und wächst nach oben. */
+.o-platz__faden {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 24px 6px 4px 0;
+  scrollbar-width: thin;
+  scrollbar-color: var(--linie-stark) transparent;
+  -webkit-mask-image: linear-gradient(to bottom, transparent, #000 28px);
+  mask-image: linear-gradient(to bottom, transparent, #000 28px);
+}
+
+.o-platz__faden:empty {
+  display: none;
+}
+
+.o-platz__faden > :first-child {
+  margin-top: auto;
+}
+
+.o-platz__faden .f-text {
+  font-size: 15px;
+}
+
+.o-os.ist-fenster .o-platz__faden .f-text {
+  font-size: 14px;
+  line-height: 1.55;
+}
+
+.o-platz__leer {
+  display: flex;
+  align-items: flex-end;
+  flex: 1;
+  margin: 0;
+  padding-bottom: 6px;
+  font-size: 14.5px;
+  line-height: 1.5;
+  color: var(--nebel);
+}
+
+.o-platz__leer[hidden] {
+  display: none;
+}
+
+.o-platz__fuss {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: -4px;
+}
+
+.o-leise {
+  padding: 2px 0;
+  border: 0;
+  background: none;
+  color: var(--dunst);
+  font: inherit;
+  font-size: 12.5px;
+  cursor: pointer;
+  transition: color 0.18s ease;
+}
+
+.o-leise:hover {
+  color: var(--laterne);
+}
+
+.o-streifen {
+  display: none;
+}
+
+.o-os.ist-fenster.ist-platz-zu .o-platz {
+  padding: 0;
+}
+
+.o-os.ist-fenster.ist-platz-zu .o-platz > :not(.o-streifen) {
+  display: none;
+}
+
+.o-os.ist-fenster.ist-platz-zu .o-streifen {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  flex: 1;
+  padding: calc(var(--streifen-b) + 14px) 0 0;
   border: 0;
   background: none;
   color: var(--mond);
   font: inherit;
-  font-size: 12.5px;
   cursor: pointer;
 }
 
-.o-insel__licht {
-  flex: none;
-  width: 8px;
-  height: 8px;
+.o-streifen:hover {
+  background: var(--tafel-licht);
+}
+
+.o-streifen__zahl {
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+  color: var(--mond);
+}
+
+.o-streifen__zahl:empty {
+  display: none;
+}
+
+/* Eine Antwort kam, während der Platz eingeklappt war. */
+.o-os.hat-neues .o-streifen::after {
+  content: "";
+  width: 7px;
+  height: 7px;
+  margin-top: 10px;
   border-radius: 50%;
   background: var(--kuro-licht);
-  box-shadow: 0 0 9px var(--kuro-licht);
-}
-
-.o-os:not([data-kuro="ruhe"]):not([data-kuro="offline"]) .o-insel__licht {
-  animation: o-atmen 1.6s var(--gleiten-os) infinite alternate;
-}
-
-@keyframes o-atmen {
-  from {
-    opacity: 0.65;
-    box-shadow: 0 0 5px var(--kuro-licht);
-  }
-  to {
-    opacity: 1;
-    box-shadow: 0 0 15px var(--kuro-licht);
-  }
-}
-
-.o-insel__satz {
-  overflow: hidden;
-  white-space: nowrap;
-  text-overflow: ellipsis;
-  color: rgba(232, 239, 241, 0.86);
-}
-
-.o-insel__blatt {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-  padding: 4px 16px 16px;
-}
-
-.o-insel__faden {
-  max-height: min(56vh, 560px);
-  overflow-y: auto;
-  overscroll-behavior: contain;
-  padding: 10px 4px 4px;
-  user-select: text;
-}
-
-.o-insel__faden:empty::before {
-  content: "Noch nichts gesagt. Schreiben Sie unten, oder halten Sie die Sprechtaste.";
-  display: block;
-  padding: 6px 2px 2px;
-  font-size: 14px;
-  color: var(--nebel);
-}
-
-.o-insel .f-eintrag {
-  max-width: none;
+  box-shadow: 0 0 10px var(--kuro-licht);
 }
 
 /* --------------------------------------------------------------------- */
-/* Eingabe (Insel und Kuro-App)                                           */
+/* Eingabe                                                                */
 /* --------------------------------------------------------------------- */
 
 .o-eingabe {
@@ -253,10 +779,11 @@
   grid-template-columns: 1fr auto auto;
   align-items: end;
   gap: 4px;
+  flex: none;
   padding: 6px 6px 6px 16px;
-  background: rgba(10, 23, 28, 0.9);
+  background: rgba(3, 8, 11, 0.55);
   border: 1px solid var(--linie-stark);
-  border-radius: 18px;
+  border-radius: 16px;
   transition: border-color 0.2s ease;
 }
 
@@ -318,414 +845,7 @@ body.ist-sprechtaste .o-eingabe__mikro,
 }
 
 /* --------------------------------------------------------------------- */
-/* Schreibtisch und Fenster                                               */
-/* --------------------------------------------------------------------- */
-
-.o-schreibtisch {
-  position: fixed;
-  inset: 0;
-  z-index: 10;
-}
-
-.o-andock {
-  position: fixed;
-  z-index: 900;
-  border: 1px solid rgba(109, 144, 255, 0.5);
-  border-radius: 12px;
-  background: rgba(109, 144, 255, 0.12);
-  -webkit-backdrop-filter: blur(4px);
-  backdrop-filter: blur(4px);
-  transition: all 0.12s var(--gleiten-os);
-  pointer-events: none;
-}
-
-.f-fenster {
-  position: absolute;
-  display: flex;
-  flex-direction: column;
-  background: var(--glas);
-  -webkit-backdrop-filter: blur(28px) saturate(150%);
-  backdrop-filter: blur(28px) saturate(150%);
-  border: 1px solid var(--rand);
-  border-radius: 12px;
-  box-shadow: 0 26px 70px rgba(0, 0, 0, 0.5), 0 0 0 0.5px rgba(0, 0, 0, 0.7);
-}
-
-.f-fenster:not(.ist-vorn) {
-  box-shadow: 0 14px 40px rgba(0, 0, 0, 0.38);
-}
-
-.f-fenster.ist-neu {
-  animation: f-auf 0.18s var(--gleiten-os);
-}
-
-.f-fenster.ist-weg {
-  animation: f-zu 0.14s var(--gleiten-os) forwards;
-  pointer-events: none;
-}
-
-@keyframes f-auf {
-  from {
-    opacity: 0;
-    transform: scale(0.97) translateY(6px);
-  }
-}
-
-@keyframes f-zu {
-  to {
-    opacity: 0;
-    transform: scale(0.97);
-  }
-}
-
-.f-fenster.ist-gezogen .f-inhalt {
-  pointer-events: none;
-}
-
-.f-titel {
-  position: relative;
-  display: flex;
-  align-items: center;
-  flex: none;
-  height: 38px;
-  padding: 0 13px;
-  border-bottom: 1px solid rgba(232, 239, 241, 0.06);
-  border-radius: 12px 12px 0 0;
-  background: linear-gradient(to bottom, rgba(255, 255, 255, 0.035), transparent);
-  cursor: default;
-}
-
-.f-name {
-  position: absolute;
-  inset: 0;
-  display: grid;
-  place-items: center;
-  font-size: 13px;
-  font-weight: 600;
-  color: var(--nebel);
-  pointer-events: none;
-}
-
-.ist-vorn .f-name {
-  color: var(--mond);
-}
-
-.f-knoepfe {
-  position: relative;
-  z-index: 1;
-  display: flex;
-  gap: 8px;
-}
-
-.f-knopf {
-  position: relative;
-  width: 12px;
-  height: 12px;
-  padding: 0;
-  border: 0;
-  border-radius: 50%;
-  background: rgba(232, 239, 241, 0.16);
-  cursor: pointer;
-}
-
-.ist-vorn .f-knopf--zu,
-.f-knoepfe:hover .f-knopf--zu {
-  background: #e5776f;
-}
-.ist-vorn .f-knopf--min,
-.f-knoepfe:hover .f-knopf--min {
-  background: #e3b25a;
-}
-.ist-vorn .f-knopf--max,
-.f-knoepfe:hover .f-knopf--max {
-  background: #6fc495;
-}
-
-.f-knoepfe:hover .f-knopf::after {
-  position: absolute;
-  inset: 0;
-  display: grid;
-  place-items: center;
-  font-size: 10px;
-  font-weight: 700;
-  line-height: 1;
-  color: rgba(0, 0, 0, 0.6);
-}
-.f-knoepfe:hover .f-knopf--zu::after {
-  content: "×";
-}
-.f-knoepfe:hover .f-knopf--min::after {
-  content: "–";
-}
-.f-knoepfe:hover .f-knopf--max::after {
-  content: "+";
-}
-
-.f-inhalt {
-  flex: 1;
-  min-height: 0;
-  overflow: auto;
-  border-radius: 0 0 12px 12px;
-  user-select: text;
-}
-
-.f-inhalt.w-raum {
-  max-width: none;
-  min-height: 0;
-  margin: 0;
-  padding: 18px 22px 24px;
-}
-
-.f-fenster[data-app="brain"] .f-inhalt,
-.f-fenster[data-app="kuro"] .f-inhalt {
-  padding: 0;
-  overflow: hidden;
-}
-
-.f-inhalt .detail-view {
-  max-width: none;
-  margin: 0;
-  padding: 0;
-  min-height: 0;
-}
-
-.f-inhalt .detail-view__title,
-.f-inhalt .detail-view__icon {
-  display: none;
-}
-
-.f-inhalt .detail-view__subtitle {
-  margin-top: 0;
-}
-
-.f-inhalt .markt {
-  --markt-hoehe: max(420px, calc(var(--f-hoehe, 700px) - 150px));
-}
-
-.f-griff {
-  position: absolute;
-  z-index: 3;
-}
-.f-griff--n,
-.f-griff--s {
-  left: 12px;
-  right: 12px;
-  height: 8px;
-  cursor: ns-resize;
-}
-.f-griff--n {
-  top: -4px;
-}
-.f-griff--s {
-  bottom: -4px;
-}
-.f-griff--e,
-.f-griff--w {
-  top: 12px;
-  bottom: 12px;
-  width: 8px;
-  cursor: ew-resize;
-}
-.f-griff--e {
-  right: -4px;
-}
-.f-griff--w {
-  left: -4px;
-}
-.f-griff--ne,
-.f-griff--nw,
-.f-griff--se,
-.f-griff--sw {
-  width: 16px;
-  height: 16px;
-}
-.f-griff--ne {
-  top: -5px;
-  right: -5px;
-  cursor: nesw-resize;
-}
-.f-griff--sw {
-  bottom: -5px;
-  left: -5px;
-  cursor: nesw-resize;
-}
-.f-griff--nw {
-  top: -5px;
-  left: -5px;
-  cursor: nwse-resize;
-}
-.f-griff--se {
-  bottom: -5px;
-  right: -5px;
-  cursor: nwse-resize;
-}
-
-/* --------------------------------------------------------------------- */
-/* Dock                                                                   */
-/* --------------------------------------------------------------------- */
-
-.o-dock {
-  position: fixed;
-  left: 50%;
-  bottom: 10px;
-  z-index: 950;
-  display: flex;
-  gap: 6px;
-  max-width: calc(100vw - 16px);
-  padding: 7px 9px 5px;
-  overflow-x: auto;
-  transform: translateX(-50%);
-  background: rgba(10, 20, 25, 0.44);
-  -webkit-backdrop-filter: blur(26px) saturate(150%);
-  backdrop-filter: blur(26px) saturate(150%);
-  border: 1px solid rgba(232, 239, 241, 0.1);
-  border-radius: 22px;
-  box-shadow: 0 18px 50px rgba(0, 0, 0, 0.45);
-  scrollbar-width: none;
-}
-
-.d-app {
-  position: relative;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 4px;
-  width: 58px;
-  padding: 0;
-  border: 0;
-  background: none;
-  cursor: pointer;
-}
-
-.d-kachel {
-  display: grid;
-  place-items: center;
-  width: 52px;
-  height: 52px;
-  border-radius: 13px;
-  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.08), inset 0 1px 0 rgba(255, 255, 255, 0.1), 0
-    6px 14px rgba(0, 0, 0, 0.35);
-  transition: transform 0.16s var(--gleiten-os);
-}
-
-.d-kachel svg {
-  width: 26px;
-  height: 26px;
-}
-
-.d-app:hover .d-kachel,
-.d-app:focus-visible .d-kachel {
-  transform: translateY(-5px) scale(1.06);
-}
-
-.d-app:active .d-kachel {
-  transform: translateY(-2px) scale(0.98);
-}
-
-.d-name {
-  position: fixed;
-  bottom: 96px;
-  padding: 4px 10px;
-  border-radius: 7px;
-  background: rgba(3, 8, 11, 0.86);
-  color: var(--mond);
-  font-size: 12.5px;
-  white-space: nowrap;
-  opacity: 0;
-  transform: translateX(-50%);
-  margin-left: 29px;
-  pointer-events: none;
-  transition: opacity 0.12s ease;
-}
-
-.d-app:hover .d-name {
-  opacity: 1;
-}
-
-.d-punkt {
-  width: 4px;
-  height: 4px;
-  border-radius: 50%;
-  background: var(--mond);
-  opacity: 0;
-}
-
-.d-app.ist-offen .d-punkt {
-  opacity: 0.7;
-}
-
-.d-app.ist-vorn .d-punkt {
-  opacity: 1;
-  background: var(--laterne);
-}
-
-.d-kachel--kuro {
-  background: radial-gradient(circle at 50% 35%, #142a3a, #050b10 75%);
-}
-.d-kugel {
-  width: 30px;
-  height: 30px;
-  border-radius: 50%;
-  background: radial-gradient(
-    circle,
-    #03080b 52%,
-    rgba(40, 60, 140, 0.6) 64%,
-    rgba(109, 144, 255, 0.95) 70%,
-    rgba(190, 210, 255, 0.9) 72%,
-    transparent 76%
-  );
-  box-shadow: 0 0 14px rgba(109, 144, 255, 0.45);
-}
-.d-kachel--brain {
-  background: linear-gradient(160deg, #2c2556, #14112a);
-  color: #b4a6ff;
-}
-.d-kachel--maerkte {
-  background: linear-gradient(160deg, #123326, #071810);
-  color: #7fd3a8;
-}
-.d-kachel--strategien {
-  background: linear-gradient(160deg, #33291a, #18120a);
-  color: #f4b860;
-}
-.d-kachel--analysen {
-  background: linear-gradient(160deg, #13283f, #0a1422);
-  color: #9cc4dc;
-}
-.d-kachel--post {
-  background: linear-gradient(160deg, #3a2a18, #1b1209);
-  color: #ffd08a;
-}
-.d-kachel--kalender {
-  background: linear-gradient(to bottom, #f7f9fa, #e2e8eb);
-  color: #0b1418;
-}
-.d-datum {
-  display: grid;
-  justify-items: center;
-  line-height: 1;
-}
-.d-datum small {
-  font-size: 10px;
-  font-weight: 600;
-  color: #d9534f;
-}
-.d-datum b {
-  margin-top: 2px;
-  font-size: 22px;
-  font-weight: 600;
-}
-.d-kachel--system {
-  background: linear-gradient(160deg, #1d2529, #0d1316);
-  color: #c9d4d8;
-}
-.d-kachel--einstellungen {
-  background: linear-gradient(160deg, #262d31, #11171a);
-  color: #c9d4d8;
-}
-
-/* --------------------------------------------------------------------- */
-/* Starter und Kontextmenü                                                */
+/* Starter und Ablage                                                     */
 /* --------------------------------------------------------------------- */
 
 .o-starter {
@@ -734,8 +854,8 @@ body.ist-sprechtaste .o-eingabe__mikro,
   z-index: 2000;
   display: flex;
   justify-content: center;
-  padding-top: 17vh;
-  background: rgba(3, 8, 11, 0.32);
+  padding-top: 16vh;
+  background: rgba(3, 8, 11, 0.4);
 }
 
 .o-starter[hidden] {
@@ -746,24 +866,29 @@ body.ist-sprechtaste .o-eingabe__mikro,
   align-self: flex-start;
   width: min(640px, calc(100vw - 32px));
   overflow: hidden;
-  background: rgba(12, 22, 27, 0.9);
-  -webkit-backdrop-filter: blur(30px) saturate(150%);
-  backdrop-filter: blur(30px) saturate(150%);
-  border: 1px solid rgba(232, 239, 241, 0.12);
-  border-radius: 16px;
-  box-shadow: 0 30px 80px rgba(0, 0, 0, 0.55);
-  animation: f-auf 0.14s var(--gleiten-os);
+  background: var(--tafel);
+  border: 1px solid var(--linie);
+  border-radius: 14px;
+  box-shadow: 0 30px 80px rgba(0, 0, 0, 0.5);
+  animation: o-starter-auf 0.14s var(--gleiten-os);
+}
+
+@keyframes o-starter-auf {
+  from {
+    opacity: 0;
+    transform: translateY(-6px);
+  }
 }
 
 .o-starter__feld input {
   width: 100%;
   padding: 18px 20px;
   border: 0;
-  border-bottom: 1px solid var(--linie);
+  border-bottom: 1px solid var(--haarlinie);
   background: none;
   color: var(--mond);
   font: inherit;
-  font-size: 20px;
+  font-size: 19px;
   outline: none;
 }
 
@@ -772,7 +897,7 @@ body.ist-sprechtaste .o-eingabe__mikro,
 }
 
 .o-starter__liste {
-  max-height: 50vh;
+  max-height: 52vh;
   margin: 0;
   padding: 6px;
   overflow-y: auto;
@@ -798,55 +923,25 @@ body.ist-sprechtaste .o-eingabe__mikro,
 }
 
 .o-starter__treffer.ist-gewaehlt {
-  background: rgba(109, 144, 255, 0.22);
+  background: rgba(244, 184, 96, 0.12);
+}
+
+.o-starter__treffer.ist-gewaehlt span {
+  color: var(--laterne-zeile);
 }
 
 .o-starter__treffer--kuro span {
   color: var(--laterne-zeile);
 }
 
-.o-kontext {
-  position: fixed;
-  z-index: 2100;
-  display: grid;
-  min-width: 220px;
-  padding: 5px;
-  background: rgba(14, 24, 29, 0.92);
-  -webkit-backdrop-filter: blur(24px);
-  backdrop-filter: blur(24px);
-  border: 1px solid rgba(232, 239, 241, 0.12);
-  border-radius: 10px;
-  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.5);
-}
-
-.o-kontext[hidden] {
-  display: none;
-}
-
-.o-kontext button {
-  padding: 7px 12px;
-  border: 0;
-  border-radius: 6px;
-  background: none;
-  color: var(--mond);
-  font: inherit;
-  font-size: 13.5px;
-  text-align: left;
-  cursor: pointer;
-}
-
-.o-kontext button:hover {
-  background: rgba(109, 144, 255, 0.28);
-}
-
 .o-ablage {
   position: fixed;
-  inset: 14px;
+  inset: var(--rand);
   z-index: 3000;
   display: grid;
   place-items: center;
   border: 1.5px dashed rgba(244, 184, 96, 0.6);
-  border-radius: 28px;
+  border-radius: 22px;
   background: rgba(3, 8, 11, 0.74);
   pointer-events: none;
 }
@@ -860,84 +955,6 @@ body.ist-sprechtaste .o-eingabe__mikro,
   font-family: var(--zeichen);
   font-size: clamp(1.4rem, 2.2vw, 2rem);
   color: var(--mond);
-}
-
-/* --------------------------------------------------------------------- */
-/* Kuro als App                                                           */
-/* --------------------------------------------------------------------- */
-
-.k-app {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-  height: 100%;
-  padding: 14px 16px 12px;
-}
-
-.k-app__kopf {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-}
-
-.k-app__orb {
-  position: relative;
-  flex: none;
-  width: 96px;
-  height: 96px;
-  cursor: pointer;
-}
-
-.k-app__orb.ist-ohne-orb {
-  width: 0;
-}
-
-.k-app__orb .p-orb-fehler {
-  display: none;
-}
-
-.k-app__satz {
-  margin: 0;
-  font-size: 14px;
-  color: var(--nebel);
-}
-
-.k-app__faden {
-  flex: 1;
-  min-height: 0;
-  overflow-y: auto;
-  overscroll-behavior: contain;
-  padding: 4px 4px 0 0;
-}
-
-.k-app__faden:empty {
-  display: none;
-}
-
-.k-app__leer {
-  flex: 1;
-  margin: 0;
-  font-size: 14.5px;
-  color: var(--nebel);
-}
-
-.k-app__leer[hidden] {
-  display: none;
-}
-
-.k-app__leeren {
-  align-self: flex-start;
-  padding: 0;
-  border: 0;
-  background: none;
-  color: var(--dunst);
-  font: inherit;
-  font-size: 12.5px;
-  cursor: pointer;
-}
-
-.k-app__leeren:hover {
-  color: var(--laterne);
 }
 
 /* --------------------------------------------------------------------- */
@@ -1396,21 +1413,29 @@ body.ist-sprechtaste .o-eingabe__mikro,
   }
 }
 
+/* Im großen Graphen braucht es keine Spalte für eine einzelne Notiz. */
+.b-app.ist-graph {
+  grid-template-columns: 236px minmax(0, 1fr);
+}
+.b-app.ist-graph .b-rechts {
+  display: none;
+}
+
 /* --------------------------------------------------------------------- */
 /* Desktop-App, Fokus, schmale Schirme, ruhige Bewegung                   */
 /* --------------------------------------------------------------------- */
 
-.ist-desktop .o-menue {
+.ist-desktop .o-kopf {
   -webkit-app-region: drag;
 }
-.ist-desktop .o-menue button,
-.ist-desktop .o-insel {
+.ist-desktop .o-kopf button,
+.ist-desktop .o-kopf a {
   -webkit-app-region: no-drag;
 }
-.ist-desktop.ist-darwin .o-menue {
+.ist-desktop.ist-darwin .o-kopf {
   padding-left: 82px;
 }
-.ist-desktop.ist-win32 .o-menue {
+.ist-desktop.ist-win32 .o-kopf {
   padding-right: 142px;
 }
 
@@ -1421,51 +1446,41 @@ body.ist-sprechtaste .o-eingabe__mikro,
   outline-offset: 2px;
 }
 
+@media (max-width: 1100px) {
+  .o-suche,
+  .o-raum small {
+    display: none;
+  }
+}
+
 @media (max-width: 760px) {
-  .o-menue__app,
-  .o-abo {
+  .ist-os {
+    --gespraech-b: calc(100vw - 2 * var(--rand));
+    --platz-b: var(--streifen-b);
+  }
+  .o-abo,
+  .o-empfang {
     display: none;
   }
-  .o-insel {
-    width: 44px;
-  }
-  .o-insel:not(.ist-offen) .o-insel__satz {
-    display: none;
-  }
-  .f-fenster {
-    border-radius: 0;
-  }
-  .f-griff {
-    display: none;
-  }
-  .d-kachel {
-    width: 46px;
-    height: 46px;
-  }
-  .d-app {
-    width: 50px;
+  .o-raeume {
+    gap: 14px;
   }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .o-hintergrund::after,
-  .o-insel,
-  .d-kachel,
-  .o-andock {
+  .o-zimmer,
+  .o-zimmer::after,
+  .o-orb,
+  .o-fenster,
+  .o-teil-flaeche,
+  .o-platz,
+  .o-blatt__grund,
+  .o-blatt__tafel,
+  .o-raum span {
     transition: none;
   }
-  .f-fenster.ist-neu,
-  .f-fenster.ist-weg,
-  .o-starter__feld,
-  .o-os .o-insel__licht {
-    animation: none !important;
+  .o-platz > *,
+  .o-starter__feld {
+    animation: none;
   }
-}
-
-/* Im großen Graphen braucht es keine Spalte für eine einzelne Notiz. */
-.b-app.ist-graph {
-  grid-template-columns: 236px minmax(0, 1fr);
-}
-.b-app.ist-graph .b-rechts {
-  display: none;
 }

@@ -89,3 +89,29 @@ export function ortFuerRoute(route: string): Ort | "blatt-system" | "blatt-einst
   if (route === "settings") return "blatt-einstellungen";
   return ziel[route] ?? null;
 }
+
+/** Der gemerkte Teil je Raum aus dem Seitenspeicher; Fremdes und Veraltetes fällt weg. */
+export function liesGemerkt(json: string | null): Partial<Record<Raum, Teil>> {
+  let roh: unknown;
+  try {
+    roh = JSON.parse(json ?? "{}");
+  } catch {
+    return {};
+  }
+  const gemerkt: Partial<Record<Raum, Teil>> = {};
+  if (!roh || typeof roh !== "object") return gemerkt;
+  for (const raum of RAEUME) {
+    const teil = (roh as Record<string, unknown>)[raum];
+    if (typeof teil === "string" && istTeil(raum, teil)) gemerkt[raum] = teil;
+  }
+  return gemerkt;
+}
+
+/** Wohin ein Wechsel gleitet: nach der Reihenfolge der Räume, im selben Raum nach den Teilen. */
+export function richtung(von: Ort, nach: Ort): -1 | 0 | 1 {
+  const r = RAEUME.indexOf(nach.raum) - RAEUME.indexOf(von.raum);
+  if (r !== 0) return r > 0 ? 1 : -1;
+  const teile = TEILE[nach.raum] as readonly string[];
+  const t = teile.indexOf(nach.teil ?? "") - teile.indexOf(von.teil ?? "");
+  return t > 0 ? 1 : t < 0 ? -1 : 0;
+}
