@@ -160,34 +160,67 @@ Funktion `darfJetztArchivieren(kontext, letzterZug, jetzt, grenze)`.
 gemessen 7–8k Token, lohnt also ab etwa dem Zehnfachen).
 
 ## N17 · Kommentare kürzen
-- Status: offen (Anweisung folgt — ohne bau/aufgaben/N17.md überspringt der Läufer)
+- Status: in Teilaufgaben (N17a–N17h)
 - Modell: sonnet
-- Braucht: N16
 
-**Warum:** Jakob am 02.10.: „zu viele Notizen im Code". Gemessen: 8.671 Kommentarzeilen auf
-40.401 Zeilen Code (18 %), in `runtime/` 32 %. Viele erzählen Geschichte („am 27.09. …", Zitate,
-Sitzungsnummern wie S36), die im Git und in den Berichten steht.
+Jakob am 02.10.: „zu viele Notizen im Code". 8.909 Kommentarzeilen in 189 Dateien, in acht Paketen
+zu je ~1.150 Zeilen. Der Wächter `bau/nur-kommentare.ts` lässt keine Code-Änderung durch.
 
-**Regeln für jeden Kommentar:**
-- Bleibt: *warum* etwas so ist, wenn man es dem Code nicht ansieht (eine Falle, eine Grenze, ein
-  Messwert, der eine Zahl im Code begründet) — in höchstens zwei Zeilen.
-- Fällt weg: Datum, Sitzungsnummer, Zitate von Jakob, Erzählung des Hergangs, Wiederholung dessen,
-  was der Code sagt, Verweise auf längst Entferntes (n8n, alter Motor, Mock-Daten).
-- JSDoc an exportierten Funktionen: ein Satz, was sie tut, plus Fallen; keine Absätze.
-- Deutsch bleibt Deutsch; nichts übersetzen, nichts umbenennen.
-- **Nur Kommentare ändern.** Kein Zeichen Code, keine Formatierung von Code, keine Datei löschen.
+## N17a · Kommentare kürzen, Paket 1 von 8
+- Status: offen
+- Modell: sonnet
+- Anweisung: `bau/aufgaben/N17a.md`
 
-**In Paketen, je Paket ein Lauf und ein Commit:** N17a `runtime/` + `tools/` · N17b `gateway/`
-Dateien A–H · N17c `gateway/` Dateien I–Z (ohne `channels/`) · N17d `gateway/channels/` + `context/`
-· N17e `ui/` ohne `ui/welle/` · N17f `ui/welle/`. Testdateien zählen mit. Die Aufgabe beim ersten
-Lauf in diese Teilaufgaben zerlegen und N17a bauen.
+19 Dateien von `context/bedienstete.ts` bis `gateway/channels/telegram/normalize.ts`.
 
-**Prüfen, vor jedem Commit:** `npx tsx bau/nur-kommentare.ts HEAD` (gegen den Stand vor deinen
-Änderungen; nach dem Commit `… HEAD~1`) muss `ok` melden — sonst ist Code mitgeändert worden:
-zurücknehmen, nicht reparieren. Dazu `pnpm test`, `pnpm typecheck`.
+## N17b · Kommentare kürzen, Paket 2 von 8
+- Status: offen
+- Modell: sonnet
+- Anweisung: `bau/aufgaben/N17b.md`
 
-**Fertig, wenn:** im Bericht je Paket Kommentarzeilen vorher/nachher (gezählt wie am 02.10.: Zeilen,
-die mit `//`, `/*` oder `*` beginnen, ohne `.test.ts` nicht mitzuzählen — Testdateien gesondert).
+22 Dateien von `gateway/channels/voice/channel.test.ts` bis `gateway/indikatoren.ts`.
+
+## N17c · Kommentare kürzen, Paket 3 von 8
+- Status: offen
+- Modell: sonnet
+- Anweisung: `bau/aufgaben/N17c.md`
+
+26 Dateien von `gateway/integrations/binance.test.ts` bis `gateway/nachtbudget.ts`.
+
+## N17d · Kommentare kürzen, Paket 4 von 8
+- Status: offen
+- Modell: sonnet
+- Anweisung: `bau/aufgaben/N17d.md`
+
+20 Dateien von `gateway/papierhandel.test.ts` bis `gateway/server.ts`.
+
+## N17e · Kommentare kürzen, Paket 5 von 8
+- Status: offen
+- Modell: sonnet
+- Anweisung: `bau/aufgaben/N17e.md`
+
+24 Dateien von `gateway/sperre.ts` bis `runtime/redaction/patterns.ts`.
+
+## N17f · Kommentare kürzen, Paket 6 von 8
+- Status: offen
+- Modell: sonnet
+- Anweisung: `bau/aufgaben/N17f.md`
+
+24 Dateien von `runtime/redaction/redact.test.ts` bis `ui/main.ts`.
+
+## N17g · Kommentare kürzen, Paket 7 von 8
+- Status: offen
+- Modell: sonnet
+- Anweisung: `bau/aufgaben/N17g.md`
+
+33 Dateien von `ui/markets/alarm-melden.ts` bis `ui/views/trading.ts`.
+
+## N17h · Kommentare kürzen, Paket 8 von 8
+- Status: offen
+- Modell: sonnet
+- Anweisung: `bau/aufgaben/N17h.md`
+
+21 Dateien von `ui/views/types.ts` bis `ui/welle/zustand.ts`.
 
 ## N5 · Kleine Reparaturen an Kuro
 - Status: offen (Anweisung folgt — ohne bau/aufgaben/N5.md überspringt der Läufer)
