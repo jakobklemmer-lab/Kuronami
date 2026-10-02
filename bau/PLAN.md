@@ -6,10 +6,13 @@ jede Nacht außerhalb meiner Nutzerzeiten automatisch nach Plan fertig gebaut wi
 `wartet`, deren „Braucht" erledigt ist, und arbeitet sie in einem eigenen Lauf ab. Die
 Arbeitsregeln stehen in `bau/auftrag.md`, die Berichte unter `bau/berichte/`.
 
-**Modell:** seit 02.10. gilt wieder die Zeile „Modell:" je Aufgabe — `sonnet` (Vorgabe) baut mit
-**Sonnet 5.5**, `opus` mit **Opus 5.5**; Opus nur für den Bau von Kuro OS (Jakob am 02.10.). Damit
-Sonnet ohne Rückfrage durchkommt, schreibt Claude jede Aufgabe tagsüber genau vor: Dateien,
-Funktionen, Prüfkriterien, was nicht angefasst wird.
+**Modell:** die Zeile „Modell:" je Aufgabe — `sonnet` (Vorgabe) baut mit **Sonnet 5.5**, `opus` mit
+**Opus 5.5**, Opus nur für den Bau von Kuro OS.
+
+**Anweisungen:** Jede Aufgabe läuft nur mit einer genauen Anweisung unter `bau/aufgaben/<ID>.md`
+(sonst überspringt der Läufer sie). Claude schreibt sie tagsüber: Suchanker, wörtlicher Code,
+Prüfbefehle mit erwarteter Ausgabe, Stopp-Regeln — und spielt sie vorher in einer Wegwerf-Kopie
+durch. Der Plan hier ist nur die Übersicht.
 
 **Status-Werte:** `offen` · `in Arbeit (Stand …)` · `wartet (worauf)` · `erledigt (Datum, Commit)` ·
 `blockiert (Grund)`. Eine zu große Aufgabe darf in Teilaufgaben (N7a, N7b …) zerlegt werden. **Die Reihenfolge im
@@ -118,90 +121,19 @@ Kalibrierungsvideo, falls dessen Transkript schon da ist — sonst Status `erled
 ## N16 · Slack-Kanal ausbauen
 - Status: offen
 - Modell: sonnet
+- Anweisung: `bau/aufgaben/N16.md`
 
-**Warum:** Slack war nie eingerichtet (in der `.env` stehen die drei `SLACK_*`-Zeilen leer), Jakob
-nutzt es nicht, und der Kanal sind rund 1.000 Zeilen plus Verweise in zehn Dateien. Teil der
-Entschlackung vom 02.10. Telegram **bleibt** (künftiger Weg für Erinnerungen aufs Telefon).
-
-**Bauen:**
-1. `gateway/channels/slack/` ganz löschen (`git rm -r`).
-2. `gateway/types.ts`: `"slack"` aus `ChannelId` und `CHANNEL_IDS`.
-3. `gateway/identity.ts`: `slackSigningSecret`, `slackUserIds`, `verifySlackSignature`,
-   `SlackCredential`, `authenticateSlack` und die Slack-Zeilen in `identityFromEnv` und
-   `configuredChannels` entfernen; Kommentare, die Slack nur als Vergleich nennen, auf Telegram
-   allein umformulieren.
-4. `gateway/index.ts`: Import und Aufbau des Slack-Kanals (`createSlackChannel`, `createSlackClient`,
-   `SlackChannelDeps`, `SLACK_BOT_TOKEN`) entfernen; die Übergabe an den Server ebenso.
-5. `gateway/server.ts`: die Slack-Route(n) und das Feld in den Server-Abhängigkeiten entfernen.
-6. `gateway/gespraeche.ts` (`KANAL`) und `ui/welle/gespraech.ts` (`KANAL`): den Eintrag `slack`.
-7. `runtime/redaction/patterns.ts`: das Muster für Slack-Token **bleibt** (es schützt auch Text, der
-   von außen kommt) — nicht anfassen, auch nicht den Test dazu.
-8. Tests: In `gateway/identity.test.ts` die Slack-Fälle löschen; in den übrigen Tests
-   (`voice/channel.test.ts`, `chart-routen.test.ts`, `mcp-servers-settings.test.ts`,
-   `restart.test.ts`, `settings.test.ts`, `voice-config.test.ts`) nur die Slack-Erwähnungen
-   entfernen, die den Typ `ChannelId` oder Objekte mit `slack`-Feld betreffen.
-9. `.env.example`, `README.md`, `AGENTS.md`: die Slack-Zeilen streichen. Die echte `.env` **nicht**.
-
-**Prüfen:** `git grep -n -i slack -- '*.ts'` findet danach nur noch `runtime/redaction/`.
-`pnpm test`, `pnpm typecheck`, `npx biome check` grün; Gateway startet (der Läufer prüft das).
-
-**Fertig, wenn:** obiges gilt; im Bericht die Zahl der gelöschten Zeilen (`git diff --shortstat`).
+Der nie eingerichtete Slack-Kanal fliegt raus; Telegram bleibt.
 
 ## N4 · Das Abo-Limit reißt den Faden nicht mehr
 - Status: offen
 - Modell: sonnet
+- Anweisung: `bau/aufgaben/N4.md`
 
-**Warum:** Am 27.09. stand in Kuros Antwort zweimal der englische Rohtext „You've hit your session
-limit · resets 5:20pm (UTC)"; der fertige Bericht der boerse kam erst, als Jakob um 17:28 „mach
-weiter" schrieb. Belege: `workspace/ablage/gespraeche/2026/2026-09-27.md` Zeilen 225–245.
-
-**Was das SDK liefert** (nachgesehen in `@anthropic-ai/claude-agent-sdk` `sdk.d.ts`):
-- Nachricht `type: "rate_limit_event"` mit `rate_limit_info: { status: "allowed" | "allowed_warning"
-  | "rejected", resetsAt?: number (Unix-Sekunden), rateLimitType?: "five_hour" | "seven_day" | … }`.
-  `gateway/agent.ts` speichert sie schon in `#grenze` (Zeile ~866), benutzt sie aber nicht.
-- Läuft Kuro an die Grenze, kommt als Assistententext genau ein Block, der mit
-  `You've hit your` beginnt (Muster wie in `gateway/gespraeche.ts` Zeile ~174:
-  `/^You've hit your .*limit/i`). Bei einem Bediensteten wirft `query()` und `gateway/haus.ts`
-  (`fuehreAus`, catch-Zweig ~Zeile 488) macht daraus „<wer> konnte den Auftrag nicht ausführen:
-  Claude Code returned an error result: You've hit your …".
-
-**Bauen:**
-1. Neues Modul `gateway/abogrenze.ts`, rein und ohne SDK-Aufruf, mit `gateway/abogrenze.test.ts`:
-   - `istGrenzText(text: string): boolean` — erkennt beide Formen oben (auch eingebettet im
-     haus-Fehlertext).
-   - `zurueckUm(text: string, info?: { resetsAt?: number } | null, jetzt?: Date): Date | null` —
-     zuerst `info.resetsAt` (Sekunden → Date), sonst die Uhrzeit aus dem Text („resets 5:20pm (UTC)",
-     auch „resets 17:20", mit/ohne Zeitzone in Klammern; ohne Zeitzone gilt UTC), immer der nächste
-     solche Zeitpunkt nach `jetzt`. Nicht lesbar → `null`.
-   - `grenzSatz(zurueck: Date | null): string` — ein deutscher Satz in Kuros Ton (siezt, Butler, kein
-     Englisch), Uhrzeit in Wiener Zeit über `wienerZeit` aus `gateway/gespraeche.ts`. Beispiel:
-     „Ich bin für den Moment an der Grenze des Abos und kann erst wieder ab 19:20 Uhr arbeiten. Was
-     bis dahin an Berichten eintrifft, trage ich Ihnen danach von selbst vor." Ohne Zeitpunkt: „…
-     sobald das Abo wieder frei ist."
-2. `gateway/agent.ts`, in der Textauswertung der Assistentennachrichten (die Funktion um Zeile
-   ~840–870, die `text` aus `nachricht.message.content` zusammensetzt): ist `istGrenzText(text)`,
-   wird der Text **nicht** an Jakob gegeben, sondern `grenzSatz(zurueckUm(text, this.#grenze))`;
-   `#gesperrtBis` (neues Feld, `Date | null`) wird gesetzt.
-3. `#trageNach` (Zeile ~660): ist `#gesperrtBis` in der Zukunft, wird der Bericht in einer Liste
-   `#geparkt` abgelegt statt vorgetragen, und ein `setTimeout` (mit `.unref()`) auf `#gesperrtBis +
-   60 s` trägt alle geparkten Berichte nacheinander über den normalen `#trageNach`-Weg vor. Nur ein
-   Zeitgeber gleichzeitig.
-4. `gateway/haus.ts`, catch-Zweig in `fuehreAus`: ist `istGrenzText(grund)`, lautet die Rückgabe
-   „<wer> wurde vom Abo-Limit unterbrochen, weiter ab HH:MM Uhr." (Wiener Zeit, `zurueckUm(grund)`),
-   ohne den englischen Rohtext.
-5. Die Floskeln `Continue from where you left off.` und `No response requested.` gehen nie an Jakob:
-   dieselbe Stelle wie in Schritt 2 lässt Text, der nach `trim()` genau einer davon ist, weg
-   (`gespraeche.ts` macht das für das Archiv schon so).
-
-**Nicht anfassen:** `gateway/abo.ts`, die Sprachschicht (`voice/`), die Oberfläche.
-
-**Fertig, wenn:** `abogrenze.test.ts` deckt ab: beide Textformen erkannt, normaler Text nicht;
-`resetsAt` vor Text; „5:20pm (UTC)" am 27.09. um 15:49 UTC → 17:20 UTC; „resets 1am" kurz vor
-Mitternacht → nächster Tag; `grenzSatz` enthält „19:20" für 17:20 UTC im Sommer und kein englisches
-Wort. `pnpm test` und `pnpm typecheck` grün. Bericht nennt die Testfälle.
+Deutscher Satz statt englischem Grenztext, Berichte warten auf das Ende der Sperre, keine SDK-Floskeln.
 
 ## N18 · Kuro archiviert bei vollem Kontext
-- Status: offen
+- Status: offen (Anweisung folgt — ohne bau/aufgaben/N18.md überspringt der Läufer)
 - Modell: sonnet
 
 **Warum:** Kuros Kontext wächst an einem regen Tag von 18.000 auf über 100.000 Token (gemessen
@@ -228,7 +160,7 @@ Funktion `darfJetztArchivieren(kontext, letzterZug, jetzt, grenze)`.
 gemessen 7–8k Token, lohnt also ab etwa dem Zehnfachen).
 
 ## N17 · Kommentare kürzen
-- Status: offen
+- Status: offen (Anweisung folgt — ohne bau/aufgaben/N17.md überspringt der Läufer)
 - Modell: sonnet
 - Braucht: N16
 
@@ -258,7 +190,7 @@ zurücknehmen, nicht reparieren. Dazu `pnpm test`, `pnpm typecheck`.
 die mit `//`, `/*` oder `*` beginnen, ohne `.test.ts` nicht mitzuzählen — Testdateien gesondert).
 
 ## N5 · Kleine Reparaturen an Kuro
-- Status: offen
+- Status: offen (Anweisung folgt — ohne bau/aufgaben/N5.md überspringt der Läufer)
 - Modell: sonnet
 
 Vier unabhängige Stellen, jede ein eigener Commit. Alle aus dem Verlauf vom 27.09. belegt.
@@ -295,7 +227,7 @@ Vier unabhängige Stellen, jede ein eigener Commit. Alle aus dem Verlauf vom 27.
 `pnpm typecheck` grün, Prompt-Größe vorher/nachher im Bericht.
 
 ## N6 · Postfach-Suche für die Korrespondenz
-- Status: offen
+- Status: offen (Anweisung folgt — ohne bau/aufgaben/N6.md überspringt der Läufer)
 - Modell: sonnet
 
 **Warum:** `liste` zeigt höchstens die 50 neuesten Mails; der TradingLab-Newsletter blieb deshalb

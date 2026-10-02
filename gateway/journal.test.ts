@@ -257,9 +257,11 @@ describe("Zeilen für den Bericht", () => {
 });
 
 describe("Verdrahtung", () => {
-  it("hat für jede Kennung eine echte Notion-Kennung — geprüft am 2026-09-21 gegen den Arbeitsbereich", () => {
+  // Die echten Kennungen stehen nur in der .env (das Repo ist öffentlich); ohne sie bleibt eine
+  // Kennung leer. Gesetzt muss sie die Form einer Notion-Kennung haben.
+  it("hat für jede gesetzte Kennung die Form einer Notion-Kennung", () => {
     for (const [name, id] of Object.entries(JOURNAL_IDS)) {
-      expect(istNotionId(id), `${name}: ${id}`).toBe(true);
+      if (id) expect(istNotionId(id), `${name}: ${id}`).toBe(true);
     }
   });
 

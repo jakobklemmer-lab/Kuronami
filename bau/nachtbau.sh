@@ -185,6 +185,11 @@ while :; do
 
   read -r ID MODELL <<<"$(python3 "$LIVE/bau/naechste.py" "$BAU/bau/PLAN.md" "$VERSUCHT")"
   if [[ -z "${ID:-}" ]]; then log "Keine Aufgabe bereit."; break; fi
+  # Ohne genaue Anweisung (bau/aufgaben/<ID>.md) kein Lauf — Sonnet rät sonst (Jakob, 02.10.).
+  if [[ ! -f "$BAU/bau/aufgaben/$ID.md" ]]; then
+    log "$ID: keine Anweisung unter bau/aufgaben/$ID.md — übersprungen."
+    VERSUCHT="$VERSUCHT,$ID"; continue
+  fi
   if [[ "${MODELL,,}" == opus* ]]; then MODELL_ID=claude-opus-5-5; else MODELL_ID=claude-sonnet-5-5; fi
   VERSUCHT="$VERSUCHT,$ID"
   vorher_stand=$STAND
