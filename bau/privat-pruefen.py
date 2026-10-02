@@ -5,6 +5,7 @@ Lässt keinen Commit mit privaten Daten durch. Das Repo ist öffentlich.
 Aufruf: als pre-commit-Hook (bau/hooks/pre-commit) oder von Hand:
     python3 bau/privat-pruefen.py            # prüft, was gestaged ist
     python3 bau/privat-pruefen.py <basis>    # prüft alles seit <basis> (für die Historie)
+    python3 bau/privat-pruefen.py --alles    # prüft jede versionierte Datei, wie sie jetzt ist
 
 Die privaten Werte selbst stehen nicht hier, sondern werden aus der .env gelesen (Postfächer,
 Anmeldename, Kapital) und vom Rechner (eigene IP-Adressen). Dazu allgemeine Muster: fremde
@@ -68,8 +69,12 @@ def private_werte() -> dict[str, str]:
 
 
 def diff(basis: str | None) -> str:
-    args = ["git", "diff", "--no-color", "-U0", "--no-ext-diff"]
-    args += [basis, "HEAD"] if basis else ["--cached"]
+    if basis == "--alles":
+        # Jede versionierte Datei als „neu" — dieselbe Prüfung wie für einen Commit.
+        args = ["git", "diff", "--no-color", "-U0", "--no-ext-diff", "4b825dc642cb6eb9a060e54bf8d69288fbee4904", "HEAD"]
+    else:
+        args = ["git", "diff", "--no-color", "-U0", "--no-ext-diff"]
+        args += [basis, "HEAD"] if basis else ["--cached"]
     return subprocess.run(args, capture_output=True, text=True, errors="replace").stdout
 
 

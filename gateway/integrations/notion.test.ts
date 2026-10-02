@@ -48,7 +48,7 @@ function client(antworten: Array<{ daten: unknown; status?: number }>) {
   return { notion: createNotionClient({ token: "geheim", fetchImpl: impl }), aufrufe };
 }
 
-const DB = "<notion_trades_db>";
+const DB = "00000000-0000-4000-8000-000000000001";
 
 function absatz(inhalt: string, extra: Record<string, unknown> = {}) {
   return {
