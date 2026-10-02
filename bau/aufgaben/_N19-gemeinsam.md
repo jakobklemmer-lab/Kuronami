@@ -14,8 +14,10 @@
 - Keine erfundenen Daten, keine Attrappen-Knöpfe: was da steht, funktioniert.
 - In kleinen, grünen Schritten committen (`pnpm test`, `pnpm typecheck`, `npx biome check
   --write <Dateien>`). Rot am Ende heißt: die ganze Nacht-Arbeit dieser Aufgabe wird verworfen.
-- Ansehen ist Pflicht: Dev-Server im Worktree auf Port 3101 (siehe Konzept, Abschnitt Prüfen),
-  Bilder bei 1512×945 und 3440×1440, kritisch anschauen, verbessern, wieder ansehen. Den
+- Ansehen ist Pflicht und Arbeitsweise (siehe `bau/auftrag.md`, „Oberfläche: ansehen …"):
+  Dev-Server im Worktree auf Port 3101, `UI_URL=http://localhost:3101 node
+  /opt/kuronami/bau/ansehen.mjs "/os/"` nach **jedem** sichtbaren Schritt, Bilder ansehen,
+  verbessern, wieder ansehen. Die Figur: `/os/begleiter/?vorschau`. Den
   Dev-Server darfst du dafür starten und musst ihn am Ende beenden (`kill %1`); andere Dienste nicht.
 - Bericht `bau/berichte/<Datum>.md`, Abschnitt `## N19x · …`: was Jakob jetzt sieht, wie man es
   bedient, welche Entscheidungen du getroffen hast, was offen ist. Keine Bilder ins Repo.

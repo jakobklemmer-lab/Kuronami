@@ -1,0 +1,158 @@
+/* Der Begleiter: durchsichtig, nur die Figur und bei Bedarf ihre Sprechblase. */
+
+:root {
+  --tusche: #03080b;
+  --mond: #e8eff1;
+  --nebel: #93a7b0;
+  --dunst: #62767f;
+  --laterne: #f4b860;
+  color-scheme: dark;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  background: transparent;
+  color: var(--mond);
+  font: 14px / 1.5 "Figtree", system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+.b-buehne {
+  position: fixed;
+  inset: 0;
+  display: grid;
+  place-items: end center;
+  padding-bottom: 6px;
+}
+
+.b-figur {
+  width: 150px;
+  cursor: grab;
+}
+
+.b-blase {
+  position: fixed;
+  left: 12px;
+  right: 12px;
+  bottom: 196px;
+  display: grid;
+  gap: 10px;
+  padding: 14px 14px 12px;
+  background: rgba(8, 16, 20, 0.94);
+  border: 1px solid rgba(232, 239, 241, 0.1);
+  border-radius: 16px;
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.5);
+}
+
+.b-blase[hidden] {
+  display: none;
+}
+
+.b-blase::after {
+  content: "";
+  position: absolute;
+  bottom: -7px;
+  left: 50%;
+  width: 14px;
+  height: 14px;
+  margin-left: -7px;
+  background: inherit;
+  border-right: inherit;
+  border-bottom: inherit;
+  transform: rotate(45deg);
+}
+
+.b-blase p {
+  max-height: 140px;
+  margin: 0;
+  overflow-y: auto;
+  font-size: 14px;
+  color: rgba(232, 239, 241, 0.9);
+  white-space: pre-wrap;
+}
+
+.b-blase form {
+  display: flex;
+  gap: 6px;
+}
+
+.b-blase input {
+  flex: 1;
+  min-width: 0;
+  padding: 8px 12px;
+  border: 1px solid rgba(232, 239, 241, 0.16);
+  border-radius: 12px;
+  background: rgba(3, 8, 11, 0.6);
+  color: var(--mond);
+  font: inherit;
+  outline: none;
+}
+
+.b-blase input:focus {
+  border-color: rgba(244, 184, 96, 0.6);
+}
+
+.b-blase button {
+  padding: 0 12px;
+  border: 0;
+  border-radius: 12px;
+  background: rgba(244, 184, 96, 0.16);
+  color: var(--laterne);
+  font: inherit;
+  cursor: pointer;
+}
+
+.b-blase .b-oeffnen {
+  justify-self: start;
+  padding: 0;
+  background: none;
+  color: var(--nebel);
+  font-size: 12.5px;
+}
+
+/* Vorschau aller Zustände — zum Ansehen im Browser. */
+.ist-vorschau {
+  background: radial-gradient(ellipse at 50% 0%, #10202a, #03080b 70%);
+  min-height: 100vh;
+}
+
+.v-raster {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));
+  gap: 28px 18px;
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 48px 32px;
+}
+
+.v-raster h1 {
+  grid-column: 1 / -1;
+  margin: 0 0 4px;
+  font: 500 32px / 1.1 "Shippori Mincho", serif;
+}
+
+.v-raster > p {
+  grid-column: 1 / -1;
+  margin: 0 0 12px;
+  color: var(--nebel);
+}
+
+.v-zelle {
+  display: grid;
+  justify-items: center;
+  gap: 8px;
+}
+
+.v-zelle .fg {
+  width: 150px;
+}
+
+.v-zelle span {
+  font-size: 13.5px;
+  color: var(--nebel);
+}

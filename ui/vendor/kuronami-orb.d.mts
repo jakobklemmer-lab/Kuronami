@@ -48,3 +48,6 @@ export declare class KuronamiOrb extends EventTarget {
   completeAgent(id: string, options?: { status?: "done" | "error" | "stopped"; summary?: string }): void;
   dispose(): void;
 }
+
+/** Die Farbe eines Agenten-Satelliten — dieselbe für denselben Namen. */
+export declare function agentColor(type?: string): string;

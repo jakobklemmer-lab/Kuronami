@@ -30,6 +30,19 @@ nur diese Zeile committen, Lauf beenden). Alles Folgende sind allgemeine Regeln.
 - Wird die Aufgabe für einen Lauf zu groß: zerlege sie in `bau/PLAN.md` in Teilaufgaben
   ({AUFGABE}a, {AUFGABE}b …), baue die erste fertig, committe, hör auf.
 
+## Oberfläche: ansehen, verbessern, wieder ansehen
+Jakob am 02.10.: „Du und Nachtbau müssen auch immer mal wieder die Seite aufmachen, um sie
+anzuschauen — direktes Reviewen und Verbessern macht die Arbeit schneller und besser." Für jede
+Änderung an `ui/` oder `desktop/` gilt deshalb:
+- Nach jedem sichtbaren Schritt die Seite öffnen: im Worktree `UI_PORT=3101 npx tsx ui/dev.ts &`,
+  dann `UI_URL=http://localhost:3101 node /opt/kuronami/bau/ansehen.mjs "<Pfad>"` (Bilder bei
+  1512×945 und 3440×1440 unter `/tmp/kuronami-ansehen/`, Fehler der Seite auf der Konsole).
+- Jedes Bild mit dem Read-Werkzeug **ansehen** und kritisch prüfen: Hierarchie, Abstände,
+  Lesbarkeit, Überlappungen, leere Stellen, Fehlermeldungen. Was nicht gut ist, sofort verbessern
+  und wieder ansehen — mehrmals, bis es stimmt. Erst dann committen.
+- Im Bericht nennen, wie oft und bei welchen Größen angesehen wurde und was dabei verbessert wurde.
+- Den Dev-Server am Ende beenden (`kill %1`).
+
 ## Was du nie tust
 - Private Daten ins Repo schreiben — auch nicht in Plan, Bericht, Kommentar oder Test: keine
   Postfachnamen, Mailadressen, Anmeldenamen, Server-Adressen, Geldbeträge von Jakob, keine

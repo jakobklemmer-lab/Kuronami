@@ -58,7 +58,7 @@ const RELOAD_SNIPPET = `
  * `index.html`; ohne Schrägstrich am Ende wird umgeleitet, weil die Seite ihre Dateien relativ
  * lädt (`./welle.css`) und der Browser sie sonst eine Ebene zu hoch suchte.
  */
-app.get(/(^\/$|\/index\.html$|^\/[a-z-]+\/?$)/, async (req, res, next) => {
+app.get(/(^\/$|\/index\.html$|^(\/[a-z-]+)+\/?$)/, async (req, res, next) => {
   try {
     const seite = req.path.endsWith("index.html")
       ? req.path

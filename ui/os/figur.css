@@ -1,0 +1,278 @@
+/*
+ * Der kleine Kuro (`figur.ts`). `--licht` ist Kuros Zustandsfarbe. Im Stand schwebt er langsam und
+ * blinzelt; alles andere zeigt einen Zustand.
+ */
+
+.fg {
+  --licht: #6d90ff;
+  position: relative;
+  width: 100%;
+  aspect-ratio: 200 / 240;
+}
+
+.fg-svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+}
+
+.fg-leib {
+  transform-box: view-box;
+  transform-origin: 100px 210px;
+  transition: transform 0.5s cubic-bezier(0.45, 0, 0.55, 1);
+}
+
+.fg-atem {
+  transform-box: view-box;
+  transform-origin: 100px 208px;
+  animation: fg-schweben 4.4s cubic-bezier(0.45, 0, 0.55, 1) infinite alternate;
+}
+
+@keyframes fg-schweben {
+  from {
+    transform: translateY(0) scale(1, 1);
+  }
+  to {
+    transform: translateY(-6px) scale(0.985, 1.015);
+  }
+}
+
+.fg-schatten {
+  fill: rgba(0, 0, 0, 0.55);
+  filter: blur(4px);
+  transform-box: view-box;
+  transform-origin: 100px 226px;
+  animation: fg-schatten 4.4s cubic-bezier(0.45, 0, 0.55, 1) infinite alternate;
+}
+
+@keyframes fg-schatten {
+  to {
+    transform: scale(0.86);
+    opacity: 0.7;
+  }
+}
+
+.fg-aura {
+  fill: var(--licht);
+  opacity: 0.16;
+  transition: fill 0.6s ease, opacity 0.6s ease;
+}
+
+.fg-rand {
+  fill: none;
+  stroke: var(--licht);
+  stroke-width: 1.6;
+  stroke-opacity: 0.75;
+  transition: stroke 0.6s ease;
+}
+
+.fg-band {
+  fill: none;
+  stroke: var(--licht);
+  stroke-width: 3.2;
+  stroke-linecap: round;
+  stroke-opacity: 0.9;
+  transition: stroke 0.6s ease;
+}
+
+.fg-band--zwei {
+  stroke-width: 1.4;
+  stroke-opacity: 0.4;
+}
+
+.fg-auge {
+  fill: #eef5ff;
+  transform-box: fill-box;
+  transform-origin: center;
+  transition: transform 0.25s cubic-bezier(0.45, 0, 0.55, 1);
+}
+
+.fg-augen.ist-zu .fg-auge {
+  transform: scaleY(0.08);
+  transition-duration: 0.06s;
+}
+
+.fg-mund {
+  fill: none;
+  stroke: #eef5ff;
+  stroke-width: 2.4;
+  stroke-linecap: round;
+  opacity: 0;
+  transition: opacity 0.2s ease;
+}
+
+.fg-schlund {
+  fill: #010203;
+  stroke: var(--licht);
+  stroke-width: 1.2;
+  transform-box: fill-box;
+  transform-origin: center;
+  transform: scale(0);
+  transition: transform 0.22s cubic-bezier(0.34, 1.4, 0.64, 1);
+}
+
+.fg-wellen ellipse {
+  fill: none;
+  stroke: var(--licht);
+  stroke-width: 1.2;
+  opacity: 0;
+  transform-box: fill-box;
+  transform-origin: center;
+}
+
+.fg-satellit {
+  fill: var(--farbe);
+  filter: drop-shadow(0 0 4px var(--farbe));
+  transition: opacity 0.8s ease;
+}
+
+.fg-satellit.ist-fertig {
+  opacity: 0;
+}
+
+.fg-happen {
+  transform-box: view-box;
+}
+
+/* ------------------------------------------------------------- Zustände */
+
+/* Zuhören: Augen groß, er neigt sich vor, unter ihm laufen Kreise wie auf Wasser. */
+.fg[data-zustand="zuhoeren"] .fg-auge {
+  transform: scale(1.14, 1.18);
+}
+.fg[data-zustand="zuhoeren"] .fg-leib {
+  transform: rotate(-3deg);
+}
+.fg[data-zustand="zuhoeren"] .fg-wellen ellipse {
+  animation: fg-welle 1.8s ease-out infinite;
+}
+.fg[data-zustand="zuhoeren"] .fg-wellen ellipse:last-child {
+  animation-delay: 0.9s;
+}
+
+@keyframes fg-welle {
+  from {
+    opacity: 0.7;
+    transform: scale(0.5);
+  }
+  to {
+    opacity: 0;
+    transform: scale(1.5);
+  }
+}
+
+/* Denken: der Blick wandert nach oben, das Band zieht langsam. */
+.fg[data-zustand="denken"] .fg-gesicht {
+  transform: translate(3px, -6px);
+}
+.fg-gesicht {
+  transition: transform 0.5s cubic-bezier(0.45, 0, 0.55, 1);
+}
+.fg[data-zustand="denken"] .fg-band,
+.fg[data-zustand="arbeiten"] .fg-band {
+  stroke-dasharray: 18 10;
+  animation: fg-zieht 2.4s linear infinite;
+}
+
+@keyframes fg-zieht {
+  to {
+    stroke-dashoffset: -56;
+  }
+}
+
+/* Sprechen: der Mund leuchtet im Takt, das Band wird heller. */
+.fg[data-zustand="sprechen"] .fg-mund {
+  opacity: 1;
+  animation: fg-sprechen 0.42s ease-in-out infinite alternate;
+  transform-box: fill-box;
+  transform-origin: center;
+}
+.fg[data-zustand="sprechen"] .fg-aura {
+  opacity: 0.28;
+}
+
+@keyframes fg-sprechen {
+  to {
+    transform: scaleY(2.2);
+  }
+}
+
+/* Arbeiten: konzentrierter Blick; die Satelliten der Bediensteten kreisen. */
+.fg[data-zustand="arbeiten"] .fg-auge {
+  transform: scaleY(0.72);
+}
+
+/* Rückfrage: er legt den Kopf schief. */
+.fg[data-zustand="rueckfrage"] .fg-leib {
+  transform: rotate(7deg);
+}
+.fg[data-zustand="rueckfrage"] .fg-aura {
+  opacity: 0.3;
+}
+
+/* Fehler: die Augen sinken. */
+.fg[data-zustand="fehler"] .fg-auge {
+  transform: translateY(3px) scaleY(0.55);
+}
+
+/* Ohne Verbindung: Augen zu, kein Schweben. */
+.fg[data-zustand="offline"] .fg-auge {
+  transform: scaleY(0.08);
+}
+.fg[data-zustand="offline"] .fg-atem,
+.fg[data-zustand="offline"] .fg-schatten {
+  animation: none;
+}
+.fg[data-zustand="offline"] .fg-rand,
+.fg[data-zustand="offline"] .fg-band {
+  stroke-opacity: 0.35;
+}
+
+/* Eine Datei schwebt über ihm: Mund auf, Augen groß, er streckt sich ihr entgegen. */
+.fg.ist-hungrig .fg-schlund {
+  transform: scale(1);
+}
+.fg.ist-hungrig .fg-auge {
+  transform: scale(1.2, 1.25);
+}
+.fg.ist-hungrig .fg-leib {
+  transform: scale(1.05, 0.96);
+}
+.fg.ist-hungrig .fg-aura {
+  opacity: 0.32;
+}
+
+/* Er schluckt: zusammendrücken, strecken, zufrieden die Augen zu. */
+.fg.ist-schluckt .fg-schlund {
+  transform: scale(0.9);
+}
+.fg.ist-schluckt .fg-leib {
+  animation: fg-schluck 0.9s cubic-bezier(0.45, 0, 0.55, 1);
+}
+.fg.ist-schluckt .fg-auge {
+  transform: scaleY(0.25) translateY(-2px);
+}
+
+@keyframes fg-schluck {
+  0% {
+    transform: scale(1, 1);
+  }
+  45% {
+    transform: scale(1.08, 0.9);
+  }
+  70% {
+    transform: scale(0.95, 1.07);
+  }
+  100% {
+    transform: scale(1, 1);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .fg *,
+  .fg {
+    animation: none !important;
+    transition: none !important;
+  }
+}
