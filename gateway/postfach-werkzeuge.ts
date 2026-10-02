@@ -1,6 +1,6 @@
 import { createSdkMcpServer, tool } from "@anthropic-ai/claude-agent-sdk";
 import { z } from "zod";
-import { type Konto, entwurf, konten, lies, liste, sende } from "./postfach.js";
+import { type Konto, type Kopf, entwurf, konten, lies, liste, sende, suche } from "./postfach.js";
 
 /**
  * Die Postfach-Werkzeuge, aufgeteilt nach dem, wer sie haben darf.
@@ -16,6 +16,18 @@ import { type Konto, entwurf, konten, lies, liste, sende } from "./postfach.js";
 
 const kontoFeld = z.string().optional().describe("Name des Postfachs. Weglassen heißt: alle.");
 
+function uebersicht(koepfe: Kopf[]) {
+  if (koepfe.length === 0) {
+    return { content: [{ type: "text" as const, text: "Keine Nachrichten gefunden." }] };
+  }
+  const zeilen = koepfe.map(
+    (k) =>
+      `[${k.konto} #${k.uid}]${k.ungelesen ? " •" : ""} ${k.am.slice(0, 16)} — ` +
+      `${k.von}: ${k.betreff}`,
+  );
+  return { content: [{ type: "text" as const, text: zeilen.join("\n") }] };
+}
+
 export function createLesePostfach(alle: Konto[] = konten()) {
   const werkzeuge = [
     tool(
@@ -26,20 +38,34 @@ export function createLesePostfach(alle: Konto[] = konten()) {
         konto: kontoFeld,
         anzahl: z.number().int().min(1).max(50).optional().describe("Vorgabe 15."),
         nurUngelesen: z.boolean().optional(),
+        vor: z
+          .number()
+          .int()
+          .optional()
+          .describe("Zum Blättern: nur Nachrichten mit kleinerer Nummer (mit `konto`)."),
       },
-      async ({ konto, anzahl, nurUngelesen }) => {
-        const koepfe = await liste(alle, { konto, anzahl, nurUngelesen });
-        if (koepfe.length === 0) {
-          return { content: [{ type: "text" as const, text: "Keine Nachrichten gefunden." }] };
-        }
-        const zeilen = koepfe.map(
-          (k) =>
-            `[${k.konto} #${k.uid}]${k.ungelesen ? " •" : ""} ${k.am.slice(0, 16)} — ` +
-            `${k.von}: ${k.betreff}`,
-        );
-        return { content: [{ type: "text" as const, text: zeilen.join("\n") }] };
-      },
+      async ({ konto, anzahl, nurUngelesen, vor }) =>
+        uebersicht(await liste(alle, { konto, anzahl, nurUngelesen, vor })),
       { annotations: { readOnlyHint: true, title: "Postfach sichten" } },
+    ),
+
+    tool(
+      "suche",
+      "Nachrichten suchen, auch ältere, die `liste` nicht mehr zeigt. Übersicht wie `liste`, " +
+        "neueste zuerst.",
+      {
+        konto: kontoFeld,
+        abfrage: z
+          .string()
+          .min(2)
+          .describe(
+            "Gmail-Syntax, z. B. from:tradinglab older_than:2y. Sonst Absender oder Betreff.",
+          ),
+        anzahl: z.number().int().min(1).max(50).optional().describe("Vorgabe 20."),
+      },
+      async ({ konto, abfrage, anzahl }) =>
+        uebersicht(await suche(alle, { konto, abfrage, anzahl })),
+      { annotations: { readOnlyHint: true, title: "Postfach durchsuchen" } },
     ),
 
     tool(

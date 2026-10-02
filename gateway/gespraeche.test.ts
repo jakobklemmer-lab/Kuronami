@@ -3,8 +3,12 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import {
+  KONTEXT_GRENZE,
+  RUHE_MS,
   createGespraechsarchiv,
+  darfJetztArchivieren,
   istArchivZeit,
+  istKontextVoll,
   leseUebergabe,
   leseVerlauf,
   nachTagen,
@@ -233,6 +237,22 @@ describe("istArchivZeit", () => {
     expect(istArchivZeit(vier, "2026-09-22T15:36:36Z")).toBe(true);
     expect(istArchivZeit(vier, "2026-09-28T01:30:00Z")).toBe(false); // 03:30 heute begonnen
     expect(istArchivZeit(new Date("2026-09-28T10:00:00Z"), "2026-09-22T15:36:36Z")).toBe(false);
+  });
+});
+
+describe("Archiv bei vollem Kontext", () => {
+  it("ist voll ab der Grenze, nie ohne Messung", () => {
+    expect(istKontextVoll(null, KONTEXT_GRENZE)).toBe(false);
+    expect(istKontextVoll(KONTEXT_GRENZE - 1, KONTEXT_GRENZE)).toBe(false);
+    expect(istKontextVoll(KONTEXT_GRENZE, KONTEXT_GRENZE)).toBe(true);
+  });
+
+  it("wartet zehn Minuten Ruhe ab", () => {
+    const jetzt = new Date("2026-10-02T15:00:00Z");
+    const vor = (ms: number) => new Date(jetzt.getTime() - ms);
+    expect(darfJetztArchivieren(90_000, vor(RUHE_MS - 1), jetzt, KONTEXT_GRENZE)).toBe(false);
+    expect(darfJetztArchivieren(90_000, vor(RUHE_MS), jetzt, KONTEXT_GRENZE)).toBe(true);
+    expect(darfJetztArchivieren(50_000, vor(RUHE_MS * 6), jetzt, KONTEXT_GRENZE)).toBe(false);
   });
 });
 

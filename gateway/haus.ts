@@ -209,7 +209,9 @@ export function createHaus(deps: HausDeps = {}): Haus {
       }
 
       // Zu lang. Der Auftrag läuft weiter; sein Ergebnis wird nachgereicht.
-      void lauf.then((ergebnis) => deps.onNachgereicht?.(wer, ergebnis));
+      void lauf.then((ergebnis) => {
+        if (sollNachtragen(abbruch.signal.aborted)) deps.onNachgereicht?.(wer, ergebnis);
+      });
       return {
         content: [
           {
@@ -506,7 +508,10 @@ async function fuehreAus(
   // Bewusst **nicht** auf Kuros eigene Antwort an Jakob angewandt: fragt der Hausherr nach
   // etwas, das er selbst hinterlegt hat, wäre ein `[redacted]` keine Sicherheit, sondern
   // eine Schikane.
-  const bericht = crvVermerk(redactText((bloecke[bloecke.length - 1] ?? "").trim()), crvGerechnet);
+  const bericht = crvVermerk(
+    redactText(ohneVorspann((bloecke[bloecke.length - 1] ?? "").trim())),
+    crvGerechnet,
+  );
   if (bericht.trim() === "") return `${wer} hat nichts berichtet.`;
 
   deps.onAnalyse?.({
@@ -531,10 +536,46 @@ async function fuehreAus(
 function eigeneWerkzeuge(wer: string, tools: string[] | undefined): string[] | undefined {
   if (!tools) return undefined;
   if (wer === "korrespondenz") {
-    return [...tools, "mcp__postfach__liste", "mcp__postfach__lies", "mcp__postfach__entwurf"];
+    return [
+      ...tools,
+      "mcp__postfach__liste",
+      "mcp__postfach__suche",
+      "mcp__postfach__lies",
+      "mcp__postfach__entwurf",
+    ];
   }
   if (wer === "boerse") return [...tools, FRAGE_TEAM_TOOL];
   return tools;
+}
+
+/**
+ * Ein abgebrochener Auftrag meldet sich nicht nach: Kuro las am 27.09. „Bericht eingetroffen: …
+ * auf Zuruf abgebrochen" und gab einen dritten Auftrag.
+ */
+export function sollNachtragen(abgebrochen: boolean): boolean {
+  return !abgebrochen;
+}
+
+/** Ein englischer Arbeitssatz („I have enough now… Let me compile…"), kein Bericht. */
+const ENGLISCHER_VORSPANN =
+  /^(I|I'm|I've|I'll|Let me|Let's|Now|Alright|Good|Great|Perfect|Based on|Here's|Here is|With|Having)\b[^\n]*$/;
+
+/**
+ * Schneidet englische Arbeitssätze vor dem eigentlichen Bericht ab — bis zur ersten Überschrift
+ * oder zum ersten Absatz, der keiner ist. Bleibt nichts übrig, bleibt der Text, wie er war.
+ */
+export function ohneVorspann(text: string): string {
+  const absaetze = text.split(/\n\s*\n/);
+  let i = 0;
+  while (i < absaetze.length) {
+    const a = (absaetze[i] ?? "").trim();
+    if (a.startsWith("#")) break;
+    const saetze = a.split("\n").filter((z) => z.trim() !== "");
+    if (saetze.length === 0 || !saetze.every((z) => ENGLISCHER_VORSPANN.test(z.trim()))) break;
+    i++;
+  }
+  if (i === 0 || i >= absaetze.length) return text;
+  return absaetze.slice(i).join("\n\n").trim();
 }
 
 /** Ein Zwischenstand ist eine Zeile, kein Absatz. */

@@ -36,6 +36,7 @@ import { type Papierhandel, createPapierhandel } from "./papierhandel.js";
 import { createSendePostfach } from "./postfach-werkzeuge.js";
 import { konten } from "./postfach.js";
 import { type Prognosenbuch, createPrognosen } from "./prognosen.js";
+import { eingebaute } from "./sandkasten.js";
 import { type StrategienArchiv, createStrategien } from "./strategien.js";
 import type { ChannelRegistry, InboundMessage, Outbound, Sender } from "./types.js";
 import { type Posten, type Verbrauchsbuch, ausErgebnis, createVerbrauch } from "./verbrauch.js";
@@ -298,6 +299,8 @@ export class KuroAgent {
    * Aus der Schlussmeldung lässt sich das nicht ablesen: sie summiert alle Aufrufe des Zugs.
    */
   #kontext: number | null = null;
+  /** Wann der letzte Zug endete — tagsüber archiviert wird erst nach einer Ruhepause. */
+  #letzterZug: Date | null = null;
   /** Die jüngste Grenzmeldung des Anbieters aus einem Zug, falls eine kam. */
   #grenze: (SDKRateLimitInfo & { um: string }) | null = null;
   /** Bis wann das Abo gesperrt ist — Berichte, die bis dahin eintreffen, werden geparkt. */
@@ -584,6 +587,10 @@ export class KuroAgent {
     return this.#kontext;
   }
 
+  get letzterZug(): Date | null {
+    return this.#letzterZug;
+  }
+
   /** Die letzte Grenzmeldung des Anbieters: ob Kuro gerade bremsen muss. */
   get grenzmeldung(): (SDKRateLimitInfo & { um: string }) | null {
     return this.#grenze;
@@ -739,6 +746,7 @@ export class KuroAgent {
           // Keine Connectoren aus Jakobs claude.ai-Konto — siehe `abschottung.ts`.
           ...nurEigeneServer(),
           allowedTools: ALLOWED_WITHOUT_ASKING,
+          tools: eingebaute(ALLOWED_WITHOUT_ASKING),
           disallowedTools: NICHT_FUER_EINEN_BUTLER,
           // Das Gesindehaus als ein einzelnes Werkzeug. Die Bediensteten selbst laufen
           // dahinter in eigenen Läufen (`haus.ts`) — ihre Werkzeuge stehen nicht in Kuros
@@ -771,6 +779,7 @@ export class KuroAgent {
         kind: "reply",
         text: `Das ist mir misslungen: ${grund}`,
       };
+      this.#letzterZug = new Date();
       this.#deps.publish?.("turn.completed", { ...zug, status: "failed", reason: grund });
       await this.#zustellen(origin, antwort);
       return {
@@ -785,6 +794,7 @@ export class KuroAgent {
     // **Vor** der Zustellung: wer den Zug mitliest, soll das Ende kennen, bevor der fertige
     // Text ankommt. Andersherum stünde einen Wimpernschlag lang die Antwort da, während der
     // Zug für den Empfänger noch läuft — und das nächste Textstück landete noch in diesem.
+    this.#letzterZug = new Date();
     this.#deps.publish?.("turn.completed", { ...zug, status: "answered", text: antwort.text });
     await this.#zustellen(origin, antwort);
     geliefert.push(antwort);

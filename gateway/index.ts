@@ -16,7 +16,12 @@ import { type VoiceChannel, createVoiceChannel } from "./channels/voice/channel.
 import { createWebChannel } from "./channels/web.js";
 import { createChartdaten } from "./chartdaten.js";
 import { type GatewayDeps, redeliverPending } from "./core.js";
-import { ARCHIV_FENSTER, istArchivZeit } from "./gespraeche.js";
+import {
+  ARCHIV_FENSTER,
+  darfJetztArchivieren,
+  istArchivZeit,
+  kontextGrenze,
+} from "./gespraeche.js";
 import { configuredChannels, identityFromEnv } from "./identity.js";
 import { createYahooMarkets } from "./integrations/markets.js";
 import { createSystemSampler } from "./integrations/system.js";
@@ -314,16 +319,20 @@ async function main(): Promise<void> {
 
   /**
    * Das Gesprächsarchiv (`gespraeche.ts`): nachts zwischen drei und sechs wird Kuros Gespräch
-   * nach Tagen abgelegt, und das nächste beginnt mit einer Übergabe. Alle Viertelstunde
-   * nachsehen, damit ein gescheiterter Versuch im selben Fenster wiederholt wird.
-   * `KURO_ARCHIV=aus` schaltet es ab.
+   * nach Tagen abgelegt, und das nächste beginnt mit einer Übergabe. Tagsüber auch, wenn der
+   * Kontext voll ist und Kuro zehn Minuten still war. Alle Viertelstunde nachsehen, damit ein
+   * gescheiterter Versuch wiederholt wird. `KURO_ARCHIV=aus` schaltet es ab.
    */
   const archivTick = async (): Promise<void> => {
     if (process.env.KURO_ARCHIV?.trim() === "aus") return;
     try {
       const lage = await agent.sitzungsLage();
-      if (!lage?.seit || lage.groesseBytes === 0 || !istArchivZeit(new Date(), lage.seit)) return;
-      const r = await agent.archiviereGespraech("nachts");
+      if (!lage?.seit || lage.groesseBytes === 0) return;
+      const jetzt = new Date();
+      const nachts = istArchivZeit(jetzt, lage.seit);
+      if (!nachts && !darfJetztArchivieren(agent.kontext, agent.letzterZug, jetzt, kontextGrenze()))
+        return;
+      const r = await agent.archiviereGespraech(nachts ? "nachts" : "Kontext voll");
       console.log(
         r.status === "archiviert"
           ? `[gespraeche] archiviert: ${r.ergebnis.tage.join(", ")} (${r.ergebnis.nachrichten} Nachrichten), neues Gespräch mit Übergabe.`
@@ -344,7 +353,7 @@ async function main(): Promise<void> {
   console.log(
     process.env.KURO_ARCHIV?.trim() === "aus"
       ? "Gesprächsarchiv: abgeschaltet (KURO_ARCHIV=aus)."
-      : `Gesprächsarchiv: nachts zwischen ${ARCHIV_FENSTER[0]} und ${ARCHIV_FENSTER[1]} Uhr (Wien), nach Tagen in brain/Gespräche/.`,
+      : `Gesprächsarchiv: nachts zwischen ${ARCHIV_FENSTER[0]} und ${ARCHIV_FENSTER[1]} Uhr (Wien), tagsüber ab ${kontextGrenze()} Token Kontext, nach Tagen in brain/Gespräche/.`,
   );
 
   /**

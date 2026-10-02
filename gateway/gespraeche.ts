@@ -462,6 +462,34 @@ export function istArchivZeit(jetzt: Date, sitzungSeit: string, zone = ZONE): bo
   return wienerZeit(sitzungSeit, zone).tag < heute.tag;
 }
 
+/**
+ * Tagsüber wird archiviert, wenn der Kontext voll ist: die Übergabe kostet gemessen 7–8k Token
+ * und lohnt ab etwa dem Zehnfachen. `KURO_KONTEXT_GRENZE` verschiebt die Grenze.
+ */
+export const KONTEXT_GRENZE = 80_000;
+
+/** So lange muss Kuro still sein, bevor tagsüber archiviert wird. */
+export const RUHE_MS = 10 * 60_000;
+
+export function kontextGrenze(): number {
+  const n = Number(process.env.KURO_KONTEXT_GRENZE);
+  return Number.isFinite(n) && n > 0 ? n : KONTEXT_GRENZE;
+}
+
+export function istKontextVoll(kontext: number | null, grenze: number): boolean {
+  return kontext !== null && kontext >= grenze;
+}
+
+export function darfJetztArchivieren(
+  kontext: number | null,
+  letzterZug: Date | null,
+  jetzt: Date,
+  grenze: number,
+): boolean {
+  if (!istKontextVoll(kontext, grenze)) return false;
+  return letzterZug === null || jetzt.getTime() - letzterZug.getTime() >= RUHE_MS;
+}
+
 // ------------------------------------------------------------------------------ Die Ablage
 
 export interface TagImArchiv {

@@ -180,6 +180,17 @@ function pruefeSandkasten(): { ok: boolean; grund: string } {
  * (Gesindehaus und Handelstisch) und an beiden **dieselbe** sein muss. Trägt der Sandkasten
  * nicht, fliegt Bash aus dem Katalog statt ungeschützt zu laufen.
  */
+/**
+ * Die eingebauten Werkzeuge einer Liste — nur sie kommen in den Katalog (`tools`), die MCP-Werkzeuge
+ * bringen ihre Server mit. Ohne das trug jeder Lauf rund zwanzig eingebaute Schemas (Cron,
+ * Worktree, Tasks …) und lud die eigenen Werkzeuge erst per ToolSearch nach: gemessen 02.10.
+ * 13.500–21.300 Token Grundlast statt 3.100, und ein Modellaufruf mehr vor dem ersten Werkzeug.
+ */
+export function eingebaute(tools: readonly string[]): string[] {
+  const namen = tools.filter((t) => !t.startsWith("mcp__"));
+  return namen.includes("Task") && !namen.includes("Agent") ? [...namen, "Agent"] : namen;
+}
+
 export function sandkastenOptionen(
   wer: string,
   tools: string[] | undefined,
@@ -187,6 +198,7 @@ export function sandkastenOptionen(
   zusatzDomaenen?: readonly string[],
 ): {
   allowedTools?: string[];
+  tools?: string[];
   disallowedTools?: string[];
   sandbox?: SandboxSettings;
   canUseTool: CanUseTool;
@@ -194,14 +206,15 @@ export function sandkastenOptionen(
   const lage = sandkastenLage();
   if (lage.ok) {
     return {
-      ...(tools ? { allowedTools: tools } : {}),
+      ...(tools ? { allowedTools: tools, tools: eingebaute(tools) } : {}),
       ...(disallowedTools ? { disallowedTools } : {}),
       sandbox: sandkasten(zusatzDomaenen ? { zusatzDomaenen } : {}),
       canUseTool: absageStattSackgasse(wer),
     };
   }
+  const ohneBash = tools?.filter((t) => t !== "Bash");
   return {
-    ...(tools ? { allowedTools: tools.filter((t) => t !== "Bash") } : {}),
+    ...(ohneBash ? { allowedTools: ohneBash, tools: eingebaute(ohneBash) } : {}),
     disallowedTools: [...new Set([...(disallowedTools ?? []), "Bash", "KillShell", "BashOutput"])],
     canUseTool: absageStattSackgasse(wer),
   };

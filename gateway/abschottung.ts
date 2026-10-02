@@ -14,10 +14,17 @@
  * die Konto-Connectoren ab, `strictMcpConfig` alles außer dem, was der Lauf selbst übergibt
  * (`.mcp.json`, Nutzereinstellungen, Plugins). `env` ersetzt die Umgebung des Unterprozesses
  * ganz, daher die ganze `process.env` davor.
+ *
+ * `ENABLE_TOOL_SEARCH=false` (02.10.): sonst stehen die eigenen Werkzeuge nur als Namen im
+ * Katalog und werden erst per ToolSearch geladen — Kuro suchte so dreimal nach `beauftrage`.
+ * Damit dabei nicht alle eingebauten Schemas mitkommen, setzt jeder Lauf `tools` (`eingebaute`).
  */
 export function nurEigeneServer(): {
   strictMcpConfig: true;
   env: Record<string, string | undefined>;
 } {
-  return { strictMcpConfig: true, env: { ...process.env, ENABLE_CLAUDEAI_MCP_SERVERS: "false" } };
+  return {
+    strictMcpConfig: true,
+    env: { ...process.env, ENABLE_CLAUDEAI_MCP_SERVERS: "false", ENABLE_TOOL_SEARCH: "false" },
+  };
 }

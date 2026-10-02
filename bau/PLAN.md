@@ -133,7 +133,7 @@ Der nie eingerichtete Slack-Kanal fliegt raus; Telegram bleibt.
 Deutscher Satz statt englischem Grenztext, Berichte warten auf das Ende der Sperre, keine SDK-Floskeln.
 
 ## N18 · Kuro archiviert bei vollem Kontext
-- Status: offen (Anweisung folgt — ohne bau/aufgaben/N18.md überspringt der Läufer)
+- Status: erledigt (2026-10-02, von Hand)
 - Modell: sonnet
 
 **Warum:** Kuros Kontext wächst an einem regen Tag von 18.000 auf über 100.000 Token (gemessen
@@ -223,7 +223,7 @@ zu je ~1.150 Zeilen. Der Wächter `bau/nur-kommentare.ts` lässt keine Code-Änd
 21 Dateien von `ui/views/types.ts` bis `ui/welle/zustand.ts`.
 
 ## N5 · Kleine Reparaturen an Kuro
-- Status: offen (Anweisung folgt — ohne bau/aufgaben/N5.md überspringt der Läufer)
+- Status: erledigt (2026-10-02, von Hand)
 - Modell: sonnet
 
 Vier unabhängige Stellen, jede ein eigener Commit. Alle aus dem Verlauf vom 27.09. belegt.
@@ -236,7 +236,10 @@ Vier unabhängige Stellen, jede ein eigener Commit. Alle aus dem Verlauf vom 27.
    `gateway/haus.test.ts` nur, wenn es ohne SDK geht (die Bedingung in eine kleine exportierte
    Funktion ziehen, z. B. `sollNachtragen(abgebrochen: boolean): boolean`, und die testen) — sonst
    im Bericht begründen.
-2. **`ToolSearch` gehört nicht in Kuros Katalog.** `gateway/agent.ts`, Liste
+2. *(Gebaut anders: Kuros eigene Werkzeuge waren „deferred“ — ohne ToolSearch hätte er `beauftrage`
+   gar nicht mehr laden können. Stattdessen `ENABLE_TOOL_SEARCH=false` und ein fester Katalog
+   (`tools`) für Kuro und das Personal: Grundlast gemessen 13.500–21.300 → 3.100 Token.)*
+   **`ToolSearch` gehört nicht in Kuros Katalog.** `gateway/agent.ts`, Liste
    `NICHT_FUER_EINEN_BUTLER` (~Zeile 105): `"ToolSearch"` ergänzen. Kuro suchte dreimal nach
    `beauftrage`, das längst im Katalog stand.
 3. **Berichte ohne englischen Vorspann.** `gateway/haus.ts` ~Zeile 507: der Bericht ist der letzte
@@ -260,7 +263,7 @@ Vier unabhängige Stellen, jede ein eigener Commit. Alle aus dem Verlauf vom 27.
 `pnpm typecheck` grün, Prompt-Größe vorher/nachher im Bericht.
 
 ## N6 · Postfach-Suche für die Korrespondenz
-- Status: offen (Anweisung folgt — ohne bau/aufgaben/N6.md überspringt der Läufer)
+- Status: erledigt (2026-10-02, von Hand)
 - Modell: sonnet
 
 **Warum:** `liste` zeigt höchstens die 50 neuesten Mails; der TradingLab-Newsletter blieb deshalb
@@ -270,7 +273,7 @@ unauffindbar.
 1. `gateway/postfach.ts`: neue Funktion `suche(alle: Konto[], opts: { konto?: string; abfrage:
    string; anzahl?: number }): Promise<Kopf[]>` neben `liste` (~Zeile 176), gleicher Rückgabetyp
    `Kopf`, gleiches Verbinden/Schließen wie `liste`. Bei Gmail-Konten (`imap.gmail.com`)
-   IMAP-SEARCH mit `{ gmailRaw: abfrage }` (imapflow: `client.search({ gmailRaw })`), sonst
+   IMAP-SEARCH mit `{ gmraw: abfrage }` (imapflow heißt das Feld `gmraw`, nicht `gmailRaw`), sonst
    `{ or: [{ from: abfrage }, { subject: abfrage }] }`. Treffer absteigend nach Datum, höchstens
    `anzahl` (Vorgabe 20, Höchstwert 50), dann die Köpfe per `client.fetch(uids, { envelope: true,
    flags: true }, { uid: true })`.

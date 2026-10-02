@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from "vitest";
-import { absageStattSackgasse, sandkasten } from "./sandkasten.js";
+import { absageStattSackgasse, eingebaute, sandkasten } from "./sandkasten.js";
 
 /**
  * Hier steht die Grenze zwischen einem Bedienstetenlauf und dem Schlüsselbund des Hauses.
@@ -117,5 +117,13 @@ describe("absageStattSackgasse", () => {
       } as never);
       expect(antwort?.behavior).toBe("deny");
     }
+  });
+});
+
+describe("eingebaute", () => {
+  it("nimmt nur die eingebauten Werkzeuge in den Katalog, Task samt Agent", () => {
+    expect(eingebaute(["Read", "mcp__kurse__verlauf", "WebFetch"])).toEqual(["Read", "WebFetch"]);
+    expect(eingebaute(["mcp__journal__journal_offen"])).toEqual([]);
+    expect(eingebaute(["Bash", "Task"])).toEqual(["Bash", "Task", "Agent"]);
   });
 });

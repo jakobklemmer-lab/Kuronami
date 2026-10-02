@@ -1,4 +1,4 @@
-import { ImapFlow } from "imapflow";
+import { ImapFlow, type SearchObject } from "imapflow";
 import { simpleParser } from "mailparser";
 import nodemailer from "nodemailer";
 
@@ -174,6 +174,83 @@ async function mitVerbindung<T>(konto: Konto, was: (client: ImapFlow) => Promise
   }
 }
 
+export function begrenzeAnzahl(anzahl: number | undefined, vorgabe: number): number {
+  return Math.min(Math.max(Math.trunc(anzahl ?? vorgabe), 1), 50);
+}
+
+/** Bei Gmail die ganze Gmail-Suche („from:tradinglab older_than:2y"), sonst Absender oder Betreff. */
+export function suchKriterium(konto: Konto, abfrage: string): SearchObject {
+  return konto.imapHost === "imap.gmail.com"
+    ? { gmraw: abfrage }
+    : { or: [{ from: abfrage }, { subject: abfrage }] };
+}
+
+type Abruf = {
+  uid: number;
+  flags?: Set<string>;
+  envelope?: {
+    from?: { name?: string; address?: string }[];
+    subject?: string;
+    date?: Date | string;
+  };
+};
+
+function kopfAus(konto: Konto, nachricht: Abruf): Kopf {
+  const umschlag = nachricht.envelope;
+  return {
+    konto: konto.name,
+    uid: nachricht.uid,
+    von: umschlag?.from?.map((a) => a.name || a.address || "").join(", ") || "(unbekannt)",
+    betreff: umschlag?.subject || "(kein Betreff)",
+    am: umschlag?.date ? new Date(umschlag.date).toISOString() : "",
+    ungelesen: !nachricht.flags?.has("\\Seen"),
+    anriss: "",
+  };
+}
+
+/** Kopfzeilen zu UIDs, ohne etwas als gelesen zu markieren. */
+async function koepfeZu(client: ImapFlow, konto: Konto, uids: number[]): Promise<Kopf[]> {
+  if (uids.length === 0) return [];
+  const koepfe: Kopf[] = [];
+  for await (const nachricht of client.fetch(
+    uids,
+    { envelope: true, flags: true, bodyStructure: false, source: false },
+    { uid: true },
+  )) {
+    koepfe.push(kopfAus(konto, nachricht));
+  }
+  return koepfe.sort((a, b) => a.uid - b.uid);
+}
+
+/**
+ * Suchen statt blättern: `liste` sieht nur die neuesten Nachrichten, ein Newsletter von vor
+ * Monaten blieb so unauffindbar. Nur lesen; Treffer neueste zuerst.
+ */
+export async function suche(
+  alle: Konto[],
+  opts: { konto?: string; abfrage: string; anzahl?: number },
+): Promise<Kopf[]> {
+  const anzahl = begrenzeAnzahl(opts.anzahl, 20);
+  const jeKonto = await Promise.all(
+    kontoFinden(alle, opts.konto).map((konto) =>
+      mitVerbindung(konto, async (client) => {
+        const schloss = await client.getMailboxLock("INBOX");
+        try {
+          const uids =
+            (await client.search(suchKriterium(konto, opts.abfrage), { uid: true })) || [];
+          return await koepfeZu(client, konto, uids.slice(-anzahl));
+        } finally {
+          schloss.release();
+        }
+      }),
+    ),
+  );
+  return jeKonto
+    .flat()
+    .sort((a, b) => b.am.localeCompare(a.am))
+    .slice(0, anzahl);
+}
+
 /**
  * Die letzten Nachrichten eines oder aller Postfächer.
  *
@@ -183,9 +260,9 @@ async function mitVerbindung<T>(konto: Konto, was: (client: ImapFlow) => Promise
  */
 export async function liste(
   alle: Konto[],
-  opts: { konto?: string; anzahl?: number; nurUngelesen?: boolean } = {},
+  opts: { konto?: string; anzahl?: number; nurUngelesen?: boolean; vor?: number } = {},
 ): Promise<Kopf[]> {
-  const anzahl = Math.min(Math.max(opts.anzahl ?? 15, 1), 50);
+  const anzahl = begrenzeAnzahl(opts.anzahl, 15);
 
   // **Parallel, nicht nacheinander.** Jedes Konto kostet eine Google-Freigabe, einen
   // TLS-Aufbau, eine Anmeldung und eine Fetch-Runde — hintereinander summiert sich das über
@@ -201,6 +278,16 @@ export async function liste(
           const gesamt = typeof box === "object" && box ? box.exists : 0;
           if (!gesamt) return [];
 
+          // Blättern: nur, was älter ist als die genannte Nummer.
+          if (opts.vor !== undefined) {
+            if (opts.vor <= 1) return [];
+            const uids = (await client.search({ uid: `1:${opts.vor - 1}` }, { uid: true })) || [];
+            const koepfe = await koepfeZu(client, konto, uids.slice(-anzahl * 3));
+            return koepfe
+              .filter((k) => !opts.nurUngelesen || k.ungelesen)
+              .reverse()
+              .slice(0, anzahl);
+          }
           const von = Math.max(1, gesamt - anzahl * 3 + 1);
           const gesammelt: Kopf[] = [];
           for await (const nachricht of client.fetch(`${von}:*`, {
@@ -209,19 +296,9 @@ export async function liste(
             bodyStructure: false,
             source: false,
           })) {
-            const ungelesen = !nachricht.flags?.has("\\Seen");
-            if (opts.nurUngelesen && !ungelesen) continue;
-            const umschlag = nachricht.envelope;
-            gesammelt.push({
-              konto: konto.name,
-              uid: nachricht.uid,
-              von:
-                umschlag?.from?.map((a) => a.name || a.address || "").join(", ") || "(unbekannt)",
-              betreff: umschlag?.subject || "(kein Betreff)",
-              am: umschlag?.date ? new Date(umschlag.date).toISOString() : "",
-              ungelesen,
-              anriss: "",
-            });
+            const kopf = kopfAus(konto, nachricht);
+            if (opts.nurUngelesen && !kopf.ungelesen) continue;
+            gesammelt.push(kopf);
           }
           return gesammelt.reverse().slice(0, anzahl);
         } finally {

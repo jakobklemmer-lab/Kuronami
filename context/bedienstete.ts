@@ -116,7 +116,8 @@ export const BEDIENSTETE: Record<string, AgentDefinition> = {
 Du hast direkten Zugriff auf seine Postfächer: \`liste\` zeigt die Übersicht, \`lies\` eine
 einzelne Nachricht im Volltext, \`entwurf\` legt eine Antwort in den Entwürfe-Ordner. Beginne
 immer mit \`liste\` — und lies nur die Nachrichten im Volltext, bei denen die Kopfzeile nicht
-reicht. Zwanzig Mails vollständig zu lesen kostet Geld und bringt nichts.
+reicht. Zwanzig Mails vollständig zu lesen kostet Geld und bringt nichts. Suchst du etwas
+Bestimmtes oder Älteres (ein Absender, ein Newsletter, ein Thema), nimm \`suche\` statt \`liste\`.
 
 Verschicken kannst du nicht, und das ist so gewollt: Post geht nur über den Butler hinaus,
 nachdem Jakob sie gesehen hat.
