@@ -29,7 +29,7 @@ from loguru import logger
 from pipecat.audio.vad.silero import SileroVADAnalyzer
 from pipecat.audio.vad.vad_analyzer import VADParams
 from pipecat.pipeline.pipeline import Pipeline
-from pipecat.pipeline.worker import PipelineParams, PipelineWorker
+from pipecat.pipeline.worker import PipelineParams, PipelineWorker, ProcessorUnusablePolicy
 from pipecat.processors.audio.vad_processor import VADProcessor
 from pipecat.processors.frame_processor import FrameProcessor
 from pipecat.transports.websocket.server import (
@@ -137,6 +137,9 @@ def build_app(config: VoiceConfig, *, client: GatewayClient | None = None) -> Vo
         # und zwei Protokolle auf demselben Draht wären eine Quelle für Nachrichten, die der
         # UI-Client nicht versteht.
         enable_rtvi=False,
+        # Gibt Deepgram nach drei Wiederverbindungen auf, bleibt der Erkenner sonst tot, während
+        # der Prozess weiterläuft (01.10.). Abbrechen beendet den Prozess, Docker startet neu.
+        processor_unusable_policy=ProcessorUnusablePolicy.CANCEL,
     )
 
     return VoiceApp(
