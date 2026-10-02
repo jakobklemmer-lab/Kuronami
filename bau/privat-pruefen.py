@@ -20,11 +20,12 @@ import sys
 from pathlib import Path
 
 ERLAUBTE_DOMAINS = re.compile(
-    r"@(example\.(com|org|net)|[\w.-]+\.example|anthropic\.com|users\.noreply\.github\.com|"
-    r"localhost|test|invalid|b\.de|x\.y)$",
+    r"^name@|(@(example\.(com|org|net)|[\w.-]+\.example|anthropic\.com|users\.noreply\.github\.com|"
+    r"localhost|test|invalid|b\.de|x\.y|[\w.-]+\.(local|intern|lan|test)))$",
     re.I,
 )
-MAIL = re.compile(r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}")
+# Endungen von Dateinamen („icon@2x.png") sind keine Mailadressen.
+MAIL = re.compile(r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.(?!(?:png|jpe?g|svg|webp|gif|ico)\b)[A-Za-z]{2,}")
 VERBOTENE_PFADE = re.compile(r"^(workspace/(?!CLAUDE\.md$).+|progress(-archiv)?\.md|.*\.env)$")
 
 
