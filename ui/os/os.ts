@@ -2,7 +2,6 @@ import type { ApiClient } from "../api/client.js";
 import type { EventBusClient } from "../events/bus.js";
 import { icon } from "../icons.js";
 import type { MicStateStore } from "../mic/state.js";
-import { type Sphaere, mountSphaere } from "../praesenz/sphaere.js";
 import type { RouteId, SettingsSectionId } from "../router/router.js";
 import { settingsView } from "../settings/view.js";
 import { analysenView } from "../views/analysen.js";
@@ -15,11 +14,12 @@ import { systemView } from "../views/system.js";
 import { tradingView } from "../views/trading.js";
 import type { View, ViewContext } from "../views/types.js";
 import { mountFaden } from "../welle/faden.js";
-import { datumZeile, gruss, werName } from "../welle/form.js";
 import type { Gespraech } from "../welle/gespraech.js";
 import * as V from "../welle/verlauf.js";
 import { ZUSTAND_FARBE, ZUSTAND_SATZ } from "../welle/zustand.js";
 import { type BrainApp, mountBrainApp } from "./brain.js";
+import { eingabeHtml, verdrahteEingabe } from "./eingabe.js";
+import { mountKuroRaum } from "./kuro-raum.js";
 import {
   type Ort,
   RAEUME,
@@ -37,8 +37,8 @@ import {
 } from "./raeume.js";
 
 /**
- * Kuro OS, dritter Wurf (`bau/kuro-os-konzept.md`): Kuros Zimmer ist der Desktop — Gruß, Orb,
- * Gespräch. ⌘2–5 legen einen Raum als Tafel darüber, Kuros Platz bleibt rechts daneben; Esc oder
+ * Kuro OS, dritter Wurf (`bau/kuro-os-konzept.md`): der Raum Kuro ist der Desktop
+ * (`kuro-raum.ts`). ⌘2–5 legen einen Raum als Tafel darüber, Kuros Platz bleibt rechts daneben; Esc oder
  * ⌘1 führt zurück zu Kuro. System und Einstellungen kommen als Blatt von rechts.
  */
 
@@ -84,23 +84,12 @@ const KURO: Ort = { raum: "kuro", teil: null, notiz: null };
 /** So lange gleitet ein Teil hinaus, bevor er abgebaut wird (Konzept „Bewegung"). */
 const UEBERGANG_MS = 180;
 
-const SENDEN = `<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h13M13 6l6 6-6 6"/></svg>`;
-
 function seitenspeicher(): Storage | null {
   try {
     return globalThis.localStorage ?? null;
   } catch {
     return null;
   }
-}
-
-function eingabeHtml(rolle: string): string {
-  return `
-    <form class="o-eingabe" data-role="${rolle}">
-      <textarea rows="1" name="text" placeholder="Kuro fragen" aria-label="Nachricht an Kuro"></textarea>
-      <button type="button" class="o-eingabe__mikro" data-role="mikro" aria-label="Mikrofon an oder aus">${icon("mic")}</button>
-      <button type="submit" class="o-eingabe__senden" aria-label="Senden">${SENDEN}</button>
-    </form>`;
 }
 
 export function mountOs(opt: OsOptionen): void {
@@ -118,7 +107,6 @@ export function mountOs(opt: OsOptionen): void {
 
   root.innerHTML = `
     <div class="o-os" data-kuro="ruhe">
-      <div class="o-zimmer" aria-hidden="true"></div>
       <header class="o-kopf">
         <button type="button" class="o-marke" data-role="marke" title="Starter (${BEFEHL}K)" aria-label="Starter">黒波</button>
         <nav class="o-raeume" data-role="raeume" aria-label="Räume">
@@ -135,10 +123,7 @@ export function mountOs(opt: OsOptionen): void {
         </div>
       </header>
 
-      <section class="o-empfang" data-role="empfang" aria-label="Kuro">
-        <p class="o-empfang__datum" data-role="datum"></p>
-        <h1 class="o-empfang__gruss" data-role="gruss"></h1>
-      </section>
+      <main class="o-empfang" data-role="empfang" aria-label="Kuro"></main>
 
       <section class="o-fenster" data-role="fenster" hidden>
         <header class="o-fenster__kopf">
@@ -149,9 +134,6 @@ export function mountOs(opt: OsOptionen): void {
       </section>
 
       <aside class="o-platz" data-role="platz" aria-label="Kuro">
-        <header class="o-platz__kopf">
-          <h2>Gespräch</h2>
-        </header>
         <div class="o-platz__orbraum" aria-hidden="true"></div>
         <p class="o-platz__satz" data-role="satz"></p>
         <section class="o-imhaus" data-role="imhaus" aria-label="Im Haus"></section>
@@ -205,6 +187,7 @@ export function mountOs(opt: OsOptionen): void {
   const fenster = q<HTMLElement>("fenster");
   const teileEl = q<HTMLElement>("teile");
   const buehne = q<HTMLElement>("buehne");
+  const empfang = q<HTMLElement>("empfang");
   const platz = q<HTMLElement>("platz");
   const satz = q<HTMLElement>("satz");
   const fadenEl = q<HTMLElement>("faden");
@@ -247,18 +230,12 @@ export function mountOs(opt: OsOptionen): void {
     );
   }
 
-  // ------------------------------------------------------------ Gruß, Uhr, Abo
-  const datumEl = q<HTMLElement>("datum");
-  const grussEl = q<HTMLElement>("gruss");
+  // ------------------------------------------------------------- Uhr, Abo
   const uhrEl = q<HTMLElement>("uhr");
   const tick = () => {
     const d = new Date();
     uhrEl.textContent = d.toLocaleTimeString("de-DE", { hour: "2-digit", minute: "2-digit" });
     uhrEl.title = d.toLocaleDateString("de-DE", { dateStyle: "full" });
-    datumEl.textContent = datumZeile(d);
-    // Zwei Zeilen wie in der Welle: der Gruß, dann der Name.
-    const [vorn, name] = gruss(d).split(", ");
-    grussEl.innerHTML = `<span>${escapeHtml(vorn ?? "")},</span> <span>${escapeHtml(name ?? "")}</span>`;
   };
   tick();
   globalThis.setInterval(tick, 10_000);
@@ -406,17 +383,18 @@ export function mountOs(opt: OsOptionen): void {
     fenster.classList.remove("ist-gehend");
     fenster.classList.add("ist-kommend");
     bewegeOrb(() => os.classList.add("ist-fenster"));
+    empfang.inert = true;
     requestAnimationFrame(() =>
       requestAnimationFrame(() => fenster.classList.remove("ist-kommend")),
     );
-    setzeFaden();
   };
 
   const schliesseFenster = () => {
     if (fenster.hidden) return;
     bewegeOrb(() => os.classList.remove("ist-fenster"));
+    empfang.inert = false;
+    kuroRaum.auffrischen();
     fenster.classList.add("ist-gehend");
-    setzeFaden();
     if (fensterUhr) globalThis.clearTimeout(fensterUhr);
     fensterUhr = globalThis.setTimeout(() => {
       fensterUhr = null;
@@ -527,59 +505,16 @@ export function mountOs(opt: OsOptionen): void {
   );
 
   // ---------------------------------------------------------- Kuros Platz
-  const sende = async (f: HTMLTextAreaElement) => {
-    const text = f.value.trim();
-    if (!text) return;
-    f.value = "";
-    f.style.height = "";
-    try {
-      await gespraech.sende(text);
-    } catch (error) {
-      opt.toast(error instanceof Error ? error.message : String(error));
-    }
-  };
-  const verdrahteEingabe = (f: HTMLFormElement) => {
-    const t = f.querySelector("textarea") as HTMLTextAreaElement;
-    f.addEventListener("submit", (e) => {
-      e.preventDefault();
-      void sende(t);
-    });
-    t.addEventListener("keydown", (e) => {
-      if (e.key === "Enter" && !e.shiftKey && !e.isComposing) {
-        e.preventDefault();
-        void sende(t);
-      }
-    });
-    t.addEventListener("input", () => {
-      t.style.height = "";
-      t.style.height = `${Math.min(t.scrollHeight, 160)}px`;
-    });
-    f.querySelector<HTMLButtonElement>('[data-role="mikro"]')?.addEventListener("click", (e) => {
-      opt.voice.toggle();
-      (e.currentTarget as HTMLElement).blur();
-    });
-  };
-  verdrahteEingabe(form);
-
-  // Auf dem Desktop steht das ganze Gespräch, neben einem Fenster nur Kuros letzte Antwort.
-  let fadenLoesen: (() => void) | null = null;
-  let fadenKurz: boolean | null = null;
-  function setzeFaden() {
-    const kurz = os.classList.contains("ist-fenster");
-    if (kurz === fadenKurz) return;
-    fadenKurz = kurz;
-    fadenLoesen?.();
-    fadenEl.replaceChildren();
-    fadenLoesen = mountFaden(fadenEl, {
-      api,
-      gespraech,
-      nurLetzte: kurz,
-      beiLeere: (leer) => {
-        leerEl.hidden = !leer;
-      },
-    });
-    fadenEl.scrollTop = fadenEl.scrollHeight;
-  }
+  // Neben einem Raum steht nur Kuros letzte Antwort; das ganze Gespräch hat der Desktop.
+  verdrahteEingabe(form, opt);
+  const fadenLoesen = mountFaden(fadenEl, {
+    api,
+    gespraech,
+    nurLetzte: true,
+    beiLeere: (leer) => {
+      leerEl.hidden = !leer;
+    },
+  });
 
   const klappePlatz = (zu: boolean) => {
     platzZu = zu;
@@ -595,36 +530,36 @@ export function mountOs(opt: OsOptionen): void {
   });
   q<HTMLButtonElement>("leeren").addEventListener("click", () => gespraech.leere());
 
-  /** Kuro nach vorn: der Platz geht auf (auch eingeklappt), die Eingabe bekommt den Fokus. */
+  /** Kuro nach vorn: auf dem Desktop seine Eingabe, neben einem Raum der Platz (auch eingeklappt). */
   const oeffnePlatz = (fokus: boolean) => {
+    if (ort.raum === "kuro") {
+      if (fokus) kuroRaum.feld.focus({ preventScroll: true });
+      return;
+    }
     if (platzZu) klappePlatz(false);
     if (fokus) feld.focus({ preventScroll: true });
   };
 
-  // ----------------------------------------------------------------- Orb
-  const sphaere: Sphaere = mountSphaere(orbEl, MOTTO);
-  for (const [wer, a] of gespraech.arbeit) {
-    sphaere.bediensteterBeginnt(werName(wer), a.auftrag ?? undefined);
-    sphaere.bediensteterStand(werName(wer), a.stand);
-  }
-  const eingabeLoesen = sphaere.bindeEingabe(feld);
-  sphaere.beimAntippen(() => {
-    opt.voice.toggle();
-    orbEl.blur();
+  // ------------------------------------------------------- Raum Kuro, Orb
+  const kuroRaum = mountKuroRaum(empfang, {
+    api,
+    gespraech,
+    voice: opt.voice,
+    orb: orbEl,
+    motto: MOTTO,
+    toast: opt.toast,
+    oeffne: (ziel) => {
+      if (ziel === "system") oeffneBlatt("system");
+      else geheZu({ raum: "post", teil: ziel, notiz: null });
+    },
   });
-  orbEl.addEventListener("keydown", (e) => {
-    if (e.key !== "Enter" && e.key !== " ") return;
-    e.preventDefault();
-    opt.voice.toggle();
-  });
-
+  // Der Orb sieht auch das Tippen in Kuros Platz.
+  const eingabeLoesen = kuroRaum.sphaere.bindeEingabe(feld);
   const zeigeZustand = () => {
     const z = gespraech.zustand;
     os.dataset.kuro = z;
     os.style.setProperty("--kuro-licht", ZUSTAND_FARBE[z]);
     satz.textContent = gespraech.detail ?? ZUSTAND_SATZ[z];
-    sphaere.setZustand(z, gespraech.detail ?? undefined);
-    orbEl.setAttribute("aria-pressed", String(z === "zuhoeren"));
   };
   const zeigeArbeit = () => {
     const n = gespraech.arbeit.size;
@@ -638,13 +573,7 @@ export function mountOs(opt: OsOptionen): void {
   const abo = gespraech.abonniere((s) => {
     if (s.art === "zustand") zeigeZustand();
     else if (s.art === "arbeit") zeigeArbeit();
-    else if (s.art === "impuls") sphaere.impuls(s.staerke);
-    else if (s.art === "bediensteter") {
-      if (s.was === "beginnt") sphaere.bediensteterBeginnt(werName(s.wer), s.text || undefined);
-      else if (s.was === "stand") sphaere.bediensteterStand(werName(s.wer), s.text);
-      else sphaere.bediensteterFertig(werName(s.wer));
-    } else if (s.art === "fertig") {
-      if (gespraech.zustand === "ruhe") sphaere.fertig();
+    else if (s.art === "fertig") {
       const letzte = V.letzteAntwort(gespraech.verlauf);
       if (!letzte || letzte.id === letzteGezeigt) return;
       letzteGezeigt = letzte.id;
@@ -885,7 +814,7 @@ export function mountOs(opt: OsOptionen): void {
       if (taste === "j") {
         e.preventDefault();
         // Auf dem Desktop ist das Gespräch der Raum selbst; dort holt ⌘J nur die Eingabe.
-        if (ort.raum === "kuro") feld.focus({ preventScroll: true });
+        if (ort.raum === "kuro") kuroRaum.feld.focus({ preventScroll: true });
         else klappePlatz(!platzZu);
         return;
       }
@@ -928,13 +857,12 @@ export function mountOs(opt: OsOptionen): void {
 
   // --------------------------------------------------------------- Start
   geheZu(liesOrt(globalThis.location.hash, gemerkt), "replace");
-  setzeFaden();
 
   globalThis.addEventListener("pagehide", () => {
     abo();
     eingabeLoesen();
-    fadenLoesen?.();
-    sphaere.destroy();
+    fadenLoesen();
+    kuroRaum.loesen();
     if (aktiv) baueAb(aktiv);
     brain?.app.loesen();
     blattLoesen?.();

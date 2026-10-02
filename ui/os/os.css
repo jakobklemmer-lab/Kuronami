@@ -49,41 +49,6 @@
 }
 
 /* --------------------------------------------------------------------- */
-/* Das Zimmer: Kuros Raum bei Nacht, von oben fällt sein Licht            */
-/* --------------------------------------------------------------------- */
-
-.o-zimmer {
-  position: fixed;
-  inset: 0;
-  background: linear-gradient(to bottom, rgba(3, 8, 11, 0.55), rgba(3, 8, 11, 0) 18%),
-    linear-gradient(to left, rgba(3, 8, 11, 0.5), rgba(3, 8, 11, 0) 40%), url("../assets/night.jpg")
-    100% 50% / cover no-repeat, var(--tusche);
-  transition: filter 0.4s var(--gleiten-os);
-}
-
-.o-zimmer::after {
-  content: "";
-  position: absolute;
-  inset: 0;
-  background: radial-gradient(
-    ellipse 50vw 34vh at 38% -6vh,
-    color-mix(in srgb, var(--kuro-licht) 24%, transparent),
-    transparent 70%
-  );
-  opacity: 0.5;
-  transition: opacity 1.2s var(--gleiten-os), background 1.2s var(--gleiten-os);
-}
-
-.o-os:not([data-kuro="ruhe"]):not([data-kuro="offline"]) .o-zimmer::after {
-  opacity: 1;
-}
-
-/* Liegt ein Raum darüber, tritt das Zimmer zurück. */
-.o-os.ist-fenster .o-zimmer {
-  filter: brightness(0.6) saturate(0.85);
-}
-
-/* --------------------------------------------------------------------- */
 /* Kopf: die Räume als Überschrift                                        */
 /* --------------------------------------------------------------------- */
 
@@ -263,59 +228,20 @@
 }
 
 /* --------------------------------------------------------------------- */
-/* Der Desktop: Gruß und Orb im Zimmer                                    */
+/* Der Orb                                                                */
 /* --------------------------------------------------------------------- */
-
-.o-empfang {
-  position: fixed;
-  top: calc(var(--kopf-h) + 4vh);
-  left: calc(var(--rand) + 34px);
-  z-index: 5;
-  max-width: calc(100vw - var(--gespraech-b) - 120px);
-  pointer-events: none;
-  transition: opacity 0.3s var(--gleiten-os);
-}
-
-.o-os.ist-fenster .o-empfang {
-  opacity: 0;
-}
-
-.o-empfang__datum {
-  margin: 0 0 10px;
-  font-size: 14px;
-  color: var(--nebel);
-  text-shadow: 0 1px 14px rgba(0, 0, 0, 0.8);
-}
-
-.o-empfang__gruss {
-  margin: 0;
-  font-family: var(--zeichen);
-  font-weight: 500;
-  font-size: clamp(2.1rem, 3.2vw, 3.6rem);
-  line-height: 1.12;
-  color: var(--mond);
-  text-shadow: 0 2px 30px rgba(0, 0, 0, 0.6);
-}
-
-.o-empfang__gruss span {
-  display: block;
-}
 
 /*
  * Ein Orb für alle Lagen: groß in der Mitte des Zimmers, oben in Kuros Platz neben einem Fenster,
  * klein im eingeklappten Streifen. Er gleitet zwischen ihnen, statt neu zu starten.
  */
 .o-orb {
-  /* Vor der rechten Scheibe des Zimmers: night.jpg ist 16:9, rechtsbündig gedeckt (so bleibt
-     der Mond links der Gesprächstafel), seine Fenstersprosse steht bei 36 % der Bildbreite. */
-  --bild-b: max(100vw, 100vh * 16 / 9);
-  --sprosse: calc(100vw - 0.64 * var(--bild-b));
-  --buehne-r: calc(100vw - var(--gespraech-b) - 2 * var(--rand));
-  --orb-s: min(64vh, calc(var(--buehne-r) - var(--sprosse) - 32px), 820px);
+  /* Vor der rechten Scheibe des Fensterbilds; Lage und Seite setzt `kuro-raum.ts`. */
+  --orb-s: 0px;
   position: fixed;
   z-index: 30;
-  left: calc((var(--sprosse) + var(--buehne-r)) / 2 - var(--orb-s) / 2);
-  top: calc(var(--kopf-h) + (100vh - var(--kopf-h)) / 2 - var(--orb-s) / 2 + 3vh);
+  left: var(--orb-l, 50vw);
+  top: var(--orb-t, 20vh);
   width: var(--orb-s);
   height: var(--orb-s);
   border-radius: 50%;
@@ -608,7 +534,7 @@
 }
 
 /* --------------------------------------------------------------------- */
-/* Kuros Platz: das Gespräch auf dem Desktop, die Spalte neben dem Fenster */
+/* Kuros Platz: die Spalte neben einem Raum (auf dem Desktop ist Kuro die Fläche) */
 /* --------------------------------------------------------------------- */
 
 .o-platz {
@@ -629,6 +555,10 @@
   transition: width 0.22s var(--gleiten-os), padding 0.22s var(--gleiten-os);
 }
 
+.o-os:not(.ist-fenster) .o-platz {
+  display: none;
+}
+
 .o-platz > * {
   animation: o-ein 0.26s var(--gleiten-os) both;
 }
@@ -637,14 +567,6 @@
   from {
     opacity: 0;
   }
-}
-
-.o-platz__kopf h2 {
-  margin: 0;
-  font-family: var(--zeichen);
-  font-weight: 500;
-  font-size: 19px;
-  color: var(--mond);
 }
 
 .o-platz__orbraum {
@@ -661,19 +583,13 @@
   text-align: center;
 }
 
-.o-os[data-raum="kuro"] .o-platz__orbraum,
-.o-os[data-raum="kuro"] .o-platz__satz,
-.o-os[data-raum="kuro"] .o-platz__klappe,
-.o-os.ist-fenster .o-platz__kopf {
-  display: none;
-}
-
 .o-imhaus:empty {
   display: none;
 }
 
 /* Das Gespräch beginnt unten über der Eingabe und wächst nach oben. */
-.o-platz__faden {
+.o-platz__faden,
+.k-faden {
   display: flex;
   flex-direction: column;
   flex: 1;
@@ -687,24 +603,23 @@
   mask-image: linear-gradient(to bottom, transparent, #000 28px);
 }
 
-.o-platz__faden:empty {
+.o-platz__faden:empty,
+.k-faden:empty {
   display: none;
 }
 
-.o-platz__faden > :first-child {
+.o-platz__faden > :first-child,
+.k-faden > :first-child {
   margin-top: auto;
 }
 
 .o-platz__faden .f-text {
-  font-size: 15px;
-}
-
-.o-os.ist-fenster .o-platz__faden .f-text {
   font-size: 14px;
   line-height: 1.55;
 }
 
-.o-platz__leer {
+.o-platz__leer,
+.k-leer {
   display: flex;
   align-items: flex-end;
   flex: 1;
@@ -715,7 +630,8 @@
   color: var(--nebel);
 }
 
-.o-platz__leer[hidden] {
+.o-platz__leer[hidden],
+.k-leer[hidden] {
   display: none;
 }
 
@@ -1474,31 +1390,17 @@ body.ist-sprechtaste .o-eingabe__mikro,
   }
 }
 
-/* Schmal (Telefon, halbes Fenster): das Gespräch füllt den Desktop, der Orb steht klein darüber;
-   ein Raum nimmt die ganze Breite, Kuro ist über ⌘1 oder die Raumleiste zurück. */
+/* Schmal (Telefon, halbes Fenster): auf dem Desktop steht Kuros Fenster als Band über dem
+   Gespräch (`kuro-raum.css`); ein Raum nimmt die ganze Breite, Kuro ist über ⌘1 zurück. */
 @media (max-width: 760px) {
-  .ist-os {
-    --gespraech-b: calc(100vw - 2 * var(--rand));
-  }
   .o-os.ist-fenster,
   .o-os.ist-fenster.ist-platz-zu {
     --spalte-b: calc(-1 * var(--rand));
   }
   .o-abo,
-  .o-empfang,
   .o-os.ist-fenster .o-platz,
-  .o-os.ist-fenster .o-orb,
-  .o-platz__kopf {
+  .o-os.ist-fenster .o-orb {
     display: none;
-  }
-  .o-os[data-raum="kuro"] .o-platz__orbraum {
-    display: block;
-  }
-  .o-os:not(.ist-fenster) .o-orb {
-    left: var(--rand);
-    top: calc(var(--kopf-h) + 4px);
-    width: var(--gespraech-b);
-    height: var(--orb-klein-h);
   }
   .o-orb .ko-caption,
   .o-orb .ko-tags {
@@ -1521,8 +1423,6 @@ body.ist-sprechtaste .o-eingabe__mikro,
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .o-zimmer,
-  .o-zimmer::after,
   .o-orb,
   .o-fenster,
   .o-teil-flaeche,

@@ -1,0 +1,297 @@
+/*
+ * Der Raum Kuro (`kuro-raum.ts`), der Desktop: links Kuro vor dem Fenster seines Zimmers — ein
+ * Ausschnitt aus night.jpg, der weich in den matten Grund verläuft —, darunter Gruß, „Heute" und
+ * „Im Haus"; rechts das ganze Gespräch. Liegt ein Raum darüber, tritt das Zimmer zurück.
+ */
+
+/* Ohne eigene Ebene (absolut, kein z-index): so liegt der Orb über dem Fensterbild, Gruß und
+   „Heute" aber über dem Orb — seine Leinwand nimmt sonst auf ihrer ganzen Fläche Klicks an. */
+.o-empfang {
+  --bild-h: clamp(300px, 64vh, calc(100vh - 330px));
+  /* Auf breiten Schirmen bleibt das Fenster ein Fenster statt eines Panoramas. */
+  --buehne-b: min(100%, calc(var(--bild-h) * 1.95));
+  --unten-ueber: 84px;
+  --einzug: clamp(28px, 3.6vw, 88px);
+  position: absolute;
+  inset: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) var(--gespraech-b);
+  column-gap: var(--rand);
+  padding: 0 var(--rand) var(--rand) 0;
+}
+
+.k-links {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+}
+
+/* ------------------------------------------------------------- Fenster */
+
+.k-bild {
+  position: absolute;
+  inset: 0 0 auto;
+  width: var(--buehne-b);
+  height: var(--bild-h);
+  margin-inline: auto;
+  background: url("../assets/night.jpg") 55% 36% / cover no-repeat;
+  -webkit-mask-image: linear-gradient(to bottom, transparent, #000 24%, #000 66%, transparent),
+    linear-gradient(to right, transparent, #000 16%, #000 84%, transparent);
+  -webkit-mask-composite: source-in;
+  mask-image: linear-gradient(to bottom, transparent, #000 24%, #000 66%, transparent),
+    linear-gradient(to right, transparent, #000 16%, #000 84%, transparent);
+  mask-composite: intersect;
+  transition: filter 0.4s var(--gleiten-os), opacity 0.4s var(--gleiten-os);
+}
+
+/* Von oben fällt Kuros Licht ins Fenster — stärker, solange er nicht ruht. */
+.k-bild::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(
+    ellipse 46% 52% at 60% 0%,
+    color-mix(in srgb, var(--kuro-licht) 26%, transparent),
+    transparent 72%
+  );
+  opacity: 0.45;
+  transition: opacity 1.2s var(--gleiten-os), background 1.2s var(--gleiten-os);
+}
+
+.o-os:not([data-kuro="ruhe"]):not([data-kuro="offline"]) .k-bild::after {
+  opacity: 1;
+}
+
+.o-os.ist-fenster .k-bild {
+  filter: brightness(0.55) saturate(0.8);
+}
+
+/* ------------------------------------------------- Gruß, Heute, Im Haus */
+
+.k-unten {
+  position: relative;
+  z-index: 31;
+  display: flex;
+  flex-direction: column;
+  gap: clamp(22px, 3.4vh, 44px);
+  align-self: center;
+  width: var(--buehne-b);
+  min-height: 0;
+  margin-top: calc(var(--bild-h) - var(--unten-ueber));
+  padding: 0 var(--einzug);
+  overflow-y: auto;
+  scrollbar-width: none;
+}
+
+.k-unten,
+.k-gespraech {
+  transition: opacity 0.3s var(--gleiten-os);
+}
+
+.o-os.ist-fenster .k-unten,
+.o-os.ist-fenster .k-gespraech {
+  z-index: auto;
+  opacity: 0;
+}
+
+.k-gruss__datum {
+  margin: 0 0 8px;
+  font-family: var(--schrift);
+  font-size: 14px;
+  color: var(--nebel);
+}
+
+.k-gruss__text {
+  margin: 0;
+  font-family: var(--zeichen);
+  font-weight: 500;
+  font-size: clamp(2rem, 2.6vw, 3.3rem);
+  line-height: 1.1;
+  color: var(--mond);
+  text-shadow: 0 2px 24px rgba(0, 0, 0, 0.55);
+}
+
+.k-tafeln {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: 28px clamp(40px, 5vw, 96px);
+}
+
+.k-titel {
+  margin: 0 0 10px;
+  font-family: var(--zeichen);
+  font-weight: 500;
+  font-size: 19px;
+  color: var(--mond);
+}
+
+.k-heute {
+  flex: 1 1 440px;
+  max-width: 76ch;
+}
+
+.k-imhaus {
+  flex: 1 1 360px;
+  max-width: 64ch;
+}
+
+.k-imhaus:empty {
+  display: none;
+}
+
+.k-heute__liste {
+  display: grid;
+  gap: 2px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.k-heute__liste li {
+  animation: o-ein 0.3s var(--gleiten-os) both;
+}
+
+.k-satz {
+  display: flex;
+  align-items: baseline;
+  gap: 18px;
+  width: calc(100% + 24px);
+  margin: 0 -12px;
+  padding: 7px 12px;
+  border: 0;
+  border-radius: 10px;
+  background: none;
+  color: rgba(232, 239, 241, 0.86);
+  font: inherit;
+  font-size: clamp(15px, 0.6vw + 6.5px, 17px);
+  line-height: 1.5;
+  text-align: left;
+  cursor: pointer;
+  transition: background 0.18s ease, color 0.18s ease;
+}
+
+.k-satz__text {
+  flex: 1;
+  min-width: 0;
+}
+
+.k-satz__ziel {
+  flex: none;
+  font-size: 12.5px;
+  color: var(--laterne);
+  opacity: 0;
+  transform: translateX(-4px);
+  transition: opacity 0.18s ease, transform 0.18s ease;
+}
+
+.k-satz:hover,
+.k-satz:focus-visible {
+  background: var(--tafel-licht);
+  color: var(--mond);
+}
+
+.k-satz:hover .k-satz__ziel,
+.k-satz:focus-visible .k-satz__ziel {
+  opacity: 1;
+  transform: none;
+}
+
+.k-satz.ist-knapp .k-satz__text {
+  color: var(--faellt);
+}
+
+.k-satz.ist-fehler {
+  color: var(--nebel);
+}
+
+/* ------------------------------------------------------------- Gespräch */
+
+.k-gespraech {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-height: 0;
+  margin-top: var(--kopf-h);
+  padding: 18px 20px 12px;
+  background: linear-gradient(180deg, rgba(232, 239, 241, 0.035), rgba(232, 239, 241, 0.022));
+  border: 1px solid var(--haarlinie);
+  border-radius: 14px;
+}
+
+.k-gespraech .k-titel {
+  margin: 0;
+}
+
+.k-faden .f-text {
+  font-size: 15px;
+}
+
+.k-gespraech__fuss {
+  display: flex;
+  margin-top: -4px;
+}
+
+.o-eingabe--gross {
+  gap: 6px;
+  padding: 10px 10px 10px 20px;
+  border-radius: 20px;
+}
+
+.o-eingabe--gross textarea {
+  min-height: 44px;
+  max-height: 200px;
+  padding: 10px 0;
+  font-size: 16px;
+}
+
+.o-eingabe--gross button {
+  width: 42px;
+  height: 42px;
+}
+
+.o-eingabe--gross button svg {
+  width: 20px;
+  height: 20px;
+}
+
+/* -------------------------------------------------------------- Schmal */
+
+/* Kuros Fenster als Band über dem Gespräch; Gruß und „Heute" haben hier keinen Platz. */
+@media (max-width: 760px) {
+  .o-empfang {
+    --bild-h: 220px;
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: var(--bild-h) minmax(0, 1fr);
+    padding: 0 var(--rand) var(--rand);
+  }
+  .k-bild {
+    inset: 0 calc(-1 * var(--rand)) auto;
+    width: auto;
+  }
+  .k-unten {
+    display: none;
+  }
+  .k-gespraech {
+    margin-top: 0;
+  }
+  .o-eingabe--gross {
+    padding: 6px 6px 6px 16px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .k-bild,
+  .k-bild::after,
+  .k-unten,
+  .k-gespraech,
+  .k-satz,
+  .k-satz__ziel {
+    transition: none;
+  }
+  .k-heute__liste li {
+    animation: none;
+  }
+}
