@@ -28,6 +28,7 @@ import { type Konfidenz, blocklaenge, konfidenz } from "./konfidenz.js";
 import { sperrgrenze } from "./sperre.js";
 import { HANDEL_FUER_URTEIL } from "./strategien.js";
 import { createVersuchsbuch, strengeHuerde, zWert } from "./versuche.js";
+import { risikoEuro, wochenziel } from "./wochenziel.js";
 
 export { strengeHuerde, zWert };
 
@@ -99,8 +100,8 @@ export const SITZUNGEN: readonly Sitzung[] = [
 export const RICHTUNGEN = ["beide", "long", "short"] as const;
 export type Richtungswahl = (typeof RICHTUNGEN)[number];
 
-/** Jakobs Risiko je Handel: 1 % von [Kapital]. Für die Spalte „€ je Woche". */
-const RISIKO_EURO = 15;
+/** Jakobs Risiko je Handel (aus der .env, `wochenziel.ts`). Für die Spalte „€ je Woche". */
+const RISIKO_EURO = risikoEuro(wochenziel());
 
 // ------------------------------------------------------------------------------ Das Urteil
 

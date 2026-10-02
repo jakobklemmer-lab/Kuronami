@@ -2,7 +2,7 @@
  * Jakobs Wochenziel — eine Beobachtungsgröße, keine Vorgabe.
  *
  * Am 2026-09-27 sagte Jakob: „ab jetzt schauen, dass wir in der Woche hundert Euro circa
- * verdienen könnten." Die boerse rechnete dagegen: auf [Kapital] Kapital sind das sechs bis sieben
+ * verdienen könnten." Die boerse rechnete dagegen: auf sein Kapital sind das sechs bis sieben
  * Prozent pro Woche, und keine geprüfte Regel trägt das. Ihr Vorschlag, den Jakob angenommen hat:
  * **die Ein-Prozent-Regel bleibt**, und die 100 € laufen daneben mit — als Zahl, an der man sieht,
  * wie weit eine Regel oder eine Woche davon entfernt ist, nie als Grund, eine Position größer
@@ -27,9 +27,10 @@ function positiv(roh: string | undefined, vorgabe: number): number {
 
 export function wochenziel(env: NodeJS.ProcessEnv = process.env): Wochenziel {
   return {
-    kapitalEuro: positiv(env.KURO_KAPITAL_EURO, 1500),
+    // Jakobs echte Zahlen stehen in der .env; die Vorgaben hier sind bewusst neutral.
+    kapitalEuro: positiv(env.KURO_KAPITAL_EURO, 1000),
     risikoProzent: positiv(env.KURO_RISIKO_PROZENT, 1),
-    zielEuro: positiv(env.KURO_WOCHENZIEL_EURO, 100),
+    zielEuro: positiv(env.KURO_WOCHENZIEL_EURO, 50),
   };
 }
 

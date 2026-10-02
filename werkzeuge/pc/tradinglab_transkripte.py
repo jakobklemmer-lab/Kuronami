@@ -31,7 +31,14 @@ import urllib.error
 import urllib.request
 from pathlib import Path
 
-SERVER = "https://gateway.203-0-113-7.sslip.io"
+# Die Adresse des eigenen Gateways — aus der Umgebung oder aus server.txt neben dem Skript.
+SERVER = os.environ.get("KURONAMI_GATEWAY", "").strip() or (
+    (Path(__file__).resolve().parent / "server.txt").read_text(encoding="utf-8").strip()
+    if (Path(__file__).resolve().parent / "server.txt").exists()
+    else ""
+)
+if not SERVER:
+    sys.exit("KURONAMI_GATEWAY setzen oder server.txt neben das Skript legen (https://gateway.…).")
 KANAL = "tradinglab"
 HIER = Path(__file__).resolve().parent
 LOG = HIER / "tradinglab_transkripte.log"

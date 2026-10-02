@@ -25,6 +25,12 @@ Rückfragen. Deine Aufgabe in diesem Lauf: **{AUFGABE}** aus `bau/PLAN.md`.
   ({AUFGABE}a, {AUFGABE}b …), baue die erste fertig, committe, hör auf.
 
 ## Was du nie tust
+- Private Daten ins Repo schreiben — auch nicht in Plan, Bericht, Kommentar oder Test: keine
+  Postfachnamen, Mailadressen, Anmeldenamen, Server-Adressen, Geldbeträge von Jakob, keine
+  Betreffzeilen oder Inhalte aus Mails und Gesprächen. Das Repo ist öffentlich. Werte, die der Code
+  braucht, kommen aus der `.env`; Testdaten sind erfunden (`example.com`, `203.0.113.7`). Der
+  pre-commit-Hook (`bau/privat-pruefen.py`) lehnt solche Commits ab — dann den Inhalt ändern,
+  nie den Hook umgehen (`--no-verify` ist verboten).
 - `.env`, Zugangsdaten, `~/.claude`, systemd, sysctl, Firewall, Paketquellen des Systems
   anfassen. Dienste starten oder neu starten — das macht der Läufer nach deinem Lauf, wenn die
   Tests grün sind. Einen zweiten Gateway starten.

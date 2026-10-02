@@ -288,7 +288,7 @@ function renderMcp(): string {
  * Kein Feld hier ist eine Anmeldung, aber Chrome rät danach: ein Textfeld vor einem
  * Passwortfeld gilt ihm als Benutzername + Passwort. Am 2026-09-27 standen so der Benutzername
  * der Oberfläche in „Sprachprozess" und ihr Passwort im Sitzungs-Token — die Sprachschicht war
- * „unter jakob nicht erreichbar". `autocomplete="off"` allein reicht Chrome bei
+ * „unter <Anmeldename> nicht erreichbar". `autocomplete="off"` allein reicht Chrome bei
  * Passwortfeldern nicht; `new-password` sagt ihm, dass hier kein gespeichertes hingehört. Die
  * `data-*`-Schalter gelten den gängigen Passwortverwaltern.
  */

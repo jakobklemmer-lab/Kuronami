@@ -282,7 +282,8 @@ Vier unabhängige Stellen, jede ein eigener Commit. Alle aus dem Verlauf vom 27.
    rein deutscher Text bleibt unverändert; nur englischer Text ohne Überschrift bleibt unverändert
    (lieber zu viel als nichts).
 4. **Persona.** `context/persona.ts` (der Kuro-Prompt; Größe vorher/nachher in Zeichen im Bericht):
-   - Alle drei Postfächer gehören Jakob (konto1, konto2, konto3 sind seine Konten).
+   - Alle Postfächer gehören Jakob (die Konten aus `konten()` in `gateway/postfach.ts`; ihre Namen stehen
+     nur in der `.env`, nie im Prompt-Text selbst).
    - Kuro spricht nie in der dritten Person über sich.
    - Nennt Jakob ein Ziel mit Zahlen, wiederholt Kuro es in einem Satz, bevor er beauftragt.
    Je höchstens zwei Zeilen; im Stil der vorhandenen Regeln (richtig/falsch-Beispiel, wenn die Datei
@@ -320,9 +321,8 @@ exportieren — `suchKriterium(konto: Konto, abfrage: string)` → `{ gmailRaw }
 aus `Konto`, wie `konten()` ihn setzt: Vorgabe `imap.gmail.com`), sonst `{ or: [{ from }, { subject }] }`
 — und die testen, dazu die Begrenzung von `anzahl` (1–50). Kein echtes IMAP im Test.
 
-**Echter Lauf:** einmal `suche` über konto1 mit `from:tradinglab` (Skript mit `npx tsx`, liest
-die `.env` nur über den Code, der das ohnehin tut). Im Bericht **nur** die Zahl der Treffer und
-höchstens fünf Betreffzeilen — keine Inhalte, nichts davon ins Git.
+**Echter Lauf:** einmal `suche` über das erste Konto mit `from:tradinglab` (Skript mit `npx tsx`, liest
+die `.env` nur über den Code, der das ohnehin tut). Im Bericht **nur** die Zahl der Treffer — keine Betreffzeilen, keine Absender, keine Inhalte.
 
 **Fertig, wenn:** Tests grün, Typecheck grün, Trefferzahl im Bericht.
 
@@ -330,12 +330,11 @@ höchstens fünf Betreffzeilen — keine Inhalte, nichts davon ins Git.
 - Status: blockiert (wird für Sonnet genau beschrieben, Stand 02.10.)
 - Modell: sonnet
 
-Jakob am 27.09. um 13:34: Start [Kapital], **[Einzahlung] Einzahlung je Monat**, Ziel **~[Ziel] nach 12
-Monaten**. Die boerse hat gerechnet: 3,84 % (Einzahlung Monatsanfang) bis 4,17 % (Monatsende) je
-Monat, ohne Handel ~5.100 €. `gateway/wochenziel.ts` rechnet noch gegen 100 €/Woche.
-- Neue Stellschrauben `KURO_EINZAHLUNG_MONAT` (300), `KURO_ZIEL_EURO` (7000),
-  `KURO_ZIEL_START` (2026-09-27), `KURO_ZIEL_MONATE` (12); die alte Wochenziel-Zahl entfällt.
-- Backtest-Zeile: „Beitrag zum Kapitalplan: … % je Monat (nötig: 3,8–4,2 %)", gerechnet.
+Jakobs Kapitalplan (Start, Einzahlung je Monat, Ziel nach 12 Monaten) — die Zahlen stehen nur in
+der `.env`, nie im Repo. `gateway/wochenziel.ts` rechnet noch gegen ein Wochenziel.
+- Neue Stellschrauben `KURO_EINZAHLUNG_MONAT`, `KURO_ZIEL_EURO`, `KURO_ZIEL_START`,
+  `KURO_ZIEL_MONATE` (Werte in der `.env`); die alte Wochenziel-Zahl entfällt.
+- Backtest-Zeile: „Beitrag zum Kapitalplan: … % je Monat (nötig: … %)", gerechnet aus der `.env`.
 - Akte: Stand gegen den Plan (Soll-Pfad je Monat mit Einzahlungen).
 - Prompts von boerse und stratege: Kapitalplan statt Wochenziel; Ein-Prozent-Regel bleibt, bis
   Jakob sie selbst ändert.

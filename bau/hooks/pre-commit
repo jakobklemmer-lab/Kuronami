@@ -1,0 +1,3 @@
+#!/bin/sh
+# Das Repo ist öffentlich: kein Commit mit privaten Daten (bau/privat-pruefen.py).
+exec python3 "$(git rev-parse --show-toplevel)/bau/privat-pruefen.py"

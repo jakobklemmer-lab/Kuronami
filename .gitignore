@@ -24,30 +24,19 @@ __pycache__/
 venv/
 .env
 
-# Kuros Arbeitsbereich: sein **Zustand** gehoert nicht in die Historie. Die Sitzungskennung
-# wechselt mit jedem Neustart, das Analysen-Archiv waechst mit jedem Bericht, und `.claude/`
-# ist Innenleben des SDK. Seine Arbeitsergebnisse (`workspace/notizen/`, `workspace/ablage/`)
-# und die Hausregeln (`workspace/CLAUDE.md`) bleiben versioniert.
-/workspace/.kuro-session
-/workspace/.claude/
-/workspace/analysen/
-# Das Verbrauchsbuch (`gateway/verbrauch.ts`): eine Zeile je Lauf, wächst mit jedem Zug.
-/workspace/verbrauch/
-# Stand des Wochenfensters zu Beginn jeder Nacht (`gateway/nachtbudget.ts`) — Betriebsdaten.
-/workspace/nacht/
-# Der Kerzenspeicher (`gateway/kerzenspeicher.ts`): ein Zwischenspeicher öffentlicher Kursdaten,
-# jederzeit neu ladbar — 169 MB, die bei jedem Abruf das Git verändern.
-/workspace/kerzen/
-# Das Versuchsbuch (`gateway/versuche.ts`): eine Zeile je gerechneter Regel, wächst mit jedem Backtest.
-/workspace/labor/
-# Das Gesprächsarchiv (`gateway/gespraeche.ts`): Kuros Gespräche mit Jakob im Wortlaut, jede Nacht
-# ein Tag mehr — privat, und das Repo hat einen Remote. Die Übergabe wechselt mit jedem Archivieren.
-/workspace/ablage/gespraeche/
-/workspace/notizen/uebergabe.md
+# Kuros Arbeitsbereich: alles darin ist privat — Gespräche, Notizen, Strategien, Prognosen,
+# Papierhandel, Zeichnungen, Verbrauch. Das Repo ist öffentlich. Versioniert werden nur seine
+# Hausregeln.
+/workspace/*
+!/workspace/CLAUDE.md
+# Sitzungsprotokolle der Entwicklung: enthalten Konten, Anmeldenamen, Kapital — bleiben lokal.
+/progress.md
+/progress-archiv.md
 
 # Lehrvideos (2026-09-27): fremder Inhalt, nicht auf GitHub
 workspace/wissen/
 werkzeuge/bin/
 werkzeuge/pc/schluessel.txt
+werkzeuge/pc/server.txt
 # Nachtbau: Berichte und Protokolle bleiben auf dem Server
 bau/protokoll/

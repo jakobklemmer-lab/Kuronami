@@ -1,5 +1,15 @@
 import type { AgentDefinition } from "@anthropic-ai/claude-agent-sdk";
 
+// Jakobs Zahlen kommen aus der .env (wie in gateway/wochenziel.ts), nicht aus dem Repo.
+const zahlAusUmgebung = (name: string, vorgabe: number): number => {
+  const n = Number(process.env[name]?.trim().replace(",", "."));
+  return Number.isFinite(n) && n > 0 ? n : vorgabe;
+};
+const geld = (wert: number): string => `${wert.toLocaleString("de-DE")} €`;
+const KAPITAL = zahlAusUmgebung("KURO_KAPITAL_EURO", 1000);
+const RISIKO = (KAPITAL * zahlAusUmgebung("KURO_RISIKO_PROZENT", 1)) / 100;
+const WOCHENZIEL = zahlAusUmgebung("KURO_WOCHENZIEL_EURO", 50);
+
 /**
  * Die Bediensteten.
  *
@@ -127,7 +137,7 @@ findet, ist keine Auskunft, auf die sich jemand verlassen kann.
 
 **Führe Buch.** In \`${WERKSTATT}/notizen/post-stand.json\` steht je Konto, bis wohin du zuletzt
 gemeldet hast, und was du gemeldet hast:
-\`{"konto1": {"stand": "<ISO-Zeit>", "gemeldet": ["<Kennung>", …]}, …}\`
+\`{"<Konto>": {"stand": "<ISO-Zeit>", "gemeldet": ["<Kennung>", …]}, …}\`
 Lies die Datei, **bevor** du anfängst — dann weißt du, was neu ist, statt zu raten — und
 schreibe sie fort, bevor du berichtest. Gibt es sie nicht, legst du sie an. Was schon gemeldet
 war und sich nicht geändert hat, nennst du nicht noch einmal; offene Sicherheitspunkte
@@ -425,14 +435,14 @@ kostet nichts und sie misst dich. Sag ihm das ruhig, wenn er fragt, wozu das gut
 
 ## Jakobs Wochenziel
 
-Jakob will auf rund **100 € in der Woche** hinarbeiten (seit 27.09.2026, bei knapp [Kapital]
+Jakob will auf rund **${geld(WOCHENZIEL)} in der Woche** hinarbeiten (bei knapp ${geld(KAPITAL)}
 Kapital). Auf deinen eigenen Vorschlag hin gilt das als **Beobachtung, nicht als Vorgabe**: die
-Ein-Prozent-Regel bleibt — 15 € Risiko je Handel —, und keine Position wird größer, um das Ziel
+Ein-Prozent-Regel bleibt — ${geld(RISIKO)} Risiko je Handel —, und keine Position wird größer, um das Ziel
 zu erreichen. Der Weg dorthin sind mehr Handel mit belegter Kante: eine Regel, die öfter
 handelt und deren Erwartungswert der Prüfer bestätigt hat.
 
 Die Euro rechnest du nicht selbst. Jeder Backtest nennt „Handel je Woche × Erwartungswert ×
-15 €", und die Akte zeigt, was in der laufenden Woche aufgelöst wurde. Geht es um das Ziel, nenne
+${geld(RISIKO)}", und die Akte zeigt, was in der laufenden Woche aufgelöst wurde. Geht es um das Ziel, nenne
 genau diese Zahlen — auch wenn sie weit darunter liegen.
 
 ## Jakobs Chart
@@ -666,10 +676,10 @@ zwanzig Abwandlungen einer Regel sind zwanzig Lose, und eine davon gewinnt immer
 
 ## Jakobs Wochenziel
 
-Jakob will auf rund 100 € in der Woche hinarbeiten, bei knapp [Kapital] Kapital und 1 % Risiko je
-Handel (15 €). Das Ziel ist eine **Beobachtung, keine Vorgabe** — keine Regel bekommt größere
+Jakob will auf rund ${geld(WOCHENZIEL)} in der Woche hinarbeiten, bei knapp ${geld(KAPITAL)} Kapital und 1 % Risiko je
+Handel (${geld(RISIKO)}). Das Ziel ist eine **Beobachtung, keine Vorgabe** — keine Regel bekommt größere
 Positionen, um es zu erreichen. Deshalb zählt die **Häufigkeit** so viel wie die Kante: jeder
-Backtest nennt „Handel je Woche × Erwartungswert × 15 €". Eine Regel mit 0,3 Handeln in der Woche
+Backtest nennt „Handel je Woche × Erwartungswert × ${geld(RISIKO)}". Eine Regel mit 0,3 Handeln in der Woche
 kommt nie in die Nähe, so gut sie sein mag; eine mit fünf Handeln und +0,05 R auch nicht, und
 bei kurzer Haltedauer fressen sie die Kosten. Sag im Bericht, wo eine Regel steht — in Euro je
 Woche, gerechnet, nicht geschätzt.

@@ -247,7 +247,7 @@ export function normalizeSettings(raw: unknown): KuronamiSettings {
  *
  * Anlass (2026-09-27): Chrome hielt „Sprachprozess" (Textfeld) und „Sitzungs-Token"
  * (Passwortfeld) für eine Anmeldemaske und setzte den Benutzernamen und das Passwort der
- * Oberfläche ein. Die Sprachschicht wurde danach unter `jakob` gesucht, und ein Neustart
+ * Oberfläche ein. Die Sprachschicht wurde danach unter dem Anmeldenamen gesucht, und ein Neustart
  * des Dienstes half nicht, weil der Fehler im Browser lag. Steht in der Adresse etwas, das
  * keine ist, stammt das Geheimnis aus demselben Griff — es bleibt nicht stehen.
  */

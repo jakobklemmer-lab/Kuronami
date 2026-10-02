@@ -56,5 +56,5 @@ die Wegwerf-Oberfläche aus S12b, `pnpm migrate up|down` wandert durch das Schem
 ## Konventionen
 
 Siehe [`AGENTS.md`](AGENTS.md) für Tool-Namenskonvention, Rückgabehülle, Fehlerbehandlung
-und Codestil. Fortschritt in [`progress.md`](progress.md), Aufgabengraph in
-[`tasks.json`](tasks.json).
+und Codestil. Aufgabengraph in [`tasks.json`](tasks.json); die Sitzungsprotokolle der
+Entwicklung bleiben lokal (privat).
