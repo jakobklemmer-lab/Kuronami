@@ -589,7 +589,7 @@
 
 /* Das Gespräch beginnt unten über der Eingabe und wächst nach oben. */
 .o-platz__faden,
-.k-faden {
+.e-faden {
   display: flex;
   flex-direction: column;
   flex: 1;
@@ -604,12 +604,12 @@
 }
 
 .o-platz__faden:empty,
-.k-faden:empty {
+.e-faden:empty {
   display: none;
 }
 
 .o-platz__faden > :first-child,
-.k-faden > :first-child {
+.e-faden > :first-child {
   margin-top: auto;
 }
 
@@ -619,7 +619,7 @@
 }
 
 .o-platz__leer,
-.k-leer {
+.e-leer {
   display: flex;
   align-items: flex-end;
   flex: 1;
@@ -631,7 +631,7 @@
 }
 
 .o-platz__leer[hidden],
-.k-leer[hidden] {
+.e-leer[hidden] {
   display: none;
 }
 

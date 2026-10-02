@@ -20,7 +20,7 @@
   padding: 0 var(--rand) var(--rand) 0;
 }
 
-.k-links {
+.e-links {
   position: relative;
   display: flex;
   flex-direction: column;
@@ -30,7 +30,7 @@
 
 /* ------------------------------------------------------------- Fenster */
 
-.k-bild {
+.e-bild {
   position: absolute;
   inset: 0 0 auto;
   width: var(--buehne-b);
@@ -47,7 +47,7 @@
 }
 
 /* Von oben fällt Kuros Licht ins Fenster — stärker, solange er nicht ruht. */
-.k-bild::after {
+.e-bild::after {
   content: "";
   position: absolute;
   inset: 0;
@@ -60,17 +60,17 @@
   transition: opacity 1.2s var(--gleiten-os), background 1.2s var(--gleiten-os);
 }
 
-.o-os:not([data-kuro="ruhe"]):not([data-kuro="offline"]) .k-bild::after {
+.o-os:not([data-kuro="ruhe"]):not([data-kuro="offline"]) .e-bild::after {
   opacity: 1;
 }
 
-.o-os.ist-fenster .k-bild {
+.o-os.ist-fenster .e-bild {
   filter: brightness(0.55) saturate(0.8);
 }
 
 /* ------------------------------------------------- Gruß, Heute, Im Haus */
 
-.k-unten {
+.e-unten {
   position: relative;
   z-index: 31;
   display: flex;
@@ -85,25 +85,24 @@
   scrollbar-width: none;
 }
 
-.k-unten,
-.k-gespraech {
+.e-unten,
+.e-gespraech {
   transition: opacity 0.3s var(--gleiten-os);
 }
 
-.o-os.ist-fenster .k-unten,
-.o-os.ist-fenster .k-gespraech {
+.o-os.ist-fenster .e-unten,
+.o-os.ist-fenster .e-gespraech {
   z-index: auto;
   opacity: 0;
 }
 
-.k-gruss__datum {
+.e-gruss__datum {
   margin: 0 0 8px;
-  font-family: var(--schrift);
   font-size: 14px;
   color: var(--nebel);
 }
 
-.k-gruss__text {
+.e-gruss__text {
   margin: 0;
   font-family: var(--zeichen);
   font-weight: 500;
@@ -113,14 +112,14 @@
   text-shadow: 0 2px 24px rgba(0, 0, 0, 0.55);
 }
 
-.k-tafeln {
+.e-tafeln {
   display: flex;
   flex-wrap: wrap;
   align-items: flex-start;
   gap: 28px clamp(40px, 5vw, 96px);
 }
 
-.k-titel {
+.e-titel {
   margin: 0 0 10px;
   font-family: var(--zeichen);
   font-weight: 500;
@@ -128,21 +127,21 @@
   color: var(--mond);
 }
 
-.k-heute {
+.e-heute {
   flex: 1 1 440px;
   max-width: 76ch;
 }
 
-.k-imhaus {
+.e-imhaus {
   flex: 1 1 360px;
   max-width: 64ch;
 }
 
-.k-imhaus:empty {
+.e-imhaus:empty {
   display: none;
 }
 
-.k-heute__liste {
+.e-heute__liste {
   display: grid;
   gap: 2px;
   margin: 0;
@@ -150,11 +149,11 @@
   list-style: none;
 }
 
-.k-heute__liste li {
+.e-heute__liste li {
   animation: o-ein 0.3s var(--gleiten-os) both;
 }
 
-.k-satz {
+.e-satz {
   display: flex;
   align-items: baseline;
   gap: 18px;
@@ -173,12 +172,12 @@
   transition: background 0.18s ease, color 0.18s ease;
 }
 
-.k-satz__text {
+.e-satz__text {
   flex: 1;
   min-width: 0;
 }
 
-.k-satz__ziel {
+.e-satz__ziel {
   flex: none;
   font-size: 12.5px;
   color: var(--laterne);
@@ -187,29 +186,29 @@
   transition: opacity 0.18s ease, transform 0.18s ease;
 }
 
-.k-satz:hover,
-.k-satz:focus-visible {
+.e-satz:hover,
+.e-satz:focus-visible {
   background: var(--tafel-licht);
   color: var(--mond);
 }
 
-.k-satz:hover .k-satz__ziel,
-.k-satz:focus-visible .k-satz__ziel {
+.e-satz:hover .e-satz__ziel,
+.e-satz:focus-visible .e-satz__ziel {
   opacity: 1;
   transform: none;
 }
 
-.k-satz.ist-knapp .k-satz__text {
+.e-satz.ist-knapp .e-satz__text {
   color: var(--faellt);
 }
 
-.k-satz.ist-fehler {
+.e-satz.ist-fehler {
   color: var(--nebel);
 }
 
 /* ------------------------------------------------------------- Gespräch */
 
-.k-gespraech {
+.e-gespraech {
   display: flex;
   flex-direction: column;
   gap: 12px;
@@ -221,15 +220,15 @@
   border-radius: 14px;
 }
 
-.k-gespraech .k-titel {
+.e-gespraech .e-titel {
   margin: 0;
 }
 
-.k-faden .f-text {
+.e-faden .f-text {
   font-size: 15px;
 }
 
-.k-gespraech__fuss {
+.e-gespraech__fuss {
   display: flex;
   margin-top: -4px;
 }
@@ -267,14 +266,14 @@
     grid-template-rows: var(--bild-h) minmax(0, 1fr);
     padding: 0 var(--rand) var(--rand);
   }
-  .k-bild {
+  .e-bild {
     inset: 0 calc(-1 * var(--rand)) auto;
     width: auto;
   }
-  .k-unten {
+  .e-unten {
     display: none;
   }
-  .k-gespraech {
+  .e-gespraech {
     margin-top: 0;
   }
   .o-eingabe--gross {
@@ -283,15 +282,15 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .k-bild,
-  .k-bild::after,
-  .k-unten,
-  .k-gespraech,
-  .k-satz,
-  .k-satz__ziel {
+  .e-bild,
+  .e-bild::after,
+  .e-unten,
+  .e-gespraech,
+  .e-satz,
+  .e-satz__ziel {
     transition: none;
   }
-  .k-heute__liste li {
+  .e-heute__liste li {
     animation: none;
   }
 }

@@ -66,33 +66,33 @@ interface Zeile {
 
 export function mountKuroRaum(el: HTMLElement, opt: KuroRaumOptionen): KuroRaum {
   const { api, gespraech, orb } = opt;
-  el.classList.add("k-raum");
+  el.classList.add("e-raum");
   el.innerHTML = `
-    <div class="k-links">
-      <div class="k-bild" data-role="k-bild" aria-hidden="true"></div>
-      <div class="k-unten">
-        <header class="k-gruss">
-          <p class="k-gruss__datum" data-role="k-datum"></p>
-          <h1 class="k-gruss__text" data-role="k-gruss"></h1>
+    <div class="e-links">
+      <div class="e-bild" data-role="e-bild" aria-hidden="true"></div>
+      <div class="e-unten">
+        <header class="e-gruss">
+          <p class="e-gruss__datum" data-role="e-datum"></p>
+          <h1 class="e-gruss__text" data-role="e-gruss"></h1>
         </header>
-        <div class="k-tafeln">
-          <section class="k-heute" aria-labelledby="k-heute-titel">
-            <h2 class="k-titel" id="k-heute-titel">Heute</h2>
-            <ul class="k-heute__liste" data-role="k-heute">
+        <div class="e-tafeln">
+          <section class="e-heute" aria-labelledby="e-heute-titel">
+            <h2 class="e-titel" id="e-heute-titel">Heute</h2>
+            <ul class="e-heute__liste" data-role="e-heute">
               ${QUELLEN.map(([q]) => `<li data-quelle="${q}" hidden></li>`).join("")}
             </ul>
           </section>
-          <section class="k-imhaus" data-role="k-imhaus" aria-label="Im Haus"></section>
+          <section class="e-imhaus" data-role="e-imhaus" aria-label="Im Haus"></section>
         </div>
       </div>
     </div>
-    <section class="k-gespraech" aria-label="Gespräch">
-      <h2 class="k-titel">Gespräch</h2>
-      <div class="k-faden" data-role="k-faden" aria-live="polite"></div>
-      <p class="k-leer" data-role="k-leer" hidden>Fragen Sie Kuro etwas, oder halten Sie die Sprechtaste.</p>
-      ${eingabeHtml("k-form", "o-eingabe--gross")}
-      <footer class="k-gespraech__fuss">
-        <button type="button" class="o-leise" data-role="k-leeren" title="Leert nur diese Ansicht — Kuro erinnert sich weiter.">Ansicht leeren</button>
+    <section class="e-gespraech" aria-label="Gespräch">
+      <h2 class="e-titel">Gespräch</h2>
+      <div class="e-faden" data-role="e-faden" aria-live="polite"></div>
+      <p class="e-leer" data-role="e-leer" hidden>Fragen Sie Kuro etwas, oder halten Sie die Sprechtaste.</p>
+      ${eingabeHtml("e-form", "o-eingabe--gross")}
+      <footer class="e-gespraech__fuss">
+        <button type="button" class="o-leise" data-role="e-leeren" title="Leert nur diese Ansicht — Kuro erinnert sich weiter.">Ansicht leeren</button>
       </footer>
     </section>`;
 
@@ -101,16 +101,16 @@ export function mountKuroRaum(el: HTMLElement, opt: KuroRaumOptionen): KuroRaum 
     if (!e) throw new Error(`Raum Kuro: ${rolle} fehlt.`);
     return e;
   };
-  const bild = q<HTMLElement>("k-bild");
-  const heuteEl = q<HTMLElement>("k-heute");
-  const fadenEl = q<HTMLElement>("k-faden");
-  const leerEl = q<HTMLElement>("k-leer");
-  const feld = verdrahteEingabe(q<HTMLFormElement>("k-form"), opt);
-  q<HTMLButtonElement>("k-leeren").addEventListener("click", () => gespraech.leere());
+  const bild = q<HTMLElement>("e-bild");
+  const heuteEl = q<HTMLElement>("e-heute");
+  const fadenEl = q<HTMLElement>("e-faden");
+  const leerEl = q<HTMLElement>("e-leer");
+  const feld = verdrahteEingabe(q<HTMLFormElement>("e-form"), opt);
+  q<HTMLButtonElement>("e-leeren").addEventListener("click", () => gespraech.leere());
 
   // ---------------------------------------------------------- Fenster und Orb
   bild.style.backgroundPosition = `${LAGE.x * 100}% ${LAGE.y * 100}%`;
-  const untenEl = el.querySelector(".k-unten") as HTMLElement;
+  const untenEl = el.querySelector(".e-unten") as HTMLElement;
   const setzeOrb = () => {
     const r = bild.getBoundingClientRect();
     if (r.width === 0 || r.height === 0) return;
@@ -169,8 +169,8 @@ export function mountKuroRaum(el: HTMLElement, opt: KuroRaumOptionen): KuroRaum 
   fadenEl.scrollTop = fadenEl.scrollHeight;
 
   // ------------------------------------------------------------------ Gruß
-  const datumEl = q<HTMLElement>("k-datum");
-  const grussEl = q<HTMLElement>("k-gruss");
+  const datumEl = q<HTMLElement>("e-datum");
+  const grussEl = q<HTMLElement>("e-gruss");
   const zeigeGruss = () => {
     const d = new Date();
     datumEl.textContent = datumZeile(d);
@@ -234,7 +234,7 @@ export function mountKuroRaum(el: HTMLElement, opt: KuroRaumOptionen): KuroRaum 
       if (!li || !s) continue;
       const z = zeile(quelle, s, jetzt);
       taten.set(quelle, z.tun);
-      const html = `<button type="button" class="k-satz${z.knapp ? " ist-knapp" : ""}${s.ok ? "" : " ist-fehler"}" data-quelle="${quelle}"><span class="k-satz__text">${escapeHtml(z.text)}</span><span class="k-satz__ziel">${escapeHtml(z.ziel)}</span></button>`;
+      const html = `<button type="button" class="e-satz${z.knapp ? " ist-knapp" : ""}${s.ok ? "" : " ist-fehler"}" data-quelle="${quelle}"><span class="e-satz__text">${escapeHtml(z.text)}</span><span class="e-satz__ziel">${escapeHtml(z.ziel)}</span></button>`;
       if (li.innerHTML !== html) li.innerHTML = html;
       li.hidden = false;
     }
@@ -274,7 +274,7 @@ export function mountKuroRaum(el: HTMLElement, opt: KuroRaumOptionen): KuroRaum 
   return {
     sphaere,
     feld,
-    imHaus: q<HTMLElement>("k-imhaus"),
+    imHaus: q<HTMLElement>("e-imhaus"),
     auffrischen() {
       if (Date.now() - geladen > 60_000) ladeHeute();
     },
