@@ -36,16 +36,21 @@ if (!stand.verfuegbar) {
     const wocheStart = inDerNacht(jetzt, ende)
       ? await wocheZuBeginn(`${process.cwd()}/workspace`, jetzt, woche.prozent)
       : woche.prozent;
-    const g = nachtgrenzen({
-      fenster: stand.fenster,
-      wocheStart,
-      jetzt,
-      ende,
-      normal: {
-        sitzung: zahl("NACHTBAU_GRENZE_SITZUNG", 85),
-        woche: zahl("NACHTBAU_GRENZE_WOCHE", 85),
-      },
-    });
+    // Eine von Jakob freigegebene Nacht (`NACHTBAU_FREI` in nachtbau.sh): ohne Nachtbudget.
+    const frei = process.env.NACHTBAU_OHNE_BUDGET === "1";
+    const normal = {
+      sitzung: zahl("NACHTBAU_GRENZE_SITZUNG", 85),
+      woche: zahl("NACHTBAU_GRENZE_WOCHE", 85),
+    };
+    const g = frei
+      ? { ...normal, letztesFenster: false }
+      : nachtgrenzen({
+          fenster: stand.fenster,
+          wocheStart,
+          jetzt,
+          ende,
+          normal,
+        });
     console.log(
       [
         "ok",

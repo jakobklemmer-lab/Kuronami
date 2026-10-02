@@ -159,6 +159,43 @@ Funktion `darfJetztArchivieren(kontext, letzterZug, jetzt, grenze)`.
 **Fertig, wenn:** Tests grün; im Bericht, bei welcher Grenze und warum 80.000 (Übergabe kostet
 gemessen 7–8k Token, lohnt also ab etwa dem Zehnfachen).
 
+## N19 · Kuro OS, dritter Wurf: das Arbeitszimmer
+- Status: in Teilaufgaben (N19a–N19f)
+- Modell: opus
+
+Jakob am 02.10. abends: Die Desktop-App neu gestalten — Kuro im Zentrum, Orb und Agenten-Orbs
+bleiben, keine Mac-Nachbildung, kein Dock, Kuro optional als Begleiter auf dem Desktop. Konzept:
+`bau/kuro-os-konzept.md`. Er gab die Nacht vom 02. auf den 03.10. frei, ohne Grenzen, Schluss 08:00.
+
+## N19a · Grundgerüst: drei Räume, Kopf, Kuros Platz, Blatt für System
+- Status: offen
+- Modell: opus
+
+## N19b · Der Raum „Kuro": Empfang mit Fenster, Orb und „Heute"
+- Status: offen
+- Modell: opus
+- Braucht: N19a
+
+## N19c · „Im Haus": wer woran arbeitet
+- Status: offen
+- Modell: opus
+- Braucht: N19a
+
+## N19d · Handel und Studium: die Teile im neuen Rahmen
+- Status: offen
+- Modell: opus
+- Braucht: N19a
+
+## N19e · Kuro auf dem Desktop: der Begleiter (Electron)
+- Status: offen
+- Modell: opus
+- Braucht: N19a
+
+## N19f · Schliff und Aufräumen
+- Status: offen
+- Modell: opus
+- Braucht: N19a
+
 ## N17 · Kommentare kürzen
 - Status: in Teilaufgaben (N17a–N17h)
 - Modell: sonnet

@@ -47,6 +47,10 @@ ENDE=$(env_wert NACHTBAU_ENDE); ENDE=${ENDE:-08:00}
 GS=$(env_wert NACHTBAU_GRENZE_SITZUNG); GS=${GS:-85}
 GW=$(env_wert NACHTBAU_GRENZE_WOCHE); GW=${GW:-85}
 MIN=$(env_wert NACHTBAU_AUFGABE_MIN); MIN=${MIN:-100}
+# NACHTBAU_FREI=<Datum der Nacht, JJJJ-MM-TT>: Jakob hebt für genau diese Nacht alle Grenzen auf
+# (Nachtbudget, 85 %); Schluss bleibt NACHTBAU_ENDE. Am nächsten Tag gilt es von selbst nicht mehr.
+FREI=0
+if [[ "$(env_wert NACHTBAU_FREI)" == "$TAG" ]]; then FREI=1; GS=98; GW=98; fi
 PORT=$(env_wert PORT); PORT=${PORT:-3000}
 # Fünf Testdateien laufen gegen Postgres. `vitest.setup.ts` lädt sonst die ganze `.env` — im
 # Worktree gibt es keine, und dorthin gehört auch keine. Weitergereicht wird nur diese eine Zeile.
@@ -55,6 +59,7 @@ jetzt=$(date +%s)
 HART=$(date -d "today $ENDE" +%s)
 (( jetzt >= HART )) && HART=$(date -d "tomorrow $ENDE" +%s)
 SCHLUSS=$(( HART - 45 * 60 ))
+(( FREI == 1 )) && log "=== Jakob hat diese Nacht freigegeben: kein Nachtbudget, Grenzen 98 %."
 log "=== Nachtbau beginnt, Schluss für neue Aufgaben $(date -d @"$SCHLUSS" '+%d.%m. %H:%M'), Ende $(date -d @"$HART" '+%H:%M'), Grenzen Sitzung $GS %, Woche $GW % (Nachtbudget: Woche +10, letztes Fenster 30 %)"
 
 STAND=""; WARTE_BIS=0; GSE=$GS; GWE=$GW
@@ -62,7 +67,7 @@ STAND=""; WARTE_BIS=0; GSE=$GS; GWE=$GW
 pruefe() {
   local zeile art s w sz wz gs gw letzt
   if (( $(date +%s) >= HART )); then STAND="Ende der Nacht ($ENDE)"; return 2; fi
-  zeile=$(cd "$LIVE" && NACHTBAU_ENDE=$ENDE NACHTBAU_GRENZE_SITZUNG=$GS NACHTBAU_GRENZE_WOCHE=$GW \
+  zeile=$(cd "$LIVE" && NACHTBAU_ENDE=$ENDE NACHTBAU_GRENZE_SITZUNG=$GS NACHTBAU_GRENZE_WOCHE=$GW NACHTBAU_OHNE_BUDGET=$FREI \
     timeout 90 npx --no-install tsx bau/grenze.ts 2>/dev/null | tail -1)
   read -r art s w sz wz gs gw letzt <<<"$zeile"
   if [[ "$art" != "ok" || -z "${gw:-}" ]]; then STAND="Abo-Stand nicht lesbar ($zeile)"; return 2; fi
