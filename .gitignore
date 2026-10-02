@@ -33,6 +33,8 @@ venv/
 /workspace/analysen/
 # Das Verbrauchsbuch (`gateway/verbrauch.ts`): eine Zeile je Lauf, wächst mit jedem Zug.
 /workspace/verbrauch/
+# Stand des Wochenfensters zu Beginn jeder Nacht (`gateway/nachtbudget.ts`) — Betriebsdaten.
+/workspace/nacht/
 # Das Versuchsbuch (`gateway/versuche.ts`): eine Zeile je gerechneter Regel, wächst mit jedem Backtest.
 /workspace/labor/
 # Das Gesprächsarchiv (`gateway/gespraeche.ts`): Kuros Gespräche mit Jakob im Wortlaut, jede Nacht

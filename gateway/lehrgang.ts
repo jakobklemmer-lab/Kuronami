@@ -2,6 +2,7 @@ import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { redactText } from "../runtime/redaction/redact.js";
 import type { AboStand } from "./abo.js";
+import { NACHT_ENDE, inDerNacht, nachtgrenzen, wocheZuBeginn } from "./nachtbudget.js";
 import { ZONE, wienerZeit } from "./gespraeche.js";
 import type { Transkript, Video, WissenAblage } from "./wissen.js";
 
@@ -48,6 +49,10 @@ export const FEHLVERSUCHE = 2;
  * nach dem Wochen-Reset am 02.10. sofort gelernt wird statt erst in der Nacht. Die Grenzen des Abos
  * (70 % Sitzung, 85 % Woche) gelten unverändert; eine Nachricht an Kuro wartet höchstens einen
  * Abschnitt lang.
+ *
+ * Seit dem 02.10. abends lernt er wieder nur nachts (`0-8`): Jakob rechnet den Lehrgang ins
+ * Nachtbudget des Nachtbaus (`nachtbudget.ts`) — beide zusammen höchstens 10 Punkte der Woche je
+ * Nacht. Nachts gelten deshalb dessen engere Grenzen.
  */
 export function ausUmgebung(): { fenster: readonly [number, number]; jeNacht: number } {
   const f = /^(\d{1,2})-(\d{1,2})$/.exec(process.env.KURO_LEHRGANG_FENSTER?.trim() ?? "");
@@ -446,16 +451,38 @@ export function warumNichtJetzt(
  * Und nach dem Abo? Ohne lesbaren Stand wird nicht gelernt: eine Grenze, die man nicht sieht, ist
  * keine, an die man sich halten kann.
  */
-export function warumNichtAbo(abo: AboStand): string | null {
+export function warumNichtAbo(
+  abo: AboStand,
+  grenzen: { sitzung: number; woche: number } = { sitzung: GRENZE_SITZUNG, woche: GRENZE_WOCHE },
+): string | null {
   if (!abo.verfuegbar) return `Abo-Stand nicht lesbar (${abo.grund})`;
   const sitzung = abo.fenster.find((f) => f.id === "sitzung");
   if (!sitzung) return "Abo-Stand ohne Sitzungsfenster";
-  if (sitzung.prozent >= GRENZE_SITZUNG)
-    return `Sitzungsfenster bei ${Math.round(sitzung.prozent)} % (Grenze ${GRENZE_SITZUNG} %)`;
+  if (sitzung.prozent >= grenzen.sitzung)
+    return `Sitzungsfenster bei ${Math.round(sitzung.prozent)} % (Grenze ${grenzen.sitzung} %)`;
   const woche = abo.fenster.find((f) => f.id === "woche");
-  if (woche && woche.prozent >= GRENZE_WOCHE)
-    return `Wochenfenster bei ${Math.round(woche.prozent)} % (Grenze ${GRENZE_WOCHE} %)`;
+  if (woche && woche.prozent >= grenzen.woche)
+    return `Wochenfenster bei ${Math.round(woche.prozent)} % (Grenze ${grenzen.woche} %)`;
   return null;
+}
+
+/**
+ * Die Grenzen für diesen Augenblick: nachts die des gemeinsamen Nachtbudgets (`nachtbudget.ts`),
+ * tagsüber die eigenen. Ohne lesbaren Stand bleiben die eigenen — `warumNichtAbo` hält dann ohnehin.
+ */
+export async function grenzenJetzt(
+  abo: AboStand,
+  workdir: string,
+  jetzt: Date,
+  ende = process.env.NACHTBAU_ENDE?.trim() || NACHT_ENDE,
+): Promise<{ sitzung: number; woche: number }> {
+  const normal = { sitzung: GRENZE_SITZUNG, woche: GRENZE_WOCHE };
+  if (!abo.verfuegbar || !inDerNacht(jetzt, ende)) return normal;
+  const woche = abo.fenster.find((f) => f.id === "woche");
+  if (!woche) return normal;
+  const wocheStart = await wocheZuBeginn(workdir, jetzt, woche.prozent);
+  const g = nachtgrenzen({ fenster: abo.fenster, wocheStart, jetzt, ende, normal });
+  return { sitzung: g.sitzung, woche: g.woche };
 }
 
 /** Wie oft ein Video seit seiner letzten gelungenen Notiz gescheitert ist. */
@@ -611,8 +638,11 @@ export function createLehrgang(deps: LehrgangDeps): Lehrgang {
         for (;;) {
           const bisher = await versuche();
           // Erst Uhr und Nachtgrenze, dann der Anbieter: tagsüber wird das Abo nicht gefragt.
-          const grund =
-            warumNichtJetzt(jetzt(), bisher, fenster, jeNacht) ?? warumNichtAbo(await deps.abo());
+          let grund = warumNichtJetzt(jetzt(), bisher, fenster, jeNacht);
+          if (!grund) {
+            const abo = await deps.abo();
+            grund = warumNichtAbo(abo, await grenzenJetzt(abo, deps.workdir, jetzt()));
+          }
           if (grund) {
             halt = grund;
             break;

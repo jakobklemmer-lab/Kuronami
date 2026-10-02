@@ -11,10 +11,16 @@
 #
 # Stellschrauben in /opt/kuronami/.env (Vorgabe):
 #   NACHTBAU=aus                   schaltet ihn ab
-#   NACHTBAU_ENDE (06:30)          Wiener Uhrzeit: danach beginnt keine Aufgabe mehr
+#   NACHTBAU_ENDE (08:00)          Wiener Uhrzeit: dann ist Schluss, auch für einen laufenden Lauf;
+#                                  eine neue Aufgabe beginnt nur bis 45 Minuten davor
 #   NACHTBAU_GRENZE_SITZUNG (85)   % Sitzungsfenster: darüber wartet er auf das nächste Fenster
-#   NACHTBAU_GRENZE_WOCHE (85)     % Wochenfenster: darüber hört er auf — der Rest gehört Kuro
+#   NACHTBAU_GRENZE_WOCHE (85)     % Wochenfenster: darüber hört er auf, auch wenn die Nacht noch darf
 #   NACHTBAU_AUFGABE_MIN (100)     Höchstdauer eines Laufs in Minuten
+#
+# Das Nachtbudget (02.10., `gateway/nachtbudget.ts`, gerechnet in `bau/grenze.ts`) macht beide
+# Grenzen enger: je Nacht höchstens 10 Punkte des Wochenfensters über dem Stand zu Nachtbeginn —
+# Nachtbau und Lehrgang zusammen —, und im Sitzungsfenster, das in Jakobs Morgen reicht, höchstens
+# 30 %. Jakob: „Pro Nacht darf nur 10 % des Wochenlimits verbraucht werden."
 set -uo pipefail
 
 LIVE=/opt/kuronami
@@ -35,7 +41,7 @@ if [[ "$(env_wert NACHTBAU)" == "aus" ]]; then log "NACHTBAU=aus — nichts zu t
 exec 9>/run/kuronami-nachtbau.lock
 flock -n 9 || { log "Läuft schon."; exit 0; }
 
-ENDE=$(env_wert NACHTBAU_ENDE); ENDE=${ENDE:-06:30}
+ENDE=$(env_wert NACHTBAU_ENDE); ENDE=${ENDE:-08:00}
 GS=$(env_wert NACHTBAU_GRENZE_SITZUNG); GS=${GS:-85}
 GW=$(env_wert NACHTBAU_GRENZE_WOCHE); GW=${GW:-85}
 MIN=$(env_wert NACHTBAU_AUFGABE_MIN); MIN=${MIN:-100}
@@ -44,20 +50,25 @@ PORT=$(env_wert PORT); PORT=${PORT:-3000}
 # Worktree gibt es keine, und dorthin gehört auch keine. Weitergereicht wird nur diese eine Zeile.
 DATABASE_URL=$(env_wert DATABASE_URL); export DATABASE_URL
 jetzt=$(date +%s)
-SCHLUSS=$(date -d "today $ENDE" +%s)
-(( jetzt >= SCHLUSS )) && SCHLUSS=$(date -d "tomorrow $ENDE" +%s)
-log "=== Nachtbau beginnt, Schluss für neue Aufgaben $(date -d @"$SCHLUSS" '+%d.%m. %H:%M'), Grenzen Sitzung $GS %, Woche $GW %"
+HART=$(date -d "today $ENDE" +%s)
+(( jetzt >= HART )) && HART=$(date -d "tomorrow $ENDE" +%s)
+SCHLUSS=$(( HART - 45 * 60 ))
+log "=== Nachtbau beginnt, Schluss für neue Aufgaben $(date -d @"$SCHLUSS" '+%d.%m. %H:%M'), Ende $(date -d @"$HART" '+%H:%M'), Grenzen Sitzung $GS %, Woche $GW % (Nachtbudget: Woche +10, letztes Fenster 30 %)"
 
-STAND=""; WARTE_BIS=0
+STAND=""; WARTE_BIS=0; GSE=$GS; GWE=$GW
 # 0 = weiter, 1 = auf nächstes Sitzungsfenster warten (WARTE_BIS), 2 = Schluss
 pruefe() {
-  local zeile art s w sz wz
-  zeile=$(cd "$LIVE" && timeout 90 npx --no-install tsx bau/grenze.ts 2>/dev/null | tail -1)
-  read -r art s w sz wz <<<"$zeile"
-  if [[ "$art" != "ok" ]]; then STAND="Abo-Stand nicht lesbar ($zeile)"; return 2; fi
-  STAND="Sitzung $s %, Woche $w %"
-  if (( w >= GW )); then return 2; fi
-  if (( s >= GS )); then
+  local zeile art s w sz wz gs gw letzt
+  if (( $(date +%s) >= HART )); then STAND="Ende der Nacht ($ENDE)"; return 2; fi
+  zeile=$(cd "$LIVE" && NACHTBAU_ENDE=$ENDE NACHTBAU_GRENZE_SITZUNG=$GS NACHTBAU_GRENZE_WOCHE=$GW \
+    timeout 90 npx --no-install tsx bau/grenze.ts 2>/dev/null | tail -1)
+  read -r art s w sz wz gs gw letzt <<<"$zeile"
+  if [[ "$art" != "ok" || -z "${gw:-}" ]]; then STAND="Abo-Stand nicht lesbar ($zeile)"; return 2; fi
+  GSE=$gs; GWE=$gw
+  local morgen=""; [[ "$letzt" == "letztes" ]] && morgen=", Fenster reicht in den Morgen"
+  STAND="Sitzung $s % (Grenze $gs$morgen), Woche $w % (Grenze $gw)"
+  if (( w >= GWE )); then return 2; fi
+  if (( s >= GSE )); then
     WARTE_BIS=$(( $(date -d "$sz" +%s) + 180 ))
     (( WARTE_BIS < SCHLUSS - 1800 )) && return 1
     return 2
@@ -163,7 +174,7 @@ VERSUCHT=""
 while :; do
   if (( $(date +%s) >= SCHLUSS )); then log "Ende des Nachtfensters."; break; fi
   pruefe; r=$?
-  if (( r == 2 )); then log "Schluss: $STAND (Grenzen $GS/$GW)."; break; fi
+  if (( r == 2 )); then log "Schluss: $STAND."; break; fi
   if (( r == 1 )); then
     log "$STAND — warte bis $(date -d @"$WARTE_BIS" +%H:%M) aufs nächste Sitzungsfenster."
     sleep $(( WARTE_BIS - $(date +%s) > 0 ? WARTE_BIS - $(date +%s) : 60 )); continue
