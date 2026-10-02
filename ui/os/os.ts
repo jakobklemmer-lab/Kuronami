@@ -386,7 +386,7 @@ export function mountOs(opt: OsOptionen): void {
       alt.el.classList.add("ist-gehend");
       globalThis.setTimeout(() => {
         alt.el.classList.remove("ist-gehend");
-        if (aktiv !== alt) baueAb(alt);
+        if (aktiv?.el !== alt.el) baueAb(alt);
       }, UEBERGANG_MS);
       neu.el.style.setProperty("--versatz", `${12 * r}px`);
       neu.el.classList.add("ist-kommend");
@@ -444,6 +444,7 @@ export function mountOs(opt: OsOptionen): void {
     }
     zeichneKopf();
     if (ziel.raum === "kuro") {
+      os.classList.remove("hat-neues");
       schliesseFenster();
       return;
     }
