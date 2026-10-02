@@ -1,7 +1,7 @@
 /**
  * Die eine Zustandsquelle für den Mic-Button (S-Zwischenschub, Punkt 6): sechs Agentenzustände,
- * wie vom Nutzer vorgegeben. Jede Anzeige (Button-Form, Kopfzeilen-Abzeichen, ein künftiger
- * Tauri-Tray-Status) liest von hier — es gibt keinen zweiten Ort, an dem ein Zustand als
+ * wie vom Nutzer vorgegeben. Jede Anzeige (Button-Form, Kopfzeilen-Abzeichen, die
+ * Desktop-App) liest von hier — es gibt keinen zweiten Ort, an dem ein Zustand als
  * lokales Flag mitgeführt wird.
  *
  * **Vorerst ohne echte Spracherkennung** (die kommt erst mit S30/S31): `toggleListening` schaltet

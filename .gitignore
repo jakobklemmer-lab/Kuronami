@@ -16,10 +16,6 @@ coverage/
 /memory/
 *.log
 *.lock
-# Cargo.lock einer Anwendung gehört ins Repo (Tauri, S12b).
-!src-tauri/Cargo.lock
-src-tauri/target/
-src-tauri/gen/
 __pycache__/
 venv/
 .env

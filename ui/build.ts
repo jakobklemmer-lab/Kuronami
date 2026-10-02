@@ -6,7 +6,7 @@ import { STATIC_DIRS, STATIC_FILES, UI_ROOT, transpileFile } from "./serve.js";
  * Der Bau der Oberfläche (S21): `ui/**` nach `ui/dist/`, TypeScript übersetzt, sonst
  * unverändert kopiert. Kein Bundling, kein Minifizieren — die Seite besteht aus ES-Modulen,
  * die ein Browser selbst nachlädt, und das bleibt so, bis es einen messbaren Grund dagegen
- * gibt (der Tauri-Wrapper aus S29 wäre der erste Ort, an dem einer entstehen könnte).
+ * gibt.
  */
 
 const OUT_DIR = path.join(UI_ROOT, "dist");

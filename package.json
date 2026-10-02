@@ -41,7 +41,6 @@
   },
   "devDependencies": {
     "@biomejs/biome": "^1.9.4",
-    "@tauri-apps/cli": "^2.11.4",
     "@types/express": "^5.0.6",
     "@types/mailparser": "^3.4.6",
     "@types/node": "^24.0.0",

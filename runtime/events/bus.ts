@@ -160,7 +160,7 @@ function extraAllowedOrigins(): readonly string[] {
     .filter((entry) => entry.length > 0);
 }
 
-/** Ein Aufruf ohne `Origin` kommt nicht aus einem Browser (curl, Test, Tauri) und ist erlaubt. */
+/** Ein Aufruf ohne `Origin` kommt nicht aus einem Browser (curl, Test) und ist erlaubt. */
 export function originAllowed(origin: string | undefined, allowed?: readonly string[]): boolean {
   if (origin === undefined || origin === "") return true;
   if (allowed !== undefined) return allowed.includes(origin);
