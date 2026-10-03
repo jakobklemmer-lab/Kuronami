@@ -196,7 +196,7 @@ export const strategienView: View = {
       listeEl.innerHTML = gruppiereNachStatus(koepfe)
         .map(
           (g) => `
-            <h3 class="analysen__gruppe">${g.titel}<span>${g.eintraege.length}</span></h3>
+            <h3 class="analysen__gruppe">${archivAnsicht ? "Archiv · " : ""}${g.titel}<span>${g.eintraege.length}</span></h3>
             <ul class="analysen__eintraege${g.status === "verworfen" ? " ist-verworfen" : ""}">
               ${g.eintraege
                 .map(
