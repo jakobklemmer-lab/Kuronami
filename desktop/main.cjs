@@ -210,7 +210,10 @@ function erstelleBegleiter() {
     e.preventDefault();
     void shell.openExternal(url);
   });
-  begleiter.webContents.on("did-finish-load", () => sendeAufbau());
+  begleiter.webContents.on("did-finish-load", () => {
+    anker = null;
+    sendeAufbau();
+  });
   // Ohne Server bleibt er unsichtbar und versucht es später wieder.
   begleiter.webContents.on("did-fail-load", (_e, code, _b, url) => {
     if (code === -3 || !gleicherUrsprung(url)) return;
@@ -271,6 +274,8 @@ function aktualisiereBegleiter() {
       begleiter.showInactive();
       starteZeiger();
     } else if (!zeigen && begleiter.isVisible()) {
+      // Ein Ziehen, dessen Ende nie ankam, hielte sonst das Durchklicken an.
+      anker = null;
       setzeBlase(false);
       begleiter.hide();
       stoppeZeiger();
