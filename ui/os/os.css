@@ -310,8 +310,8 @@
   flex-direction: column;
   overflow: hidden;
   background: var(--tafel-matt);
-  -webkit-backdrop-filter: blur(32px) saturate(0.85);
-  backdrop-filter: blur(32px) saturate(0.85);
+  -webkit-backdrop-filter: blur(clamp(32px, 2vw, 64px)) saturate(0.85);
+  backdrop-filter: blur(clamp(32px, 2vw, 64px)) saturate(0.85);
   border: 1px solid var(--haarlinie);
   border-radius: 14px;
   box-shadow: 0 28px 70px rgba(0, 0, 0, 0.38);
@@ -510,9 +510,11 @@
 }
 
 .o-teil-flaeche .detail-view__archiv-schalter {
+  flex: none;
   align-self: center;
   padding: 4px 12px;
   font-size: 13px;
+  white-space: nowrap;
 }
 
 /* Matte Tafeln statt Glas: kein Weichzeichner, kein Schatten, nur die Haarlinie. */
@@ -572,15 +574,35 @@
   --markt-hoehe: max(420px, calc(100cqh - 80px));
 }
 
-/* Neben Kuros Platz ist der Chart schmaler als in der Welle: die Leiste bricht um, statt
-   Knöpfe aus dem Bild zu schieben; die Uhr steht schon oben im Kopf. */
-@container arbeitsplatz (max-width: 900px) {
-  .o-teil-flaeche .markt__leiste {
-    flex-wrap: wrap;
-    row-gap: 4px;
-  }
-  .o-teil-flaeche .markt__uhr {
+/* Leiste und Fuß brechen um, statt Knöpfe seitlich aus dem Bild zu schieben. Ist der Chart
+   schmal, weichen Uhr und Etikett im Fuß (die Uhr steht oben im Kopf). */
+.o-teil-flaeche .markt__leiste,
+.o-teil-flaeche .markt__fuss {
+  flex-wrap: wrap;
+  row-gap: 4px;
+}
+
+@container arbeitsplatz (max-width: 1060px) {
+  .o-teil-flaeche .markt__uhr,
+  .o-teil-flaeche .markt__fusslabel {
     display: none;
+  }
+}
+
+/* Neben Kuros Platz ist die Tafel schmaler als das Fenster: Liste und Überblick stehen dann unter
+   dem Chart, wie es die Ansicht selbst erst unter 1180 px Fensterbreite tut. */
+@container tafel (max-width: 1060px) {
+  .o-teil-flaeche .markt__body {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .o-teil-flaeche .markt__seite {
+    height: auto;
+  }
+  .o-teil-flaeche .markt__liste {
+    max-height: 420px;
+  }
+  .o-teil-flaeche .markt__detail {
+    min-height: 420px;
   }
 }
 
@@ -626,8 +648,8 @@
   width: min(1180px, calc(100vw - 120px));
   overflow: hidden;
   background: var(--tafel-matt);
-  -webkit-backdrop-filter: blur(32px) saturate(0.85);
-  backdrop-filter: blur(32px) saturate(0.85);
+  -webkit-backdrop-filter: blur(clamp(32px, 2vw, 64px)) saturate(0.85);
+  backdrop-filter: blur(clamp(32px, 2vw, 64px)) saturate(0.85);
   border: 1px solid var(--haarlinie);
   border-radius: 14px;
   box-shadow: -24px 0 70px rgba(0, 0, 0, 0.42);
