@@ -701,10 +701,13 @@ export class KuroAgent {
       (await this.#gespraeche.uebergabeAbschnitt()) +
       (await startAbschnitt(this.#workdir));
     const model = this.#deps.model ?? process.env.KURO_MODEL?.trim();
-    // Denkaufwand niedrig (03.10.): auf „welche Agenten sind in der Börse" dachte er 8,5 s
-    // nach, nach einer Kalender-Tafel 13 s — für einen Butler, der Schweres ohnehin an sein
-    // Personal gibt, ist das nur Wartezeit. `KURO_EFFORT` stellt es um.
+    // Kein Nachdenken vor der Antwort (03.10.). Gemessen über 57 Züge: 43 davon mit Denkblock,
+    // erstes Wort dann im Median nach 12,1 s (8,5 s davon Denken, Spitze 75 s), ohne nach 1,7 s.
+    // „effort: low" allein ließ ihm das Denken noch, etwa vor dem Vortragen eines Berichts.
+    // Für einen Butler, der Schweres an sein Personal gibt, ist das nur Wartezeit — das Personal
+    // denkt weiter. `KURO_DENKEN=an` gibt es ihm zurück, `KURO_EFFORT` stellt den Aufwand.
     const effort = (process.env.KURO_EFFORT?.trim() || "low") as Options["effort"];
+    const denken = process.env.KURO_DENKEN?.trim() === "an";
     const mitVersand = konten().length > 0;
     const kalender = kalenderDienst();
     const options: Options = {
@@ -712,6 +715,7 @@ export class KuroAgent {
       model,
       systemPrompt: { type: "custom", prompt },
       effort,
+      ...(denken ? {} : { thinking: { type: "disabled" as const } }),
       // Lädt CLAUDE.md aus dem Arbeitsbereich — Kuros Hausregeln.
       settingSources: ["project"],
       // Keine Connectoren aus Jakobs claude.ai-Konto — siehe `abschottung.ts`.
@@ -744,6 +748,7 @@ export class KuroAgent {
       this.#sessionId,
       model,
       effort,
+      denken,
       prompt,
       mitVersand,
       Boolean(kalender),
