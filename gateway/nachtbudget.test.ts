@@ -1,7 +1,7 @@
 import { mkdtemp, readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import type { AboStand, Fenster } from "./abo.js";
 import { grenzenJetzt } from "./lehrgang.js";
 import { inDerNacht, nachtgrenzen, naechstesEnde, wocheZuBeginn } from "./nachtbudget.js";
@@ -133,5 +133,16 @@ describe("Lehrgang im Nachtbudget", () => {
     });
     const tag = new Date("2026-10-03T10:00:00Z");
     expect(await grenzenJetzt(abo(10, 20), dir, tag, "08:00")).toEqual({ sitzung: 70, woche: 85 });
+  });
+
+  it("in einer freigegebenen Nacht gelten 98/98, nur für genau diese Nacht", async () => {
+    const dir = await mkdtemp(path.join(tmpdir(), "nachtbudget-"));
+    vi.stubEnv("NACHTBAU_FREI", "2026-10-03");
+    const frei = { sitzung: 98, woche: 98 };
+    // 00:30 und 07:30 Wien am 04.10. gehören zur Nacht vom 03.10.
+    expect(await grenzenJetzt(abo(10, 20), dir, new Date("2026-10-03T22:30:00Z"), "08:00")).toEqual(frei);
+    expect(await grenzenJetzt(abo(10, 20), dir, new Date("2026-10-04T05:30:00Z"), "08:00")).toEqual(frei);
+    expect(await grenzenJetzt(abo(10, 20), dir, new Date("2026-10-04T22:30:00Z"), "08:00")).not.toEqual(frei);
+    vi.unstubAllEnvs();
   });
 });

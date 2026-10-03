@@ -478,6 +478,9 @@ export async function grenzenJetzt(
 ): Promise<{ sitzung: number; woche: number }> {
   const normal = { sitzung: GRENZE_SITZUNG, woche: GRENZE_WOCHE };
   if (!abo.verfuegbar || !inDerNacht(jetzt, ende)) return normal;
+  // Von Jakob freigegebene Nacht (`NACHTBAU_FREI=<Abenddatum>`): wie der Nachtbau 98/98, ohne Nachtbudget.
+  const abend = wienerZeit(new Date(jetzt.getTime() - 12 * 3_600_000).toISOString(), ZONE).tag;
+  if (process.env.NACHTBAU_FREI?.trim() === abend) return { sitzung: 98, woche: 98 };
   const woche = abo.fenster.find((f) => f.id === "woche");
   if (!woche) return normal;
   const wocheStart = await wocheZuBeginn(workdir, jetzt, woche.prozent);
