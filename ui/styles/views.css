@@ -3375,6 +3375,14 @@ body.ist-sprechtaste::after {
 }
 
 /* Lehrgang (N8, 2026-09-28): die jüngsten Notizen, zugeklappt, ruhig wie der Nachtbau. */
+.system-lehrgang__kanal {
+  margin: 0.25rem 0 0.5rem;
+  font-size: 0.95rem;
+  font-weight: 600;
+}
+.system-lehrgang__kanal ~ .system-lehrgang__kanal {
+  margin-top: 1.25rem;
+}
 .system-lehrgang__liste {
   margin: 0;
   padding: 0;

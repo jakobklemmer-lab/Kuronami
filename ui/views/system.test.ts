@@ -46,6 +46,8 @@ describe("System-Seite", () => {
 
 describe("Lehrgang-Karte", () => {
   const stand: LehrgangKarte = {
+    kanal: "tradinglab",
+    buch: false,
     videos: 108,
     transkripte: 105,
     ohneUntertitel: 1,
@@ -57,6 +59,7 @@ describe("Lehrgang-Karte", () => {
       fenster: [1, 6],
       jeNacht: 15,
       aus: false,
+      laeuft: false,
       zuletzt: { zeit: "2026-09-29T00:10:00Z", halt: "Sitzungsfenster bei 72 % (Grenze 70 %)" },
       dieseNacht: { versuche: 3, fertig: 2 },
       letzte: [
@@ -110,5 +113,27 @@ describe("Lehrgang-Karte", () => {
     expect(aus).toContain("abgeschaltet (KURO_LEHRGANG=aus)");
     expect(aus).not.toContain("Sitzungsfenster");
     expect(aus).toContain("Noch keine Notiz.");
+  });
+
+  it("sagt während eines Takts, dass er arbeitet, statt den alten Halt zu zeigen", () => {
+    const l = stand.lehrgang as NonNullable<LehrgangKarte["lehrgang"]>;
+    const html = lehrgangHtml(
+      { ...stand, lehrgang: { ...l, laeuft: true, fenster: [0, 24] } },
+      new Map(),
+    );
+    expect(html).toContain("arbeitet gerade");
+    expect(html).not.toContain("Sitzungsfenster");
+    expect(html).toContain("rund um die Uhr, höchstens 15 am Tag");
+  });
+
+  it("zeigt beim Buch Abschnitte statt Videos und Stunden", () => {
+    const html = lehrgangHtml(
+      { ...stand, kanal: "murphy", buch: true, videos: 29, transkripte: 29, durchgearbeitet: 3 },
+      new Map(),
+    );
+    expect(html).toContain("<dt>Abschnitte</dt><dd>29</dd>");
+    expect(html).toContain("3 von 29");
+    expect(html).not.toContain("Std.");
+    expect(html).toContain('data-kanal="murphy"');
   });
 });

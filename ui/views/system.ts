@@ -386,6 +386,9 @@ export function nachtbauHtml(s: NachtbauStand, jetzt: Date): string {
 
 /** Was `/integrations/wissen/tradinglab` liefert — der Stand der Ablage und der des Lehrgangs. */
 export interface LehrgangKarte {
+  kanal: string;
+  /** Ein Buch: Abschnitte statt Videos, kein Transkript zu holen. */
+  buch: boolean;
   videos: number;
   transkripte: number;
   ohneUntertitel: number;
@@ -397,6 +400,7 @@ export interface LehrgangKarte {
     fenster: [number, number];
     jeNacht: number;
     aus: boolean;
+    laeuft: boolean;
     zuletzt: { zeit: string; halt: string } | null;
     dieseNacht: { versuche: number; fertig: number };
     letzte: { id: string; titel: string; zeit: string; ok: boolean; grund?: string }[];
@@ -421,21 +425,28 @@ export function lehrgangHtml(s: LehrgangKarte, notizen: ReadonlyMap<string, stri
     s.kalibrierung.videos > 0
       ? ` · Kalibrierung ${s.kalibrierung.durchgearbeitet} von ${s.kalibrierung.videos}`
       : "";
-  const fakten = [
-    fakt("Videos", `${s.videos} · ${s.stunden.toLocaleString("de-DE")} Std.`),
-    fakt("Transkripte", transkripte.join(" · ")),
-    fakt("Durchgearbeitet", `${s.durchgearbeitet} von ${s.transkripte}${kalibrierung}`),
-  ];
+  const fakten = s.buch
+    ? [
+        fakt("Abschnitte", String(s.videos)),
+        fakt("Durchgearbeitet", `${s.durchgearbeitet} von ${s.transkripte}`),
+      ]
+    : [
+        fakt("Videos", `${s.videos} · ${s.stunden.toLocaleString("de-DE")} Std.`),
+        fakt("Transkripte", transkripte.join(" · ")),
+        fakt("Durchgearbeitet", `${s.durchgearbeitet} von ${s.transkripte}${kalibrierung}`),
+      ];
   if (l) {
     fakten.push(
       fakt(
         "Lehrgang",
         l.aus
           ? "abgeschaltet (KURO_LEHRGANG=aus)"
-          : `nachts ${l.fenster[0]}–${l.fenster[1]} Uhr, höchstens ${l.jeNacht} Videos`,
+          : `${l.fenster[0] === 0 && l.fenster[1] === 24 ? "rund um die Uhr" : `${l.fenster[0]}–${l.fenster[1]} Uhr`}, höchstens ${l.jeNacht} am Tag`,
       ),
     );
-    if (!l.aus && l.zuletzt) fakten.push(fakt("Jetzt", l.zuletzt.halt));
+    // Während eines Takts ist `zuletzt` der Halt des vorigen — der stimmt dann nicht mehr.
+    if (!l.aus && l.laeuft) fakten.push(fakt("Jetzt", "arbeitet gerade"));
+    else if (!l.aus && l.zuletzt) fakten.push(fakt("Jetzt", l.zuletzt.halt));
     // Gezählt werden Läufe, nicht Videos: dasselbe Video zweimal sind zwei — und beide zählen
     // gegen die Grenze der Nacht.
     const { versuche, fertig } = l.dieseNacht;
@@ -469,7 +480,7 @@ export function lehrgangHtml(s: LehrgangKarte, notizen: ReadonlyMap<string, stri
       if (!v.ok) {
         return `<li class="ist-gescheitert">${titel} <span class="system-lehrgang__grund">· gescheitert: ${escapeHtml(v.grund ?? "")}</span></li>`;
       }
-      return `<li><details data-teil="notiz-${escapeHtml(v.id)}" data-notiz="${escapeHtml(v.id)}"><summary>${titel}</summary><div class="markdown">${notizen.get(v.id) ?? `<p class="card__hint">Lädt …</p>`}</div></details></li>`;
+      return `<li><details data-teil="notiz-${escapeHtml(v.id)}" data-kanal="${escapeHtml(s.kanal)}" data-notiz="${escapeHtml(v.id)}"><summary>${titel}</summary><div class="markdown">${notizen.get(v.id) ?? `<p class="card__hint">Lädt …</p>`}</div></details></li>`;
     });
   const uebersprungen = l?.uebersprungen.length
     ? `<p class="card__hint">Übersprungen nach zwei Fehlschlägen: ${l.uebersprungen.map((u) => `${escapeHtml(u.titel)} (${escapeHtml(u.grund)})`).join("; ")}</p>`
@@ -728,7 +739,7 @@ export const systemView: View = {
           <section class="card glass card--lehrgang system-lehrgang" aria-labelledby="system-lehrgang-titel">
             <header class="card__head">
               ${icon("book", { className: "card__icon" })}
-              <h2 class="card__title" id="system-lehrgang-titel">Lehrgang · TradingLab</h2>
+              <h2 class="card__title" id="system-lehrgang-titel">Lehrgang</h2>
             </header>
             <div data-role="lehrgang"><p class="card__hint">Lädt …</p></div>
           </section>
@@ -771,14 +782,24 @@ export const systemView: View = {
     const notizen = new Map<string, string>();
     async function ladeLehrgang(): Promise<void> {
       try {
-        const stand = await ctx.api.get<LehrgangKarte>("/integrations/wissen/tradinglab");
+        // Erst die Videos, dann das Buch — wie der Lehrgang selbst.
+        const staende = await Promise.all(
+          ["tradinglab", "murphy"].map((k) =>
+            ctx.api.get<LehrgangKarte>(`/integrations/wissen/${k}`),
+          ),
+        );
         if (weg) return;
         const offen = new Set(
           [...lehrgangEl.querySelectorAll<HTMLDetailsElement>("details[open]")].map(
             (d) => d.dataset.teil,
           ),
         );
-        lehrgangEl.innerHTML = lehrgangHtml(stand, notizen);
+        lehrgangEl.innerHTML = staende
+          .map(
+            (s) =>
+              `<h3 class="system-lehrgang__kanal">${s.buch ? "Buch · Murphy" : "TradingLab"}</h3>${lehrgangHtml(s, notizen)}`,
+          )
+          .join("");
         for (const d of lehrgangEl.querySelectorAll<HTMLDetailsElement>("details")) {
           if (offen.has(d.dataset.teil)) d.open = true;
         }
@@ -793,12 +814,11 @@ export const systemView: View = {
       (e) => {
         const d = e.target as HTMLDetailsElement;
         const id = d.dataset.notiz;
-        if (!d.open || !id || notizen.has(id)) return;
+        const kanal = d.dataset.kanal;
+        if (!d.open || !id || !kanal || notizen.has(id)) return;
         const ziel = d.querySelector<HTMLElement>(".markdown");
         void ctx.api
-          .get<{ text: string }>(
-            `/integrations/wissen/tradinglab/notizen/${encodeURIComponent(id)}`,
-          )
+          .get<{ text: string }>(`/integrations/wissen/${kanal}/notizen/${encodeURIComponent(id)}`)
           .then(
             (n) => {
               // Der Titel steht schon in der Zeile; die Überschrift der Datei wäre doppelt.

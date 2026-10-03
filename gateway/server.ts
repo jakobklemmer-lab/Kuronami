@@ -113,7 +113,7 @@ export interface ServerDeps {
   /** Lehrvideos (2026-09-27): der PC lädt Untertitel hoch, der Lehrgang arbeitet sie durch. */
   wissen?: WissenAblage;
   /** Wer die Videos nachts durcharbeitet — sein Stand steht neben dem der Ablage. */
-  lehrgang?: Lehrgang;
+  lehrgaenge?: Lehrgang[];
 }
 
 /**
@@ -813,7 +813,7 @@ export function createServer(deps: ServerDeps): express.Express {
   if (deps.wissen) {
     wissenRouten(app, {
       wissen: deps.wissen,
-      lehrgang: deps.lehrgang,
+      lehrgaenge: deps.lehrgaenge,
       schluessel: () => process.env.KURO_WISSEN_SCHLUESSEL,
       webPrincipal,
     });

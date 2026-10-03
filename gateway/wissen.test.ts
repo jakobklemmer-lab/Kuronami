@@ -84,6 +84,20 @@ describe("createWissen", () => {
     });
   });
 
+  it("zählt nur Transkripte, die im Inventar stehen (beim Buch liegt der Vorspann in roh/)", async () => {
+    const workdir = await mkdtemp(path.join(tmpdir(), "wissen-"));
+    const roh = path.join(workdir, "wissen", "tradinglab", "roh");
+    await mkdir(roh, { recursive: true });
+    await writeFile(path.join(roh, "..", "inventar.json"), JSON.stringify({ videos: LISTE }));
+    for (const id of ["qmsGqitE2LE", "murphy-00-1"]) {
+      await writeFile(
+        path.join(roh, `${id}.json`),
+        JSON.stringify({ id, art: "manuell", segmente: [] }),
+      );
+    }
+    expect((await createWissen({ workdir }).stand("tradinglab")).transkripte).toBe(1);
+  });
+
   it("legt Notizen ab, liest sie wieder und nimmt nur Video-IDs als Dateinamen", async () => {
     const w = await ablage();
     expect(await w.notiz("tradinglab", "qmsGqitE2LE")).toBeNull();
@@ -117,7 +131,7 @@ describe("wissenRouten für die Oberfläche", () => {
     const app = express();
     wissenRouten(app, {
       wissen,
-      lehrgang: { kanal: "tradinglab", stand: async () => ({ dieseNacht: { versuche: 1 } }) },
+      lehrgaenge: [{ kanal: "tradinglab", stand: async () => ({ dieseNacht: { versuche: 1 } }) }],
       schluessel: () => "pc",
       webPrincipal: (_req, res) => {
         if (!angemeldet) res.status(401).json({ error: "Anmeldung nötig." });

@@ -129,6 +129,8 @@ export interface WissenStand {
   ohneUntertitel: number;
   offen: number;
   stunden: number;
+  /** Ein Buch (Abschnitte mit Seiten) statt Videos. */
+  buch: boolean;
   /** Videos, zu denen der Lehrgang eine Notiz abgelegt hat. */
   durchgearbeitet: number;
   kalibrierung: { videos: number; durchgearbeitet: number };
@@ -236,12 +238,14 @@ export function createWissen(opt: { workdir: string }): WissenAblage {
         vorhanden(kanal),
         notizen(kanal),
       ]);
-      const ohne = [...da.values()].filter((a) => a === "ohne").length;
+      // Nur was im Inventar steht: beim Buch liegt der ausgelassene Vorspann trotzdem in roh/.
+      const ohne = liste.filter((v) => da.get(v.id) === "ohne").length;
       const kalibrierung = liste.filter((v) => v.kalibrierung);
       return {
         kanal,
         videos: liste.length,
-        transkripte: da.size - ohne,
+        buch: liste.some((v) => v.seiten),
+        transkripte: liste.filter((v) => da.has(v.id)).length - ohne,
         ohneUntertitel: ohne,
         offen: liste.filter((v) => !da.has(v.id)).length,
         stunden: Math.round((liste.reduce((s, v) => s + (v.dauer || 0), 0) / 3600) * 10) / 10,
@@ -297,8 +301,8 @@ export function wissenRouten(
   app: Express,
   deps: {
     wissen: WissenAblage;
-    /** Der Lehrgang arbeitet nur einen Kanal durch; für die anderen steht `lehrgang: null`. */
-    lehrgang?: { kanal: string; stand(): Promise<unknown> };
+    /** Je Kanal ein Lehrgang; ein Kanal ohne eigenen bekommt `lehrgang: null`. */
+    lehrgaenge?: { kanal: string; stand(): Promise<unknown> }[];
     schluessel: () => string | undefined;
     webPrincipal: (req: Request, res: Response) => unknown;
   },
@@ -348,7 +352,7 @@ export function wissenRouten(
     try {
       if (!deps.webPrincipal(req, res)) return;
       const kanal = String(req.params.kanal);
-      const lehrgang = deps.lehrgang?.kanal === kanal ? await deps.lehrgang.stand() : null;
+      const lehrgang = (await deps.lehrgaenge?.find((l) => l.kanal === kanal)?.stand()) ?? null;
       res.json({ ...(await deps.wissen.stand(kanal)), lehrgang });
     } catch (error) {
       fehler(error, res, next);

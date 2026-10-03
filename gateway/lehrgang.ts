@@ -3,13 +3,7 @@ import path from "node:path";
 import { redactText } from "../runtime/redaction/redact.js";
 import type { AboStand } from "./abo.js";
 import { ZONE, wienerZeit } from "./gespraeche.js";
-import {
-  NACHT_ENDE,
-  SITZUNG_MS,
-  inDerNacht,
-  nachtgrenzen,
-  wocheZuBeginn,
-} from "./nachtbudget.js";
+import { NACHT_ENDE, SITZUNG_MS, inDerNacht, nachtgrenzen, wocheZuBeginn } from "./nachtbudget.js";
 import type { Transkript, Video, WissenAblage } from "./wissen.js";
 
 /**
@@ -535,6 +529,8 @@ export interface LehrgangStand {
   jeNacht: number;
   grenzen: { sitzung: number; woche: number };
   aus: boolean;
+  /** Ein Takt arbeitet gerade; `zuletzt` ist dann der Halt des vorigen. */
+  laeuft: boolean;
   /** Was der letzte Takt gesagt hat, falls seit dem Start einer lief. */
   zuletzt: { zeit: string; halt: string } | null;
   dieseNacht: { versuche: number; fertig: number };
@@ -714,6 +710,7 @@ export function createLehrgang(deps: LehrgangDeps): Lehrgang {
         jeNacht,
         grenzen: { sitzung: GRENZE_SITZUNG, woche: GRENZE_WOCHE },
         aus: aus(),
+        laeuft,
         zuletzt,
         dieseNacht: { versuche: nacht.length, fertig: nacht.filter((v) => v.ok).length },
         letzte: bisher

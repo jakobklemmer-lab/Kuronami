@@ -217,7 +217,7 @@ async function main(): Promise<void> {
     restart: createSystemdRestart(),
     bus: eventBus,
     wissen: agent.wissen,
-    lehrgang: agent.lehrgang,
+    lehrgaenge: [agent.lehrgang, agent.buchLehrgang],
   });
   const server: Server = app.listen(port, () => {
     console.log(`[gateway] http://localhost:${port} — Kanäle: ${[...channels.keys()].join(", ")}`);
