@@ -14,6 +14,8 @@
   --orb-klein-h: 228px;
   --kuro-licht: var(--kuro);
   --tafel: linear-gradient(180deg, rgba(11, 18, 21, 0.975), rgba(14, 20, 18, 0.975));
+  /* Matt: Kuros Zimmer bleibt unter Fenster und Blatt als weiches Licht, nie als Form oder Schrift. */
+  --tafel-matt: linear-gradient(180deg, rgba(11, 18, 21, 0.92), rgba(14, 20, 18, 0.92));
   --tafel-licht: rgba(232, 239, 241, 0.035);
   --haarlinie: rgba(232, 239, 241, 0.07);
   --glas-hell: rgba(232, 239, 241, 0.06);
@@ -307,7 +309,9 @@
   display: flex;
   flex-direction: column;
   overflow: hidden;
-  background: var(--tafel);
+  background: var(--tafel-matt);
+  -webkit-backdrop-filter: blur(32px) saturate(0.85);
+  backdrop-filter: blur(32px) saturate(0.85);
   border: 1px solid var(--haarlinie);
   border-radius: 14px;
   box-shadow: 0 28px 70px rgba(0, 0, 0, 0.38);
@@ -416,11 +420,12 @@
   color: var(--mond);
 }
 
+/* Die Bühne ist der Größen-Container der Teile: der Chart misst seine Höhe an ihr (`cqh`). */
 .o-fenster__buehne {
   position: relative;
   flex: 1;
   min-height: 0;
-  --f-hoehe: calc(100vh - var(--kopf-h) - var(--rand) - 48px);
+  container: tafel / size;
 }
 
 .o-teil-flaeche {
@@ -446,17 +451,27 @@
   pointer-events: none;
 }
 
+/* Das Brain fragt seine Breite hier ab, nicht an `.b-app` selbst — ein Container kann sich nicht
+   selbst abfragen, sonst bliebe die Spalte rechts leer stehen, wenn ihr Inhalt weicht. */
 .o-teil-flaeche--brain {
   overflow: hidden;
+  container-type: inline-size;
 }
 
-/* Die Fachansichten tragen ihren Namen schon im Kopf der Tafel. */
+/* --------------------------------------------------------------------- */
+/* Die Fachansichten in der Tafel                                         */
+/* --------------------------------------------------------------------- */
+
+/* Der Kopf der Tafel nennt den Teil; von der Ansicht bleibt oben ihr Stand als ruhige Zeile. */
 .o-teil-flaeche.w-raum,
 .o-blatt__inhalt.w-raum {
+  --haft-oben: 0px;
+  --haft-unten: 0px;
+  --bg-panel: var(--tafel-licht);
   max-width: none;
   min-height: 0;
   margin: 0;
-  padding: 22px 28px 24px;
+  padding: 14px 28px 22px;
 }
 
 .o-teil-flaeche .detail-view,
@@ -465,6 +480,12 @@
   min-height: 0;
   margin: 0;
   padding: 0;
+  gap: 14px;
+}
+
+/* Listen ohne zweite Spalte behalten ihre Lesebreite und stehen links. */
+.o-teil-flaeche .detail-view--schmal {
+  max-width: var(--seite-schmal);
 }
 
 .o-teil-flaeche .detail-view__title,
@@ -474,13 +495,107 @@
   display: none;
 }
 
-.o-teil-flaeche .detail-view__subtitle,
-.o-blatt__inhalt .detail-view__subtitle {
-  margin-top: 0;
+.o-teil-flaeche .detail-view__head,
+.o-blatt__inhalt .detail-view__head {
+  align-items: center;
+  min-height: 30px;
+  margin: 0;
 }
 
+.o-teil-flaeche .detail-view__subtitle,
+.o-blatt__inhalt .detail-view__subtitle {
+  margin: 0;
+  font-size: 13.5px;
+  color: var(--nebel);
+}
+
+.o-teil-flaeche .detail-view__archiv-schalter {
+  align-self: center;
+  padding: 4px 12px;
+  font-size: 13px;
+}
+
+/* Matte Tafeln statt Glas: kein Weichzeichner, kein Schatten, nur die Haarlinie. */
+.o-teil-flaeche .glass,
+.o-blatt__inhalt .glass {
+  border-color: var(--haarlinie);
+  border-radius: 14px;
+  background: var(--tafel-licht);
+  box-shadow: none;
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+
+.o-teil-flaeche .lehren {
+  margin-bottom: 0;
+}
+
+/* Post und Archive füllen die Tafel; Liste und Blatt rollen jedes in sich, wie ein Mailprogramm. */
+.o-teil-flaeche > div:has(> .post, > .detail-view--archiv) {
+  height: 100%;
+}
+
+.o-teil-flaeche .post,
+.o-teil-flaeche .detail-view--archiv {
+  height: 100%;
+}
+
+.o-teil-flaeche .post .post__flaeche,
+.o-teil-flaeche .detail-view--archiv .analysen {
+  flex: 1;
+  min-height: 0;
+  align-items: stretch;
+}
+
+.o-teil-flaeche .post .post__liste,
+.o-teil-flaeche .post .post__leser,
+.o-teil-flaeche .detail-view--archiv .analysen__liste,
+.o-teil-flaeche .detail-view--archiv .analysen__blatt {
+  position: static;
+  max-height: none;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.o-teil-flaeche .post__leser > .post__leer {
+  height: 100%;
+}
+
+/* Auf breiten Schirmen bleibt der Inhalt eines Blatts beisammen, statt Kennzahlen über die
+   ganze Tafel zu verteilen. */
+.o-teil-flaeche .analysen__blatt > * {
+  max-width: 1120px;
+}
+
+/* Der Chart füllt die Höhe der Tafel unter der Statuszeile (14 + 30 + 14 + 22 px). */
 .o-teil-flaeche .markt {
-  --markt-hoehe: max(420px, calc(var(--f-hoehe) - 100px));
+  --markt-hoehe: max(420px, calc(100cqh - 80px));
+}
+
+/* Neben Kuros Platz ist der Chart schmaler als in der Welle: die Leiste bricht um, statt
+   Knöpfe aus dem Bild zu schieben; die Uhr steht schon oben im Kopf. */
+@container arbeitsplatz (max-width: 900px) {
+  .o-teil-flaeche .markt__leiste {
+    flex-wrap: wrap;
+    row-gap: 4px;
+  }
+  .o-teil-flaeche .markt__uhr {
+    display: none;
+  }
+}
+
+/* Schmal stehen Liste und Blatt der Archive untereinander; dann rollt wieder die ganze Fläche. */
+@media (max-width: 900px) {
+  .o-teil-flaeche > div:has(> .detail-view--archiv),
+  .o-teil-flaeche .detail-view--archiv {
+    height: auto;
+  }
+  .o-teil-flaeche .detail-view--archiv .analysen__liste {
+    max-height: 34vh;
+  }
+  .o-teil-flaeche .detail-view--archiv .analysen__blatt {
+    overflow: visible;
+  }
 }
 
 .o-blatt {
@@ -510,7 +625,9 @@
   flex-direction: column;
   width: min(1180px, calc(100vw - 120px));
   overflow: hidden;
-  background: var(--tafel);
+  background: var(--tafel-matt);
+  -webkit-backdrop-filter: blur(32px) saturate(0.85);
+  backdrop-filter: blur(32px) saturate(0.85);
   border: 1px solid var(--haarlinie);
   border-radius: 14px;
   box-shadow: -24px 0 70px rgba(0, 0, 0, 0.42);
@@ -902,7 +1019,6 @@ body.ist-sprechtaste .o-eingabe__mikro,
   display: grid;
   grid-template-columns: 236px minmax(0, 1fr) 258px;
   height: 100%;
-  container-type: inline-size;
 }
 
 .b-links,
@@ -1329,7 +1445,8 @@ body.ist-sprechtaste .o-eingabe__mikro,
   color: var(--faellt);
 }
 
-@container (max-width: 960px) {
+/* Zuerst weicht die rechte Spalte, damit die Notiz ihre Lesebreite behält (≈ 600 px). */
+@container (max-width: 1080px) {
   .b-app {
     grid-template-columns: 220px minmax(0, 1fr);
   }
