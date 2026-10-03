@@ -52,30 +52,110 @@ export function loeseLinks(
   return ziele;
 }
 
+export interface BrainKnoten {
+  pfad: string;
+  titel: string;
+  ordner: string;
+  /** Tags aus den Eigenschaften (`tags:`) und aus dem Text (`#tag`), klein geschrieben. */
+  tags: string[];
+  /** Eine Farbe, die die Notiz selbst wünscht (`farbe:` oder `color:` in den Eigenschaften). */
+  farbe: string | null;
+  /** Wann die Notiz entstand (ms): Datum im Namen, sonst `datum:`/`erstellt:`, sonst die Datei. */
+  erstellt: number;
+  /** Letzte Änderung der Datei (ms). */
+  geaendert: number;
+  worte: number;
+}
+
 export interface BrainGraph {
-  knoten: Array<{ pfad: string; titel: string; ordner: string }>;
+  knoten: BrainKnoten[];
   kanten: Array<[string, string]>;
+  /** Links auf Notizen, die es nicht gibt: [von, wie der Link lautet]. */
+  offen: Array<[string, string]>;
+}
+
+/** Zeiten einer Datei, wie `stat` sie liefert. */
+export interface DateiZeiten {
+  geaendert: number;
+  geboren: number;
+}
+
+const DATUM_IM_NAMEN = /(?:^|[^\d])(\d{4})-(\d{2})-(\d{2})(?:[^\d]|$)/;
+
+/** Wann eine Notiz entstand — so, wie Jakob es lesen würde, nicht wann die Datei kopiert wurde. */
+export function erstelltAm(
+  pfad: string,
+  felder: Record<string, unknown>,
+  zeiten: DateiZeiten | undefined,
+): number {
+  const ausText = (text: string): number | null => {
+    const m = DATUM_IM_NAMEN.exec(text);
+    if (!m) return null;
+    const t = Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3]), 12);
+    return Number.isFinite(t) && Number(m[2]) >= 1 && Number(m[2]) <= 12 ? t : null;
+  };
+  const imNamen = ausText(path.posix.basename(pfad));
+  if (imNamen !== null) return imNamen;
+  for (const feld of ["datum", "erstellt", "created", "date"]) {
+    const wert = felder[feld];
+    if (typeof wert === "string") {
+      const t = ausText(` ${wert} `);
+      if (t !== null) return t;
+    }
+  }
+  const geboren = zeiten?.geboren ?? 0;
+  return geboren > 0 ? geboren : (zeiten?.geaendert ?? 0);
+}
+
+/** Tags wie Obsidian: `tags:` in den Eigenschaften und `#wort` im Text (nicht in Code, nicht `# Titel`). */
+export function tagsIn(felder: Record<string, unknown>, inhalt: string): string[] {
+  const tags = new Set<string>();
+  for (const feld of ["tags", "tag"]) {
+    const wert = felder[feld];
+    const liste = Array.isArray(wert) ? wert : typeof wert === "string" ? wert.split(/[,\s]+/) : [];
+    for (const t of liste) {
+      const sauber = String(t).replace(/^#/, "").trim().toLowerCase();
+      if (sauber) tags.add(sauber);
+    }
+  }
+  const ohneCode = inhalt.replace(/```[\s\S]*?```/g, "").replace(/`[^`\n]*`/g, "");
+  for (const m of ohneCode.matchAll(/(?:^|[\s(])#([\p{L}_][\p{L}\p{N}_/-]*)/gu)) {
+    tags.add(m[1].toLowerCase());
+  }
+  return [...tags].sort();
 }
 
 /** Alle Notizen und ihre aufgelösten Links — für die Graph-Ansicht und die Rückverweise. */
-export function baueGraph(notizen: ReadonlyMap<string, string>): BrainGraph {
+export function baueGraph(
+  notizen: ReadonlyMap<string, string>,
+  zeiten: ReadonlyMap<string, DateiZeiten> = new Map(),
+): BrainGraph {
   const pfade = [...notizen.keys()];
   const kanten = new Set<string>();
+  const offen = new Set<string>();
   const knoten: BrainGraph["knoten"] = [];
   for (const [pfad, roh] of notizen) {
-    const { inhalt } = leseNotiz(roh);
+    const { felder, inhalt } = leseNotiz(roh);
+    const farbe = felder.farbe ?? felder.color;
     knoten.push({
       pfad,
       titel: erstenTitel(inhalt, path.posix.basename(pfad, ".md")),
       ordner: pfad.includes("/") ? (pfad.split("/")[0] as string) : "",
+      tags: tagsIn(felder, inhalt),
+      farbe: typeof farbe === "string" && farbe.trim() ? farbe.trim() : null,
+      erstellt: erstelltAm(pfad, felder, zeiten.get(pfad)),
+      geaendert: zeiten.get(pfad)?.geaendert ?? 0,
+      worte: inhalt.split(/\s+/).filter(Boolean).length,
     });
-    for (const ziel of Object.values(loeseLinks(pfad, inhalt, pfade))) {
-      if (ziel && ziel !== pfad) kanten.add(`${pfad}\u0000${ziel}`);
+    for (const [wie, ziel] of Object.entries(loeseLinks(pfad, inhalt, pfade))) {
+      if (ziel === null) offen.add(`${pfad}\u0000${wie}`);
+      else if (ziel !== pfad) kanten.add(`${pfad}\u0000${ziel}`);
     }
   }
   return {
     knoten,
     kanten: [...kanten].map((k) => k.split("\u0000") as [string, string]),
+    offen: [...offen].map((k) => k.split("\u0000") as [string, string]),
   };
 }
 
@@ -85,6 +165,22 @@ async function liesAlle(workdir: string): Promise<Map<string, string>> {
     notizen.set(pfad, await readFile(brainPfad(workdir, pfad), "utf8"));
   }
   return notizen;
+}
+
+async function liesZeiten(
+  workdir: string,
+  pfade: Iterable<string>,
+): Promise<Map<string, DateiZeiten>> {
+  const zeiten = new Map<string, DateiZeiten>();
+  for (const pfad of pfade) {
+    try {
+      const info = await stat(brainPfad(workdir, pfad));
+      zeiten.set(pfad, { geaendert: info.mtimeMs, geboren: info.birthtimeMs });
+    } catch {
+      // eben gelöscht
+    }
+  }
+  return zeiten;
 }
 
 /** Höchstens so groß darf eine abgelegte Datei sein (Base64 im JSON, Grenze des Gateways 32 MB). */
@@ -210,7 +306,8 @@ export function brainRouten(
   app.get("/integrations/brain/graph", async (req, res, next) => {
     try {
       if (!deps.webPrincipal(req, res)) return;
-      res.json(baueGraph(await liesAlle(deps.workdir())));
+      const notizen = await liesAlle(deps.workdir());
+      res.json(baueGraph(notizen, await liesZeiten(deps.workdir(), notizen.keys())));
     } catch (error) {
       next(error);
     }

@@ -17,6 +17,20 @@ export interface Knoten {
   stufe: number;
   /** Festgehalten, solange Jakob ihn zieht. */
   fest: boolean;
+  /** Angeheftet: bleibt, wo Jakob ihn abgelegt hat, auch über Neustarts. */
+  angeheftet: boolean;
+  /** Nummer der Gemeinschaft (Louvain), für den Zusammenhalt der Cluster. */
+  gemeinschaft: number;
+}
+
+/** Die Regler der Kräfte, wie in Obsidians Graph-Einstellungen. */
+export interface Kraefte {
+  abstossung: number;
+  feder: number;
+  laenge: number;
+  mitte: number;
+  /** Zug zur Mitte der eigenen Gemeinschaft — hält Cluster zusammen. 0 = aus. */
+  cluster: number;
 }
 
 export interface Kante {
@@ -29,12 +43,16 @@ export interface Netz {
   kanten: Kante[];
   nachbarn: Set<number>[];
   waerme: number;
+  kraefte: Kraefte;
 }
 
-const ABSTOSSUNG = 2600;
-const FEDER = 0.035;
-const RUHELAENGE = 70;
-const MITTE = 0.012;
+export const KRAEFTE: Kraefte = {
+  abstossung: 2600,
+  feder: 0.035,
+  laenge: 70,
+  mitte: 0.012,
+  cluster: 0,
+};
 const DAEMPFUNG = 0.82;
 
 /** Ein fester Startort je Notiz — derselbe Graph sieht beim nächsten Öffnen gleich aus. */
@@ -91,16 +109,19 @@ export function baueNetz(
       grad: nachbarn[i].size,
       stufe: stufe[i],
       fest: false,
+      angeheftet: false,
+      gemeinschaft: 0,
     })),
     kanten: liste,
     nachbarn,
     waerme: 1,
+    kraefte: { ...KRAEFTE },
   };
 }
 
 /** Ein Schritt der Simulation. Gibt zurück, ob sich noch etwas bewegt. */
 export function schritt(netz: Netz): boolean {
-  const { knoten, kanten } = netz;
+  const { knoten, kanten, kraefte: kr } = netz;
   const n = knoten.length;
   const w = netz.waerme;
   for (let i = 0; i < n; i++) {
@@ -116,7 +137,7 @@ export function schritt(netz: Netz): boolean {
         d2 = dx * dx + dy * dy;
       }
       if (d2 > 250_000) continue;
-      const f = (ABSTOSSUNG * w) / d2;
+      const f = (kr.abstossung * w) / d2;
       const d = Math.sqrt(d2);
       const fx = (dx / d) * f;
       const fy = (dy / d) * f;
@@ -132,7 +153,7 @@ export function schritt(netz: Netz): boolean {
     const dx = b.x - a.x;
     const dy = b.y - a.y;
     const d = Math.sqrt(dx * dx + dy * dy) || 0.01;
-    const f = (d - RUHELAENGE) * FEDER * w;
+    const f = (d - kr.laenge) * kr.feder * w;
     const fx = (dx / d) * f;
     const fy = (dy / d) * f;
     a.vx += fx;
@@ -140,13 +161,29 @@ export function schritt(netz: Netz): boolean {
     b.vx -= fx;
     b.vy -= fy;
   }
+  if (kr.cluster > 0) {
+    const mitten = new Map<number, { x: number; y: number; n: number }>();
+    for (const k of knoten) {
+      const m = mitten.get(k.gemeinschaft) ?? { x: 0, y: 0, n: 0 };
+      m.x += k.x;
+      m.y += k.y;
+      m.n += 1;
+      mitten.set(k.gemeinschaft, m);
+    }
+    for (const k of knoten) {
+      const m = mitten.get(k.gemeinschaft);
+      if (!m || m.n < 2) continue;
+      k.vx += (m.x / m.n - k.x) * kr.cluster * w;
+      k.vy += (m.y / m.n - k.y) * kr.cluster * w;
+    }
+  }
   let bewegung = 0;
   for (const k of knoten) {
-    k.vx -= k.x * MITTE * w;
-    k.vy -= k.y * MITTE * w;
+    k.vx -= k.x * kr.mitte * w;
+    k.vy -= k.y * kr.mitte * w;
     k.vx *= DAEMPFUNG;
     k.vy *= DAEMPFUNG;
-    if (k.fest) {
+    if (k.fest || k.angeheftet) {
       k.vx = 0;
       k.vy = 0;
       continue;

@@ -501,3 +501,847 @@
   background: var(--o-seite);
   border-bottom: 0;
 }
+
+/* --------------------------------------------------------------------- */
+/* Graph V1 (03.10.): Bedienung über dem großen Graphen (`graph-steuerung.ts`) */
+/* --------------------------------------------------------------------- */
+
+.g-buehne {
+  --g-flaeche: color-mix(in srgb, var(--o-seite) 94%, transparent);
+  overflow: hidden;
+  background: radial-gradient(120% 90% at 50% 45%, transparent 55%, rgba(0, 0, 0, 0.22) 100%),
+    var(--o-inhalt);
+  font-size: 12.5px;
+  color: var(--nebel);
+}
+
+:root[data-helligkeit="hell"] .g-buehne {
+  background: var(--o-inhalt);
+}
+
+.g-flaeche {
+  position: absolute;
+  inset: 0;
+}
+
+.g-flaeche .g-leinwand:focus {
+  outline: none;
+}
+
+.g-buehne button {
+  font: inherit;
+  color: inherit;
+}
+
+/* Kopf: Modi links, Filter Mitte, Knöpfe rechts */
+.g-kopf {
+  position: absolute;
+  top: 12px;
+  left: 14px;
+  right: 14px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  pointer-events: none;
+}
+
+.g-kopf > * {
+  pointer-events: auto;
+}
+
+.g-modi,
+.g-wahl {
+  display: inline-flex;
+  padding: 3px;
+  gap: 2px;
+  border: 1px solid var(--o-linie);
+  border-radius: 9px;
+  background: var(--g-flaeche);
+}
+
+.g-modi button,
+.g-wahl button {
+  padding: 5px 11px;
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  color: var(--nebel);
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.g-modi button:hover,
+.g-wahl button:hover {
+  color: var(--mond);
+}
+
+.g-modi button.ist-an,
+.g-wahl button.ist-an {
+  background: var(--o-gewaehlt);
+  color: var(--mond);
+  box-shadow: inset 0 -1.5px 0 var(--o-laterne);
+}
+
+.g-filter {
+  position: relative;
+  flex: 0 1 380px;
+  margin-left: auto;
+}
+
+.g-filter input {
+  width: 100%;
+  padding: 7px 84px 7px 11px;
+  border: 1px solid var(--o-linie);
+  border-radius: 9px;
+  background: var(--g-flaeche);
+  color: var(--mond);
+  font: inherit;
+  outline: none;
+}
+
+.g-filter input:focus {
+  border-color: var(--o-laterne-rand);
+}
+
+.g-filter__zahl {
+  position: absolute;
+  right: 10px;
+  top: 50%;
+  transform: translateY(-50%);
+  color: var(--o-laterne);
+  font-variant-numeric: tabular-nums;
+  pointer-events: none;
+}
+
+.g-knoepfe {
+  display: flex;
+  gap: 6px;
+}
+
+.g-rund {
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border: 1px solid var(--o-linie);
+  border-radius: 9px;
+  background: var(--g-flaeche);
+  color: var(--nebel);
+  cursor: pointer;
+}
+
+.g-rund:hover,
+.g-rund.ist-an {
+  color: var(--o-laterne);
+  border-color: var(--o-laterne-rand);
+}
+
+.g-rund--klein {
+  width: 22px;
+  height: 22px;
+  border: 0;
+  background: none;
+  border-radius: 6px;
+}
+
+.g-fehler {
+  position: absolute;
+  top: 54px;
+  right: 98px;
+  margin: 0;
+  padding: 5px 9px;
+  border-radius: 7px;
+  background: var(--g-flaeche);
+  color: var(--o-faellt);
+}
+
+/* Die Tafel rechts: Darstellung oder Einblicke */
+.g-tafel {
+  position: absolute;
+  top: 56px;
+  right: 14px;
+  bottom: 14px;
+  width: 280px;
+  padding: 4px 16px 18px;
+  overflow-y: auto;
+  border: 1px solid var(--o-linie);
+  border-radius: 12px;
+  background: var(--g-flaeche);
+  scrollbar-width: thin;
+}
+
+.g-tafel h3 {
+  margin: 16px 0 8px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--dunst);
+}
+
+.g-tafel .g-wahl {
+  display: flex;
+  width: 100%;
+}
+
+.g-tafel .g-wahl button {
+  flex: 1;
+  padding: 5px 4px;
+}
+
+.g-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.g-chips button,
+.g-chip-eigen {
+  padding: 4px 10px;
+  border: 1px solid var(--o-linie);
+  border-radius: 999px;
+  background: none;
+  color: var(--o-text-2);
+  cursor: pointer;
+}
+
+.g-chips button:hover {
+  border-color: var(--o-laterne-rand);
+  color: var(--mond);
+}
+
+.g-chip-eigen {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 0 4px 0 0;
+}
+
+.g-chip-eigen button {
+  border: 0;
+  padding: 4px 4px 4px 10px;
+}
+
+.g-chip-eigen .g-chip-weg {
+  padding: 2px;
+  color: var(--dunst);
+}
+
+.g-chips .g-chip-neu {
+  border-style: dashed;
+  color: var(--dunst);
+}
+
+.g-stile {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+}
+
+.g-stile button {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+  padding: 8px 10px;
+  border: 1px solid var(--o-linie);
+  border-radius: 9px;
+  background: none;
+  color: var(--o-text-2);
+  cursor: pointer;
+}
+
+.g-stile button.ist-an {
+  border-color: var(--o-laterne-rand);
+  background: var(--o-laterne-grund);
+  color: var(--mond);
+}
+
+.g-stil__farben {
+  display: flex;
+  gap: 3px;
+}
+
+.g-stil__farben i {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  box-shadow: 0 0 6px currentColor;
+}
+
+.g-ebenen {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.g-ebene-zeile {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.g-schalter {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 4px 0;
+  color: var(--o-text-2);
+  cursor: pointer;
+}
+
+.g-schalter input {
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.g-schalter__knopf {
+  position: relative;
+  flex: none;
+  width: 26px;
+  height: 15px;
+  border-radius: 999px;
+  background: var(--o-linie-stark);
+  transition: background 0.15s ease;
+}
+
+.g-schalter__knopf::after {
+  content: "";
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 11px;
+  height: 11px;
+  border-radius: 50%;
+  background: var(--o-text-2);
+  transition: transform 0.15s ease;
+}
+
+.g-schalter input:checked + .g-schalter__knopf {
+  background: var(--o-laterne);
+}
+
+.g-schalter input:checked + .g-schalter__knopf::after {
+  transform: translateX(11px);
+  background: var(--o-grund);
+}
+
+.g-schalter input:focus-visible + .g-schalter__knopf {
+  outline: 2px solid var(--o-laterne-rand);
+}
+
+.g-schalter em {
+  margin-left: auto;
+  font-style: normal;
+  color: var(--dunst);
+  font-variant-numeric: tabular-nums;
+}
+
+.g-klein {
+  padding: 4px 9px;
+  border: 1px solid var(--o-linie);
+  border-radius: 7px;
+  background: none;
+  color: var(--o-text-2);
+  cursor: pointer;
+}
+
+.g-klein:hover {
+  border-color: var(--o-laterne-rand);
+  color: var(--mond);
+}
+
+.g-tipp {
+  margin: 0 0 8px;
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--dunst);
+}
+
+.g-tipp code {
+  font-size: 11.5px;
+  color: var(--o-text-2);
+}
+
+.g-gruppen {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  align-items: flex-start;
+}
+
+.g-gruppe {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+}
+
+.g-gruppe input[type="color"] {
+  flex: none;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: none;
+  cursor: pointer;
+}
+
+.g-gruppe input[type="color"]::-webkit-color-swatch-wrapper {
+  padding: 0;
+}
+
+.g-gruppe input[type="color"]::-webkit-color-swatch {
+  border: 0;
+  border-radius: 50%;
+}
+
+.g-gruppe input[type="text"] {
+  flex: 1;
+  min-width: 0;
+  padding: 5px 8px;
+  border: 1px solid var(--o-linie);
+  border-radius: 7px;
+  background: var(--o-schwebe);
+  color: var(--mond);
+  font: inherit;
+  outline: none;
+}
+
+.g-kraefte {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.g-regler {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  color: var(--o-text-2);
+}
+
+.g-regler input {
+  width: 100%;
+  accent-color: var(--o-laterne);
+}
+
+.g-fuss {
+  display: flex;
+  gap: 6px;
+  margin-top: 18px;
+}
+
+/* Einblicke */
+.g-zahlen {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 6px;
+  margin-top: 12px;
+}
+
+.g-zahlen div {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.g-zahlen b {
+  font-size: 20px;
+  font-weight: 500;
+  color: var(--mond);
+  font-variant-numeric: tabular-nums;
+}
+
+.g-zahlen span {
+  font-size: 11px;
+  color: var(--dunst);
+}
+
+.g-wachstum {
+  display: flex;
+  align-items: flex-end;
+  gap: 2px;
+  height: 46px;
+  margin-bottom: 6px;
+}
+
+.g-wachstum i {
+  flex: 1;
+  min-height: 3px;
+  border-radius: 2px 2px 0 0;
+  background: var(--o-laterne);
+  opacity: 0.75;
+}
+
+.g-liste {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.g-liste button {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  width: 100%;
+  padding: 4px 6px;
+  margin: 0 -6px;
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  color: var(--o-text-2);
+  text-align: left;
+  cursor: pointer;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.g-liste button:hover {
+  background: var(--o-schwebe);
+  color: var(--mond);
+}
+
+.g-liste em {
+  margin-left: auto;
+  padding-left: 6px;
+  font-style: normal;
+  color: var(--dunst);
+}
+
+.g-punkt {
+  display: inline-block;
+  flex: none;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  margin-right: 1px;
+}
+
+.g-punkt--geist {
+  border: 1px dashed var(--dunst);
+}
+
+/* Die Karte zur gewählten Notiz */
+.g-karte {
+  position: absolute;
+  left: 14px;
+  bottom: 14px;
+  width: 300px;
+  padding: 12px 14px 12px;
+  border: 1px solid var(--o-linie);
+  border-radius: 12px;
+  background: var(--g-flaeche);
+}
+
+.g-karte header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.g-karte h4 {
+  flex: 1;
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--mond);
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.g-karte header .g-punkt {
+  width: 10px;
+  height: 10px;
+  box-shadow: 0 0 8px currentColor;
+}
+
+.g-karte__pfad {
+  margin: 3px 0 8px 18px;
+  font-size: 11.5px;
+  color: var(--dunst);
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.g-karte dl {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 3px 12px;
+  margin: 0 0 8px 18px;
+}
+
+.g-karte dl div {
+  display: contents;
+}
+
+.g-karte dt {
+  color: var(--dunst);
+}
+
+.g-karte dd {
+  margin: 0;
+  color: var(--o-text-2);
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.g-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin: 0 0 8px 18px;
+}
+
+.g-tags span {
+  padding: 1px 7px;
+  border-radius: 999px;
+  background: var(--o-schwebe);
+  color: var(--o-link);
+  font-size: 11.5px;
+}
+
+.g-karte__knoepfe {
+  display: flex;
+  gap: 5px;
+}
+
+.g-karte__knoepfe button {
+  flex: 1;
+  padding: 5px 4px;
+  border: 1px solid var(--o-linie);
+  border-radius: 7px;
+  background: none;
+  color: var(--o-text-2);
+  cursor: pointer;
+}
+
+.g-karte__knoepfe button:hover {
+  border-color: var(--o-laterne-rand);
+  color: var(--mond);
+}
+
+.g-karte__knoepfe .g-haupt {
+  border-color: var(--o-laterne-rand);
+  background: var(--o-laterne-grund);
+  color: var(--o-laterne-hell);
+}
+
+/* Untere Leiste: Erkunden-Pfad, Fokus-Tiefe, Zeitleiste */
+.g-leiste {
+  position: absolute;
+  left: 50%;
+  bottom: 16px;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  max-width: min(760px, calc(100% - 360px));
+  padding: 7px 10px 7px 12px;
+  border: 1px solid var(--o-linie);
+  border-radius: 12px;
+  background: var(--g-flaeche);
+}
+
+.g-buehne[data-modus="zeitreise"] .g-leiste {
+  width: min(760px, calc(100% - 360px));
+}
+
+.g-buehne[data-modus="erkunden"] .g-leiste {
+  flex-direction: column;
+  gap: 4px;
+  padding: 8px 16px;
+}
+
+.g-leiste__titel {
+  color: var(--dunst);
+}
+
+.g-leiste__hilfe {
+  margin: 0;
+  font-size: 11.5px;
+  color: var(--dunst);
+  white-space: nowrap;
+}
+
+.g-wahl--klein button {
+  padding: 3px 10px;
+}
+
+.g-weg {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  max-width: 100%;
+  overflow: hidden;
+  white-space: nowrap;
+  color: var(--o-text-2);
+}
+
+.g-weg b {
+  font-weight: 400;
+  color: var(--dunst);
+}
+
+.g-weg .ist-hier {
+  color: var(--o-laterne-hell);
+  font-weight: 600;
+}
+
+.g-zeitbahn {
+  position: relative;
+  flex: 1;
+  height: 30px;
+  cursor: pointer;
+  touch-action: none;
+}
+
+.g-zeitbahn__balken {
+  position: absolute;
+  inset: 2px 0 6px;
+  border-bottom: 1px solid var(--o-linie-stark);
+}
+
+.g-zeitbahn__balken i {
+  position: absolute;
+  bottom: 0;
+  width: 4px;
+  margin-left: -2px;
+  border-radius: 2px 2px 0 0;
+  background: var(--o-laterne);
+  opacity: 0.55;
+}
+
+.g-zeitbahn__griff {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  margin-left: -1px;
+  background: var(--o-laterne-hell);
+  box-shadow: 0 0 10px var(--o-laterne);
+  pointer-events: none;
+}
+
+.g-zeit__stand {
+  min-width: 170px;
+  color: var(--o-text-2);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.g-zeit__stand b {
+  font-weight: 600;
+  color: var(--mond);
+}
+
+/* Legende und Hilfe */
+.g-legende {
+  position: absolute;
+  right: 16px;
+  bottom: 14px;
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 4px 12px;
+  max-width: 46%;
+  font-size: 11.5px;
+  color: var(--dunst);
+  pointer-events: none;
+}
+
+.g-legende span {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.g-buehne.hat-tafel .g-legende {
+  right: 310px;
+}
+
+.g-hilfe {
+  position: absolute;
+  left: 16px;
+  bottom: 12px;
+  margin: 0;
+  font-size: 11.5px;
+  color: var(--dunst);
+  pointer-events: none;
+}
+
+.g-menue {
+  position: absolute;
+  z-index: 3;
+  display: flex;
+  flex-direction: column;
+  min-width: 180px;
+  padding: 4px;
+  border: 1px solid var(--o-linie-stark);
+  border-radius: 10px;
+  background: var(--o-feld);
+  box-shadow: var(--o-schatten, 0 12px 30px rgba(0, 0, 0, 0.4));
+}
+
+.g-menue button {
+  padding: 6px 10px;
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  color: var(--o-text-2);
+  text-align: left;
+  cursor: pointer;
+}
+
+.g-menue button:hover {
+  background: var(--o-gewaehlt);
+  color: var(--mond);
+}
+
+/* Der lokale Graph: Tiefe 1–3 neben der Überschrift */
+.b-rechts__kopf {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.b-tiefe {
+  display: inline-flex;
+  gap: 2px;
+  margin-top: 8px;
+}
+
+.b-tiefe button {
+  width: 22px;
+  height: 20px;
+  padding: 0;
+  border: 0;
+  border-radius: 5px;
+  background: none;
+  color: var(--dunst);
+  font: inherit;
+  font-size: 11.5px;
+  cursor: pointer;
+}
+
+.b-tiefe button.ist-an {
+  background: var(--o-gewaehlt);
+  color: var(--o-laterne);
+}
+
+.g-zeit__stand em {
+  font-style: normal;
+  color: var(--o-laterne);
+}
+
+/* Fokus, Erkunden und Zeitreise brauchen unten die Mitte; die Legende tritt zurück. */
+.g-buehne:not([data-modus="uebersicht"]) .g-legende {
+  display: none;
+}

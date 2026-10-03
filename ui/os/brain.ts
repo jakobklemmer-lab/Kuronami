@@ -3,6 +3,7 @@ import { escapeHtml } from "../views/html.js";
 import { renderMarkdown } from "../views/markdown.js";
 import type { Plaetze } from "../views/types.js";
 import { umgebung } from "./graph-sim.js";
+import { mountGraphAnsicht } from "./graph-steuerung.js";
 import { type GraphDaten, mountGraph } from "./graph.js";
 import { wikiLinks } from "./weg.js";
 
@@ -113,7 +114,14 @@ export function mountBrainApp(
         <div class="b-inhalt" data-role="inhalt"></div>
       </section>
       <aside class="b-rechts">
-        <h3 class="b-rechts__titel">Verbindungen</h3>
+        <div class="b-rechts__kopf">
+          <h3 class="b-rechts__titel">Verbindungen</h3>
+          <div class="b-tiefe" data-role="tiefe" role="group" aria-label="Tiefe">
+            <button type="button" data-tiefe="1" title="Direkte Nachbarn">1</button>
+            <button type="button" data-tiefe="2" title="Nachbarn der Nachbarn">2</button>
+            <button type="button" data-tiefe="3" title="Drei Links weit">3</button>
+          </div>
+        </div>
         <div class="b-lokal" data-role="lokal"></div>
         <h3 class="b-rechts__titel">Rückverweise</h3>
         <ul class="b-verweise" data-role="rueck"></ul>
@@ -149,9 +157,42 @@ export function mountBrainApp(
   let notiz: Notiz | null = null;
   let bearbeiten = false;
   let geaendert = false;
-  let grossGraph: ReturnType<typeof mountGraph> | null = null;
+  let grossGraph: ReturnType<typeof mountGraphAnsicht> | null = null;
   let kleinGraph: ReturnType<typeof mountGraph> | null = null;
   let lebt = true;
+  let lokalTiefe = (() => {
+    try {
+      return Number(globalThis.localStorage?.getItem("kuronami.brain.lokal-tiefe")) || 1;
+    } catch {
+      return 1;
+    }
+  })();
+  const tiefeEl = q<HTMLElement>("tiefe");
+  const markiereTiefe = () => {
+    for (const b of tiefeEl.querySelectorAll<HTMLElement>("[data-tiefe]")) {
+      b.classList.toggle("ist-an", Number(b.dataset.tiefe) === lokalTiefe);
+    }
+  };
+  markiereTiefe();
+  tiefeEl.addEventListener("click", (e) => {
+    const b = (e.target as HTMLElement).closest<HTMLElement>("[data-tiefe]");
+    if (!b) return;
+    lokalTiefe = Number(b.dataset.tiefe);
+    try {
+      globalThis.localStorage?.setItem("kuronami.brain.lokal-tiefe", String(lokalTiefe));
+    } catch {
+      // gilt bis zum Neuladen
+    }
+    markiereTiefe();
+    zeichneSeite();
+  });
+
+  /** Der Weg durchs Brain für die Spur im Graphen: die geöffneten Notizen, älteste zuerst. */
+  const spur = () =>
+    verlauf
+      .slice(0, stelle + 1)
+      .filter((a): a is { art: "notiz"; pfad: string } => a.art === "notiz")
+      .map((a) => a.pfad);
 
   const aktuell = () => verlauf[stelle] ?? null;
 
@@ -205,7 +246,7 @@ export function mountBrainApp(
     const aus = [...new Set(Object.values(notiz.links).filter((p): p is string => !!p))];
     ausEl.innerHTML = liste(aus.map((p) => ({ pfad: p, titel: titel.get(p) ?? p })));
     kleinGraph?.loesen();
-    kleinGraph = mountGraph(lokalEl, umgebung(daten.knoten, daten.kanten, notiz.pfad), {
+    kleinGraph = mountGraph(lokalEl, umgebung(daten.knoten, daten.kanten, notiz.pfad, lokalTiefe), {
       aktiv: notiz.pfad,
       lokal: true,
       onOeffne: (p) => oeffne(p),
@@ -233,10 +274,10 @@ export function mountBrainApp(
     if (a.art === "graph") {
       notiz = null;
       ort.textContent = "Graph";
-      inhalt.innerHTML = `<div class="b-graph" data-role="gross"></div><p class="b-graph__hilfe">Ziehen verschiebt, das Rad zoomt, Doppelklick zentriert. Ein Klick auf einen Punkt öffnet die Notiz.</p>`;
-      grossGraph = mountGraph(q<HTMLElement>("gross"), daten, {
-        aktiv: null,
+      inhalt.innerHTML = `<div class="b-graph" data-role="gross"></div>`;
+      grossGraph = mountGraphAnsicht(q<HTMLElement>("gross"), daten, {
         onOeffne: (p) => oeffne(p),
+        spur,
       });
       zeichneBaum();
       zeichneSeite();
