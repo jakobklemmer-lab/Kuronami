@@ -187,7 +187,7 @@ bleiben, keine Mac-Nachbildung, kein Dock, Kuro optional als Begleiter auf dem D
 - Braucht: N19a
 
 ## N19e · Kuro auf dem Desktop: der Begleiter (Electron)
-- Status: offen
+- Status: erledigt (2026-10-03, 421d57b)
 - Modell: opus
 - Braucht: N19a
 
