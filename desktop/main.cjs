@@ -197,7 +197,8 @@ function erstelleBegleiter() {
     },
   });
   begleiter.setAlwaysOnTop(true, "floating");
-  begleiter.setVisibleOnAllWorkspaces(true);
+  // Kuro OS ist schon eine Vordergrund-App; ohne `skip` verschwände das Dock kurz.
+  begleiter.setVisibleOnAllWorkspaces(true, { skipTransformProcessType: true });
   begleiter.setIgnoreMouseEvents(true);
   durchklick = true;
   begleiter.webContents.setWindowOpenHandler(({ url }) => {
@@ -568,4 +569,8 @@ if (!app.requestSingleInstanceLock()) {
 }
 
 // Für die Probe unter xvfb (`probe-begleiter.cjs`).
-module.exports = { meldeSprechtaste, setzeBegleiterAn };
+module.exports = {
+  meldeSprechtaste,
+  setzeBegleiterAn,
+  begleiterInnen: () => ({ flaechen, durchklick, aufbau: aufbauJetzt }),
+};

@@ -84,12 +84,12 @@ app.whenReady().then(async () => {
       await imBegleiter("document.body.classList.contains('ist-im-fenster')"),
     );
 
-    // Angemeldet wie das Hauptfenster: derselbe Seitenspeicher.
+    // Angemeldet wie das Hauptfenster: derselbe Seitenspeicher. Der Begleiter merkt es selbst.
+    const vorAnmeldung = await imBegleiter("document.querySelector('.fg').dataset.zustand");
+    pruefe("vor der Anmeldung: offline", vorAnmeldung === "offline");
     await haupt.webContents.executeJavaScript(
       `localStorage.setItem("kuronami.webToken", ${JSON.stringify(token)})`,
     );
-    begleiter.webContents.reload();
-    await bis(() => !begleiter.webContents.isLoading());
     // Ohne Ereignisstrom stünde er nach 4 s auf „offline" (`OFFLINE_NACH_MS` im Gespräch).
     await warte(6000);
     const zustand = await imBegleiter("document.querySelector('.fg')?.dataset.zustand");
@@ -140,6 +140,22 @@ app.whenReady().then(async () => {
         2000,
       ),
     );
+
+    // Durchklicken: die Seite meldet die Figur; der Zeiger steht unter xvfb weit weg.
+    await warte(300);
+    const innen = app_.begleiterInnen();
+    const f = innen.flaechen[0];
+    const figurMitte = f ? f.x + f.w / 2 : Number.NaN;
+    pruefe(
+      "Seite meldet die Figur als Klickfläche",
+      innen.flaechen.length === 1 &&
+        Math.abs(figurMitte - (160 + innen.aufbau.versatz)) < 2 &&
+        f.y > 260,
+      f
+        ? `x ${Math.round(f.x)}, y ${Math.round(f.y)}, ${Math.round(f.w)} × ${Math.round(f.h)}`
+        : "keine",
+    );
+    pruefe("außerhalb der Figur durchklickbar", innen.durchklick === true);
 
     // Sichtbar, wenn Kuro OS nicht vorn ist.
     haupt.hide();
@@ -213,7 +229,9 @@ app.whenReady().then(async () => {
       offen && figurX === wa.x,
       `Figur bei x ${figurX}`,
     );
-    await warte(400);
+    await warte(200);
+    pruefe("Blase zählt als Klickfläche", app_.begleiterInnen().flaechen.length === 2);
+    await warte(200);
     fs.writeFileSync(
       "/tmp/kuronami-ansehen/electron-begleiter-blase.png",
       (await begleiter.webContents.capturePage()).toPNG(),

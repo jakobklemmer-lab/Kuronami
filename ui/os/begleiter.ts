@@ -3,7 +3,7 @@ import { resolveBackendOrigin } from "../backend-origin.js";
 import { createEventBus } from "../events/bus.js";
 import { createMicStateStore } from "../mic/state.js";
 import type { Zustand } from "../praesenz/sphaere.js";
-import { loadToken } from "../settings.js";
+import { TOKEN_STORAGE_KEY, loadToken } from "../settings.js";
 import { werName } from "../welle/form.js";
 import { SPEICHER_SCHLUESSEL, oeffneGespraech } from "../welle/gespraech.js";
 import * as V from "../welle/verlauf.js";
@@ -258,6 +258,10 @@ function begleiter() {
     globalThis.location.protocol === "https:",
     null,
   );
+  // Meldet sich Kuro OS an oder ab, fängt der Begleiter mit dem neuen Schlüssel von vorn an.
+  globalThis.addEventListener("storage", (e) => {
+    if (e.key === TOKEN_STORAGE_KEY) globalThis.location.reload();
+  });
   if (loadToken() === null) {
     figur.setzeZustand("offline");
     antwort.textContent = "Bitte zuerst Kuro OS öffnen und anmelden.";
