@@ -311,6 +311,61 @@ export function mountGraph(host: HTMLElement, daten: GraphDaten, opt: GraphOptio
     );
   }
 
+  /**
+   * Die erste Aufstellung: jede Gemeinschaft bekommt ihren eigenen Platz auf einer Spirale (die
+   * größte innen), ihre Notizen stehen nach ihrem Namen verteilt um diesen Platz, der Knotenpunkt
+   * in der Mitte. Vorher hing der Startort an der Reihenfolge aller Notizen — eine neue Notiz im
+   * Eingang würfelte das ganze Bild neu, und zwei Cluster konnten ineinander liegen bleiben.
+   */
+  function startAufstellung() {
+    const glieder = new Map<number, number[]>();
+    gruppe.forEach((g, i) => {
+      const liste = glieder.get(g) ?? [];
+      liste.push(i);
+      glieder.set(g, liste);
+    });
+    // In die Mitte die Gemeinschaft mit START — sie hängt mit allen zusammen; dann nach Größe.
+    const wurzel = netz.knoten.findIndex((k) => k.stufe === 0);
+    const mittig = wurzel >= 0 ? gruppe[wurzel] : -1;
+    const reihe = [...glieder.entries()].sort(
+      (a, b) =>
+        Number(b[0] === mittig) - Number(a[0] === mittig) ||
+        b[1].length - a[1].length ||
+        a[0] - b[0],
+    );
+    const hash = (text: string) => {
+      let h = 2166136261;
+      for (let k = 0; k < text.length; k++) h = Math.imul(h ^ text.charCodeAt(k), 16777619);
+      return (h >>> 0) / 4294967296;
+    };
+    let ring = 0;
+    reihe.forEach(([, liste], k) => {
+      const groesse = 30 * Math.sqrt(liste.length) + 30;
+      // Spirale im goldenen Winkel; der Abstand wächst mit dem, was schon steht.
+      const winkel = k * 2.39996;
+      const r = k === 0 ? 0 : ring + groesse;
+      ring = Math.max(ring, r * 0.55 + groesse);
+      const cx = Math.cos(winkel) * r;
+      const cy = Math.sin(winkel) * r;
+      const mitte = liste.reduce(
+        (b, i) => (netz.knoten[i].grad > netz.knoten[b].grad ? i : b),
+        liste[0],
+      );
+      for (const i of liste) {
+        const kn = netz.knoten[i];
+        if (i === mitte) {
+          kn.x = cx;
+          kn.y = cy;
+          continue;
+        }
+        const w = hash(kn.id) * Math.PI * 2;
+        const d = groesse * (0.45 + 0.55 * hash(`${kn.id}#`));
+        kn.x = cx + Math.cos(w) * d;
+        kn.y = cy + Math.sin(w) * d;
+      }
+    });
+  }
+
   function baue() {
     const alt = new Map(netz.knoten.map((k) => [k.id, k]));
     quelle = daten.knoten.map((k) => ({ ...k }));
@@ -380,6 +435,7 @@ export function mountGraph(host: HTMLElement, daten: GraphDaten, opt: GraphOptio
       innen,
       netz.knoten.map((k) => k.stufe),
     );
+    if (alt.size === 0 && !lokal) startAufstellung();
     netz.knoten.forEach((k, i) => {
       k.gemeinschaft = gruppe[i];
       const vorher = alt.get(k.id);
@@ -420,10 +476,16 @@ export function mountGraph(host: HTMLElement, daten: GraphDaten, opt: GraphOptio
   }
   const sprites = new Map<string, HTMLCanvasElement>();
   let blasenEbene: HTMLCanvasElement | null = null;
-  // Im Dunkeln nur ein Hauch: 1,8 % Clusterfarbe über dem Grund, etwa zwei Farbstufen. Jakob,
-  // 03.10.: bei voller Helligkeit am Mac hob sich schon ein Blaustich von sechs Stufen „extrem
-  // krass" ab — auf dem Bildschirmfoto sah man davon fast nichts.
-  const dunkelDeckung = 0.018;
+  let blasenWeich: HTMLCanvasElement | null = null;
+  // Im Dunkeln: 3 % Clusterfarbe im Grund, Rand weich (Jakob, 03.10.: harte Kanten hoben sich
+  // bei voller Helligkeit „extrem krass" ab, schon bei drei Farbstufen Unterschied).
+  const dunkelAnteil = (() => {
+    try {
+      return Number(globalThis.localStorage?.getItem("kuronami.brain.probe")) || 0.03;
+    } catch {
+      return 0.03;
+    }
+  })();
   let farbe: string[] = [];
   let clusterFarbe: string[] = [];
   let legende: Array<{ name: string; farbe: string }> = [];
@@ -882,6 +944,26 @@ export function mountGraph(host: HTMLElement, daten: GraphDaten, opt: GraphOptio
     box: [number, number, number, number];
   };
 
+  let kornBild: HTMLCanvasElement | null = null;
+  /** Ein Feld feinen Rauschens: jedes Pixel weiß mit 0, 1 oder 2 von 255 Deckung. */
+  function korn(): HTMLCanvasElement {
+    if (kornBild) return kornBild;
+    kornBild = document.createElement("canvas");
+    kornBild.width = kornBild.height = 128;
+    const g = kornBild.getContext("2d") as CanvasRenderingContext2D;
+    const bild = g.createImageData(128, 128);
+    let zufall = 1234567;
+    for (let i = 0; i < bild.data.length; i += 4) {
+      zufall = (zufall * 1103515245 + 12345) & 0x7fffffff;
+      bild.data[i] = 255;
+      bild.data[i + 1] = 255;
+      bild.data[i + 2] = 255;
+      bild.data[i + 3] = (zufall >> 16) % 3;
+    }
+    g.putImageData(bild, 0, 0);
+    return kornBild;
+  }
+
   /**
    * Cluster als Flächen, die sich um ihre Notizen legen: die konvexe Hülle, mit runden Ecken
    * aufgeweitet, gleichmäßig leicht getönt. Erst auf eine eigene Ebene in voller Farbe, dann
@@ -893,13 +975,36 @@ export function mountGraph(host: HTMLElement, daten: GraphDaten, opt: GraphOptio
   function zeichneBlasen(sicht: boolean[], p: Array<{ x: number; y: number }>): BlasenName[] {
     const namen: BlasenName[] = [];
     if (!blasenEbene) blasenEbene = document.createElement("canvas");
-    if (blasenEbene.width !== leinwand.width || blasenEbene.height !== leinwand.height) {
+    if (hell && (blasenEbene.width !== leinwand.width || blasenEbene.height !== leinwand.height)) {
       blasenEbene.width = leinwand.width;
       blasenEbene.height = leinwand.height;
     }
+    // Im Dunkeln zeichnet auch eine leise Fläche mit harter Kante eine deutliche Linie (auf
+    // so dunklem Grund sind drei Farbstufen schon 15 % Helligkeit) — dort läuft der Rand weich
+    // aus: deckende Ebene in einem Drittel der Auflösung, einmal unscharf, dann als Grund.
+    const weich = !hell;
+    const mass = weich ? 1 / 3 : dpr;
+    const grund = /^#[0-9a-f]{6}$/i.test(f.grund) ? f.grund : "#141310";
+    // Die weiche Ebene ragt über den Rand hinaus, sonst zieht die Unschärfe dort Streifen.
+    const RAND_E = 40;
+    if (weich) {
+      const bw = Math.max(1, Math.ceil(breite / 3)) + RAND_E * 2;
+      const bh = Math.max(1, Math.ceil(hoehe / 3)) + RAND_E * 2;
+      if (blasenEbene.width !== bw || blasenEbene.height !== bh) {
+        blasenEbene.width = bw;
+        blasenEbene.height = bh;
+      }
+    }
     const g2 = blasenEbene.getContext("2d") as CanvasRenderingContext2D;
-    g2.setTransform(dpr, 0, 0, dpr, 0, 0);
-    g2.clearRect(0, 0, breite, hoehe);
+    if (weich) {
+      g2.setTransform(1, 0, 0, 1, 0, 0);
+      g2.fillStyle = grund;
+      g2.fillRect(0, 0, blasenEbene.width, blasenEbene.height);
+      g2.setTransform(mass, 0, 0, mass, RAND_E, RAND_E);
+    } else {
+      g2.setTransform(mass, 0, 0, mass, 0, 0);
+      g2.clearRect(0, 0, breite, hoehe);
+    }
     g2.lineJoin = "round";
     g2.lineCap = "round";
     const rand = Math.max(14, Math.min(34, 24 * Math.sqrt(kamera.s)));
@@ -910,8 +1015,9 @@ export function mountGraph(host: HTMLElement, daten: GraphDaten, opt: GraphOptio
       const h = huelle(glieder.map((i) => p[i]));
       if (h.length === 0) continue;
       const c = clusterFarbe[g.nummer];
-      g2.fillStyle = c;
-      g2.strokeStyle = c;
+      const ton = weich ? mische(grund, c, dunkelAnteil) : c;
+      g2.fillStyle = ton;
+      g2.strokeStyle = ton;
       g2.lineWidth = rand * 2;
       // Weich statt eckig: die Kurve läuft durch die Kantenmitten, die Ecken ziehen nur.
       g2.beginPath();
@@ -972,10 +1078,34 @@ export function mountGraph(host: HTMLElement, daten: GraphDaten, opt: GraphOptio
       }
       namen.push({ text, x: cx, y, farbe: c, box: box(y) });
     }
-    if (gezeichnet) {
-      ctx.globalAlpha = hell ? 0.065 : dunkelDeckung;
+    if (gezeichnet && !weich) {
+      ctx.globalAlpha = 0.065;
       ctx.drawImage(blasenEbene, 0, 0, breite, hoehe);
       ctx.globalAlpha = 1;
+    } else if (gezeichnet) {
+      if (!blasenWeich) blasenWeich = document.createElement("canvas");
+      if (blasenWeich.width !== blasenEbene.width || blasenWeich.height !== blasenEbene.height) {
+        blasenWeich.width = blasenEbene.width;
+        blasenWeich.height = blasenEbene.height;
+      }
+      const g3 = blasenWeich.getContext("2d") as CanvasRenderingContext2D;
+      g3.filter = "none";
+      g3.fillStyle = grund;
+      g3.fillRect(0, 0, blasenWeich.width, blasenWeich.height);
+      g3.filter = `blur(${Math.round(rand / 3 + 6)}px)`;
+      g3.drawImage(blasenEbene, 0, 0);
+      g3.filter = "none";
+      ctx.imageSmoothingQuality = "high";
+      const bw = blasenWeich.width - RAND_E * 2;
+      const bh = blasenWeich.height - RAND_E * 2;
+      ctx.drawImage(blasenWeich, RAND_E, RAND_E, bw, bh, 0, 0, bw * 3, bh * 3);
+      // Ein Korn von einer Farbstufe bricht die Stufen des Verlaufs auf (wie Dithering beim Film):
+      // ohne es zeigt ein heller Schirm im weichen Rand feine Ringe.
+      ctx.save();
+      ctx.setTransform(1, 0, 0, 1, 0, 0);
+      ctx.fillStyle = ctx.createPattern(korn(), "repeat") as CanvasPattern;
+      ctx.fillRect(0, 0, leinwand.width, leinwand.height);
+      ctx.restore();
     }
     return namen;
   }
