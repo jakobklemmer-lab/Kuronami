@@ -323,6 +323,12 @@ html:has(> body.ist-os) {
   grid-template-columns: var(--seite-b) minmax(0, 1fr);
 }
 
+/* Die Spalte selbst muss weg, sonst rutscht sie in eine zweite Rasterzeile und nimmt dem Graphen
+   unten die Höhe (Jakob, 03.10.: „boxed in und nicht über die ganze Ansicht"). */
+.o-raum--arbeit.hat-spalte:has(.o-spalte > .ist-graph) .o-spalte {
+  display: none;
+}
+
 .o-seite {
   display: flex;
   flex-direction: column;

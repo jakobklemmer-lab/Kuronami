@@ -83,7 +83,7 @@ export function mountGraph(
     const s = Math.min(
       2.2,
       (breite - 60) / Math.max(1, maxX - minX),
-      (hoehe - 60) / Math.max(1, maxY - minY),
+      (hoehe - 120) / Math.max(1, maxY - minY),
     );
     kamera.s = Math.max(0.15, s);
     kamera.x = -((minX + maxX) / 2) * kamera.s;
@@ -152,22 +152,53 @@ export function mountGraph(
     });
 
     // Namen: beim Heranzoomen, an großen Knoten, an dem unter der Maus und seinen Nachbarn.
-    ctx.font = `${opt.lokal ? 11 : 12}px Figtree, system-ui, sans-serif`;
+    // Wichtigere zuerst; ein Name, der einen schon gesetzten überdecken würde, entfällt — sonst
+    // liegen bei hundert Notizen alle übereinander.
+    const groesse = opt.lokal ? 11 : 12;
+    ctx.font = `${groesse}px Figtree, system-ui, sans-serif`;
     ctx.textAlign = "center";
     ctx.textBaseline = "top";
-    netz.knoten.forEach((k, i) => {
-      const zeigen =
-        opt.lokal ||
-        k.id === aktiv ||
-        (hervor !== null ? istHell(i) : kamera.s > 1.25 || k.grad >= 7);
-      if (!zeigen) return;
+    const rang = (i: number) =>
+      i === hervor
+        ? 1e6
+        : netz.knoten[i].id === aktiv
+          ? 1e5
+          : (nah?.has(i) ? 1e4 : 0) + netz.knoten[i].grad;
+    const kandidaten = netz.knoten
+      .map((_, i) => i)
+      .filter((i) => {
+        const k = netz.knoten[i];
+        return (
+          opt.lokal ||
+          k.id === aktiv ||
+          (hervor !== null ? istHell(i) : kamera.s > 0.9 || k.grad >= 5)
+        );
+      })
+      .sort((a, b) => rang(b) - rang(a));
+    const gesetzt: Array<[number, number, number, number]> = [];
+    for (const i of kandidaten) {
+      const k = netz.knoten[i];
       const p = zuBild(k.x, k.y);
+      if (p.x < -200 || p.x > breite + 200 || p.y < -40 || p.y > hoehe + 40) continue;
       const r = radius(k.grad) * Math.max(0.7, Math.min(1.6, Math.sqrt(kamera.s)));
+      const text = k.titel.length > 34 ? `${k.titel.slice(0, 33)}…` : k.titel;
+      const w = ctx.measureText(text).width;
+      const box: [number, number, number, number] = [
+        p.x - w / 2 - 3,
+        p.y + r + 2,
+        w + 6,
+        groesse + 5,
+      ];
+      const stoesst = gesetzt.some(
+        ([x, y, bw, bh]) =>
+          box[0] < x + bw && x < box[0] + box[2] && box[1] < y + bh && y < box[1] + box[3],
+      );
+      if (stoesst && i !== hervor && k.id !== aktiv) continue;
+      gesetzt.push(box);
       ctx.globalAlpha = istHell(i) ? (i === hervor ? 1 : 0.82) : 0.12;
       ctx.fillStyle = i === hervor ? fa.schriftHell : fa.schrift;
-      const text = k.titel.length > 34 ? `${k.titel.slice(0, 33)}…` : k.titel;
       ctx.fillText(text, p.x, p.y + r + 4);
-    });
+    }
     ctx.globalAlpha = 1;
   }
 
