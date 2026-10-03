@@ -105,6 +105,9 @@ export function mountFigur(host: HTMLElement): Figur {
   let ziel = { x: 0, y: 0 };
   let lebt = true;
   let rahmen = 0;
+  /** Ob der Takt läuft. Er ruht, sobald der Blick angekommen ist und kein Satellit kreist —
+   * vorher setzte er jedes Bild SVG-Attribute, auch wenn sich nichts bewegte. */
+  let laeuft = false;
 
   const setzeFarbe = (z: Zustand) => {
     wurzel.style.setProperty("--licht", ZUSTAND_FARBE[z]);
@@ -145,9 +148,18 @@ export function mountFigur(host: HTMLElement): Figur {
         satelliten.delete(name);
       }
     }
+    const angekommen = Math.abs(ziel.x - blick.x) + Math.abs(ziel.y - blick.y) < 0.02;
+    if (angekommen && satelliten.size === 0) {
+      laeuft = false;
+      return;
+    }
     rahmen = requestAnimationFrame(takt);
   };
-  rahmen = requestAnimationFrame(takt);
+  const wecke = () => {
+    if (laeuft || !lebt) return;
+    laeuft = true;
+    rahmen = requestAnimationFrame(takt);
+  };
 
   return {
     setzeZustand(z) {
@@ -166,6 +178,7 @@ export function mountFigur(host: HTMLElement): Figur {
       vorn.append(el);
       satelliten.set(name, { el, phase: satelliten.size * 2.1, geht: null });
       wurzel.classList.toggle("hat-satelliten", satelliten.size > 0);
+      wecke();
     },
     bediensteterFertig(name) {
       const s = satelliten.get(name);
@@ -203,6 +216,7 @@ export function mountFigur(host: HTMLElement): Figur {
     schaue(x, y) {
       if (x === null || y === null) {
         ziel = { x: 0, y: 0 };
+        wecke();
         return;
       }
       const r = svg.getBoundingClientRect();
@@ -213,6 +227,7 @@ export function mountFigur(host: HTMLElement): Figur {
       const d = Math.hypot(dx, dy) || 1;
       const weite = Math.min(1, d / 260);
       ziel = { x: (dx / d) * 5 * weite, y: (dy / d) * 4 * weite };
+      wecke();
     },
     destroy() {
       lebt = false;

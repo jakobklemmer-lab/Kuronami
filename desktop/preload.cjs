@@ -18,6 +18,10 @@ contextBridge.exposeInMainWorld("kuroDesktop", {
   beiInselOeffnen(rueckruf) {
     ipcRenderer.on("insel-oeffnen", () => rueckruf());
   },
+  /** Das Hauptfenster ist minimiert oder versteckt (`false`) bzw. wieder da (`true`). */
+  beiSichtbarkeit(rueckruf) {
+    ipcRenderer.on("fenster-sichtbar", (_e, an) => rueckruf(an === true));
+  },
   /** Nur für die Einrichtungsseite. */
   adresseSetzen: (url) => ipcRenderer.invoke("adresse", url),
   adresseLesen: () => ipcRenderer.invoke("adresse-lesen"),

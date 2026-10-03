@@ -276,3 +276,31 @@
     transition: none !important;
   }
 }
+
+/*
+ * In der Statuszeile (40 px) schwebt die ganze Figur als eine Ebene — die Grafikkarte verschiebt
+ * sie, statt jedes Bild das SVG mit seinen Unschärfefiltern neu zu zeichnen. Bei dieser Größe
+ * sieht man den Unterschied zum Atmen im Inneren nicht, den ständigen Neuaufbau aber am Mac.
+ */
+.o-kuro__figur .fg-atem,
+.o-kuro__figur .fg-schatten,
+.o-kuro__figur .fg-leib {
+  animation: none;
+}
+
+.o-kuro__figur .fg {
+  will-change: transform;
+  animation: fg-schweben-klein 4.4s cubic-bezier(0.45, 0, 0.55, 1) infinite alternate;
+}
+
+@keyframes fg-schweben-klein {
+  to {
+    transform: translateY(-1.5px);
+  }
+}
+
+/* Im Raum Kuro ist er unsichtbar — dann ruht er ganz. */
+.o-os[data-raum="kuro"] .o-kuro__figur .fg,
+.o-os[data-raum="kuro"] .o-kuro__figur .fg * {
+  animation-play-state: paused;
+}

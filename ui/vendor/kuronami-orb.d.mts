@@ -40,6 +40,9 @@ export declare class KuronamiOrb extends EventTarget {
   readonly state: OrbState;
   readonly renderer: { forceContextLoss(): void };
   setState(state: OrbState, options?: { detail?: string; force?: boolean }): void;
+  /** Hält das Zeichnen an (z. B. wenn das Fenster minimiert ist). */
+  pause(): void;
+  resume(): void;
   pulse(strength?: number): void;
   flash(color?: string | null, strength?: number): void;
   bindInput(el: HTMLElement): () => void;

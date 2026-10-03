@@ -1311,3 +1311,10 @@ body.ist-sprechtaste .o-eingabe__mikro,
     animation: none;
   }
 }
+
+/* Die Desktop-App ist minimiert: keine Animation läuft weiter (`start.ts`). */
+.ist-verborgen *,
+.ist-verborgen *::before,
+.ist-verborgen *::after {
+  animation-play-state: paused !important;
+}

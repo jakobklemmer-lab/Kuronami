@@ -90,6 +90,32 @@ export function transpile(source: string, fileName: string): string {
   return result.outputText;
 }
 
+/**
+ * Wie `transpile`, aber mit der Quelltext-Karte als eigener Datei statt eingebettet: der Browser
+ * lädt sie nur, wenn die Entwicklerwerkzeuge offen sind. Eingebettet verdreifachte sie jede Datei.
+ */
+export function transpileMitKarte(
+  source: string,
+  fileName: string,
+): { js: string; karte: string | null } {
+  const result = ts.transpileModule(source, {
+    compilerOptions: {
+      ...TRANSPILE.compilerOptions,
+      inlineSourceMap: false,
+      sourceMap: true,
+      inlineSources: true,
+    },
+    fileName,
+  });
+  if (result.diagnostics !== undefined && result.diagnostics.length > 0) {
+    const messages = result.diagnostics
+      .map((diagnostic) => ts.flattenDiagnosticMessageText(diagnostic.messageText, " "))
+      .join("; ");
+    throw new Error(`${fileName}: ${messages}`);
+  }
+  return { js: result.outputText, karte: result.sourceMapText ?? null };
+}
+
 /** Liest `<name>.ts` unter `ui/` und gibt das übersetzte JavaScript zurück. */
 export async function transpileFile(relativeTsPath: string): Promise<string> {
   const absolute = path.join(UI_ROOT, relativeTsPath);
@@ -126,4 +152,37 @@ export function resolveInUi(urlPath: string): string | null {
   const root = path.resolve(UI_ROOT);
   if (candidate !== root && !candidate.startsWith(root + path.sep)) return null;
   return candidate;
+}
+
+// ------------------------------------------------------------------ Versionen und Vorladen
+
+/** Relative Modul-Angaben (`./x.js`, `../y.mjs`) in `import`/`export … from`/`import()`. */
+const MODUL_ANGABE = /(\bfrom\s*|\bimport\s*\(\s*|\bimport\s+)(["'])(\.\.?\/[^"'?]+?\.m?js)\2/g;
+
+/**
+ * Hängt jeder relativen Modul-Angabe den Stand an (`./x.js?v=abc`). So hat jede Datei eine
+ * Adresse, die sich mit ihrem Inhalt ändert — und der Browser darf sie für immer behalten.
+ */
+export function versioniere(code: string, stand: string): string {
+  return code.replace(
+    MODUL_ANGABE,
+    (_m, vor: string, q: string, pfad: string) => `${vor}${q}${pfad}?v=${stand}${q}`,
+  );
+}
+
+/** Die statischen Importe eines Moduls (ohne `import()`, das lädt erst bei Bedarf), auch schon
+ * versionierte (`./x.js?v=…` — der Stand fällt dabei weg). */
+export function statischeImporte(code: string): string[] {
+  const funde: string[] = [];
+  for (const m of code.matchAll(
+    /(\bfrom\s*|\bimport\s+)(["'])(\.\.?\/[^"'?]+?\.m?js)(?:\?[^"']*)?\2/g,
+  )) {
+    funde.push(m[3]);
+  }
+  return funde;
+}
+
+/** Eine relative Angabe gegen den Pfad des einbindenden Moduls auflösen (URL-Pfade, `/`-getrennt). */
+export function loeseModulPfad(von: string, angabe: string): string {
+  return path.posix.normalize(path.posix.join(path.posix.dirname(von), angabe));
 }

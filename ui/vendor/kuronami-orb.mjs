@@ -1652,6 +1652,9 @@ export class KuronamiOrb extends EventTarget {
       this._last = 0;
       return;
     }
+    // Höchstens 60 Bilder je Sekunde, in Ruhe 30: ein 120-Hz-Schirm (MacBook Pro) zeichnete den
+    // Orb sonst 120-mal in der Sekunde, auch wenn er nur langsam atmet.
+    if (this._last && now - this._last < (this._visual === 'idle' ? 31 : 14)) return;
     const dt = this._last ? Math.min(0.05, Math.max(0.001, (now - this._last) / 1000)) : 1 / 60;
     this._last = now;
     const motion = this._reduced ? 0.35 : 1;

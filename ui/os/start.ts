@@ -23,6 +23,8 @@ interface KuroDesktop {
   plattform: string;
   beiSprechtaste(rueckruf: (an: boolean) => void): void;
   beiInselOeffnen(rueckruf: () => void): void;
+  /** Ältere Fassungen der App kennen das noch nicht. */
+  beiSichtbarkeit?(rueckruf: (an: boolean) => void): void;
 }
 declare global {
   interface Window {
@@ -156,6 +158,12 @@ function verbindeDesktop(
     globalThis.dispatchEvent(new CustomEvent("kuro:sprechtaste", { detail: { an } }));
   });
   desktop.beiInselOeffnen(() => globalThis.dispatchEvent(new Event("kuro:insel")));
+  // Minimiert: Orb und Animationen ruhen (die App drosselt den Hintergrund nicht, wegen der
+  // Sprachsitzung — also hält die Seite selbst still).
+  desktop.beiSichtbarkeit?.((an) => {
+    document.body.classList.toggle("ist-verborgen", !an);
+    globalThis.dispatchEvent(new CustomEvent("kuro:fenster", { detail: { sichtbar: an } }));
+  });
   globalThis.setInterval(() => {
     if (
       vonTaste &&

@@ -75,12 +75,15 @@ let tray = null;
 let beenden = false;
 
 function erstelleHaupt() {
+  // Gleich so groß wie der Arbeitsbereich und sofort sichtbar (03.10.): vorher wartete die App
+  // auf das erste Bild der Seite vom Server und zog das Fenster dann mit der Maximier-Animation
+  // auf — beides zusammen fühlte sich am Mac nach „Start dauert ewig" an.
+  const { workArea } = screen.getPrimaryDisplay();
   haupt = new BrowserWindow({
-    width: 1440,
-    height: 900,
+    ...workArea,
     minWidth: 960,
     minHeight: 620,
-    show: false,
+    show: true,
     backgroundColor: "#0d0c0a",
     title: "Kuro OS",
     // Oben ist in Kuro OS nichts (4c, alles steht in der Statuszeile unten); die Seite lässt einen
@@ -96,10 +99,6 @@ function erstelleHaupt() {
       // Die Sprachsitzung läuft weiter, wenn ein anderes Programm vorn ist.
       backgroundThrottling: false,
     },
-  });
-  haupt.once("ready-to-show", () => {
-    haupt?.maximize();
-    haupt?.show();
   });
   const ziel = osAdresse();
   if (ziel) void haupt.loadURL(ziel);
@@ -123,21 +122,42 @@ function erstelleHaupt() {
     });
   });
 
-  // Schließen heißt verstecken: Sprechtaste und Mitteilungen bleiben, bis „Beenden" (⌘Q).
-  // Im Vollbild erst heraus, sonst bleibt am Mac ein schwarzer Bildschirm stehen (03.10.).
+  // Der rote Knopf beendet die App (Jakob, 03.10.: „beendet die App nicht, minimiert nur").
+  // Wer Kuro im Hintergrund behalten will, nimmt den gelben. Im Vollbild erst heraus, sonst
+  // bleibt am Mac ein schwarzer Bildschirm stehen.
   haupt.on("close", (e) => {
     if (beenden) return;
     e.preventDefault();
+    beenden = true;
+    // Einen Takt später: mitten im Schließen-Ereignis verschluckt Electron das Beenden.
     if (haupt?.isFullScreen()) {
-      haupt.once("leave-full-screen", () => haupt?.hide());
+      haupt.once("leave-full-screen", () => setImmediate(() => app.quit()));
       haupt.setFullScreen(false);
     } else {
-      haupt?.hide();
+      setImmediate(() => app.quit());
     }
   });
   for (const art of ["focus", "blur", "show", "hide", "minimize", "restore"]) {
     haupt.on(art, () => aktualisiereBegleiter());
   }
+  // Minimiert oder versteckt ruht der Orb: ohne Hintergrund-Drosselung (für die Sprachsitzung)
+  // zeichnete er sonst weiter, als wäre das Fenster vorn.
+  for (const [art, an] of [
+    ["minimize", false],
+    ["hide", false],
+    ["restore", true],
+    ["show", true],
+  ]) {
+    haupt.on(art, () => haupt?.webContents.send("fenster-sichtbar", an));
+  }
+  // Der Begleiter kommt erst, wenn Kuro OS steht — beim Start ist das Hauptfenster vorn und er
+  // ohnehin versteckt, lädt aber eine zweite Seite mit, die um dieselbe Leitung konkurriert.
+  haupt.webContents.once("did-finish-load", () => {
+    setTimeout(() => {
+      erstelleBegleiter();
+      aktualisiereBegleiter();
+    }, 2500);
+  });
 }
 
 function zeigeHaupt() {
@@ -560,11 +580,9 @@ if (!app.requestSingleInstanceLock()) {
     session.defaultSession.setPermissionCheckHandler((_wc, permission, origin) =>
       darf(permission, origin),
     );
-    if (MAC) await systemPreferences.askForMediaAccess("microphone").catch(() => false);
-
     erstelleHaupt();
-    erstelleBegleiter();
-    aktualisiereBegleiter();
+    // Erst das Fenster, dann die Frage nach dem Mikrofon — sie hielt den Start sonst auf.
+    if (MAC) void systemPreferences.askForMediaAccess("microphone").catch(() => false);
     for (const art of ["display-added", "display-removed", "display-metrics-changed"]) {
       screen.on(art, holeAufSchirm);
     }

@@ -103,6 +103,12 @@ function mountOrb(host: HTMLElement, motto: string): Sphaere {
   });
   let zustand: Zustand = "ruhe";
   const bedienstete = new Set<string>();
+  // Die Desktop-App meldet, wenn ihr Fenster minimiert ist; dann ruht der Orb ganz.
+  const beimFenster = (e: Event) => {
+    if ((e as CustomEvent<{ sichtbar: boolean }>).detail?.sichtbar === false) orb.pause();
+    else orb.resume();
+  };
+  globalThis.addEventListener("kuro:fenster", beimFenster);
 
   return {
     get zustand() {
@@ -145,6 +151,7 @@ function mountOrb(host: HTMLElement, motto: string): Sphaere {
       orb.addEventListener("orbclick", fn);
     },
     destroy() {
+      globalThis.removeEventListener("kuro:fenster", beimFenster);
       orb.dispose();
       // `dispose` gibt Puffer und Shader frei, nicht den Kontext. Ein Browser hält nur eine
       // Handvoll WebGL-Kontexte offen; wer oft zwischen den Ansichten wechselt, verlöre sonst
