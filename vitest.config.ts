@@ -12,7 +12,15 @@ export default defineConfig({
     // `voice/` bleibt draußen: die Sprachschicht ist Python und wird über
     // `docker compose run --rm voice-test` gefahren.
     include: ["**/*.test.ts"],
-    exclude: ["node_modules", "dist", "build", "voice/**", "desktop/**", "workspace/**"],
+    exclude: [
+      "node_modules",
+      "dist",
+      "build",
+      "voice/**",
+      "desktop/node_modules/**",
+      "desktop/dist/**",
+      "workspace/**",
+    ],
     setupFiles: ["./vitest.setup.ts"],
   },
 });
