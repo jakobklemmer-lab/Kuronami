@@ -37,7 +37,7 @@ export interface GraphDaten {
   offen?: Array<[string, string]>;
 }
 
-export type Stil = "glut" | "galaxie" | "neon" | "tusche";
+export type Stil = "ruhig" | "glut" | "galaxie" | "tusche";
 export type GroesseNach = "rang" | "links" | "pagerank" | "gleich";
 export type FarbeNach = "ordner" | "cluster" | "geaendert" | "erstellt";
 export type Modus = "uebersicht" | "fokus" | "erkunden" | "zeitreise";
@@ -72,7 +72,7 @@ export interface Darstellung {
 
 /** Die Vorgaben — abgestimmt am Bild, damit es ohne Einstellen gut aussieht (Jakob, 03.10.). */
 export const VORGABE: Darstellung = {
-  stil: "galaxie",
+  stil: "ruhig",
   groesseNach: "links",
   farbeNach: "cluster",
   ebenen: {
@@ -102,6 +102,25 @@ interface StilDef {
 }
 
 export const STILE: Record<Stil, StilDef> = {
+  // Die Vorgabe (Jakob, 03.10.: die leuchtenden Kugeln wirkten „zu viel, überladen"): flache
+  // Punkte wie in Obsidian, gedämpfte Farben, kein Schein.
+  ruhig: {
+    name: "Ruhig",
+    palette: [
+      "#9d92e6",
+      "#7fb6d9",
+      "#d79ac0",
+      "#8fcfb8",
+      "#d6bd86",
+      "#8b9be0",
+      "#b7a0dc",
+      "#86c9d1",
+    ],
+    schein: 0,
+    getoent: false,
+    kantenAlpha: 0.13,
+    kugel: false,
+  },
   glut: {
     name: "Glut",
     palette: [
@@ -114,10 +133,10 @@ export const STILE: Record<Stil, StilDef> = {
       "#f2d36b",
       "#f59ac8",
     ],
-    schein: 0.8,
+    schein: 0,
     getoent: false,
     kantenAlpha: 0.13,
-    kugel: true,
+    kugel: false,
   },
   galaxie: {
     name: "Galaxie",
@@ -135,23 +154,6 @@ export const STILE: Record<Stil, StilDef> = {
     getoent: true,
     kantenAlpha: 0.2,
     kugel: true,
-  },
-  neon: {
-    name: "Neon",
-    palette: [
-      "#00f0ff",
-      "#ff2bd6",
-      "#b6ff3b",
-      "#ffb800",
-      "#7c5cff",
-      "#00ff9c",
-      "#ff5f5f",
-      "#4d9bff",
-    ],
-    schein: 0.85,
-    getoent: true,
-    kantenAlpha: 0.28,
-    kugel: false,
   },
   tusche: {
     name: "Tusche",
@@ -276,6 +278,7 @@ export function mountGraph(host: HTMLElement, daten: GraphDaten, opt: GraphOptio
   const ctx = leinwand.getContext("2d") as CanvasRenderingContext2D;
   const lokal = opt.lokal === true;
   let d = mischeDarstellung(VORGABE, opt.darstellung);
+  if (!STILE[d.stil]) d.stil = VORGABE.stil;
   // Im kleinen Graphen gibt es meist nur einen Cluster — dort trägt der Ordner die Farbe.
   if (lokal)
     d = mischeDarstellung(d, {
@@ -580,9 +583,9 @@ export function mountGraph(host: HTMLElement, daten: GraphDaten, opt: GraphOptio
     if (lokal && k.id === aktiv) return 9;
     switch (d.groesseNach) {
       case "links":
-        return 2.8 + normLinks[i] * 13.5;
+        return 2.6 + normLinks[i] * 9.5;
       case "pagerank":
-        return 2.8 + normRang[i] * 13.5;
+        return 2.6 + normRang[i] * 9.5;
       case "gleich":
         return 4.5;
       default: {
@@ -848,11 +851,11 @@ export function mountGraph(host: HTMLElement, daten: GraphDaten, opt: GraphOptio
 
     zeichneNamen(sicht, alpha, p, blasenNamen);
     for (const b of blasenNamen) {
-      ctx.font = "600 11px Figtree, system-ui, sans-serif";
+      ctx.font = "600 10.5px Figtree, system-ui, sans-serif";
       ctx.textAlign = "center";
       ctx.textBaseline = "middle";
       ctx.fillStyle = b.farbe;
-      ctx.globalAlpha = schwebe === null ? 0.85 : 0.3;
+      ctx.globalAlpha = schwebe === null ? 0.6 : 0.25;
       ctx.letterSpacing = "1.8px";
       ctx.fillText(b.text, b.x, b.y);
       ctx.letterSpacing = "0px";
@@ -886,8 +889,8 @@ export function mountGraph(host: HTMLElement, daten: GraphDaten, opt: GraphOptio
       const r = Math.max(46, (ab[Math.floor(ab.length * 0.85)] ?? 0) * 1.12 + 22);
       const c = clusterFarbe[g.nummer];
       const v = ctx.createRadialGradient(cx, cy, r * 0.2, cx, cy, r);
-      v.addColorStop(0, `${c}${hell ? "10" : "12"}`);
-      v.addColorStop(0.75, `${c}${hell ? "0c" : "0b"}`);
+      v.addColorStop(0, `${c}${hell ? "0b" : "0a"}`);
+      v.addColorStop(0.75, `${c}${hell ? "08" : "07"}`);
       v.addColorStop(1, `${c}00`);
       ctx.fillStyle = v;
       ctx.beginPath();
@@ -1096,18 +1099,21 @@ export function mountGraph(host: HTMLElement, daten: GraphDaten, opt: GraphOptio
 
   function zeichneFaecher(p: Array<{ x: number; y: number }>, jetzt: number) {
     if (erkundenBei === null) return;
+    const stil = STILE[d.stil];
     const t = Math.max(0, Math.min(1, (jetzt - fanStart) / 320));
     const a0 = sanft(t);
     const m = p[erkundenBei];
     const L = strahlLaenge() * (0.55 + 0.45 * a0);
     // Die Notiz in der Mitte, groß.
-    const rm = Math.max(17, Math.min(26, bildRadius(erkundenBei) * 1.6));
-    ctx.globalCompositeOperation = hell ? "source-over" : "lighter";
-    ctx.globalAlpha = 0.9;
-    ctx.drawImage(schein(farbe[erkundenBei]), m.x - rm * 5, m.y - rm * 5, rm * 10, rm * 10);
-    ctx.globalCompositeOperation = "source-over";
+    const rm = Math.max(12, Math.min(18, bildRadius(erkundenBei) * 1.4));
+    if (stil.schein > 0) {
+      ctx.globalCompositeOperation = hell ? "source-over" : "lighter";
+      ctx.globalAlpha = 0.9;
+      ctx.drawImage(schein(farbe[erkundenBei]), m.x - rm * 5, m.y - rm * 5, rm * 10, rm * 10);
+      ctx.globalCompositeOperation = "source-over";
+    }
     ctx.globalAlpha = 1;
-    ctx.drawImage(kugel(farbe[erkundenBei], true), m.x - rm, m.y - rm, rm * 2, rm * 2);
+    ctx.drawImage(kugel(farbe[erkundenBei], stil.kugel), m.x - rm, m.y - rm, rm * 2, rm * 2);
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";
     ctx.font = "600 17px Figtree, system-ui, sans-serif";
@@ -1133,12 +1139,12 @@ export function mountGraph(host: HTMLElement, daten: GraphDaten, opt: GraphOptio
       ctx.stroke();
       const r = Math.max(4, Math.min(10, bildRadius(s.i))) * (ziel ? 1.35 : 1);
       ctx.globalAlpha = a0 * (zielStrahl === null || ziel ? 1 : 0.45);
-      if (ziel) {
+      if (ziel && stil.schein > 0) {
         ctx.globalCompositeOperation = hell ? "source-over" : "lighter";
         ctx.drawImage(schein(farbe[s.i]), ex - r * 4.5, ey - r * 4.5, r * 9, r * 9);
         ctx.globalCompositeOperation = "source-over";
       }
-      ctx.drawImage(kugel(farbe[s.i], true), ex - r, ey - r, r * 2, r * 2);
+      ctx.drawImage(kugel(farbe[s.i], stil.kugel), ex - r, ey - r, r * 2, r * 2);
       // Name außen am Strahl, mit Richtung: → ausgehend, ← eingehend, ↔ beides.
       const pfeil = s.richtung === "beide" ? "↔" : s.richtung === "aus" ? "→" : "←";
       const titel = netz.knoten[s.i].titel;

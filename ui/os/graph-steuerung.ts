@@ -20,7 +20,7 @@ import {
  * gewählten Notiz, Zeitleiste, Erkunden-Pfad und Legende. Was Jakob einstellt, bleibt gemerkt.
  */
 
-const SPEICHER = "kuronami.brain.graph.v1";
+const SPEICHER = "kuronami.brain.graph.v2";
 const PINS = "kuronami.brain.pins.v1";
 
 interface Gemerkt {
