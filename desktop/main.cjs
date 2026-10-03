@@ -123,11 +123,17 @@ function erstelleHaupt() {
     });
   });
 
-  // Schließen heißt verstecken: Sprechtaste und Mitteilungen bleiben, bis „Beenden".
+  // Schließen heißt verstecken: Sprechtaste und Mitteilungen bleiben, bis „Beenden" (⌘Q).
+  // Im Vollbild erst heraus, sonst bleibt am Mac ein schwarzer Bildschirm stehen (03.10.).
   haupt.on("close", (e) => {
     if (beenden) return;
     e.preventDefault();
-    haupt?.hide();
+    if (haupt?.isFullScreen()) {
+      haupt.once("leave-full-screen", () => haupt?.hide());
+      haupt.setFullScreen(false);
+    } else {
+      haupt?.hide();
+    }
   });
   for (const art of ["focus", "blur", "show", "hide", "minimize", "restore"]) {
     haupt.on(art, () => aktualisiereBegleiter());
