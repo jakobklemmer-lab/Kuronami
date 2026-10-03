@@ -113,8 +113,10 @@ const BUDGET_JE_AUFTRAG = Number(process.env.KURO_BUDGET_AUFTRAG_USD ?? 2);
  * nie in einem Atemzug antwortet, wird zugesagt und nachgereicht.
  */
 const GEDULD_MS: Record<string, number> = {
-  korrespondenz: Number(process.env.KURO_GEDULD_KORRESPONDENZ_MS ?? 25_000),
-  recherche: Number(process.env.KURO_GEDULD_RECHERCHE_MS ?? 20_000),
+  // 03.10.: 25 s Geduld hieß 31 s Stille, bevor Kuro „ich lasse nachsehen" sagte — der
+  // Sekretär brauchte dann doch 43 s. Kürzer warten, früher zusagen, Bericht kommt nach.
+  korrespondenz: Number(process.env.KURO_GEDULD_KORRESPONDENZ_MS ?? 10_000),
+  recherche: Number(process.env.KURO_GEDULD_RECHERCHE_MS ?? 12_000),
   boerse: Number(process.env.KURO_GEDULD_BOERSE_MS ?? 4_000),
   werkstatt: Number(process.env.KURO_GEDULD_WERKSTATT_MS ?? 4_000),
   // Ein Journaleintrag sind ein paar Aufrufe an Notion, keine Recherche. Hier lohnt das

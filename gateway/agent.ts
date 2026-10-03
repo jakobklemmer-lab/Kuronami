@@ -4,10 +4,13 @@ import { homedir } from "node:os";
 import path from "node:path";
 import {
   type CanUseTool,
+  type Options,
   type PermissionResult,
   type SDKMessage,
   type SDKRateLimitInfo,
+  type WarmQuery,
   query,
+  startup,
 } from "@anthropic-ai/claude-agent-sdk";
 import { BEDIENSTETE, HANDELSTISCH } from "../context/bedienstete.js";
 import { KURO_PERSONA } from "../context/persona.js";
@@ -326,6 +329,22 @@ export class KuroAgent {
    * durch ein nacktes „Abgebrochen.".
    */
   #stroemt = "";
+  /**
+   * Der nächste Lauf, schon gestartet: Claude-Prozess geladen, Sitzung gelesen, Werkzeuge
+   * verbunden. Gemessen 03.10.: das spart vor jedem Zug rund eine Sekunde bis zum ersten Wort
+   * (2,3 s → 1,3 s). Gilt nur für genau den Stand, für den er gewärmt wurde — `stempel` ist
+   * die Zahl der Züge bis dahin; ein Prozess, der den letzten Zug nicht kennt, darf nicht
+   * antworten, sonst fehlte ihm das zuletzt Gesagte.
+   */
+  #vorgewaermt: {
+    warm: WarmQuery;
+    abbruch: AbortController;
+    schluessel: string;
+    stempel: number;
+  } | null = null;
+  #zuege = 0;
+  /** Wem eine Rückfrage im laufenden Zug gilt — der vorgewärmte Lauf kennt ihn noch nicht. */
+  #ursprung: Sender | null = null;
 
   constructor(deps: AgentDeps) {
     this.#deps = deps;
@@ -542,6 +561,8 @@ export class KuroAgent {
       this.#sessionId = null;
       this.#kontext = null;
       await rm(path.join(this.#workdir, SITZUNGSDATEI), { force: true });
+      this.#zuege += 1;
+      this.#waermeVor();
       this.#deps.publish?.("gespraech.archiviert", { ...ergebnis, anlass });
       return { status: "archiviert" as const, ergebnis };
     });
@@ -661,6 +682,109 @@ export class KuroAgent {
   async start(): Promise<void> {
     await mkdir(this.#workdir, { recursive: true });
     this.#sessionId = await leseSitzung(this.#workdir);
+    this.#waermeVor();
+  }
+
+  /**
+   * Die Optionen eines Zugs von Kuro. Der Schlüssel fasst zusammen, wovon sie abhängen — ein
+   * vorgewärmter Lauf mit anderem Schlüssel (neue Übergabe, neue Sitzung, anderes Modell) wird
+   * verworfen.
+   */
+  async #optionen(abbruch: AbortController): Promise<{ options: Options; schluessel: string }> {
+    // Ein **eigener** Prompt statt des `claude_code`-Presets. Der Preset brachte rund
+    // 44.000 Token Programmieranleitung mit, die bei jeder Nachricht mitliefen — auch
+    // bei „wie ist das Wetter" — und die den Butler-Ton übertönten. Siehe persona.ts.
+    // Dahinter die Übergabe aus dem letzten Gespräch — fest im Prompt, nicht als Hinweis
+    // auf eine Datei: den übergeht er, wenn er gerade etwas anderes vorhat.
+    const prompt =
+      KURO_PERSONA +
+      (await this.#gespraeche.uebergabeAbschnitt()) +
+      (await startAbschnitt(this.#workdir));
+    const model = this.#deps.model ?? process.env.KURO_MODEL?.trim();
+    // Denkaufwand niedrig (03.10.): auf „welche Agenten sind in der Börse" dachte er 8,5 s
+    // nach, nach einer Kalender-Tafel 13 s — für einen Butler, der Schweres ohnehin an sein
+    // Personal gibt, ist das nur Wartezeit. `KURO_EFFORT` stellt es um.
+    const effort = (process.env.KURO_EFFORT?.trim() || "low") as Options["effort"];
+    const mitVersand = konten().length > 0;
+    const kalender = kalenderDienst();
+    const options: Options = {
+      cwd: this.#workdir,
+      model,
+      systemPrompt: { type: "custom", prompt },
+      effort,
+      // Lädt CLAUDE.md aus dem Arbeitsbereich — Kuros Hausregeln.
+      settingSources: ["project"],
+      // Keine Connectoren aus Jakobs claude.ai-Konto — siehe `abschottung.ts`.
+      ...nurEigeneServer(),
+      allowedTools: ALLOWED_WITHOUT_ASKING,
+      tools: eingebaute(ALLOWED_WITHOUT_ASKING),
+      disallowedTools: NICHT_FUER_EINEN_BUTLER,
+      // Das Gesindehaus als ein einzelnes Werkzeug. Die Bediensteten selbst laufen
+      // dahinter in eigenen Läufen (`haus.ts`) — ihre Werkzeuge stehen nicht in Kuros
+      // Katalog, und was sie lesen und denken, landet nicht in seinem Kontext.
+      mcpServers: {
+        haus: this.#haus.server,
+        buehne: this.#buehne,
+        gedaechtnis: this.#gedaechtnis,
+        // Der Versand liegt bei Kuro, nicht beim Sekretär — und steht bewusst **nicht**
+        // in `ALLOWED_WITHOUT_ASKING`. Er fragt also vor jeder Mail, die hinausgeht.
+        ...(mitVersand ? { versand: createSendePostfach() } : {}),
+        ...(kalender ? { kalender: createKalenderWerkzeuge(kalender) } : {}),
+      },
+      // Obergrenze für Kuros eigenen Lauf. Die Aufträge an Bedienstete haben je eine
+      // eigene (`haus.ts`), damit ein Bauauftrag nicht sein Gesprächsbudget aufzehrt.
+      maxBudgetUsd: Number(process.env.KURO_BUDGET_USD ?? 3),
+      canUseTool: (name, input, o) =>
+        this.#fragen(this.#ursprung ?? (this.#letzterSender as Sender))(name, input, o),
+      abortController: abbruch,
+      includePartialMessages: true,
+      ...(this.#sessionId ? { resume: this.#sessionId } : {}),
+    };
+    const schluessel = JSON.stringify([
+      this.#sessionId,
+      model,
+      effort,
+      prompt,
+      mitVersand,
+      Boolean(kalender),
+      process.env.KURO_BUDGET_USD ?? "",
+    ]);
+    return { options, schluessel };
+  }
+
+  /**
+   * Den nächsten Zug vorbereiten, sobald keiner läuft. Kurz gewartet, damit der eben beendete
+   * Prozess seine Werkzeug-Verbindungen sicher losgelassen hat.
+   */
+  #waermeVor(): void {
+    if (process.env.KURO_VORWAERMEN === "aus") return;
+    this.#verwirfVorgewaermt();
+    const stempel = this.#zuege;
+    const uhr = setTimeout(() => {
+      if (stempel !== this.#zuege || this.#vorgewaermt) return;
+      const abbruch = new AbortController();
+      void this.#optionen(abbruch)
+        .then(async ({ options, schluessel }) => {
+          const warm = await startup({ options, initializeTimeoutMs: 30_000 });
+          // Inzwischen lief ein Zug: dieser Prozess kennt ihn nicht.
+          if (stempel !== this.#zuege || this.#vorgewaermt) {
+            warm.close();
+            return;
+          }
+          this.#vorgewaermt = { warm, abbruch, schluessel, stempel };
+        })
+        .catch((error) => console.warn("[gateway] Vorwärmen misslungen:", error));
+    }, 1500);
+    uhr.unref?.();
+  }
+
+  #verwirfVorgewaermt(): void {
+    try {
+      this.#vorgewaermt?.warm.close();
+    } catch {
+      // schon zu
+    }
+    this.#vorgewaermt = null;
   }
 
   /**
@@ -762,62 +886,37 @@ export class KuroAgent {
     const zug = this.#zug(message);
     this.#absatzOffen = false;
     this.#deps.publish?.("turn.started", zug);
-    const abbruch = new AbortController();
+    this.#ursprung = origin;
+    // Ein vorgewärmter Lauf gilt nur, wenn seit ihm kein Zug lief und seine Optionen noch stimmen.
+    const vorbereitet = this.#vorgewaermt;
+    this.#vorgewaermt = null;
+    const frisch = await this.#optionen(new AbortController());
+    let abbruch: AbortController;
+    let strom: AsyncIterable<SDKMessage>;
+    if (
+      vorbereitet &&
+      vorbereitet.stempel === this.#zuege &&
+      vorbereitet.schluessel === frisch.schluessel
+    ) {
+      abbruch = vorbereitet.abbruch;
+      strom = vorbereitet.warm.query(renderEingabe(message));
+    } else {
+      if (vorbereitet) {
+        try {
+          vorbereitet.warm.close();
+        } catch {
+          // schon zu
+        }
+      }
+      abbruch = frisch.options.abortController as AbortController;
+      strom = query({ prompt: renderEingabe(message), options: frisch.options });
+    }
+    this.#zuege += 1;
     this.#abbruch = abbruch;
     this.#stroemt = "";
 
     try {
-      for await (const nachricht of query({
-        prompt: renderEingabe(message),
-        options: {
-          cwd: this.#workdir,
-          model: this.#deps.model ?? process.env.KURO_MODEL?.trim(),
-          // Ein **eigener** Prompt statt des `claude_code`-Presets. Der Preset brachte rund
-          // 44.000 Token Programmieranleitung mit, die bei jeder Nachricht mitliefen — auch
-          // bei „wie ist das Wetter" — und die den Butler-Ton übertönten. Siehe persona.ts.
-          // Dahinter die Übergabe aus dem letzten Gespräch — fest im Prompt, nicht als Hinweis
-          // auf eine Datei: den übergeht er, wenn er gerade etwas anderes vorhat.
-          systemPrompt: {
-            type: "custom",
-            prompt:
-              KURO_PERSONA +
-              (await this.#gespraeche.uebergabeAbschnitt()) +
-              (await startAbschnitt(this.#workdir)),
-          },
-          // Lädt CLAUDE.md aus dem Arbeitsbereich — Kuros Hausregeln.
-          settingSources: ["project"],
-          // Keine Connectoren aus Jakobs claude.ai-Konto — siehe `abschottung.ts`.
-          ...nurEigeneServer(),
-          allowedTools: ALLOWED_WITHOUT_ASKING,
-          tools: eingebaute(ALLOWED_WITHOUT_ASKING),
-          disallowedTools: NICHT_FUER_EINEN_BUTLER,
-          // Das Gesindehaus als ein einzelnes Werkzeug. Die Bediensteten selbst laufen
-          // dahinter in eigenen Läufen (`haus.ts`) — ihre Werkzeuge stehen nicht in Kuros
-          // Katalog, und was sie lesen und denken, landet nicht in seinem Kontext.
-          mcpServers: {
-            haus: this.#haus.server,
-            buehne: this.#buehne,
-            gedaechtnis: this.#gedaechtnis,
-            // Der Versand liegt bei Kuro, nicht beim Sekretär — und steht bewusst **nicht**
-            // in `ALLOWED_WITHOUT_ASKING`. Er fragt also vor jeder Mail, die hinausgeht.
-            ...(konten().length > 0 ? { versand: createSendePostfach() } : {}),
-            ...(kalenderDienst()
-              ? {
-                  kalender: createKalenderWerkzeuge(
-                    kalenderDienst() as NonNullable<ReturnType<typeof kalenderDienst>>,
-                  ),
-                }
-              : {}),
-          },
-          // Obergrenze für Kuros eigenen Lauf. Die Aufträge an Bedienstete haben je eine
-          // eigene (`haus.ts`), damit ein Bauauftrag nicht sein Gesprächsbudget aufzehrt.
-          maxBudgetUsd: Number(process.env.KURO_BUDGET_USD ?? 3),
-          canUseTool: this.#fragen(origin),
-          abortController: abbruch,
-          includePartialMessages: true,
-          ...(this.#sessionId ? { resume: this.#sessionId } : {}),
-        },
-      })) {
+      for await (const nachricht of strom) {
         const stueck = this.#verarbeite(nachricht, zug);
         // Mit Absatz trennen: Kuro spricht oft zweimal — einmal beim Abschicken eines
         // Auftrags („ich lasse das ansehen"), einmal beim Vortragen des Ergebnisses. Ohne
@@ -842,6 +941,8 @@ export class KuroAgent {
       };
     } finally {
       if (this.#abbruch === abbruch) this.#abbruch = null;
+      // Der nächste Zug steht bereit, bevor Jakob weiterspricht.
+      this.#waermeVor();
     }
     // Das SDK beendet einen abgebrochenen Lauf nicht immer mit einem Fehler.
     if (abbruch.signal.aborted) return this.#abgebrochen(origin, zug, text);
