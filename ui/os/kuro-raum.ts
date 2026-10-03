@@ -74,6 +74,8 @@ export function mountKuroRaum(el: HTMLElement, opt: KuroRaumOptionen): KuroRaum 
         <p class="kr-tag__saetze" data-role="kr-heute">${QUELLEN.map(([q]) => `<span data-quelle="${q}" hidden></span>`).join("")}</p>
       </header>
       <section class="kr-gespraech" aria-label="Gespräch">
+        <button type="button" class="kr-leeren" data-role="kr-leeren"
+                title="Leert nur diese Ansicht — Kuro erinnert sich weiter.">Gespräch leeren</button>
         <div class="kr-faden" data-role="kr-faden" aria-live="polite"></div>
       </section>
       ${eingabeHtml("kr-form", "o-eingabe--gross")}
@@ -128,6 +130,9 @@ export function mountKuroRaum(el: HTMLElement, opt: KuroRaumOptionen): KuroRaum 
     beiLeere: (leer) => el.classList.toggle("ist-still", leer),
   });
   fadenEl.scrollTop = fadenEl.scrollHeight;
+  const leerenEl = q<HTMLButtonElement>("kr-leeren");
+  const leeren = () => gespraech.leere();
+  leerenEl.addEventListener("click", leeren);
 
   // ------------------------------------------------------------------ Gruß
   const datumEl = q<HTMLElement>("kr-datum");
@@ -253,6 +258,7 @@ export function mountKuroRaum(el: HTMLElement, opt: KuroRaumOptionen): KuroRaum 
       abo();
       eingabeLoesen();
       fadenLoesen();
+      leerenEl.removeEventListener("click", leeren);
       sphaere.destroy();
     },
   };
