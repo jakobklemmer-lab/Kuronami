@@ -47,6 +47,33 @@ def texterkennung(pdf, anzahl):
     return seiten
 
 
+KOPFZEILE = re.compile(r"^\s*(?:\d{1,3}\s+(?:Chapter|Kapitel)\s+(\d{1,2})|(?:Chapter|Kapitel)\s+(\d{1,2})\s+\d{1,3})\s*$")
+
+
+def kapitel_aus_kopfzeilen(seiten):
+    erste = {}
+    for nr, s in enumerate(seiten, start=1):
+        for z in [z for z in s.splitlines() if z.strip()][:2]:
+            m = KOPFZEILE.match(z)
+            if m:
+                k = int(m.group(1) or m.group(2))
+                # Nur aufsteigend: ein Lesefehler in der Kopfzeile soll kein Kapitel zurückspringen lassen.
+                if k not in erste and all(k > j for j in erste):
+                    erste[k] = nr
+                break
+    starts = []
+    for k, nr in sorted(erste.items()):
+        titelseite = max(1, nr - 1)
+        zeilen = [z.strip() for z in seiten[titelseite - 1].splitlines() if z.strip()]
+        titel = []
+        for z in zeilen[:4]:
+            if z.isupper() or len(z) > 60:
+                break
+            titel.append(z)
+        starts.append((titelseite, f"Kapitel {k}: {' '.join(titel)}".strip(": ")))
+    return starts
+
+
 def main():
     pdfs = sorted(glob.glob(os.path.join(ORDNER, "*.pdf")))
     if not pdfs:
@@ -59,7 +86,8 @@ def main():
     text = subprocess.run(["pdftotext", "-enc", "UTF-8", pdf, "-"], capture_output=True, text=True).stdout
     seiten = [re.sub(r"[ \t]+", " ", s).strip() for s in text.split("\f")]
     if sum(len(s) for s in seiten) < 20_000:
-        seiten = texterkennung(pdf, len(seiten))
+        info = subprocess.run(["pdfinfo", pdf], capture_output=True, text=True).stdout
+        seiten = texterkennung(pdf, int(re.search(r"^Pages:\s+(\d+)", info, re.M).group(1)))
     # Kapitelanfänge: „Chapter N“/„Kapitel N“ in den ersten Zeilen einer Seite, nicht im Inhaltsverzeichnis.
     starts = []
     for nr, s in enumerate(seiten, start=1):
@@ -67,6 +95,11 @@ def main():
         treffer = sum(1 for z in s.splitlines() if KAPITEL.match(z))
         if treffer == 1 and any(KAPITEL.match(z) for z in zeilen):
             starts.append((nr, " ".join(zeilen[:3])[:90]))
+    # Eingescannt fehlt „Chapter N“ auf der Titelseite (Grafik), aber jede gerade Seite trägt es in
+    # der Kopfzeile („84 Chapter 4“). Ein Kapitel beginnt dann eine Seite vor seiner ersten Kopfzeile.
+    nach_kopf = kapitel_aus_kopfzeilen(seiten)
+    if len(nach_kopf) >= 10:
+        starts = nach_kopf
     kapitel = len(starts) >= 10
     if not kapitel:
         starts = [(nr, f"Seiten {nr}–{min(nr + MAX_SEITEN - 1, len(seiten))}") for nr in range(1, len(seiten) + 1, MAX_SEITEN)]
