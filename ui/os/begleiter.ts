@@ -4,6 +4,7 @@ import { createEventBus } from "../events/bus.js";
 import { createMicStateStore } from "../mic/state.js";
 import type { Zustand } from "../praesenz/sphaere.js";
 import { TOKEN_STORAGE_KEY, loadToken } from "../settings.js";
+import { renderMarkdown } from "../views/markdown.js";
 import { werName } from "../welle/form.js";
 import { SPEICHER_SCHLUESSEL, oeffneGespraech } from "../welle/gespraech.js";
 import * as V from "../welle/verlauf.js";
@@ -103,7 +104,7 @@ function begleiter() {
     <div class="b-buehne" data-role="buehne" data-seite="oben">
       <div class="b-blase" data-role="blase" hidden>
         <p class="b-zustand" data-role="zustand" hidden></p>
-        <p class="b-antwort" data-role="antwort"></p>
+        <div class="b-antwort" data-role="antwort"></div>
         <form data-role="form"><input name="text" placeholder="Kuro fragen" autocomplete="off" /><button type="submit">Senden</button></form>
         <button type="button" class="b-oeffnen" data-role="oeffnen">Kuro OS öffnen</button>
       </div>
@@ -155,6 +156,22 @@ function begleiter() {
   };
   new ResizeObserver(meldeFlaechen).observe(blase);
 
+  const pruefeUeberlauf = () => {
+    antwort.classList.toggle("ist-voll", antwort.scrollHeight > antwort.clientHeight + 1);
+    antwort.classList.toggle(
+      "ist-unten",
+      antwort.scrollTop + antwort.clientHeight >= antwort.scrollHeight - 2,
+    );
+  };
+  antwort.addEventListener("scroll", pruefeUeberlauf);
+  new ResizeObserver(pruefeUeberlauf).observe(antwort);
+  const zeigeText = (markdown: string) => {
+    antwort.classList.toggle("ist-leer", markdown === "");
+    if (markdown) antwort.innerHTML = renderMarkdown(markdown);
+    else antwort.textContent = "Fragen Sie Kuro etwas, oder halten Sie die Sprechtaste.";
+    antwort.scrollTop = 0;
+    pruefeUeberlauf();
+  };
   const zeigeOffen = (an: boolean) => {
     offen = an;
     blase.hidden = !an;
@@ -264,7 +281,7 @@ function begleiter() {
   });
   if (loadToken() === null) {
     figur.setzeZustand("offline");
-    antwort.textContent = "Bitte zuerst Kuro OS öffnen und anmelden.";
+    zeigeText("Bitte zuerst Kuro OS öffnen und anmelden.");
     return;
   }
   const speicher = (() => {
@@ -307,7 +324,7 @@ function begleiter() {
     } catch {
       // Ohne lesbaren Speicher zählt nur dieses Gespräch.
     }
-    antwort.textContent = letzte?.text?.trim() || ZUSTAND_SATZ[gespraech.zustand];
+    zeigeText(letzte?.text?.trim() ?? "");
   };
   globalThis.addEventListener("storage", (e) => {
     if (e.key === SPEICHER_SCHLUESSEL) zeigeAntwort();
@@ -385,7 +402,7 @@ function begleiter() {
         }
       }
       await figur.schlucke();
-      antwort.textContent = `Aufgenommen und im Brain abgelegt:\n${namen.join("\n")}`;
+      zeigeText(`Aufgenommen und im Brain abgelegt:\n\n${namen.map((n) => `- ${n}`).join("\n")}`);
       zeigeKurz();
     })();
   });

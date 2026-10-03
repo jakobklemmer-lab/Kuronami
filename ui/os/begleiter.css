@@ -129,19 +129,77 @@ body.ist-begleiter:not(.ist-vorschau) {
   border-top: inherit;
 }
 
-.b-blase .b-zustand {
-  max-height: none;
+.b-zustand {
+  margin: 0;
   font-size: 12.5px;
   color: var(--nebel);
 }
 
-.b-blase p {
+/* Kuros letzte Antwort, als Markdown wie im Gespräch von Kuro OS. */
+.b-antwort {
   max-height: 150px;
-  margin: 0;
   overflow-y: auto;
   font-size: 14px;
   color: rgba(232, 239, 241, 0.9);
-  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(232, 239, 241, 0.2) transparent;
+}
+
+.b-antwort p,
+.b-antwort ul,
+.b-antwort ol,
+.b-antwort h1,
+.b-antwort h2,
+.b-antwort h3,
+.b-antwort h4 {
+  margin: 0 0 6px;
+}
+
+.b-antwort > :last-child {
+  margin-bottom: 0;
+}
+
+.b-antwort ul,
+.b-antwort ol {
+  padding-left: 18px;
+}
+
+.b-antwort h1,
+.b-antwort h2,
+.b-antwort h3,
+.b-antwort h4 {
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.b-antwort code {
+  padding: 0 4px;
+  border-radius: 4px;
+  background: rgba(232, 239, 241, 0.07);
+  font-size: 12.5px;
+}
+
+.b-antwort a {
+  color: inherit;
+}
+
+.b-antwort table {
+  border-collapse: collapse;
+  font-size: 12.5px;
+}
+
+/* Läuft sie über, verblasst der untere Rand: es geht weiter, scrollen hilft. */
+.b-antwort.ist-voll {
+  mask-image: linear-gradient(to bottom, #000 calc(100% - 22px), transparent);
+}
+
+.b-antwort.ist-voll.ist-unten {
+  mask-image: none;
+}
+
+.b-antwort.ist-leer {
+  color: var(--nebel);
 }
 
 .b-blase form {
