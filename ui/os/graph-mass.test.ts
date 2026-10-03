@@ -3,6 +3,7 @@ import {
   abstaende,
   baueFilter,
   benenne,
+  huelle,
   leseFarbe,
   louvain,
   mische,
@@ -151,5 +152,20 @@ describe("Farben", () => {
     expect(leseFarbe("#abc")).toBe("#aabbcc");
     expect(leseFarbe("nix")).toBeNull();
     expect(mische("#000000", "#ffffff", 0.5)).toBe("#808080");
+  });
+});
+
+describe("huelle", () => {
+  it("lässt innere Punkte weg", () => {
+    const h = huelle([
+      { x: 0, y: 0 },
+      { x: 10, y: 0 },
+      { x: 10, y: 10 },
+      { x: 0, y: 10 },
+      { x: 5, y: 5 },
+      { x: 3, y: 2 },
+    ]);
+    expect(h).toHaveLength(4);
+    expect(h).not.toContainEqual({ x: 5, y: 5 });
   });
 });

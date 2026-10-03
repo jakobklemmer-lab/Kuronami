@@ -3,6 +3,7 @@ import {
   abstaende,
   baueFilter,
   benenne,
+  huelle,
   leseFarbe,
   louvain,
   mische,
@@ -418,6 +419,7 @@ export function mountGraph(host: HTMLElement, daten: GraphDaten, opt: GraphOptio
     };
   }
   const sprites = new Map<string, HTMLCanvasElement>();
+  let blasenEbene: HTMLCanvasElement | null = null;
   let farbe: string[] = [];
   let clusterFarbe: string[] = [];
   let legende: Array<{ name: string; farbe: string }> = [];
@@ -872,37 +874,72 @@ export function mountGraph(host: HTMLElement, daten: GraphDaten, opt: GraphOptio
     box: [number, number, number, number];
   };
 
+  /**
+   * Cluster als Flächen, die sich um ihre Notizen legen: die konvexe Hülle, mit runden Ecken
+   * aufgeweitet, gleichmäßig leicht getönt. Erst auf eine eigene Ebene in voller Farbe, dann
+   * einmal blass darüber — so bleibt die Tönung gleichmäßig, auch wo Rand und Fläche sich decken.
+   * (Jakob, 03.10.: der runde Lichtschatten verlief „sehr unnatürlich".)
+   */
   function zeichneBlasen(sicht: boolean[], p: Array<{ x: number; y: number }>): BlasenName[] {
     const namen: BlasenName[] = [];
+    if (!blasenEbene) blasenEbene = document.createElement("canvas");
+    if (blasenEbene.width !== leinwand.width || blasenEbene.height !== leinwand.height) {
+      blasenEbene.width = leinwand.width;
+      blasenEbene.height = leinwand.height;
+    }
+    const g2 = blasenEbene.getContext("2d") as CanvasRenderingContext2D;
+    g2.setTransform(dpr, 0, 0, dpr, 0, 0);
+    g2.clearRect(0, 0, breite, hoehe);
+    g2.lineJoin = "round";
+    g2.lineCap = "round";
+    const rand = Math.max(14, Math.min(34, 24 * Math.sqrt(kamera.s)));
+    let gezeichnet = false;
     for (const g of gemeinschaften) {
       const glieder = g.glieder.filter((i) => sicht[i] && !geist[i]);
       if (glieder.length < 4) continue;
-      let cx = 0;
-      let cy = 0;
-      for (const i of glieder) {
-        cx += p[i].x;
-        cy += p[i].y;
-      }
-      cx /= glieder.length;
-      cy /= glieder.length;
-      const ab = glieder.map((i) => Math.hypot(p[i].x - cx, p[i].y - cy)).sort((a, b) => a - b);
-      const r = Math.max(46, (ab[Math.floor(ab.length * 0.85)] ?? 0) * 1.12 + 22);
+      const h = huelle(glieder.map((i) => p[i]));
+      if (h.length === 0) continue;
       const c = clusterFarbe[g.nummer];
-      const v = ctx.createRadialGradient(cx, cy, r * 0.2, cx, cy, r);
-      v.addColorStop(0, `${c}${hell ? "0b" : "0a"}`);
-      v.addColorStop(0.75, `${c}${hell ? "08" : "07"}`);
-      v.addColorStop(1, `${c}00`);
-      ctx.fillStyle = v;
-      ctx.beginPath();
-      ctx.arc(cx, cy, r, 0, Math.PI * 2);
-      ctx.fill();
-      // Der Name über der Blase — nicht auf einem anderen Clusternamen.
+      g2.fillStyle = c;
+      g2.strokeStyle = c;
+      g2.lineWidth = rand * 2;
+      // Weich statt eckig: die Kurve läuft durch die Kantenmitten, die Ecken ziehen nur.
+      g2.beginPath();
+      if (h.length < 3) {
+        g2.moveTo(h[0].x, h[0].y);
+        for (const q of h.slice(1)) g2.lineTo(q.x, q.y);
+      } else {
+        const mitte = (a: { x: number; y: number }, b: { x: number; y: number }) => ({
+          x: (a.x + b.x) / 2,
+          y: (a.y + b.y) / 2,
+        });
+        const start = mitte(h[h.length - 1], h[0]);
+        g2.moveTo(start.x, start.y);
+        for (let k = 0; k < h.length; k++) {
+          const m = mitte(h[k], h[(k + 1) % h.length]);
+          g2.quadraticCurveTo(h[k].x, h[k].y, m.x, m.y);
+        }
+      }
+      g2.closePath();
+      g2.fill();
+      g2.stroke();
+      gezeichnet = true;
+      // Der Name steht über der Fläche — nicht auf einem anderen Clusternamen.
+      let minX = Number.POSITIVE_INFINITY;
+      let maxX = Number.NEGATIVE_INFINITY;
+      let minY = Number.POSITIVE_INFINITY;
+      for (const q of h) {
+        minX = Math.min(minX, q.x);
+        maxX = Math.max(maxX, q.x);
+        minY = Math.min(minY, q.y);
+      }
       const text = g.name.toUpperCase();
-      ctx.font = "600 11px Figtree, system-ui, sans-serif";
+      ctx.font = "600 10.5px Figtree, system-ui, sans-serif";
       ctx.letterSpacing = "1.8px";
       const w = ctx.measureText(text).width;
       ctx.letterSpacing = "0px";
-      let y = Math.max(78, cy - r * 0.72);
+      const cx = (minX + maxX) / 2;
+      let y = Math.max(78, minY - rand - 9);
       const box = (yy: number): [number, number, number, number] => [
         cx - w / 2 - 6,
         yy - 9,
@@ -922,6 +959,11 @@ export function mountGraph(host: HTMLElement, daten: GraphDaten, opt: GraphOptio
         y += 20;
       }
       namen.push({ text, x: cx, y, farbe: c, box: box(y) });
+    }
+    if (gezeichnet) {
+      ctx.globalAlpha = hell ? 0.065 : 0.04;
+      ctx.drawImage(blasenEbene, 0, 0, breite, hoehe);
+      ctx.globalAlpha = 1;
     }
     return namen;
   }

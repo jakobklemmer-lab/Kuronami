@@ -429,3 +429,30 @@ export function mische(a: string, b: string, t: number): string {
     Math.round(((x >> s) & 255) + (((y >> s) & 255) - ((x >> s) & 255)) * k);
   return `#${((1 << 24) | (kanal(16) << 16) | (kanal(8) << 8) | kanal(0)).toString(16).slice(1)}`;
 }
+
+/** Die konvexe Hülle einer Punktmenge (Andrew), gegen den Uhrzeigersinn, ohne Doppelte. */
+export function huelle(
+  punkte: ReadonlyArray<{ x: number; y: number }>,
+): Array<{ x: number; y: number }> {
+  const p = [...punkte].sort((a, b) => a.x - b.x || a.y - b.y);
+  if (p.length < 3) return p;
+  const kreuz = (
+    o: { x: number; y: number },
+    a: { x: number; y: number },
+    b: { x: number; y: number },
+  ) => (a.x - o.x) * (b.y - o.y) - (a.y - o.y) * (b.x - o.x);
+  const unten: Array<{ x: number; y: number }> = [];
+  for (const q of p) {
+    while (unten.length >= 2 && kreuz(unten[unten.length - 2], unten[unten.length - 1], q) <= 0)
+      unten.pop();
+    unten.push(q);
+  }
+  const oben: Array<{ x: number; y: number }> = [];
+  for (let i = p.length - 1; i >= 0; i--) {
+    const q = p[i];
+    while (oben.length >= 2 && kreuz(oben[oben.length - 2], oben[oben.length - 1], q) <= 0)
+      oben.pop();
+    oben.push(q);
+  }
+  return [...unten.slice(0, -1), ...oben.slice(0, -1)];
+}
