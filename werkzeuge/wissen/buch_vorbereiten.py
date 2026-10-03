@@ -9,13 +9,42 @@ durch sind. Ein zweiter Aufruf tut nichts, solange inventar.json da ist.
 
     python3 /opt/kuronami/werkzeuge/wissen/buch_vorbereiten.py
 """
-import datetime, glob, json, os, re, subprocess, sys
+import datetime, glob, json, os, re, shutil, subprocess, sys, tempfile
 
 ORDNER = sys.argv[1] if len(sys.argv) > 1 else "/opt/kuronami/workspace/wissen/murphy"
-BUCH = os.environ.get("BUCH", "John J. Murphy — Technische Analyse der Finanzmärkte")
+BUCH = os.environ.get("BUCH", "John J. Murphy — Technical Analysis of the Financial Markets")
+# Sprache der Texterkennung für eingescannte PDFs (tesseract): Jakobs Datei heißt deutsch, ist aber das Original.
+OCR_SPRACHE = os.environ.get("OCR_SPRACHE", "eng")
 KENNUNG = os.path.basename(ORDNER.rstrip("/"))
 MAX_SEITEN = 25
 KAPITEL = re.compile(r"^\s*(?:CHAPTER|Chapter|KAPITEL|Kapitel)\s+(\d{1,2}|[IVXL]{1,6}|[A-Z][a-z]+)\b")
+
+
+def texterkennung(pdf, anzahl):
+    """Eingescannt: jede Seite einzeln durch tesseract. Fertige Seiten liegen unter ocr/ und werden
+    bei einem zweiten Aufruf nicht noch einmal erkannt."""
+    if not shutil.which("tesseract"):
+        sys.exit("Die PDF ist eingescannt und tesseract fehlt (apt install tesseract-ocr).")
+    ordner = os.path.join(ORDNER, "ocr")
+    os.makedirs(ordner, exist_ok=True)
+    seiten = []
+    for nr in range(1, anzahl + 1):
+        ziel = os.path.join(ordner, f"{nr:04d}.txt")
+        if not os.path.exists(ziel):
+            with tempfile.TemporaryDirectory() as tmp:
+                bild = os.path.join(tmp, "seite")
+                subprocess.run(["pdftoppm", "-f", str(nr), "-l", str(nr), "-r", "300", "-gray", "-png",
+                                "-singlefile", pdf, bild], check=True)
+                text = subprocess.run(["tesseract", f"{bild}.png", "-", "-l", OCR_SPRACHE],
+                                      capture_output=True, text=True,
+                                      env={**os.environ, "OMP_THREAD_LIMIT": "1"}).stdout
+            with open(f"{ziel}.neu", "w") as f:
+                f.write(text)
+            os.rename(f"{ziel}.neu", ziel)
+            if nr % 25 == 0:
+                print(f"OCR {nr}/{anzahl}", flush=True)
+        seiten.append(re.sub(r"[ \t]+", " ", open(ziel).read()).strip())
+    return seiten
 
 
 def main():
@@ -30,7 +59,7 @@ def main():
     text = subprocess.run(["pdftotext", "-enc", "UTF-8", pdf, "-"], capture_output=True, text=True).stdout
     seiten = [re.sub(r"[ \t]+", " ", s).strip() for s in text.split("\f")]
     if sum(len(s) for s in seiten) < 20_000:
-        sys.exit("Die PDF hat kaum Text — vermutlich eingescannt. Dafür braucht es erst eine Texterkennung (OCR).")
+        seiten = texterkennung(pdf, len(seiten))
     # Kapitelanfänge: „Chapter N“/„Kapitel N“ in den ersten Zeilen einer Seite, nicht im Inhaltsverzeichnis.
     starts = []
     for nr, s in enumerate(seiten, start=1):
@@ -57,7 +86,7 @@ def main():
     os.makedirs(os.path.join(ORDNER, "roh"), exist_ok=True)
     jetzt = datetime.datetime.now(datetime.timezone.utc).isoformat()
     for kid, titel, a, b, inhalt in abschnitte:
-        json.dump({"id": kid, "titel": titel, "sprache": "en", "art": "manuell", "geholt": jetzt,
+        json.dump({"id": kid, "titel": titel, "sprache": OCR_SPRACHE[:2], "art": "manuell", "geholt": jetzt,
                    "segmente": [{"start": p, "text": x} for p, x in inhalt]},
                   open(os.path.join(ORDNER, "roh", f"{kid}.json"), "w"), ensure_ascii=False)
     json.dump({"kanal": BUCH, "stand": jetzt, "quelle": os.path.basename(pdf),
