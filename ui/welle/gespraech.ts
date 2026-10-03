@@ -50,7 +50,15 @@ export interface Gespraech {
   readonly arbeit: ReadonlyMap<string, Arbeit>;
   readonly chronik: readonly Chronik[];
   readonly unterwegs: boolean;
+  /** Ein Zug läuft — von hier, aus der Sprachschicht oder einem anderen Fenster. */
+  readonly laeuft: boolean;
   sende(text: string): Promise<void>;
+  /**
+   * Kuro anhalten: der laufende Zug endet mit dem, was bis dahin gesagt war. `auftraege` ruft
+   * auch die Bediensteten zurück (alle oder einen beim Namen). Ohne Zug und ohne Auftrag
+   * wirft es mit dem Satz, dass nichts lief.
+   */
+  abbrechen(auftraege?: boolean | string): Promise<void>;
   /** Was Jakob ins Mikrofon gesagt hat — es steht als seine Frage im Verlauf. */
   gesprochen(text: string): void;
   /** Eine Antwort, die außerhalb des Stroms ankam (Sprachschicht). */
@@ -442,6 +450,18 @@ export function oeffneGespraech(opt: GespraechsOptionen): Gespraech {
     },
     get unterwegs() {
       return lage.unterwegs;
+    },
+    get laeuft() {
+      return lage.unterwegs || lage.zugLaeuft;
+    },
+    async abbrechen(auftraege) {
+      const r = await opt.api.post<{ zug: boolean; auftraege: string[] }>(
+        "/channels/web/abbrechen",
+        auftraege === undefined ? {} : { auftraege },
+      );
+      if (!r.zug && r.auftraege.length === 0) {
+        throw new Error("Es lief nichts, das sich hätte anhalten lassen.");
+      }
     },
     async sende(roh) {
       const text = roh.trim();

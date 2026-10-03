@@ -111,6 +111,7 @@ const DUNKEL_RAUM = 0.58;
 const DUNKEL_KURO = 0.06;
 
 const SENDEN_SVG = `<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h13M13 6l6 6-6 6"/></svg>`;
+const STOPP_SVG = `<svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true"><rect x="5" y="5" width="14" height="14" rx="2.5" fill="currentColor"/></svg>`;
 
 export interface WelleOptionen {
   root: HTMLElement;
@@ -194,6 +195,7 @@ export function mountWelle(opt: WelleOptionen): void {
                   placeholder="Sag Kuro, was du brauchst" aria-label="Nachricht an Kuro"
                   autocomplete="off" enterkeyhint="send"></textarea>
         <button type="submit" class="w-eingabe__senden" data-role="senden" aria-label="An Kuro senden">${SENDEN_SVG}</button>
+        <button type="button" class="w-eingabe__stopp" data-role="stopp" aria-label="Kuro anhalten" title="Kuro anhalten" hidden>${STOPP_SVG}</button>
       </form>
     </div>
 
@@ -299,12 +301,31 @@ export function mountWelle(opt: WelleOptionen): void {
     if (!haus.hidden && gespraech.arbeit.size > 0) zeichneHaus();
   }, 1000);
 
+  // Solange Kuro arbeitet und nichts getippt ist, steht statt Senden der Stopp-Knopf.
+  const sendenKnopf = q<HTMLButtonElement>("senden");
+  const stoppKnopf = q<HTMLButtonElement>("stopp");
+  const zeigeStopp = (): void => {
+    const anhalten = gespraech.laeuft && eingabe.value.trim() === "";
+    stoppKnopf.hidden = !anhalten;
+    sendenKnopf.hidden = anhalten;
+  };
+  stoppKnopf.addEventListener("click", () => {
+    stoppKnopf.disabled = true;
+    void gespraech
+      .abbrechen()
+      .catch((error: unknown) => opt.toast(error instanceof Error ? error.message : String(error)))
+      .finally(() => {
+        stoppKnopf.disabled = false;
+      });
+  });
+
   gespraech.abonniere((s) => {
     if (s.art === "zustand" || s.art === "arbeit") {
       zeigeLage();
       zeichneHaus();
     }
     if (s.art === "verlauf") zeigeVorschlaege();
+    zeigeStopp();
   });
   zeigeLage();
 
@@ -339,7 +360,10 @@ export function mountWelle(opt: WelleOptionen): void {
       sende();
     }
   });
-  eingabe.addEventListener("input", wachse);
+  eingabe.addEventListener("input", () => {
+    wachse();
+    zeigeStopp();
+  });
   eingabe.addEventListener("focus", zeigeVorschlaege);
   eingabe.addEventListener("blur", () => globalThis.setTimeout(zeigeVorschlaege, 150));
 

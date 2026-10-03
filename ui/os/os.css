@@ -920,6 +920,21 @@ body.ist-sprechtaste .o-eingabe__mikro,
   background: rgba(244, 184, 96, 0.26);
 }
 
+/* Der Stopp-Knopf steht an der Stelle von Senden, solange Kuro arbeitet. */
+.o-eingabe .o-eingabe__stopp {
+  border: 1px solid rgba(244, 184, 96, 0.5);
+  background: rgba(244, 184, 96, 0.1);
+  color: var(--laterne);
+}
+
+.o-eingabe .o-eingabe__stopp:hover {
+  background: rgba(244, 184, 96, 0.22);
+}
+
+.o-eingabe button[hidden] {
+  display: none;
+}
+
 /* --------------------------------------------------------------------- */
 /* Starter und Ablage                                                     */
 /* --------------------------------------------------------------------- */

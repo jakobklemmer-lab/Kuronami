@@ -53,6 +53,7 @@ const TAFEL_ZU_KARTE: Record<string, Karte | "wetter"> = {
 
 const HERVOR_MS = 45_000;
 
+const STOP_SVG = `<svg viewBox="0 0 24 24" width="13" height="13" aria-hidden="true"><rect x="5" y="5" width="14" height="14" rx="2.5" fill="currentColor"/></svg>`;
 const SEND_SVG = `<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 12l16-8-6 16-3-6-7-2z"/></svg>`;
 
 function gruss(d = new Date()): string {
@@ -117,6 +118,7 @@ export const praesenzView: View = {
                       placeholder="Tell me what you need..." aria-label="Tell Kuro what you need"
                       autocomplete="off"></textarea>
             <button type="submit" class="p-bubble__senden" data-role="senden" aria-label="Send">${SEND_SVG}</button>
+            <button type="button" class="p-bubble__stopp" data-role="stopp" aria-label="Stop Kuro" title="Stop Kuro" hidden>${STOP_SVG}</button>
           </form>
           <div class="p-chips">
             ${CHIPS.map(
@@ -221,6 +223,29 @@ export const praesenzView: View = {
 
     // ------------------------------------------------------------- Zustand
     let inFlight = false;
+    // Ein Zug läuft auch, wenn er nicht von hier kam (Sprache, Telegram, ein anderes Fenster).
+    let zugLaeuft = false;
+    const sendenKnopf = q<HTMLButtonElement>("senden");
+    const stoppKnopf = q<HTMLButtonElement>("stopp");
+    // Solange Kuro arbeitet und nichts getippt ist, steht statt Senden der Stopp-Knopf.
+    const zeigeStopp = (): void => {
+      if (!sendenKnopf || !stoppKnopf) return;
+      const anhalten = (inFlight || zugLaeuft) && eingabe.value.trim() === "";
+      stoppKnopf.hidden = !anhalten;
+      sendenKnopf.hidden = anhalten;
+    };
+    stoppKnopf?.addEventListener("click", () => {
+      stoppKnopf.disabled = true;
+      void ctx.api
+        .post<{ zug: boolean; auftraege: string[] }>("/channels/web/abbrechen", {})
+        .then((r) => {
+          if (!r.zug) setStand("Nothing was running.");
+        })
+        .catch((error: unknown) => setStand(error instanceof Error ? error.message : String(error)))
+        .finally(() => {
+          stoppKnopf.disabled = false;
+        });
+    });
     const arbeitende = new Set<string>();
     // Ein gescheiterter Zug bleibt ein paar Sekunden rot stehen, bevor die nächste Neuberechnung
     // ihn überschreibt — sonst stünde er nur für die 900 ms bis zum nächsten `zustandNeu`.
@@ -379,6 +404,7 @@ export const praesenzView: View = {
       zeigeAntwort("", { frage: text });
       setStand("Denkt …");
       inFlight = true;
+      zeigeStopp();
       zustandNeu("denken");
 
       const pendingTimer = globalThis.setInterval(async () => {
@@ -408,6 +434,7 @@ export const praesenzView: View = {
         globalThis.clearInterval(pendingTimer);
         setStand("");
         inFlight = false;
+        zeigeStopp();
         if (gescheitert !== null) {
           zeigeFehler(gescheitert);
         } else {
@@ -427,7 +454,10 @@ export const praesenzView: View = {
         void sende();
       }
     });
-    eingabe.addEventListener("input", wachsen);
+    eingabe.addEventListener("input", () => {
+      wachsen();
+      zeigeStopp();
+    });
 
     for (const knopf of container.querySelectorAll<HTMLButtonElement>(".p-chip")) {
       knopf.addEventListener("click", () => {
@@ -502,6 +532,8 @@ export const praesenzView: View = {
       const data = (message.data ?? {}) as Record<string, unknown>;
 
       if (message.type === "turn.started") {
+        zugLaeuft = true;
+        zeigeStopp();
         const zugId = typeof data.turn_id === "string" ? data.turn_id : "";
         if (zugId && zugId !== gezeigterZug) neuerZug(zugId);
         if (!inFlight) {
@@ -513,6 +545,8 @@ export const praesenzView: View = {
       }
 
       if (message.type === "turn.completed") {
+        zugLaeuft = false;
+        zeigeStopp();
         const zugId = typeof data.turn_id === "string" ? data.turn_id : "";
         // Der fertige Text statt der Summe der Stücke: er trägt die Absätze zwischen zwei
         // Wortmeldungen und ist auch dann vollständig, wenn ein Stück unterwegs verloren ging.

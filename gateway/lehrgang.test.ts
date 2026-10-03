@@ -26,8 +26,8 @@ import { type Transkript, type Video, createWissen } from "./wissen.js";
 const BRAIN_TL = path.join("brain", "Wissen", "TradingLab");
 
 // Die Tests rechnen mit der Vorgabe (nachts, 15) — nicht mit dem, was gerade in der .env steht.
-delete process.env.KURO_LEHRGANG_FENSTER;
-delete process.env.KURO_LEHRGANG_JE_NACHT;
+Reflect.deleteProperty(process.env, "KURO_LEHRGANG_FENSTER");
+Reflect.deleteProperty(process.env, "KURO_LEHRGANG_JE_NACHT");
 
 // Nachgebildet aus einer echten Antwort im Stil des MACD-Videos (rf_EQvubKlk).
 const ANTWORT = `<begriffe>

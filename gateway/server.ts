@@ -408,6 +408,24 @@ export function createServer(deps: ServerDeps): express.Express {
     }
   });
 
+  /**
+   * Jakobs Stopp-Knopf: Kuros laufender Zug endet sofort. `auftraege: true` ruft auch alle
+   * Bediensteten zurück, ein Name nur diesen; ohne die Angabe arbeiten sie weiter. Die Antwort
+   * sagt, was tatsächlich angehalten wurde — lief nichts, steht das so da.
+   */
+  app.post("/channels/web/abbrechen", (req, res) => {
+    const principal = webPrincipal(req, res);
+    if (!principal) return;
+    const roh = req.body?.auftraege;
+    if (roh !== undefined && typeof roh !== "boolean" && typeof roh !== "string") {
+      res
+        .status(400)
+        .json({ error: "auftraege ist true, false oder der Name eines Bediensteten." });
+      return;
+    }
+    res.json(deps.gateway.agent.abbrechen(roh));
+  });
+
   app.post("/channels/web/answers", async (req, res, next) => {
     try {
       const principal = webPrincipal(req, res);

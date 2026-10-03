@@ -105,7 +105,7 @@ function begleiter() {
       <div class="b-blase" data-role="blase" hidden>
         <p class="b-zustand" data-role="zustand" hidden></p>
         <div class="b-antwort" data-role="antwort"></div>
-        <form data-role="form"><input name="text" placeholder="Kuro fragen" autocomplete="off" /><button type="submit">Senden</button></form>
+        <form data-role="form"><input name="text" placeholder="Kuro fragen" autocomplete="off" /><button type="submit" data-role="senden">Senden</button><button type="button" data-role="stopp" hidden>Anhalten</button></form>
         <button type="button" class="b-oeffnen" data-role="oeffnen">Kuro OS öffnen</button>
       </div>
       <div class="b-figur" data-role="figur" title="Kuro"></div>
@@ -350,11 +350,36 @@ function begleiter() {
   zeigeAntwort();
   bus.connect();
 
+  // Solange Kuro arbeitet und nichts getippt ist, steht statt Senden „Anhalten".
+  const sendenKnopf = q<HTMLButtonElement>("senden");
+  const stoppKnopf = q<HTMLButtonElement>("stopp");
+  const zeigeStopp = () => {
+    const anhalten = gespraech.laeuft && feld.value.trim() === "";
+    stoppKnopf.hidden = !anhalten;
+    sendenKnopf.hidden = anhalten;
+  };
+  gespraech.abonniere(zeigeStopp);
+  feld.addEventListener("input", zeigeStopp);
+  zeigeStopp();
+  stoppKnopf.addEventListener("click", () => {
+    stoppKnopf.disabled = true;
+    void gespraech
+      .abbrechen()
+      .catch((error: unknown) => {
+        zustandEl.hidden = false;
+        zustandEl.textContent = error instanceof Error ? error.message : String(error);
+      })
+      .finally(() => {
+        stoppKnopf.disabled = false;
+      });
+  });
+
   form.addEventListener("submit", (e) => {
     e.preventDefault();
     const text = feld.value.trim();
-    if (!text) return;
+    if (!text || gespraech.unterwegs) return;
     feld.value = "";
+    zeigeStopp();
     void gespraech.sende(text);
   });
 

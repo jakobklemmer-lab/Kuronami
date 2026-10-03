@@ -209,7 +209,7 @@ export interface ZugKosten {
 
 export interface AgentOutcome {
   sessionId: string;
-  status: "answered" | "failed";
+  status: "answered" | "canceled" | "failed";
   reason: string;
   delivered: Outbound[];
 }
@@ -227,6 +227,9 @@ export interface AgentOutcome {
  * drei Züge und eine unwirsche Antwort.
  */
 const BUENDEL_MS = Number(process.env.KURO_BUENDEL_MS ?? 600);
+
+/** Was hinter einem angehaltenen Zug steht. */
+export const ABGEBROCHEN = "Abgebrochen.";
 
 /** Ein Bündel Nachrichten, das noch auf seinen Zug wartet. */
 interface Stapel {
@@ -315,6 +318,14 @@ export class KuroAgent {
   #gesperrtBis: Date | null = null;
   #geparkt: Array<{ wer: string; bericht: string }> = [];
   #nachtragsUhr: ReturnType<typeof setTimeout> | null = null;
+  /** Der Abbruch des laufenden Zugs — Jakobs Stopp-Knopf. `null`, solange keiner läuft. */
+  #abbruch: AbortController | null = null;
+  /**
+   * Was von der gerade entstehenden Wortmeldung schon gestreamt ist. Hält Jakob mitten darin
+   * an, gehört das in die Schlussantwort — sonst ersetzte die Oberfläche den angefangenen Text
+   * durch ein nacktes „Abgebrochen.".
+   */
+  #stroemt = "";
 
   constructor(deps: AgentDeps) {
     this.#deps = deps;
@@ -619,6 +630,27 @@ export class KuroAgent {
     }));
   }
 
+  /**
+   * Jakob hält Kuro an: der laufende Zug endet sofort, mit dem, was bis dahin gesagt war.
+   * Eine offene Rückfrage dieses Zugs fällt dabei weg (`#fragen` hört auf das Signal).
+   * `auftraege`: auch die Bediensteten zurückrufen — alle (`true`) oder einen beim Namen. Ohne
+   * die Angabe arbeiten sie weiter; ihre Berichte kommen dann wie sonst nachgereicht.
+   */
+  abbrechen(auftraege?: boolean | string): { zug: boolean; auftraege: string[] } {
+    const zug = this.#abbruch !== null && !this.#abbruch.signal.aborted;
+    if (zug) this.#abbruch?.abort();
+    let zurueck: string[] = [];
+    if (auftraege) {
+      const wer = typeof auftraege === "string" ? auftraege : undefined;
+      zurueck = this.#haus
+        .laufende()
+        .map((l) => l.wer)
+        .filter((w) => wer === undefined || w === wer);
+      this.#haus.abbrechen(wer);
+    }
+    return { zug, auftraege: zurueck };
+  }
+
   /** Steht eine Rückfrage offen? Die Oberfläche zeigt das an, die Kanäle fragen danach. */
   get offeneFrage(): { askId: string; frage: string; to: Sender } | null {
     if (!this.#offen) return null;
@@ -730,6 +762,9 @@ export class KuroAgent {
     const zug = this.#zug(message);
     this.#absatzOffen = false;
     this.#deps.publish?.("turn.started", zug);
+    const abbruch = new AbortController();
+    this.#abbruch = abbruch;
+    this.#stroemt = "";
 
     try {
       for await (const nachricht of query({
@@ -778,6 +813,7 @@ export class KuroAgent {
           // eigene (`haus.ts`), damit ein Bauauftrag nicht sein Gesprächsbudget aufzehrt.
           maxBudgetUsd: Number(process.env.KURO_BUDGET_USD ?? 3),
           canUseTool: this.#fragen(origin),
+          abortController: abbruch,
           includePartialMessages: true,
           ...(this.#sessionId ? { resume: this.#sessionId } : {}),
         },
@@ -789,6 +825,7 @@ export class KuroAgent {
         if (stueck) text += (text ? "\n\n" : "") + stueck;
       }
     } catch (error) {
+      if (abbruch.signal.aborted) return this.#abgebrochen(origin, zug, text);
       const grund = error instanceof Error ? error.message : String(error);
       const antwort: Outbound = {
         kind: "reply",
@@ -803,7 +840,11 @@ export class KuroAgent {
         reason: grund,
         delivered: [antwort],
       };
+    } finally {
+      if (this.#abbruch === abbruch) this.#abbruch = null;
     }
+    // Das SDK beendet einen abgebrochenen Lauf nicht immer mit einem Fehler.
+    if (abbruch.signal.aborted) return this.#abgebrochen(origin, zug, text);
 
     const antwort: Outbound = { kind: "reply", text: text.trim() || "(keine Antwort)" };
     // **Vor** der Zustellung: wer den Zug mitliest, soll das Ende kennen, bevor der fertige
@@ -819,6 +860,30 @@ export class KuroAgent {
       status: "answered",
       reason: "Beantwortet.",
       delivered: geliefert,
+    };
+  }
+
+  /**
+   * Ein Zug, den Jakob angehalten hat. Was Kuro bis dahin gesagt hat, bleibt stehen; dahinter
+   * steht, dass es abgebrochen wurde — kein „misslungen", denn gescheitert ist nichts.
+   */
+  async #abgebrochen(
+    origin: Sender,
+    zug: { session_id: string; turn_id: string; external_id: string; channel: string },
+    bisher: string,
+  ): Promise<AgentOutcome> {
+    const gesagt = [bisher.trim(), this.#stroemt.trim()].filter(Boolean).join("\n\n");
+    this.#stroemt = "";
+    const text = `${gesagt ? `${gesagt}\n\n` : ""}${ABGEBROCHEN}`;
+    const antwort: Outbound = { kind: "reply", text };
+    this.#letzterZug = new Date();
+    this.#deps.publish?.("turn.completed", { ...zug, status: "canceled", text });
+    await this.#zustellen(origin, antwort);
+    return {
+      sessionId: this.#sessionId ?? "",
+      status: "canceled",
+      reason: "Von Jakob abgebrochen.",
+      delivered: [antwort],
     };
   }
 
@@ -875,7 +940,10 @@ export class KuroAgent {
           this.#absatzOffen = false;
           this.#deps.onDelta?.("\n\n", zug.turn_id);
         }
-        if (stueck) this.#deps.onDelta?.(stueck, zug.turn_id);
+        if (stueck) {
+          this.#stroemt += stueck;
+          this.#deps.onDelta?.(stueck, zug.turn_id);
+        }
       }
       return null;
     }
@@ -906,6 +974,7 @@ export class KuroAgent {
       // Markdown-Überschriften und Quellenliste in der Antwort, eingeklemmt zwischen Kuros
       // Ankündigung und seinem eigentlichen Vortrag.
       if (nachricht.parent_tool_use_id !== null) return null;
+      this.#stroemt = "";
 
       let text = "";
       for (const block of nachricht.message.content) {

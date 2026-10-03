@@ -7,7 +7,14 @@
   },
   "files": {
     "ignoreUnknown": false,
-    "ignore": ["desktop/node_modules/**", "desktop/dist/**", "ui/vendor/**", "workspace/**", "artifacts/**", "memory/**"]
+    "ignore": [
+      "desktop/node_modules/**",
+      "desktop/dist/**",
+      "ui/vendor/**",
+      "workspace/**",
+      "artifacts/**",
+      "memory/**"
+    ]
   },
   "formatter": {
     "enabled": true,

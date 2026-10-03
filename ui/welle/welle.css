@@ -1554,6 +1554,29 @@ a.t-tafel__titel:hover {
   transform: scale(0.94);
 }
 
+/* Der Stopp-Knopf steht an der Stelle von Senden, solange Kuro arbeitet. */
+.w-eingabe__stopp {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  border: 1px solid rgba(244, 184, 96, 0.55);
+  border-radius: 50%;
+  background: rgba(244, 184, 96, 0.12);
+  color: var(--laterne);
+  transition: background 0.2s ease;
+}
+
+.w-eingabe__stopp:hover {
+  background: rgba(244, 184, 96, 0.24);
+}
+
+.w-eingabe__senden[hidden],
+.w-eingabe__stopp[hidden] {
+  display: none;
+}
+
 /* Breiter als die Eingabe, damit die Vorschläge in einer Zeile stehen. `translate` statt
    `transform`, weil die Einblendung `transform` benutzt. */
 .w-vorschlaege {
