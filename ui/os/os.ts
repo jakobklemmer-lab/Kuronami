@@ -1,4 +1,4 @@
-import type { ApiClient } from "../api/client.js";
+import { ABLAGE_HOECHSTENS, type ApiClient } from "../api/client.js";
 import type { EventBusClient } from "../events/bus.js";
 import { icon } from "../icons.js";
 import type { MarketQuotesData } from "../integrations/types.js";
@@ -1025,21 +1025,15 @@ export function mountOs(opt: OsOptionen): void {
     for (const datei of e.dataTransfer?.files ?? []) void lege(datei);
   });
   async function lege(datei: File) {
-    if (datei.size > 20 * 1024 * 1024) {
-      opt.toast(`${datei.name} ist größer als 20 MB und bleibt draußen.`);
+    if (datei.size > ABLAGE_HOECHSTENS) {
+      opt.toast(`${datei.name} ist größer als 300 MB und bleibt draußen.`);
       return;
     }
-    const inhalt = await new Promise<string>((fertig, fehler) => {
-      const leser = new FileReader();
-      leser.onload = () => fertig(String(leser.result).replace(/^data:[^,]*,/, ""));
-      leser.onerror = () => fehler(leser.error);
-      leser.readAsDataURL(datei);
-    });
     try {
-      const r = await api.post<{ pfad: string }>("/integrations/brain/eingang", {
-        name: datei.name,
-        inhalt,
-      });
+      const r = await api.datei<{ pfad: string }>(
+        `/integrations/brain/eingang/datei?name=${encodeURIComponent(datei.name)}`,
+        datei,
+      );
       opt.toast(`Im Brain abgelegt: ${r.pfad.replace(/\.md$/, "")}`);
       geheZu({ raum: "brain", teil: "brain", notiz: r.pfad });
     } catch (error) {

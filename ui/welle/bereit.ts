@@ -51,6 +51,7 @@ export function verfolge(api: ApiClient): Verfolgt {
       patch: (pfad, koerper) => zaehle(api.patch(pfad, koerper)),
       put: (pfad, koerper) => zaehle(api.put(pfad, koerper)),
       delete: (pfad) => zaehle(api.delete(pfad)),
+      datei: (pfad, inhalt) => zaehle(api.datei(pfad, inhalt)),
     },
     bereit({ ruheMs = 60, hoechstensMs = 700 } = {}) {
       return new Promise<void>((los) => {

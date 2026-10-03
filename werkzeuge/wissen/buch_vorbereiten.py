@@ -12,10 +12,10 @@ durch sind. Ein zweiter Aufruf tut nichts, solange inventar.json da ist.
 import datetime, glob, json, os, re, subprocess, sys
 
 ORDNER = sys.argv[1] if len(sys.argv) > 1 else "/opt/kuronami/workspace/wissen/murphy"
-BUCH = "John J. Murphy — Technical Analysis of the Financial Markets"
+BUCH = os.environ.get("BUCH", "John J. Murphy — Technische Analyse der Finanzmärkte")
 KENNUNG = os.path.basename(ORDNER.rstrip("/"))
 MAX_SEITEN = 25
-KAPITEL = re.compile(r"^\s*(?:CHAPTER|Chapter)\s+(\d{1,2}|[IVXL]{1,6}|[A-Z][a-z]+)\b")
+KAPITEL = re.compile(r"^\s*(?:CHAPTER|Chapter|KAPITEL|Kapitel)\s+(\d{1,2}|[IVXL]{1,6}|[A-Z][a-z]+)\b")
 
 
 def main():
@@ -31,7 +31,7 @@ def main():
     seiten = [re.sub(r"[ \t]+", " ", s).strip() for s in text.split("\f")]
     if sum(len(s) for s in seiten) < 20_000:
         sys.exit("Die PDF hat kaum Text — vermutlich eingescannt. Dafür braucht es erst eine Texterkennung (OCR).")
-    # Kapitelanfänge: „Chapter N“ in den ersten Zeilen einer Seite, nicht im Inhaltsverzeichnis.
+    # Kapitelanfänge: „Chapter N“/„Kapitel N“ in den ersten Zeilen einer Seite, nicht im Inhaltsverzeichnis.
     starts = []
     for nr, s in enumerate(seiten, start=1):
         zeilen = [z for z in s.splitlines() if z.strip()][:5]

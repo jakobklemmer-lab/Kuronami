@@ -40,6 +40,9 @@ export interface ApiClientOptions {
   fetchImpl?: typeof fetch;
 }
 
+/** So groß darf eine Datei sein, die roh ins Brain geht (Grenze des Gateways). */
+export const ABLAGE_HOECHSTENS = 300 * 1024 * 1024;
+
 export interface ApiClient {
   get<T>(path: string): Promise<T>;
   post<T>(path: string, body: unknown): Promise<T>;
@@ -48,6 +51,8 @@ export interface ApiClient {
   /** Ein Ding als Ganzes ersetzen — etwa alle Zeichnungen eines Werts im Chart. */
   put<T>(path: string, body: unknown): Promise<T>;
   delete<T>(path: string): Promise<T>;
+  /** Eine Datei roh schicken, ohne Base64 im JSON — für Großes wie ein Buch als PDF. */
+  datei<T>(path: string, inhalt: Blob): Promise<T>;
 }
 
 async function toApiError(response: Response): Promise<ApiError> {
@@ -105,6 +110,12 @@ export function createApiClient(options: ApiClientOptions): ApiClient {
         method: "PATCH",
         headers: { "content-type": "application/json" },
         body: JSON.stringify(body),
+      }),
+    datei: (path, inhalt) =>
+      request(path, {
+        method: "POST",
+        headers: { "content-type": "application/octet-stream" },
+        body: inhalt,
       }),
     put: (path, body) =>
       request(path, {

@@ -1,6 +1,6 @@
 import { mkdir, readFile, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
-import type { Express, Request, Response } from "express";
+import express, { type Express, type Request, type Response } from "express";
 import {
   alleNotizen,
   brainPfad,
@@ -185,6 +185,8 @@ async function liesZeiten(
 
 /** Höchstens so groß darf eine abgelegte Datei sein (Base64 im JSON, Grenze des Gateways 32 MB). */
 export const EINGANG_HOECHSTENS = 20 * 1024 * 1024;
+/** Roh geschickt darf es mehr sein — Murphys Buch als PDF hatte über 20 MB. */
+export const EINGANG_ROH_HOECHSTENS = 300 * 1024 * 1024;
 
 const TEXT_ENDUNG = /\.(md|txt|markdown)$/i;
 
@@ -262,6 +264,30 @@ export function brainRouten(
     }
   });
 
+  async function legeAb(name: string, daten: Buffer): Promise<string> {
+    const workdir = deps.workdir();
+    const heute = new Date().toLocaleDateString("sv-SE", { timeZone: "Europe/Vienna" });
+    const plan = eingangsPlan(name, heute);
+    const notiz = await frei(workdir, plan.notiz);
+    const titel = path.posix.basename(notiz, ".md");
+    let text: string;
+    if (plan.text) {
+      const roh = daten.toString("utf8");
+      text = /^\s*#\s/.test(roh) ? roh : `# ${titel}\n\n${roh}`;
+    } else {
+      const anhang = await frei(workdir, plan.anhang as string);
+      await mkdir(path.dirname(brainPfad(workdir, anhang)), { recursive: true });
+      await writeFile(brainPfad(workdir, anhang), daten);
+      text = schreibeNotiz(
+        { quelle: "abgelegt", datei: anhang },
+        `# ${titel}\n\n![[${anhang}]]\n\nAbgelegt in Kuro OS. Wohin damit, entscheidet Jakob oder Kuro.`,
+      );
+    }
+    await mkdir(path.dirname(brainPfad(workdir, notiz)), { recursive: true });
+    await writeFile(brainPfad(workdir, notiz), text, "utf8");
+    return notiz;
+  }
+
   // Per Drag-and-drop in Kuro OS: die Datei landet im Eingang, Kuro findet sie dort.
   app.post("/integrations/brain/eingang", async (req, res, next) => {
     try {
@@ -277,31 +303,31 @@ export function brainRouten(
         res.status(413).json({ error: "Die Datei ist größer als 20 MB." });
         return;
       }
-      const workdir = deps.workdir();
-      const heute = new Date().toLocaleDateString("sv-SE", { timeZone: "Europe/Vienna" });
-      const plan = eingangsPlan(name, heute);
-      const notiz = await frei(workdir, plan.notiz);
-      const titel = path.posix.basename(notiz, ".md");
-      let text: string;
-      if (plan.text) {
-        const roh = daten.toString("utf8");
-        text = /^\s*#\s/.test(roh) ? roh : `# ${titel}\n\n${roh}`;
-      } else {
-        const anhang = await frei(workdir, plan.anhang as string);
-        await mkdir(path.dirname(brainPfad(workdir, anhang)), { recursive: true });
-        await writeFile(brainPfad(workdir, anhang), daten);
-        text = schreibeNotiz(
-          { quelle: "abgelegt", datei: anhang },
-          `# ${titel}\n\n![[${anhang}]]\n\nAbgelegt in Kuro OS. Wohin damit, entscheidet Jakob oder Kuro.`,
-        );
-      }
-      await mkdir(path.dirname(brainPfad(workdir, notiz)), { recursive: true });
-      await writeFile(brainPfad(workdir, notiz), text, "utf8");
-      res.json({ pfad: notiz });
+      res.json({ pfad: await legeAb(name, daten) });
     } catch (error) {
       next(error);
     }
   });
+
+  // Dasselbe für große Dateien: der Körper ist die Datei selbst, der Name steht in der Adresse.
+  app.post(
+    "/integrations/brain/eingang/datei",
+    express.raw({ type: () => true, limit: EINGANG_ROH_HOECHSTENS }),
+    async (req, res, next) => {
+      try {
+        if (!deps.webPrincipal(req, res)) return;
+        const name = typeof req.query.name === "string" ? req.query.name.trim().slice(0, 200) : "";
+        const daten = Buffer.isBuffer(req.body) ? req.body : Buffer.alloc(0);
+        if (!name || daten.length === 0) {
+          res.status(400).json({ error: "Name und Inhalt der Datei fehlen." });
+          return;
+        }
+        res.json({ pfad: await legeAb(name, daten) });
+      } catch (error) {
+        next(error);
+      }
+    },
+  );
 
   app.get("/integrations/brain/graph", async (req, res, next) => {
     try {

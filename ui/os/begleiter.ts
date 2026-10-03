@@ -1,4 +1,4 @@
-import { createApiClient } from "../api/client.js";
+import { ABLAGE_HOECHSTENS, createApiClient } from "../api/client.js";
 import { resolveBackendOrigin } from "../backend-origin.js";
 import { createEventBus } from "../events/bus.js";
 import { createMicStateStore } from "../mic/state.js";
@@ -315,6 +315,8 @@ function begleiter() {
     zeigeZustand();
   });
 
+  /** Wann zuletzt eine Ablage gemeldet wurde; ältere Antworten überdecken die Meldung nicht. */
+  let hinweisSeit = 0;
   /** Die neueste Antwort — aus diesem Gespräch oder dem, was das Hauptfenster gespeichert hat. */
   const zeigeAntwort = () => {
     let letzte = V.letzteAntwort(gespraech.verlauf);
@@ -324,6 +326,8 @@ function begleiter() {
     } catch {
       // Ohne lesbaren Speicher zählt nur dieses Gespräch.
     }
+    if (hinweisSeit > 0 && (letzte?.zeit ?? 0) <= hinweisSeit) return;
+    hinweisSeit = 0;
     zeigeText(letzte?.text?.trim() ?? "");
   };
   globalThis.addEventListener("storage", (e) => {
@@ -405,29 +409,34 @@ function begleiter() {
     ueber = 0;
     void (async () => {
       const namen: string[] = [];
+      const fehler: string[] = [];
       for (const datei of e.dataTransfer?.files ?? []) {
-        if (datei.size > 20 * 1024 * 1024) {
-          namen.push(`${datei.name} ist größer als 20 MB`);
+        if (datei.size > ABLAGE_HOECHSTENS) {
+          fehler.push(`${datei.name} ist größer als 300 MB`);
           continue;
         }
-        const inhalt = await new Promise<string>((fertig, fehler) => {
-          const leser = new FileReader();
-          leser.onload = () => fertig(String(leser.result).replace(/^data:[^,]*,/, ""));
-          leser.onerror = () => fehler(leser.error);
-          leser.readAsDataURL(datei);
-        });
         try {
-          const r = await api.post<{ pfad: string }>("/integrations/brain/eingang", {
-            name: datei.name,
-            inhalt,
-          });
+          const r = await api.datei<{ pfad: string }>(
+            `/integrations/brain/eingang/datei?name=${encodeURIComponent(datei.name)}`,
+            datei,
+          );
           namen.push(r.pfad.replace(/\.md$/, ""));
-        } catch (fehler) {
-          namen.push(`${datei.name}: ${fehler instanceof Error ? fehler.message : String(fehler)}`);
+        } catch (f) {
+          fehler.push(`${datei.name}: ${f instanceof Error ? f.message : String(f)}`);
         }
       }
       await figur.schlucke();
-      zeigeText(`Aufgenommen und im Brain abgelegt:\n\n${namen.map((n) => `- ${n}`).join("\n")}`);
+      const teile = [
+        ...(namen.length > 0
+          ? [`Im Brain abgelegt:\n\n${namen.map((n) => `- ${n}`).join("\n")}`]
+          : []),
+        ...(fehler.length > 0
+          ? [`Nicht aufgenommen:\n\n${fehler.map((n) => `- ${n}`).join("\n")}`]
+          : []),
+      ];
+      // Bis zur nächsten Antwort bleibt das stehen — sonst überdeckte es die zuletzt gespeicherte.
+      hinweisSeit = Date.now();
+      zeigeText(teile.join("\n\n"));
       zeigeKurz();
     })();
   });

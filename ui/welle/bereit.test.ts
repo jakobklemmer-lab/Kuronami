@@ -16,6 +16,7 @@ function kontrollierteApi() {
     patch: () => Promise.resolve() as never,
     put: () => Promise.resolve() as never,
     delete: () => Promise.resolve() as never,
+    datei: () => Promise.resolve() as never,
   };
   return { api, beantworte: () => offen.shift()?.({}) };
 }
@@ -94,6 +95,7 @@ describe("verfolge", () => {
       patch: () => Promise.resolve() as never,
       put: () => Promise.resolve() as never,
       delete: () => Promise.resolve() as never,
+      datei: () => Promise.resolve() as never,
     };
     const v = verfolge(api);
     await v.api.get("/a").catch(() => undefined);
