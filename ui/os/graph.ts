@@ -420,6 +420,10 @@ export function mountGraph(host: HTMLElement, daten: GraphDaten, opt: GraphOptio
   }
   const sprites = new Map<string, HTMLCanvasElement>();
   let blasenEbene: HTMLCanvasElement | null = null;
+  // Im Dunkeln: Clusterfarbe zu 11 % in Schwarz, zu 70 % über dem Grund — dunkle Becken mit
+  // einem Hauch Farbe, gerade noch vom Grund zu unterscheiden.
+  const dunkelTon = 0.11;
+  const dunkelDeckung = 0.7;
   let farbe: string[] = [];
   let clusterFarbe: string[] = [];
   let legende: Array<{ name: string; farbe: string }> = [];
@@ -662,6 +666,10 @@ export function mountGraph(host: HTMLElement, daten: GraphDaten, opt: GraphOptio
 
   // ---------------------------------------------------------------------------- Zeichnen
   const SCHRIFT = lokal ? [12, 11.5, 11, 11] : [15, 13.5, 12.5, 11.5];
+  /** Name eines Punkts: Größe und Gewicht folgen dem Punkt — ein großer Knoten spricht lauter. */
+  const namensGroesse = (i: number) => (lokal ? 11.5 : weltRadius(i) >= 8 ? 13 : 12);
+  const namensSchrift = (i: number, gross = false) =>
+    `${weltRadius(i) >= 8 || gross ? 500 : 400} ${namensGroesse(i) + (gross ? 0.5 : 0)}px Figtree, system-ui, sans-serif`;
   const schrift = (st: number, gross = false) =>
     `${st <= 1 || gross ? 600 : 400} ${(SCHRIFT[st] ?? 11.5) + (gross ? 1 : 0)}px Figtree, system-ui, sans-serif`;
 
@@ -878,7 +886,9 @@ export function mountGraph(host: HTMLElement, daten: GraphDaten, opt: GraphOptio
    * Cluster als Flächen, die sich um ihre Notizen legen: die konvexe Hülle, mit runden Ecken
    * aufgeweitet, gleichmäßig leicht getönt. Erst auf eine eigene Ebene in voller Farbe, dann
    * einmal blass darüber — so bleibt die Tönung gleichmäßig, auch wo Rand und Fläche sich decken.
-   * (Jakob, 03.10.: der runde Lichtschatten verlief „sehr unnatürlich".)
+   * Im Dunkeln liegen sie nur ganz leise hinter dem Grund, im Hellen deutlicher (Jakob, 03.10.:
+   * der runde Lichtschatten verlief unnatürlich; die Flächen gefallen im Hellen, im Dunkeln
+   * „sehr abdunkeln, nur sehr leicht am Hintergrund").
    */
   function zeichneBlasen(sicht: boolean[], p: Array<{ x: number; y: number }>): BlasenName[] {
     const namen: BlasenName[] = [];
@@ -900,8 +910,10 @@ export function mountGraph(host: HTMLElement, daten: GraphDaten, opt: GraphOptio
       const h = huelle(glieder.map((i) => p[i]));
       if (h.length === 0) continue;
       const c = clusterFarbe[g.nummer];
-      g2.fillStyle = c;
-      g2.strokeStyle = c;
+      // Im Dunkeln ein Schatten: dunkler als der Grund, mit einem Hauch der Clusterfarbe.
+      const ton = hell ? c : mische("#000000", c, dunkelTon);
+      g2.fillStyle = ton;
+      g2.strokeStyle = ton;
       g2.lineWidth = rand * 2;
       // Weich statt eckig: die Kurve läuft durch die Kantenmitten, die Ecken ziehen nur.
       g2.beginPath();
@@ -924,7 +936,9 @@ export function mountGraph(host: HTMLElement, daten: GraphDaten, opt: GraphOptio
       g2.fill();
       g2.stroke();
       gezeichnet = true;
-      // Der Name steht über der Fläche — nicht auf einem anderen Clusternamen.
+      // Ein Name nur, wenn er nicht schon am Knotenpunkt steht.
+      const mitteTitel = netz.knoten[g.mitte]?.titel ?? "";
+      if (g.name.toLowerCase() === mitteTitel.toLowerCase()) continue;
       let minX = Number.POSITIVE_INFINITY;
       let maxX = Number.NEGATIVE_INFINITY;
       let minY = Number.POSITIVE_INFINITY;
@@ -934,8 +948,8 @@ export function mountGraph(host: HTMLElement, daten: GraphDaten, opt: GraphOptio
         minY = Math.min(minY, q.y);
       }
       const text = g.name.toUpperCase();
-      ctx.font = "600 10.5px Figtree, system-ui, sans-serif";
-      ctx.letterSpacing = "1.8px";
+      ctx.font = "500 10.5px Figtree, system-ui, sans-serif";
+      ctx.letterSpacing = "1.6px";
       const w = ctx.measureText(text).width;
       ctx.letterSpacing = "0px";
       const cx = (minX + maxX) / 2;
@@ -961,7 +975,7 @@ export function mountGraph(host: HTMLElement, daten: GraphDaten, opt: GraphOptio
       namen.push({ text, x: cx, y, farbe: c, box: box(y) });
     }
     if (gezeichnet) {
-      ctx.globalAlpha = hell ? 0.065 : 0.04;
+      ctx.globalAlpha = hell ? 0.065 : dunkelDeckung;
       ctx.drawImage(blasenEbene, 0, 0, breite, hoehe);
       ctx.globalAlpha = 1;
     }
@@ -1047,13 +1061,13 @@ export function mountGraph(host: HTMLElement, daten: GraphDaten, opt: GraphOptio
       const r = bildRadius(i);
       const text = k.titel.length > 34 ? `${k.titel.slice(0, 33)}…` : k.titel;
       const gross = i === hervor || i === gewaehlt;
-      ctx.font = schrift(k.stufe, gross);
+      ctx.font = namensSchrift(i, gross);
       const w = ctx.measureText(text).width;
       const box: [number, number, number, number] = [
         q.x - w / 2 - 3,
         q.y + r + 2,
         w + 6,
-        (SCHRIFT[k.stufe] ?? 11.5) + 5,
+        namensGroesse(i) + 5,
       ];
       const stoesst = gesetzt.some(
         ([x, y, bw, bh]) =>
@@ -1062,7 +1076,7 @@ export function mountGraph(host: HTMLElement, daten: GraphDaten, opt: GraphOptio
       if (stoesst && i !== hervor && i !== gewaehlt && k.id !== aktiv) continue;
       gesetzt.push(box);
       ctx.globalAlpha = Math.min(1, alpha[i] * (istHell(i) ? (gross ? 1 : 0.85) : 0.6));
-      const wichtig = gross || k.stufe <= 1 || weltRadius(i) >= 9;
+      const wichtig = gross || weltRadius(i) >= 8;
       ctx.fillStyle = geist[i] ? f.schrift : wichtig ? f.schriftHell : f.schrift;
       ctx.fillText(geist[i] ? `${text} (fehlt)` : text, q.x, q.y + r + 4);
     }
