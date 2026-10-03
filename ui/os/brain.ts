@@ -1,6 +1,7 @@
 import type { ApiClient } from "../api/client.js";
 import { escapeHtml } from "../views/html.js";
 import { renderMarkdown } from "../views/markdown.js";
+import type { Plaetze } from "../views/types.js";
 import { umgebung } from "./graph-sim.js";
 import { type GraphDaten, mountGraph } from "./graph.js";
 import { wikiLinks } from "./weg.js";
@@ -9,6 +10,7 @@ import { wikiLinks } from "./weg.js";
  * Das Brain als App, gebaut wie Obsidian: links der Dateibaum, in der Mitte die Notiz (lesen,
  * ⌘E bearbeiten, ⌘S sichern, Zurück und Vor), rechts der lokale Graph, Rückverweise und Links.
  * Der große Graph liegt über der Mitte — Klick auf einen Knoten öffnet die Notiz.
+ * In Kuro OS (4c) stehen Baum und rechte Spalte auf den Plätzen des Raums (`plaetze`).
  */
 
 interface Notiz {
@@ -87,6 +89,7 @@ export function mountBrainApp(
   api: ApiClient,
   start: string | null,
   toast: (text: string) => void,
+  plaetze?: Plaetze,
 ): BrainApp {
   el.innerHTML = `
     <div class="b-app">
@@ -131,6 +134,7 @@ export function mountBrainApp(
   const zurueck = q<HTMLButtonElement>("zurueck");
   const vor = q<HTMLButtonElement>("vor");
   const form = q<HTMLFormElement>("suche");
+  const rechtsEl = el.querySelector(".b-rechts") as HTMLElement;
 
   let daten: GraphDaten = { knoten: [], kanten: [] };
   const titel = new Map<string, string>();
@@ -180,6 +184,7 @@ export function mountBrainApp(
     zurueck.disabled = stelle <= 0;
     vor.disabled = stelle >= verlauf.length - 1;
     el.querySelector(".b-app")?.classList.toggle("ist-graph", offen?.art === "graph");
+    rechtsEl.classList.toggle("ist-graph", offen?.art === "graph");
     if (!offen || offen.art !== "notiz" || !notiz) {
       rueckEl.innerHTML = "";
       ausEl.innerHTML = "";
@@ -347,7 +352,7 @@ export function mountBrainApp(
     globalThis.setTimeout(() => void umschalten(), 150);
   }
 
-  el.addEventListener("click", (e) => {
+  const beiKlick = (e: MouseEvent) => {
     const ziel = e.target as Element;
     const link = ziel.closest<HTMLElement>("[data-brain]");
     if (link) {
@@ -362,7 +367,8 @@ export function mountBrainApp(
       else zu.add(p);
       zeichneBaum();
     }
-  });
+  };
+  el.addEventListener("click", beiKlick);
   zurueck.addEventListener("click", () => {
     if (stelle > 0) void zeige(verlauf[--stelle] as Ansicht);
   });
@@ -394,6 +400,16 @@ export function mountBrainApp(
       vor.click();
     }
   });
+
+  // Erst wenn alles verdrahtet ist, wandern Baum und Spalte auf die Plätze des Raums.
+  if (plaetze) {
+    const links = el.querySelector(".b-links") as HTMLElement;
+    plaetze.seite.append(links);
+    plaetze.spalte.append(rechtsEl);
+    links.addEventListener("click", beiKlick);
+    rechtsEl.addEventListener("click", beiKlick);
+    el.querySelector(".b-app")?.classList.add("ist-im-raum");
+  }
 
   void ladeDaten().then(() => gehe(start ? { art: "notiz", pfad: start } : { art: "graph" }));
 

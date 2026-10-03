@@ -25,6 +25,18 @@ export interface ViewContext {
   /** Die Sprachsitzung, wenn es eine gibt — die Präsenz startet sie mit einem Tipp auf den
    * Orb. Fehlt sie, schaltet die Ansicht nur den Mic-Zustand um. */
   voice?: { toggle(): void };
+  /**
+   * Nur in Kuro OS (4c): jeder Raum ist gebaut wie Obsidian — links die Seite, in der Mitte der
+   * Inhalt unter einer Reiterzeile, rechts eine Spalte. Eine Ansicht, die das nutzt, hängt Teile
+   * ihres Gerüsts dort ein; fehlt es (Präsenz, Welle), bleibt alles in ihrem Container.
+   */
+  plaetze?: Plaetze;
+}
+
+export interface Plaetze {
+  seite: HTMLElement;
+  spalte: HTMLElement;
+  reiter: HTMLElement;
 }
 
 export interface View {

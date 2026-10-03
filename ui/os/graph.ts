@@ -91,7 +91,28 @@ export function mountGraph(
     zeichne();
   }
 
+  // Die Farben kommen aus der Hülle (hell oder dunkel, `os.css`); gelesen wird neu, wenn sie wechselt.
+  let farbenFuer: string | undefined;
+  let f = { kante: "", leise: "", betont: "", schrift: "", schriftHell: "", wurzel: "" };
+  const farben = () => {
+    const jetzt = document.documentElement.dataset.helligkeit;
+    if (jetzt === farbenFuer && f.kante) return f;
+    farbenFuer = jetzt;
+    const st = getComputedStyle(leinwand);
+    const lies = (name: string, vorgabe: string) => st.getPropertyValue(name).trim() || vorgabe;
+    f = {
+      kante: lies("--g-kante", "rgba(232, 239, 241, 0.13)"),
+      leise: lies("--g-kante-leise", "rgba(232, 239, 241, 0.04)"),
+      betont: lies("--g-betont", "rgba(244, 184, 96, 0.7)"),
+      schrift: lies("--g-schrift", "#c9d4d8"),
+      schriftHell: lies("--g-schrift-hell", "#ffffff"),
+      wurzel: lies("--g-wurzel", GRUPPEN_FARBE[""] ?? "#e8eff1"),
+    };
+    return f;
+  };
+
   function zeichne() {
+    const fa = farben();
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     ctx.clearRect(0, 0, breite, hoehe);
     const hervor = schwebe;
@@ -104,11 +125,7 @@ export function mountGraph(
       const pa = zuBild(netz.knoten[a].x, netz.knoten[a].y);
       const pb = zuBild(netz.knoten[b].x, netz.knoten[b].y);
       const betont = hervor !== null && (a === hervor || b === hervor);
-      ctx.strokeStyle = betont
-        ? "rgba(244, 184, 96, 0.7)"
-        : hervor !== null
-          ? "rgba(232, 239, 241, 0.04)"
-          : "rgba(232, 239, 241, 0.13)";
+      ctx.strokeStyle = betont ? fa.betont : hervor !== null ? fa.leise : fa.kante;
       ctx.lineWidth = betont ? 1.4 : 1;
       ctx.beginPath();
       ctx.moveTo(pa.x, pa.y);
@@ -121,12 +138,12 @@ export function mountGraph(
       const p = zuBild(k.x, k.y);
       const r = radius(k.grad) * Math.max(0.7, Math.min(1.6, Math.sqrt(kamera.s)));
       ctx.globalAlpha = istHell(i) ? 1 : 0.18;
-      ctx.fillStyle = farbe(k.gruppe);
+      ctx.fillStyle = k.gruppe === "" ? fa.wurzel : farbe(k.gruppe);
       ctx.beginPath();
       ctx.arc(p.x, p.y, r, 0, Math.PI * 2);
       ctx.fill();
       if (k.id === aktiv) {
-        ctx.strokeStyle = "#f4b860";
+        ctx.strokeStyle = fa.betont;
         ctx.lineWidth = 2;
         ctx.beginPath();
         ctx.arc(p.x, p.y, r + 4, 0, Math.PI * 2);
@@ -147,7 +164,7 @@ export function mountGraph(
       const p = zuBild(k.x, k.y);
       const r = radius(k.grad) * Math.max(0.7, Math.min(1.6, Math.sqrt(kamera.s)));
       ctx.globalAlpha = istHell(i) ? (i === hervor ? 1 : 0.82) : 0.12;
-      ctx.fillStyle = i === hervor ? "#ffffff" : "#c9d4d8";
+      ctx.fillStyle = i === hervor ? fa.schriftHell : fa.schrift;
       const text = k.titel.length > 34 ? `${k.titel.slice(0, 33)}…` : k.titel;
       ctx.fillText(text, p.x, p.y + r + 4);
     });

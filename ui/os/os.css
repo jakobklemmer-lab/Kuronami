@@ -1,431 +1,439 @@
 /*
- * Kuro OS, dritter Wurf (`bau/kuro-os-konzept.md`). Kuros Zimmer ist der Desktop; die anderen
- * Räume liegen als matte Tafeln darüber, Kuros Platz rechts daneben. Farben und Schriften der
- * Welle (`welle.css`): Laterne für Jakob, Kuros Licht nach Zustand (`--kuro-licht`).
- * Bewegt wird nur, was einen Zustand erklärt: Raumwechsel, der Platz, der Orb.
+ * Kuro OS, vierter Wurf — Entwurf 4c „Statuszeile" (03.10.). Flach wie Obsidian, Chrome, Safari:
+ * zwei, drei Töne, feine Linien statt Karten, kein Licht außer unter dem kleinen Kuro. Die
+ * Bedienschrift ist klein und ruhig; Farbe zeigt nur einen Zustand (gewählt, rauf, runter).
+ *
+ * Zwei Fassungen, Dunkel und Hell (Einstellungen → Erscheinungsbild, `helligkeit.ts`): die Werte
+ * stehen unter `[data-helligkeit]`, alles andere liest nur die Namen. Die Fachansichten bekommen
+ * dieselben Farben über die Tokens der Welle und der Präsenz, die hier umgelegt werden.
  */
 
+/* --------------------------------------------------------------------- */
+/* Farben                                                                 */
+/* --------------------------------------------------------------------- */
+
+:root[data-helligkeit] {
+  /* Die Namen, die Welle, Präsenz und Chart lesen — umgelegt auf die Farben von Kuro OS. */
+  --tusche: var(--o-grund);
+  --see: var(--o-inhalt);
+  --mond: var(--o-text);
+  --nebel: var(--o-leise);
+  --dunst: var(--o-blass);
+  --laterne: var(--o-laterne);
+  --laterne-hell: var(--o-laterne-hell);
+  --laterne-zeile: var(--o-laterne-zeile);
+  --steigt: var(--o-steigt);
+  --faellt: var(--o-faellt);
+  --linie: var(--o-linie);
+  --linie-stark: var(--o-linie-stark);
+  --lack: var(--o-inhalt);
+  --lack-dicht: var(--o-seite);
+  --bg: var(--o-grund);
+  --bg-deep: var(--o-grund);
+  --bg-panel: var(--o-schwebe);
+  --bg-panel-solid: var(--o-feld);
+  --bg-hover: var(--o-schwebe);
+  --fg: var(--o-text);
+  --fg-muted: var(--o-leise);
+  --fg-faint: var(--o-blass);
+  --accent: var(--o-laterne);
+  --accent-strong: var(--o-laterne-rand);
+  --border: var(--o-linie);
+  --border-strong: var(--o-linie-stark);
+  --state-up: var(--o-steigt);
+  --state-down: var(--o-faellt);
+  --state-awaiting: var(--o-laterne);
+  --state-complete: var(--o-steigt);
+  --state-error: var(--o-faellt);
+  --shadow-card: none;
+  --glass-blur: 0px;
+  --link: var(--o-link);
+  --gleiten-os: cubic-bezier(0.333, 0, 0.667, 1);
+  color-scheme: dark;
+}
+
+:root[data-helligkeit="dunkel"] {
+  --o-grund: #0d0c0a;
+  --o-seite: #100f0d;
+  --o-inhalt: #141310;
+  --o-zeile: #090807;
+  --o-leere: #060504;
+  --o-gewaehlt: #201e1a;
+  --o-schwebe: rgba(236, 231, 222, 0.05);
+  --o-linie: rgba(236, 231, 222, 0.075);
+  --o-linie-stark: rgba(236, 231, 222, 0.14);
+  --o-feld: #1a1915;
+  --o-text: #ece7de;
+  --o-text-2: #cbc4b8;
+  --o-leise: #a39d92;
+  --o-blass: #8a847a;
+  --o-laterne: #f4b860;
+  --o-laterne-hell: #ffd08a;
+  --o-laterne-zeile: #f6dcb6;
+  --o-laterne-grund: rgba(244, 184, 96, 0.11);
+  --o-laterne-rand: rgba(244, 184, 96, 0.24);
+  --o-steigt: #7fd3a8;
+  --o-faellt: #f08a8a;
+  --o-kuro: #56d2c2;
+  --o-link: #b4a8ff;
+  --o-schatten: 0 24px 70px rgba(0, 0, 0, 0.5);
+  --o-schleier: rgba(6, 5, 4, 0.55);
+  --state-blocked: #e2a95c;
+  --chart-gitter: rgba(236, 231, 222, 0.045);
+  --chart-kreuz: rgba(236, 231, 222, 0.28);
+  --chart-etikett: #2b2823;
+  --chart-trenner: rgba(236, 231, 222, 0.08);
+  --chart-trenner-stark: rgba(236, 231, 222, 0.18);
+}
+
+/* Hell: warmes Papier statt Weiß, Tinte statt Schwarz. Die Laterne wird dunkler, damit sie auf
+   hellem Grund noch trägt; Kuros Licht wird zu Tinte. */
+:root[data-helligkeit="hell"] {
+  --o-grund: #f3f0ea;
+  --o-seite: #ebe7df;
+  --o-inhalt: #f9f7f3;
+  --o-zeile: #e3ded5;
+  --o-leere: #d4cec3;
+  --o-gewaehlt: #ddd6ca;
+  --o-schwebe: rgba(40, 33, 22, 0.05);
+  --o-linie: rgba(40, 33, 22, 0.1);
+  --o-linie-stark: rgba(40, 33, 22, 0.18);
+  --o-feld: #fffdf9;
+  --o-text: #23201b;
+  --o-text-2: #47423a;
+  --o-leise: #6b655b;
+  --o-blass: #8b8479;
+  --o-laterne: #b46e15;
+  --o-laterne-hell: #94570b;
+  --o-laterne-zeile: #5f3c0e;
+  --o-laterne-grund: rgba(196, 128, 36, 0.12);
+  --o-laterne-rand: rgba(180, 110, 21, 0.34);
+  --o-steigt: #1b8253;
+  --o-faellt: #bf433a;
+  --o-kuro: #12877a;
+  --o-link: #5a49cf;
+  --o-schatten: 0 24px 60px rgba(60, 46, 26, 0.18);
+  --o-schleier: rgba(60, 50, 36, 0.22);
+  --state-blocked: #a8650f;
+  --chart-gitter: rgba(40, 33, 22, 0.06);
+  --chart-kreuz: rgba(40, 33, 22, 0.32);
+  --chart-etikett: #4a453d;
+  --chart-trenner: rgba(40, 33, 22, 0.1);
+  --chart-trenner-stark: rgba(40, 33, 22, 0.22);
+  --g-kante: rgba(40, 33, 22, 0.17);
+  --g-kante-leise: rgba(40, 33, 22, 0.05);
+  --g-betont: rgba(180, 110, 21, 0.75);
+  --g-schrift: #4a453d;
+  --g-schrift-hell: #1a1814;
+  --g-wurzel: #47423a;
+  color-scheme: light;
+}
+
+/* --------------------------------------------------------------------- */
+/* Grundgerüst: Bühne über der Statuszeile                                */
+/* --------------------------------------------------------------------- */
+
+html:has(> body.ist-os) {
+  overscroll-behavior-x: none;
+}
+
 .ist-os {
-  --kopf-h: 52px;
-  --rand: 14px;
-  --gespraech-b: clamp(380px, 28vw, 540px);
-  --platz-b: clamp(320px, 19vw, 380px);
-  --streifen-b: 64px;
-  --orb-klein-h: 228px;
-  --kuro-licht: var(--kuro);
-  --tafel: linear-gradient(180deg, rgba(11, 18, 21, 0.975), rgba(14, 20, 18, 0.975));
-  /* Matt: Kuros Zimmer bleibt unter Fenster und Blatt als weiches Licht, nie als Form oder Schrift. */
-  --tafel-matt: linear-gradient(180deg, rgba(11, 18, 21, 0.92), rgba(14, 20, 18, 0.92));
-  --tafel-licht: rgba(232, 239, 241, 0.035);
-  --haarlinie: rgba(232, 239, 241, 0.07);
-  --glas-hell: rgba(232, 239, 241, 0.06);
-  --gleiten-os: cubic-bezier(0.45, 0, 0.55, 1);
-  --link: #a99bff;
+  --zeile-h: 46px;
+  --oben: 0px;
+  --seite-b: clamp(232px, 16.4vw, 300px);
+  --spalte-b: clamp(300px, 23.2vw, 420px);
+  --kuro-licht: var(--o-kuro);
   height: 100svh;
   overflow: hidden;
-  background: linear-gradient(160deg, #0b1215, #0e1412);
+  overscroll-behavior-x: none;
+  background: var(--o-leere);
+  color: var(--o-text);
+  font-family: var(--schrift);
 }
 
 .o-os {
-  --spalte-b: var(--gespraech-b);
   position: fixed;
   inset: 0;
   overflow: hidden;
+  background: var(--o-seite);
 }
 
-.o-os.ist-fenster {
-  --spalte-b: var(--platz-b);
+.o-os[data-raum="kuro"] {
+  background: var(--o-grund);
 }
 
-.o-os.ist-fenster.ist-platz-zu {
-  --spalte-b: var(--streifen-b);
+/* In der Desktop-App ist oben ein schmaler Streifen zum Ziehen des Fensters; am Mac sitzen dort
+   die drei Knöpfe. Er hat die Farbe des Raums, sichtbar ist von ihm nichts. */
+.ist-desktop .o-os {
+  --oben: 28px;
 }
 
-.o-kopf,
+.ist-desktop.ist-win32 .o-os {
+  --oben: 32px;
+}
+
+.o-zug {
+  display: none;
+}
+
+.ist-desktop .o-zug {
+  position: absolute;
+  inset: 0 0 auto;
+  z-index: 5;
+  display: block;
+  height: var(--oben);
+  -webkit-app-region: drag;
+}
+
+.o-buehne {
+  position: absolute;
+  inset: var(--oben) 0 var(--zeile-h);
+  overflow: hidden;
+  background: var(--o-leere);
+}
+
+.o-zeile,
 .o-starter,
-.o-fenster__kopf,
-.o-platz__fuss,
-.o-streifen {
+.o-seite__titel,
+.o-teile,
+.o-blatt__kopf,
+.o-raum__name {
   user-select: none;
   -webkit-user-select: none;
 }
 
 /* --------------------------------------------------------------------- */
-/* Kopf: die Räume als Überschrift                                        */
+/* Das Band: alle Räume nebeneinander, die Kamera fährt                   */
 /* --------------------------------------------------------------------- */
 
-.o-kopf {
-  position: fixed;
-  inset: 0 0 auto;
-  z-index: 40;
-  display: flex;
-  align-items: center;
-  gap: 26px;
-  height: var(--kopf-h);
-  padding: 0 calc(var(--rand) + 8px) 0 calc(var(--rand) + 10px);
+.o-band {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: var(--b-breite, 100vw);
+  height: var(--b-hoehe, 100svh);
+  transform-origin: 0 0;
 }
 
-.o-marke {
-  flex: none;
-  padding: 0;
-  border: 0;
-  background: none;
-  color: var(--mond);
-  font-family: var(--zeichen);
-  font-size: 19px;
-  cursor: pointer;
-  opacity: 0.86;
-}
-
-.o-marke:hover {
-  opacity: 1;
-  color: var(--laterne-hell);
-}
-
-.o-raeume {
-  display: flex;
-  align-items: baseline;
-  gap: 22px;
-  min-width: 0;
+.o-os.ist-unterwegs .o-band {
+  will-change: transform;
 }
 
 .o-raum {
-  display: inline-flex;
-  align-items: baseline;
-  gap: 4px;
-  color: var(--nebel);
-  font-family: var(--zeichen);
-  font-size: 15px;
-  line-height: 1;
-  text-decoration: none;
-  white-space: nowrap;
-  transition: color 0.18s ease;
-}
-
-.o-raum span {
-  transition: font-size 0.18s var(--gleiten-os);
-}
-
-.o-raum small {
-  font-family: var(--schrift);
-  font-size: 10.5px;
-  color: var(--dunst);
-  font-variant-numeric: tabular-nums;
-  transform: translateY(-0.55em);
-}
-
-.o-raum:hover {
-  color: var(--mond);
-}
-
-.o-raum.ist-hier {
-  color: var(--mond);
-}
-
-.o-raum.ist-hier span {
-  font-size: 26px;
-  font-weight: 500;
-}
-
-.o-kopf__rechts {
-  display: flex;
-  align-items: center;
-  gap: 18px;
-  margin-left: auto;
-  color: var(--nebel);
-  font-size: 13px;
-}
-
-.o-suche {
-  display: inline-flex;
-  align-items: center;
-  gap: 10px;
-  height: 30px;
-  padding: 0 8px 0 12px;
-  border: 1px solid var(--haarlinie);
-  border-radius: 9px;
-  background: rgba(3, 8, 11, 0.32);
-  color: var(--nebel);
-  font: inherit;
-  cursor: pointer;
-  transition: color 0.18s ease, border-color 0.18s ease;
-}
-
-.o-suche kbd {
-  padding: 2px 6px;
-  border-radius: 5px;
-  background: var(--tafel-licht);
-  font-family: var(--schrift);
-  font-size: 11.5px;
-  color: var(--dunst);
-}
-
-.o-suche:hover {
-  border-color: var(--linie-stark);
-  color: var(--mond);
-}
-
-.o-abo {
-  display: inline-flex;
-  align-items: center;
-  gap: 7px;
-  padding: 0;
-  border: 0;
-  background: none;
-  color: var(--nebel);
-  font: inherit;
-  font-variant-numeric: tabular-nums;
-  cursor: pointer;
-}
-
-.o-abo[hidden] {
-  display: none;
-}
-
-.o-abo__balken {
-  width: 24px;
-  height: 3px;
-  overflow: hidden;
-  border-radius: 2px;
-  background: var(--linie-stark);
-}
-
-.o-abo__balken i {
-  display: block;
-  height: 100%;
-  background: var(--laterne);
-}
-
-.o-abo.ist-knapp .o-abo__balken i {
-  background: var(--faellt);
-}
-
-.o-uhr {
-  color: var(--mond);
-  font-variant-numeric: tabular-nums;
-}
-
-.o-haus {
-  display: inline-grid;
-  place-items: center;
-  width: 32px;
-  height: 32px;
-  padding: 0;
-  border: 0;
-  border-radius: 50%;
-  background: none;
-  color: var(--nebel);
-  cursor: pointer;
-  transition: color 0.18s ease, background 0.18s ease;
-}
-
-.o-haus svg {
-  width: 18px;
-  height: 18px;
-}
-
-.o-haus:hover {
-  background: var(--glas-hell);
-  color: var(--mond);
-}
-
-/* --------------------------------------------------------------------- */
-/* Der Orb                                                                */
-/* --------------------------------------------------------------------- */
-
-/*
- * Ein Orb für alle Lagen: groß in der Mitte des Zimmers, oben in Kuros Platz neben einem Fenster,
- * klein im eingeklappten Streifen. Er gleitet zwischen ihnen, statt neu zu starten.
- */
-.o-orb {
-  /* Vor der rechten Scheibe des Fensterbilds; Lage und Seite setzt `kuro-raum.ts`. */
-  --orb-s: 0px;
-  position: fixed;
-  z-index: 30;
-  left: var(--orb-l, 50vw);
-  top: var(--orb-t, 20vh);
-  width: var(--orb-s);
-  height: var(--orb-s);
-  border-radius: 50%;
-}
-
-.o-os.ist-fenster .o-orb {
-  left: calc(100vw - var(--rand) - var(--platz-b));
-  top: calc(var(--kopf-h) + 4px);
-  width: var(--platz-b);
-  height: var(--orb-klein-h);
-  border-radius: 14px;
-}
-
-.o-os.ist-fenster.ist-platz-zu .o-orb {
-  left: calc(100vw - var(--rand) - var(--streifen-b));
-  top: calc(var(--kopf-h) + 6px);
-  width: var(--streifen-b);
-  height: var(--streifen-b);
-}
-
-.o-orb .ko-root {
-  min-height: 0;
-}
-
-.o-orb .ko-caption {
-  top: auto;
-  bottom: 2%;
-}
-
-.o-os.ist-fenster .o-orb .ko-caption,
-.o-os.ist-fenster .o-orb .ko-tags {
-  display: none;
-}
-
-.o-orb.ist-ohne-orb {
-  display: grid;
-  place-items: center;
-}
-
-.o-orb .p-orb-fehler {
-  max-width: 34ch;
-  margin: 0;
-  font-size: 13px;
-  color: var(--nebel);
-  text-align: center;
-}
-
-.o-os.ist-fenster .o-orb .p-orb-fehler {
-  display: none;
-}
-
-/* --------------------------------------------------------------------- */
-/* Tafeln: das Fenster eines Raums und das Blatt                          */
-/* --------------------------------------------------------------------- */
-
-.o-fenster {
-  position: fixed;
-  top: var(--kopf-h);
-  bottom: var(--rand);
-  left: var(--rand);
-  right: calc(var(--spalte-b) + 2 * var(--rand));
-  z-index: 20;
-  display: flex;
-  flex-direction: column;
-  overflow: hidden;
-  background: var(--tafel-matt);
-  -webkit-backdrop-filter: blur(clamp(32px, 2vw, 64px)) saturate(0.85);
-  backdrop-filter: blur(clamp(32px, 2vw, 64px)) saturate(0.85);
-  border: 1px solid var(--haarlinie);
-  border-radius: 14px;
-  box-shadow: 0 28px 70px rgba(0, 0, 0, 0.38);
-  transition: right 0.22s var(--gleiten-os), opacity 0.2s var(--gleiten-os), transform 0.24s
-    var(--gleiten);
-}
-
-.o-fenster[hidden] {
-  display: none;
-}
-
-.o-fenster.ist-kommend,
-.o-fenster.ist-gehend {
-  opacity: 0;
-  transform: translateY(10px) scale(0.99);
-}
-
-.o-fenster__kopf {
-  display: flex;
-  align-items: center;
-  gap: 16px;
-  flex: none;
-  height: 46px;
-  padding: 0 8px 0 22px;
-  border-bottom: 1px solid var(--haarlinie);
-}
-
-/* Ohne Reiter (Brain) bleibt vom Kopf nur der Knopf, oben rechts über der Ansicht. */
-.o-fenster.ohne-reiter .o-fenster__kopf {
   position: absolute;
   top: 0;
+  width: var(--b-breite, 100vw);
+  height: var(--b-hoehe, 100svh);
+  visibility: hidden;
+}
+
+.o-raum:nth-child(2) {
+  left: calc(1 * (var(--b-breite) + var(--b-spalt)));
+}
+.o-raum:nth-child(3) {
+  left: calc(2 * (var(--b-breite) + var(--b-spalt)));
+}
+.o-raum:nth-child(4) {
+  left: calc(3 * (var(--b-breite) + var(--b-spalt)));
+}
+.o-raum:nth-child(5) {
+  left: calc(4 * (var(--b-breite) + var(--b-spalt)));
+}
+
+.o-raum.ist-hier,
+.o-os.ist-unterwegs .o-raum {
+  visibility: visible;
+}
+
+.o-raum__flaeche {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  background: var(--o-grund);
+  transition: border-radius 0.22s var(--gleiten-os), box-shadow 0.22s var(--gleiten-os);
+}
+
+/* Zurückgezogen sind die Räume Tafeln mit runden Ecken; der Zielraum trägt den helleren Rand. */
+.o-os.ist-unterwegs .o-raum__flaeche {
+  border-radius: 30px;
+  box-shadow: 0 0 0 2px var(--o-linie);
+}
+
+.o-os.ist-unterwegs .o-raum.ist-ziel .o-raum__flaeche {
+  box-shadow: 0 0 0 2px var(--o-linie-stark);
+}
+
+.o-os.ist-unterwegs .o-raum__flaeche * {
+  pointer-events: none;
+}
+
+/* Die Namen stehen unter den Räumen auf dem Band und werden mit ihm kleiner (38 px → ≈ 20 px). */
+.o-raum__name {
+  position: absolute;
+  left: 0;
   right: 0;
-  z-index: 3;
-  height: 40px;
-  padding: 0 4px;
-  border: 0;
+  top: calc(100% + 46px);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  margin: 0;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.16s var(--gleiten-os);
 }
 
-.o-fenster.ohne-reiter .o-teile {
-  display: none;
+.o-os.ist-unterwegs .o-raum__name {
+  opacity: 1;
 }
 
-.o-fenster.ohne-reiter .b-kopf {
-  padding-right: 48px;
+.o-raum__name span {
+  font-family: var(--zeichen);
+  font-weight: 500;
+  font-size: 38px;
+  color: var(--o-leise);
+}
+
+.o-raum.ist-ziel .o-raum__name span {
+  color: var(--o-text);
+}
+
+.o-raum__name small {
+  min-height: 1.2em;
+  font-size: 24px;
+  color: var(--o-blass);
+  font-variant-numeric: tabular-nums;
+}
+
+/* --------------------------------------------------------------------- */
+/* Arbeitsräume: Seite · Inhalt · Spalte                                  */
+/* --------------------------------------------------------------------- */
+
+.o-raum--arbeit .o-raum__flaeche {
+  display: grid;
+  grid-template-columns: var(--seite-b) minmax(0, 1fr);
+}
+
+.o-raum--arbeit.hat-spalte .o-raum__flaeche {
+  grid-template-columns: var(--seite-b) minmax(0, 1fr) var(--spalte-b);
+}
+
+/* Im großen Graphen des Brain braucht es keine Spalte für eine einzelne Notiz. */
+.o-raum--arbeit.hat-spalte:has(.o-spalte > .ist-graph) .o-raum__flaeche {
+  grid-template-columns: var(--seite-b) minmax(0, 1fr);
+}
+
+.o-seite {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  padding: 22px 24px 18px;
+  overflow: hidden;
+  background: var(--o-seite);
+  border-right: 1px solid var(--o-linie);
+}
+
+.o-seite__titel {
+  flex: none;
+  margin: 0;
+  font-family: var(--zeichen);
+  font-weight: 500;
+  font-size: 24px;
+  line-height: 1.2;
+  color: var(--o-text);
 }
 
 .o-teile {
   display: flex;
-  align-items: stretch;
-  gap: 24px;
-  height: 100%;
+  flex-direction: column;
+  gap: 2px;
+  flex: none;
+  margin-top: 22px;
 }
 
 .o-teil {
-  position: relative;
-  display: inline-flex;
+  display: flex;
   align-items: center;
-  color: var(--nebel);
+  height: 34px;
+  margin: 0 -12px;
+  padding: 0 12px;
+  border-radius: 8px;
+  color: var(--o-leise);
   font-size: 14px;
   text-decoration: none;
-  transition: color 0.18s ease;
+  transition: background 0.14s ease, color 0.14s ease;
 }
 
 .o-teil:hover {
-  color: var(--mond);
+  background: var(--o-schwebe);
+  color: var(--o-text);
 }
 
 .o-teil.ist-hier {
-  color: var(--mond);
+  background: var(--o-gewaehlt);
+  color: var(--o-text);
+  font-weight: 500;
 }
 
-/* Der gewählte Teil trägt einen kurzen Strich im Licht der Laterne. */
-.o-teil.ist-hier::after {
-  content: "";
-  position: absolute;
-  left: 0;
-  bottom: -1px;
-  width: 18px;
-  height: 2px;
-  border-radius: 2px;
-  background: var(--laterne);
+.o-seite__platz {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  margin-top: 30px;
 }
 
-.o-zu {
-  display: inline-grid;
-  place-items: center;
-  width: 32px;
-  height: 32px;
-  margin-left: auto;
-  padding: 0;
-  border: 0;
-  border-radius: 50%;
-  background: none;
-  color: var(--nebel);
-  cursor: pointer;
-  transition: color 0.18s ease, background 0.18s ease;
+.o-seite__platz:empty {
+  display: none;
 }
 
-.o-zu svg {
-  width: 16px;
-  height: 16px;
+/* Ohne Teile-Liste (Brain, Studium) beginnt der Platz gleich unter dem Titel. */
+.o-seite__titel + .o-seite__platz {
+  margin-top: 18px;
 }
 
-.o-zu:hover {
-  background: var(--glas-hell);
-  color: var(--mond);
+.o-mitte {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  background: var(--o-inhalt);
+}
+
+.o-reiter {
+  display: none;
+  flex: none;
+  align-items: flex-end;
+  height: 40px;
+  padding: 0 8px;
+  background: var(--o-seite);
+}
+
+.o-raum.hat-reiter .o-reiter {
+  display: flex;
 }
 
 /* Die Bühne ist der Größen-Container der Teile: der Chart misst seine Höhe an ihr (`cqh`). */
-.o-fenster__buehne {
+.o-mitte__buehne {
   position: relative;
   flex: 1;
   min-height: 0;
   container: tafel / size;
+}
+
+.o-spalte {
+  display: none;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  background: var(--o-seite);
+  border-left: 1px solid var(--o-linie);
+}
+
+.o-raum.hat-spalte .o-spalte {
+  display: flex;
 }
 
 .o-teil-flaeche {
@@ -434,6 +442,8 @@
   overflow: auto;
   overscroll-behavior: contain;
   user-select: text;
+  scrollbar-width: thin;
+  scrollbar-color: var(--o-linie-stark) transparent;
   transition: opacity 0.18s var(--gleiten-os), transform 0.18s var(--gleiten-os);
 }
 
@@ -451,399 +461,458 @@
   pointer-events: none;
 }
 
-/* Das Brain fragt seine Breite hier ab, nicht an `.b-app` selbst — ein Container kann sich nicht
-   selbst abfragen, sonst bliebe die Spalte rechts leer stehen, wenn ihr Inhalt weicht. */
 .o-teil-flaeche--brain {
   overflow: hidden;
   container-type: inline-size;
 }
 
 /* --------------------------------------------------------------------- */
-/* Die Fachansichten in der Tafel                                         */
+/* Die Statuszeile                                                        */
 /* --------------------------------------------------------------------- */
 
-/* Der Kopf der Tafel nennt den Teil; von der Ansicht bleibt oben ihr Stand als ruhige Zeile. */
-.o-teil-flaeche.w-raum,
-.o-blatt__inhalt.w-raum {
-  --haft-oben: 0px;
-  --haft-unten: 0px;
-  --bg-panel: var(--tafel-licht);
-  max-width: none;
-  min-height: 0;
-  margin: 0;
-  padding: 14px 28px 22px;
-}
-
-.o-teil-flaeche .detail-view,
-.o-blatt__inhalt .detail-view {
-  max-width: none;
-  min-height: 0;
-  margin: 0;
-  padding: 0;
-  gap: 14px;
-}
-
-/* Listen ohne zweite Spalte behalten ihre Lesebreite und stehen links. */
-.o-teil-flaeche .detail-view--schmal {
-  max-width: var(--seite-schmal);
-}
-
-.o-teil-flaeche .detail-view__title,
-.o-teil-flaeche .detail-view__icon,
-.o-blatt__inhalt .detail-view__title,
-.o-blatt__inhalt .detail-view__icon {
-  display: none;
-}
-
-.o-teil-flaeche .detail-view__head,
-.o-blatt__inhalt .detail-view__head {
+.o-zeile {
+  position: absolute;
+  inset: auto 0 0;
+  z-index: 40;
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
   align-items: center;
-  min-height: 30px;
-  margin: 0;
+  height: var(--zeile-h);
+  padding: 0 28px 0 24px;
+  background: var(--o-zeile);
+  border-top: 1px solid var(--o-linie);
 }
 
-.o-teil-flaeche .detail-view__subtitle,
-.o-blatt__inhalt .detail-view__subtitle {
-  margin: 0;
-  font-size: 13.5px;
-  color: var(--nebel);
+.o-zeile__links {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  min-width: 0;
+  height: 100%;
 }
 
-.o-teil-flaeche .detail-view__archiv-schalter {
+.o-marke {
   flex: none;
-  align-self: center;
-  padding: 4px 12px;
-  font-size: 13px;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--o-text-2);
+  font-family: var(--zeichen);
+  font-size: 16px;
+  cursor: pointer;
+  transition: color 0.14s ease;
+}
+
+.o-marke:hover {
+  color: var(--o-laterne);
+}
+
+.o-raeume {
+  position: relative;
+  display: flex;
+  height: 100%;
+  min-width: 0;
+}
+
+.o-raum-knopf {
+  display: flex;
+  align-items: center;
+  height: 100%;
+  padding: 0 12px;
+  color: var(--o-leise);
+  font-size: 13.5px;
+  text-decoration: none;
   white-space: nowrap;
+  transition: color 0.14s ease;
 }
 
-/* Matte Tafeln statt Glas: kein Weichzeichner, kein Schatten, nur die Haarlinie. */
-.o-teil-flaeche .glass,
-.o-blatt__inhalt .glass {
-  border-color: var(--haarlinie);
-  border-radius: 14px;
-  background: var(--tafel-licht);
-  box-shadow: none;
-  -webkit-backdrop-filter: none;
-  backdrop-filter: none;
+.o-raum-knopf:hover {
+  color: var(--o-text);
 }
 
-.o-teil-flaeche .lehren {
-  margin-bottom: 0;
+.o-raum-knopf.ist-hier {
+  color: var(--o-text);
+  font-weight: 500;
 }
 
-/* Post und Archive füllen die Tafel; Liste und Blatt rollen jedes in sich, wie ein Mailprogramm. */
-.o-teil-flaeche > div:has(> .post, > .detail-view--archiv) {
-  height: 100%;
+/* Ein Strich im Licht der Laterne an der Oberkante; er gleitet zum neuen Raum. */
+.o-raeume__strich {
+  position: absolute;
+  left: 0;
+  top: -1px;
+  width: 0;
+  height: 2px;
+  border-radius: 1px;
+  background: var(--o-laterne);
+  transition: transform 0.32s var(--gleiten-os), width 0.32s var(--gleiten-os);
 }
 
-.o-teil-flaeche .post,
-.o-teil-flaeche .detail-view--archiv {
-  height: 100%;
+.o-zeile__rechts {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 18px;
+  min-width: 0;
+  color: var(--o-leise);
+  font-size: 13px;
 }
 
-.o-teil-flaeche .post .post__flaeche,
-.o-teil-flaeche .detail-view--archiv .analysen {
-  flex: 1;
-  min-height: 0;
-  align-items: stretch;
+.o-knopf {
+  display: inline-grid;
+  place-items: center;
+  flex: none;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: none;
+  color: var(--o-leise);
+  cursor: pointer;
+  transition: background 0.14s ease, color 0.14s ease;
 }
 
-.o-teil-flaeche .post .post__liste,
-.o-teil-flaeche .post .post__leser,
-.o-teil-flaeche .detail-view--archiv .analysen__liste,
-.o-teil-flaeche .detail-view--archiv .analysen__blatt {
-  position: static;
-  max-height: none;
-  min-height: 0;
-  overflow-y: auto;
+.o-knopf:hover {
+  background: var(--o-schwebe);
+  color: var(--o-text);
 }
 
-.o-teil-flaeche .post__leser > .post__leer {
-  height: 100%;
+.o-knopf svg {
+  width: 16px;
+  height: 16px;
 }
 
-/* Auf breiten Schirmen bleibt der Inhalt eines Blatts beisammen, statt Kennzahlen über die
-   ganze Tafel zu verteilen. */
-.o-teil-flaeche .analysen__blatt > * {
-  max-width: 1120px;
+.o-woche {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+  cursor: pointer;
 }
 
-/* Der Chart füllt die Höhe der Tafel unter der Statuszeile (14 + 30 + 14 + 22 px). */
-.o-teil-flaeche .markt {
-  --markt-hoehe: max(420px, calc(100cqh - 80px));
-}
-
-/* Leiste und Fuß brechen um, statt Knöpfe seitlich aus dem Bild zu schieben. Ist der Chart
-   schmal, weichen Uhr und Etikett im Fuß (die Uhr steht oben im Kopf). */
-.o-teil-flaeche .markt__leiste,
-.o-teil-flaeche .markt__fuss {
-  flex-wrap: wrap;
-  row-gap: 4px;
-}
-
-@container arbeitsplatz (max-width: 1060px) {
-  .o-teil-flaeche .markt__uhr,
-  .o-teil-flaeche .markt__fusslabel {
-    display: none;
-  }
-}
-
-/* Neben Kuros Platz ist die Tafel schmaler als das Fenster: Liste und Überblick stehen dann unter
-   dem Chart, wie es die Ansicht selbst erst unter 1180 px Fensterbreite tut. */
-@container tafel (max-width: 1060px) {
-  .o-teil-flaeche .markt__body {
-    grid-template-columns: minmax(0, 1fr);
-  }
-  .o-teil-flaeche .markt__seite {
-    height: auto;
-  }
-  .o-teil-flaeche .markt__liste {
-    max-height: 420px;
-  }
-  .o-teil-flaeche .markt__detail {
-    min-height: 420px;
-  }
-}
-
-/* Schmal stehen Liste und Blatt der Archive untereinander; dann rollt wieder die ganze Fläche. */
-@media (max-width: 900px) {
-  .o-teil-flaeche > div:has(> .detail-view--archiv),
-  .o-teil-flaeche .detail-view--archiv {
-    height: auto;
-  }
-  .o-teil-flaeche .detail-view--archiv .analysen__liste {
-    max-height: 34vh;
-  }
-  .o-teil-flaeche .detail-view--archiv .analysen__blatt {
-    overflow: visible;
-  }
-}
-
-.o-blatt {
-  position: fixed;
-  inset: 0;
-  z-index: 1500;
-}
-
-.o-blatt[hidden] {
+.o-woche[hidden] {
   display: none;
 }
 
-.o-blatt__grund {
-  position: absolute;
-  inset: 0;
-  background: rgba(3, 8, 11, 0.5);
-  opacity: 0;
-  transition: opacity 0.24s var(--gleiten-os);
+.o-woche:hover {
+  color: var(--o-text);
 }
 
-.o-blatt__tafel {
-  position: absolute;
-  top: var(--rand);
-  right: var(--rand);
-  bottom: var(--rand);
-  display: flex;
-  flex-direction: column;
-  width: min(1180px, calc(100vw - 120px));
+.o-woche__balken {
+  display: block;
+  width: 34px;
+  height: 3px;
   overflow: hidden;
-  background: var(--tafel-matt);
-  -webkit-backdrop-filter: blur(clamp(32px, 2vw, 64px)) saturate(0.85);
-  backdrop-filter: blur(clamp(32px, 2vw, 64px)) saturate(0.85);
-  border: 1px solid var(--haarlinie);
-  border-radius: 14px;
-  box-shadow: -24px 0 70px rgba(0, 0, 0, 0.42);
-  transform: translateX(calc(100% + 40px));
-  transition: transform 0.26s var(--gleiten);
+  border-radius: 2px;
+  background: var(--o-linie-stark);
 }
 
-.o-blatt.ist-offen .o-blatt__grund {
+.o-woche__balken i {
+  display: block;
+  height: 100%;
+  background: var(--o-leise);
+}
+
+.o-woche.ist-knapp,
+.o-woche.ist-knapp:hover {
+  color: var(--o-laterne);
+}
+
+.o-woche.ist-knapp .o-woche__balken i {
+  background: var(--o-laterne);
+}
+
+.o-uhr {
+  color: var(--o-text);
+  font-variant-numeric: tabular-nums;
+}
+
+/* ------------------------------------------- der kleine Kuro in der Mitte */
+
+.o-kuro {
+  position: relative;
+  display: flex;
+  align-items: center;
+  height: 100%;
+}
+
+/* Das einzige Licht im OS: unter dem kleinen Kuro, solange er arbeitet. */
+.o-kuro__licht {
+  position: absolute;
+  left: 50%;
+  bottom: -60px;
+  width: 520px;
+  height: 240px;
+  margin-left: -260px;
+  background: radial-gradient(
+    closest-side,
+    color-mix(in srgb, var(--kuro-licht) 16%, transparent),
+    transparent
+  );
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.6s var(--gleiten-os);
+}
+
+.o-os.kuro-arbeitet .o-kuro__licht {
   opacity: 1;
 }
 
-.o-blatt.ist-offen .o-blatt__tafel {
+:root[data-helligkeit="hell"] .o-kuro__licht {
+  background: radial-gradient(
+    closest-side,
+    color-mix(in srgb, var(--kuro-licht) 13%, transparent),
+    transparent
+  );
+}
+
+.o-kuro__figur {
+  position: relative;
+  z-index: 1;
+  flex: none;
+  width: 40px;
+  margin-top: -18px;
+  padding: 0;
+  border: 0;
+  background: none;
+  cursor: pointer;
+  transition: transform 0.24s var(--gleiten-os), opacity 0.24s var(--gleiten-os);
+}
+
+.o-kuro__figur:hover {
+  transform: translateY(-2px);
+}
+
+/* Im Raum Kuro ist er der große Orb; dort bleibt nur seine Zeile. */
+.o-os[data-raum="kuro"] .o-kuro__figur {
+  opacity: 0;
+  transform: translateY(16px) scale(0.6);
+  pointer-events: none;
+}
+
+/* Eine Antwort kam, während das Gespräch zu war. */
+.o-kuro__figur::after {
+  content: "";
+  position: absolute;
+  top: 6px;
+  right: -2px;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--o-laterne);
+  box-shadow: 0 0 0 2px var(--o-zeile);
+  opacity: 0;
+  transform: scale(0.4);
+  transition: opacity 0.2s ease, transform 0.2s ease;
+}
+
+.o-os.hat-neues .o-kuro__figur::after {
+  opacity: 1;
   transform: none;
 }
 
-.o-blatt__inhalt {
-  flex: 1;
-  min-height: 0;
-  overflow: auto;
-  overscroll-behavior: contain;
+/* Beim Wechsel läuft er mit: ein kurzer Hüpfer. */
+.o-os.ist-unterwegs .o-kuro__figur .fg {
+  animation: o-kuro-laeuft 0.36s var(--gleiten-os) 2;
 }
 
-/* --------------------------------------------------------------------- */
-/* Kuros Platz: die Spalte neben einem Raum (auf dem Desktop ist Kuro die Fläche) */
-/* --------------------------------------------------------------------- */
-
-.o-platz {
-  position: fixed;
-  top: var(--kopf-h);
-  right: var(--rand);
-  bottom: var(--rand);
-  z-index: 20;
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-  width: var(--spalte-b);
-  padding: 18px 18px 12px;
-  overflow: hidden;
-  background: linear-gradient(180deg, rgba(8, 14, 17, 0.9), rgba(10, 16, 15, 0.92));
-  border: 1px solid var(--haarlinie);
-  border-radius: 14px;
-  transition: width 0.22s var(--gleiten-os), padding 0.22s var(--gleiten-os);
-}
-
-.o-os:not(.ist-fenster) .o-platz {
-  display: none;
-}
-
-.o-platz > * {
-  animation: o-ein 0.26s var(--gleiten-os) both;
-}
-
-@keyframes o-ein {
-  from {
-    opacity: 0;
+@keyframes o-kuro-laeuft {
+  50% {
+    transform: translateY(-5px) rotate(6deg);
   }
 }
 
-.o-platz__orbraum {
-  flex: none;
-  height: calc(var(--orb-klein-h) - 18px);
-  margin: -14px -18px -6px;
-}
-
-.o-platz__satz {
-  margin: 0;
+.o-kuro__zeile {
+  position: absolute;
+  left: calc(100% + 16px);
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  max-width: 34vw;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--o-text-2);
+  font: inherit;
   font-size: 13.5px;
-  line-height: 1.45;
-  color: var(--nebel);
-  text-align: center;
+  white-space: nowrap;
+  cursor: pointer;
 }
 
-.o-imhaus:empty {
+.o-kuro__zeile[hidden] {
   display: none;
 }
 
+.o-os[data-raum="kuro"] .o-kuro__zeile {
+  left: auto;
+  transform: translateX(-50%);
+}
+
+.o-kuro__text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.o-kuro__zeile:hover .o-kuro__text {
+  color: var(--o-text);
+}
+
+.o-kuro__zeit {
+  flex: none;
+  color: var(--o-blass);
+  font-variant-numeric: tabular-nums;
+}
+
+.o-kuro__zeit[hidden] {
+  display: none;
+}
+
+/* --------------------------------------------------------------------- */
+/* Das Gespräch auf Abruf (Klick auf den kleinen Kuro, ⌘J)               */
+/* --------------------------------------------------------------------- */
+
+.o-gespraech {
+  position: absolute;
+  left: 50%;
+  bottom: calc(var(--zeile-h) + 12px);
+  z-index: 45;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  width: min(600px, calc(100vw - 32px));
+  max-height: min(68vh, 680px);
+  margin-left: max(-300px, calc(-50vw + 16px));
+  padding: 16px 16px 14px;
+  background: var(--o-seite);
+  border: 1px solid var(--o-linie-stark);
+  border-radius: 16px;
+  box-shadow: var(--o-schatten);
+  transform-origin: 50% 100%;
+  transition: opacity 0.16s var(--gleiten-os), transform 0.16s var(--gleiten-os);
+}
+
+.o-gespraech[hidden] {
+  display: none;
+}
+
+.o-gespraech.ist-kommend {
+  opacity: 0;
+  transform: translateY(10px) scale(0.98);
+}
+
+.o-gespraech__kopf {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 0 4px;
+}
+
+.o-gespraech__satz {
+  margin: 0;
+  color: var(--o-leise);
+  font-size: 13px;
+}
+
+.o-gespraech__raum {
+  color: var(--o-blass);
+  font-size: 12.5px;
+  text-decoration: none;
+}
+
+.o-gespraech__raum:hover {
+  color: var(--o-laterne);
+}
+
 /* Das Gespräch beginnt unten über der Eingabe und wächst nach oben. */
-.o-platz__faden,
-.e-faden {
+.o-gespraech__faden,
+.kr-faden {
   display: flex;
   flex-direction: column;
   flex: 1;
   min-height: 0;
   overflow-y: auto;
   overscroll-behavior: contain;
-  padding: 24px 6px 4px 0;
+  padding: 20px 6px 4px 4px;
   scrollbar-width: thin;
-  scrollbar-color: var(--linie-stark) transparent;
-  -webkit-mask-image: linear-gradient(to bottom, transparent, #000 28px);
-  mask-image: linear-gradient(to bottom, transparent, #000 28px);
+  scrollbar-color: var(--o-linie-stark) transparent;
+  -webkit-mask-image: linear-gradient(to bottom, transparent, #000 26px);
+  mask-image: linear-gradient(to bottom, transparent, #000 26px);
 }
 
-.o-platz__faden:empty,
-.e-faden:empty {
+.o-gespraech__faden:empty,
+.kr-faden:empty {
   display: none;
 }
 
-.o-platz__faden > :first-child,
-.e-faden > :first-child {
+.o-gespraech__faden > :first-child,
+.kr-faden > :first-child {
   margin-top: auto;
 }
 
-.o-platz__faden .f-text {
-  font-size: 14px;
+.o-gespraech__faden .f-text {
+  font-size: 14.5px;
   line-height: 1.55;
 }
 
-.o-platz__leer,
-.e-leer {
-  display: flex;
-  align-items: flex-end;
-  flex: 1;
+.o-gespraech__leer {
   margin: 0;
-  padding-bottom: 6px;
-  font-size: 14.5px;
-  line-height: 1.5;
-  color: var(--nebel);
+  padding: 8px 4px;
+  color: var(--o-leise);
+  font-size: 14px;
 }
 
-.o-platz__leer[hidden],
-.e-leer[hidden] {
+.o-gespraech__leer[hidden] {
   display: none;
 }
 
-.o-platz__fuss {
-  display: flex;
-  justify-content: space-between;
-  gap: 12px;
-  margin-top: -4px;
+/* Im OS: Jakobs Zeilen als Blase im Licht der Laterne, Kuros als ruhiger Text. */
+.o-os .f-eintrag--jakob .f-text {
+  padding: 9px 15px;
+  border: 1px solid var(--o-laterne-rand);
+  border-radius: 15px;
+  background: var(--o-laterne-grund);
+  color: var(--o-laterne-zeile);
+  font-size: 15px;
+  text-shadow: none;
 }
 
-.o-leise {
-  padding: 2px 0;
-  border: 0;
-  background: none;
-  color: var(--dunst);
-  font: inherit;
-  font-size: 12.5px;
-  cursor: pointer;
-  transition: color 0.18s ease;
+.o-os .f-eintrag + .f-eintrag {
+  margin-top: 16px;
 }
 
-.o-leise:hover {
-  color: var(--laterne);
+.o-os .f-eintrag--kuro {
+  padding-left: 0;
 }
 
-.o-streifen {
-  display: none;
+.o-os .f-eintrag--kuro::before {
+  left: -14px;
+  opacity: 0;
 }
 
-.o-os.ist-fenster.ist-platz-zu .o-platz {
-  padding: 0;
-}
-
-.o-os.ist-fenster.ist-platz-zu .o-platz > :not(.o-streifen) {
-  display: none;
-}
-
-.o-os.ist-fenster.ist-platz-zu .o-streifen {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  flex: 1;
-  padding: calc(var(--streifen-b) + 14px) 0 0;
-  border: 0;
-  background: none;
-  color: var(--mond);
-  font: inherit;
-  cursor: pointer;
-}
-
-.o-streifen:hover {
-  background: var(--tafel-licht);
-}
-
-.o-streifen__zahl {
-  font-size: 13px;
-  font-variant-numeric: tabular-nums;
-  color: var(--mond);
-}
-
-.o-streifen__zahl:empty {
-  display: none;
-}
-
-/* Eine Antwort kam, während der Platz eingeklappt war. */
-.o-os.hat-neues .o-streifen::after {
-  content: "";
-  width: 7px;
-  height: 7px;
-  margin-top: 10px;
-  border-radius: 50%;
+.o-os .f-eintrag--kuro.ist-laeuft::before,
+.o-os .f-eintrag--kuro.ist-fehler::before {
+  opacity: 1;
   background: var(--kuro-licht);
-  box-shadow: 0 0 10px var(--kuro-licht);
+  box-shadow: none;
+}
+
+.o-os .f-eintrag--kuro.ist-fehler::before {
+  background: var(--o-faellt);
+}
+
+.o-os .f-text {
+  font-size: 15.5px;
+  line-height: 1.6;
+  color: var(--o-text);
+  text-shadow: none;
 }
 
 /* --------------------------------------------------------------------- */
@@ -856,15 +925,15 @@
   align-items: end;
   gap: 4px;
   flex: none;
-  padding: 6px 6px 6px 16px;
-  background: rgba(3, 8, 11, 0.55);
-  border: 1px solid var(--linie-stark);
-  border-radius: 16px;
+  padding: 6px 7px 6px 18px;
+  background: var(--o-feld);
+  border: 1px solid var(--o-linie-stark);
+  border-radius: 22px;
   transition: border-color 0.2s ease;
 }
 
 .o-eingabe:focus-within {
-  border-color: rgba(244, 184, 96, 0.55);
+  border-color: var(--o-laterne-rand);
 }
 
 .o-eingabe textarea {
@@ -873,7 +942,7 @@
   padding: 6px 0;
   border: 0;
   background: none;
-  color: var(--mond);
+  color: var(--o-text);
   font: inherit;
   font-size: 15px;
   line-height: 1.5;
@@ -882,18 +951,18 @@
 }
 
 .o-eingabe textarea::placeholder {
-  color: var(--dunst);
+  color: var(--o-blass);
 }
 
 .o-eingabe button {
   display: inline-grid;
   place-items: center;
-  width: 34px;
-  height: 34px;
+  width: 36px;
+  height: 36px;
   border: 0;
   border-radius: 50%;
   background: none;
-  color: var(--nebel);
+  color: var(--o-leise);
   cursor: pointer;
 }
 
@@ -903,7 +972,7 @@
 }
 
 .o-eingabe__mikro:hover {
-  color: var(--mond);
+  color: var(--o-text);
 }
 
 body.ist-sprechtaste .o-eingabe__mikro,
@@ -912,41 +981,175 @@ body.ist-sprechtaste .o-eingabe__mikro,
 }
 
 .o-eingabe .o-eingabe__senden {
-  background: rgba(244, 184, 96, 0.14);
-  color: var(--laterne);
+  background: var(--o-laterne-grund);
+  color: var(--o-laterne-hell);
 }
 
 .o-eingabe .o-eingabe__senden:hover {
-  background: rgba(244, 184, 96, 0.26);
+  background: var(--o-laterne-rand);
 }
 
 /* Der Stopp-Knopf steht an der Stelle von Senden, solange Kuro arbeitet. */
 .o-eingabe .o-eingabe__stopp {
-  border: 1px solid rgba(244, 184, 96, 0.5);
-  background: rgba(244, 184, 96, 0.1);
-  color: var(--laterne);
-}
-
-.o-eingabe .o-eingabe__stopp:hover {
-  background: rgba(244, 184, 96, 0.22);
+  border: 1px solid var(--o-laterne-rand);
+  background: var(--o-laterne-grund);
+  color: var(--o-laterne);
 }
 
 .o-eingabe button[hidden] {
   display: none;
 }
 
+/* Im Raum Kuro: die Eingabe als Pille wie im Entwurf. */
+.o-eingabe--gross {
+  align-items: center;
+  min-height: 54px;
+  padding: 7px 7px 7px 20px;
+  border-radius: 27px;
+}
+
+.o-eingabe--gross button {
+  width: 40px;
+  height: 40px;
+}
+
 /* --------------------------------------------------------------------- */
-/* Starter und Ablage                                                     */
+/* Das Blatt: System und Einstellungen von rechts                         */
+/* --------------------------------------------------------------------- */
+
+.o-blatt {
+  position: absolute;
+  inset: var(--oben) 0 var(--zeile-h);
+  z-index: 30;
+}
+
+.o-blatt[hidden] {
+  display: none;
+}
+
+.o-blatt__grund {
+  position: absolute;
+  inset: 0;
+  background: var(--o-schleier);
+  opacity: 0;
+  transition: opacity 0.22s var(--gleiten-os);
+}
+
+.o-blatt__tafel {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  display: flex;
+  flex-direction: column;
+  width: min(1120px, calc(100vw - 120px));
+  overflow: hidden;
+  background: var(--o-inhalt);
+  border-left: 1px solid var(--o-linie-stark);
+  box-shadow: var(--o-schatten);
+  transform: translateX(calc(100% + 40px));
+  transition: transform 0.26s var(--gleiten-os);
+}
+
+.o-blatt.ist-offen .o-blatt__grund {
+  opacity: 1;
+}
+
+.o-blatt.ist-offen .o-blatt__tafel {
+  transform: none;
+}
+
+.o-blatt__kopf {
+  display: flex;
+  align-items: flex-end;
+  flex: none;
+  height: 44px;
+  padding: 0 10px 0 16px;
+  background: var(--o-seite);
+  border-bottom: 1px solid var(--o-linie);
+}
+
+.o-blatt__teile {
+  display: flex;
+  gap: 2px;
+}
+
+.o-blatt__teil {
+  display: flex;
+  align-items: center;
+  height: 34px;
+  padding: 0 14px;
+  border-radius: 8px 8px 0 0;
+  color: var(--o-leise);
+  font-size: 13.5px;
+  text-decoration: none;
+}
+
+.o-blatt__teil:hover {
+  color: var(--o-text);
+}
+
+.o-blatt__teil.ist-hier {
+  background: var(--o-inhalt);
+  color: var(--o-text);
+  font-weight: 500;
+}
+
+.o-blatt__kopf .o-knopf {
+  align-self: center;
+  margin-left: auto;
+}
+
+.o-blatt__inhalt {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  overscroll-behavior: contain;
+}
+
+/* Helligkeit: drei Knöpfe nebeneinander, wie ein Schalter. */
+.segment {
+  display: inline-flex;
+  gap: 2px;
+  padding: 3px;
+  border: 1px solid var(--o-linie-stark);
+  border-radius: 10px;
+  background: var(--o-seite);
+}
+
+.segment button {
+  padding: 6px 14px;
+  border: 0;
+  border-radius: 7px;
+  background: none;
+  color: var(--o-leise);
+  font: inherit;
+  font-size: 13.5px;
+  cursor: pointer;
+}
+
+.segment button:hover {
+  color: var(--o-text);
+}
+
+.segment button[aria-checked="true"] {
+  background: var(--o-gewaehlt);
+  color: var(--o-text);
+  font-weight: 500;
+}
+
+/* --------------------------------------------------------------------- */
+/* Suchen und Ablage                                                      */
 /* --------------------------------------------------------------------- */
 
 .o-starter {
   position: fixed;
   inset: 0;
-  z-index: 2000;
+  z-index: 60;
   display: flex;
   justify-content: center;
   padding-top: 16vh;
-  background: rgba(3, 8, 11, 0.4);
+  background: var(--o-schleier);
 }
 
 .o-starter[hidden] {
@@ -957,10 +1160,10 @@ body.ist-sprechtaste .o-eingabe__mikro,
   align-self: flex-start;
   width: min(640px, calc(100vw - 32px));
   overflow: hidden;
-  background: var(--tafel);
-  border: 1px solid var(--linie);
+  background: var(--o-seite);
+  border: 1px solid var(--o-linie-stark);
   border-radius: 14px;
-  box-shadow: 0 30px 80px rgba(0, 0, 0, 0.5);
+  box-shadow: var(--o-schatten);
   animation: o-starter-auf 0.14s var(--gleiten-os);
 }
 
@@ -975,16 +1178,16 @@ body.ist-sprechtaste .o-eingabe__mikro,
   width: 100%;
   padding: 18px 20px;
   border: 0;
-  border-bottom: 1px solid var(--haarlinie);
+  border-bottom: 1px solid var(--o-linie);
   background: none;
-  color: var(--mond);
+  color: var(--o-text);
   font: inherit;
-  font-size: 19px;
+  font-size: 18px;
   outline: none;
 }
 
 .o-starter__feld input::placeholder {
-  color: var(--dunst);
+  color: var(--o-blass);
 }
 
 .o-starter__liste {
@@ -1002,38 +1205,34 @@ body.ist-sprechtaste .o-eingabe__mikro,
   gap: 16px;
   padding: 9px 14px;
   border-radius: 9px;
+  color: var(--o-text);
   font-size: 14.5px;
-  color: var(--mond);
   cursor: pointer;
 }
 
 .o-starter__treffer small {
+  color: var(--o-blass);
   font-size: 12.5px;
-  color: var(--nebel);
   white-space: nowrap;
 }
 
 .o-starter__treffer.ist-gewaehlt {
-  background: rgba(244, 184, 96, 0.12);
-}
-
-.o-starter__treffer.ist-gewaehlt span {
-  color: var(--laterne-zeile);
+  background: var(--o-gewaehlt);
 }
 
 .o-starter__treffer--kuro span {
-  color: var(--laterne-zeile);
+  color: var(--o-laterne-hell);
 }
 
 .o-ablage {
   position: fixed;
-  inset: var(--rand);
-  z-index: 3000;
+  inset: 14px 14px calc(var(--zeile-h) + 14px);
+  z-index: 70;
   display: grid;
   place-items: center;
-  border: 1.5px dashed rgba(244, 184, 96, 0.6);
+  border: 1.5px dashed var(--o-laterne-rand);
   border-radius: 22px;
-  background: rgba(3, 8, 11, 0.74);
+  background: color-mix(in srgb, var(--o-grund) 82%, transparent);
   pointer-events: none;
 }
 
@@ -1043,551 +1242,66 @@ body.ist-sprechtaste .o-eingabe__mikro,
 
 .o-ablage p {
   margin: 0;
+  color: var(--o-text);
   font-family: var(--zeichen);
   font-size: clamp(1.4rem, 2.2vw, 2rem);
-  color: var(--mond);
 }
 
 /* --------------------------------------------------------------------- */
-/* Brain — wie Obsidian                                                   */
+/* Fokus, schmale Schirme, ruhige Bewegung                                */
 /* --------------------------------------------------------------------- */
-
-.b-app {
-  display: grid;
-  grid-template-columns: 236px minmax(0, 1fr) 258px;
-  height: 100%;
-}
-
-.b-links,
-.b-rechts {
-  display: flex;
-  flex-direction: column;
-  min-height: 0;
-  background: rgba(3, 8, 11, 0.28);
-}
-
-.b-links {
-  padding: 10px 8px;
-  border-right: 1px solid var(--linie);
-}
-
-.b-rechts {
-  padding: 10px 14px 14px;
-  overflow-y: auto;
-  border-left: 1px solid var(--linie);
-}
-
-.b-suche input {
-  width: 100%;
-  padding: 7px 10px;
-  border: 1px solid transparent;
-  border-radius: 8px;
-  background: var(--glas-hell);
-  color: var(--mond);
-  font: inherit;
-  font-size: 13.5px;
-  outline: none;
-}
-
-.b-suche input:focus {
-  border-color: rgba(244, 184, 96, 0.5);
-}
-
-.b-leiste {
-  display: flex;
-  gap: 6px;
-  margin: 8px 0 6px;
-}
-
-.b-leiste button {
-  flex: 1;
-  padding: 6px;
-  border: 0;
-  border-radius: 7px;
-  background: var(--glas-hell);
-  color: var(--nebel);
-  font: inherit;
-  font-size: 12.5px;
-  cursor: pointer;
-}
-
-.b-leiste button:hover {
-  background: rgba(232, 239, 241, 0.11);
-  color: var(--mond);
-}
-
-.b-baum {
-  flex: 1;
-  min-height: 0;
-  overflow-y: auto;
-  font-size: 13.5px;
-  scrollbar-width: thin;
-}
-
-.b-zeile {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  width: 100%;
-  padding: 3px 8px 3px calc(10px + var(--tiefe, 0) * 14px);
-  border: 0;
-  border-radius: 6px;
-  background: none;
-  color: var(--nebel);
-  font: inherit;
-  text-align: left;
-  text-decoration: none;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  cursor: pointer;
-}
-
-.b-zeile:hover {
-  background: rgba(232, 239, 241, 0.06);
-  color: var(--mond);
-}
-
-.b-zeile.ist-aktiv {
-  background: rgba(169, 155, 255, 0.2);
-  color: var(--mond);
-}
-
-.b-zeile--ordner {
-  padding-left: calc(4px + var(--tiefe, 0) * 14px);
-  color: rgba(232, 239, 241, 0.82);
-  font-weight: 500;
-}
-
-.b-zeile--ordner svg {
-  flex: none;
-  transform: rotate(90deg);
-  transition: transform 0.12s ease;
-}
-
-.ist-zu > .b-zeile--ordner svg {
-  transform: none;
-}
-
-.b-zeile--ordner span {
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.b-mitte {
-  display: flex;
-  flex-direction: column;
-  min-width: 0;
-  min-height: 0;
-}
-
-.b-kopf {
-  display: flex;
-  align-items: center;
-  gap: 2px;
-  flex: none;
-  height: 40px;
-  padding: 0 10px;
-  border-bottom: 1px solid var(--linie);
-}
-
-.b-rund {
-  display: grid;
-  place-items: center;
-  width: 28px;
-  height: 28px;
-  border: 0;
-  border-radius: 6px;
-  background: none;
-  color: var(--nebel);
-  cursor: pointer;
-}
-
-.b-rund:hover:not(:disabled) {
-  background: var(--glas-hell);
-  color: var(--mond);
-}
-
-.b-rund:disabled {
-  opacity: 0.28;
-  cursor: default;
-}
-
-.b-ort {
-  flex: 1;
-  margin: 0 8px;
-  overflow: hidden;
-  font-size: 12.5px;
-  color: var(--nebel);
-  text-align: center;
-  white-space: nowrap;
-  text-overflow: ellipsis;
-}
-
-.b-modus {
-  padding: 5px 12px;
-  border: 0;
-  border-radius: 7px;
-  background: rgba(244, 184, 96, 0.14);
-  color: var(--laterne);
-  font: inherit;
-  font-size: 12.5px;
-  font-weight: 500;
-  cursor: pointer;
-}
-
-.b-modus:hover:not(:disabled) {
-  background: rgba(244, 184, 96, 0.26);
-}
-
-.b-modus:disabled {
-  opacity: 0.35;
-  cursor: default;
-}
-
-.b-inhalt {
-  position: relative;
-  flex: 1;
-  min-height: 0;
-  overflow-y: auto;
-}
-
-.b-notiz {
-  max-width: 72ch;
-  margin: 0 auto;
-  padding: 34px 40px 64px;
-}
-
-.b-titel {
-  margin: 0 0 20px;
-  font-family: var(--zeichen);
-  font-weight: 500;
-  font-size: clamp(1.8rem, 3cqi, 2.4rem);
-  line-height: 1.12;
-  color: var(--mond);
-}
-
-.b-hinweis {
-  margin: -10px 0 22px;
-  font-size: 13px;
-  color: var(--dunst);
-}
-
-.b-text {
-  font-size: 15.5px;
-  line-height: 1.7;
-  color: rgba(232, 239, 241, 0.9);
-}
-
-.b-text h3 {
-  margin: 1.6em 0 0.5em;
-  font-size: 1.3rem;
-  font-weight: 600;
-  color: var(--mond);
-}
-
-.b-text h4 {
-  margin: 1.8em 0 0.5em;
-  font-size: 1.12rem;
-  font-weight: 600;
-  color: var(--mond);
-}
-
-.b-text h5,
-.b-text h6 {
-  margin: 1.5em 0 0.4em;
-  font-size: 1rem;
-  font-weight: 600;
-  color: var(--nebel);
-}
-
-.b-text > :first-child {
-  margin-top: 0;
-}
-
-.b-text p,
-.b-text ul,
-.b-text ol {
-  margin: 0 0 0.9em;
-}
-
-.b-text ul,
-.b-text ol {
-  padding-left: 1.2em;
-}
-
-.b-text code {
-  padding: 1px 5px;
-  border-radius: 4px;
-  background: rgba(232, 239, 241, 0.08);
-  font-size: 0.92em;
-}
-
-.b-text table {
-  width: 100%;
-  margin: 0 0 1.2em;
-  border-collapse: collapse;
-  font-size: 14px;
-}
-
-.b-text th,
-.b-text td {
-  padding: 8px 14px 8px 0;
-  border-bottom: 1px solid var(--linie);
-  text-align: left;
-  vertical-align: top;
-}
-
-.b-text th {
-  font-weight: 500;
-  color: var(--nebel);
-}
-
-.b-link {
-  color: var(--link);
-  text-decoration: none;
-  cursor: pointer;
-}
-
-.b-link:hover {
-  text-decoration: underline;
-  text-underline-offset: 3px;
-}
-
-.b-link--offen {
-  color: rgba(169, 155, 255, 0.5);
-  cursor: default;
-}
-
-.b-link--offen:hover {
-  text-decoration: none;
-}
-
-.b-editor {
-  display: block;
-  width: 100%;
-  height: 100%;
-  padding: 34px max(40px, calc((100% - 72ch) / 2)) 64px;
-  border: 0;
-  background: none;
-  color: var(--mond);
-  font: inherit;
-  font-size: 15px;
-  line-height: 1.7;
-  resize: none;
-  outline: none;
-}
-
-.b-graph {
-  position: absolute;
-  inset: 0;
-}
-
-.b-graph__hilfe {
-  position: absolute;
-  left: 16px;
-  bottom: 10px;
-  margin: 0;
-  font-size: 12px;
-  color: var(--dunst);
-  pointer-events: none;
-}
-
-.g-leinwand {
-  display: block;
-  cursor: grab;
-  touch-action: none;
-}
-
-.b-rechts__titel {
-  margin: 16px 0 8px;
-  font-size: 12px;
-  font-weight: 600;
-  color: var(--nebel);
-}
-
-.b-rechts__titel:first-child {
-  margin-top: 4px;
-}
-
-.b-lokal {
-  position: relative;
-  flex: none;
-  height: 220px;
-  overflow: hidden;
-  border: 1px solid var(--linie);
-  border-radius: 10px;
-  background: rgba(3, 8, 11, 0.35);
-}
-
-.b-verweise {
-  margin: 0;
-  padding: 0;
-  list-style: none;
-}
-
-.b-verweise a {
-  display: block;
-  padding: 4px 6px;
-  border-radius: 5px;
-  color: var(--link);
-  font-size: 13px;
-  text-decoration: none;
-  overflow: hidden;
-  white-space: nowrap;
-  text-overflow: ellipsis;
-}
-
-.b-verweise a:hover {
-  background: var(--glas-hell);
-}
-
-.b-verweise__leer {
-  padding: 2px 6px;
-  font-size: 12.5px;
-  color: var(--dunst);
-}
-
-.b-funde {
-  max-width: 72ch;
-  margin: 0 auto;
-  padding: 28px 40px;
-  list-style: none;
-}
-
-.b-funde li {
-  margin-bottom: 18px;
-}
-
-.b-funde small {
-  display: block;
-  margin-top: 2px;
-  font-size: 12px;
-  color: var(--dunst);
-}
-
-.b-funde p {
-  margin: 4px 0 0;
-  font-size: 13.5px;
-  color: var(--nebel);
-}
-
-.b-leer,
-.b-fehler {
-  padding: 34px 40px;
-  color: var(--nebel);
-}
-
-.b-fehler {
-  color: var(--faellt);
-}
-
-/* Zuerst weicht die rechte Spalte, damit die Notiz ihre Lesebreite behält (≈ 600 px). */
-@container (max-width: 1080px) {
-  .b-app {
-    grid-template-columns: 220px minmax(0, 1fr);
-  }
-  .b-rechts {
-    display: none;
-  }
-}
-
-@container (max-width: 620px) {
-  .b-app {
-    grid-template-columns: minmax(0, 1fr);
-  }
-  .b-links {
-    display: none;
-  }
-  .b-notiz {
-    padding: 24px 22px 48px;
-  }
-}
-
-/* Im großen Graphen braucht es keine Spalte für eine einzelne Notiz. */
-.b-app.ist-graph {
-  grid-template-columns: 236px minmax(0, 1fr);
-}
-.b-app.ist-graph .b-rechts {
-  display: none;
-}
-
-/* --------------------------------------------------------------------- */
-/* Desktop-App, Fokus, schmale Schirme, ruhige Bewegung                   */
-/* --------------------------------------------------------------------- */
-
-.ist-desktop .o-kopf {
-  -webkit-app-region: drag;
-}
-.ist-desktop .o-kopf button,
-.ist-desktop .o-kopf a {
-  -webkit-app-region: no-drag;
-}
-.ist-desktop.ist-darwin .o-kopf {
-  padding-left: 82px;
-}
-.ist-desktop.ist-win32 .o-kopf {
-  padding-right: 142px;
-}
 
 .o-os button:focus-visible,
 .o-os a:focus-visible,
 .o-os [tabindex]:focus-visible {
-  outline: 2px solid var(--laterne);
+  outline: 2px solid var(--o-laterne);
   outline-offset: 2px;
 }
 
-@media (max-width: 1100px) {
-  .o-suche,
-  .o-raum small {
+@media (max-width: 1200px) {
+  .o-raum--arbeit.hat-spalte .o-raum__flaeche {
+    grid-template-columns: var(--seite-b) minmax(0, 1fr);
+  }
+  .o-spalte,
+  .o-raum.hat-spalte .o-spalte {
     display: none;
   }
 }
 
-/* Schmal (Telefon, halbes Fenster): auf dem Desktop steht Kuros Fenster als Band über dem
-   Gespräch (`kuro-raum.css`); ein Raum nimmt die ganze Breite, Kuro ist über ⌘1 zurück. */
-@media (max-width: 760px) {
-  .o-os.ist-fenster,
-  .o-os.ist-fenster.ist-platz-zu {
-    --spalte-b: calc(-1 * var(--rand));
+@media (max-width: 900px) {
+  .o-zeile {
+    grid-template-columns: 1fr auto;
+    padding: 0 12px;
   }
-  .o-abo,
-  .o-os.ist-fenster .o-platz,
-  .o-os.ist-fenster .o-orb {
+  .o-kuro {
     display: none;
   }
-  .o-orb .ko-caption,
-  .o-orb .ko-tags {
-    display: none;
-  }
-  .o-kopf {
-    gap: 14px;
-  }
+  .o-marke,
+  .o-woche,
   .o-uhr {
     display: none;
   }
-  .o-raeume {
-    gap: 14px;
-    overflow-x: auto;
-    scrollbar-width: none;
+  .o-raum--arbeit .o-raum__flaeche,
+  .o-raum--arbeit.hat-spalte .o-raum__flaeche {
+    grid-template-columns: minmax(0, 1fr);
   }
-  .o-raum.ist-hier span {
-    font-size: 21px;
+  .o-seite {
+    display: none;
   }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .o-orb,
-  .o-fenster,
   .o-teil-flaeche,
-  .o-platz,
   .o-blatt__grund,
   .o-blatt__tafel,
-  .o-raum span {
+  .o-gespraech,
+  .o-raeume__strich,
+  .o-kuro__figur,
+  .o-raum__flaeche {
     transition: none;
   }
-  .o-platz > *,
-  .o-starter__feld {
+  .o-starter__feld,
+  .o-os.ist-unterwegs .o-kuro__figur .fg {
     animation: none;
   }
 }

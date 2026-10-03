@@ -1,296 +1,160 @@
 /*
- * Der Raum Kuro (`kuro-raum.ts`), der Desktop: links Kuro vor dem Fenster seines Zimmers — ein
- * Ausschnitt aus night.jpg, der weich in den matten Grund verläuft —, darunter Gruß, „Heute" und
- * „Im Haus"; rechts das ganze Gespräch. Liegt ein Raum darüber, tritt das Zimmer zurück.
+ * Der Raum Kuro (`kuro-raum.ts`, Entwurf 4c S1): eine Spalte in der Mitte. Oben der Orb, darunter
+ * Datum, Gruß und der Tag in ein paar Sätzen, dann das Gespräch, unten die Eingabe als Pille.
+ * Kein Fensterbild, keine Karten, kein Licht.
  */
 
-/* Ohne eigene Ebene (absolut, kein z-index): so liegt der Orb über dem Fensterbild, Gruß und
-   „Heute" aber über dem Orb — seine Leinwand nimmt sonst auf ihrer ganzen Fläche Klicks an. */
-.o-empfang {
-  --bild-h: clamp(300px, 64vh, calc(100vh - 330px));
-  /* Auf breiten Schirmen bleibt das Fenster ein Fenster statt eines Panoramas. */
-  --buehne-b: min(100%, calc(var(--bild-h) * 1.95));
-  --unten-ueber: 84px;
-  --einzug: clamp(28px, 3.6vw, 88px);
+.kr-raum {
   position: absolute;
   inset: 0;
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) var(--gespraech-b);
-  column-gap: var(--rand);
-  padding: 0 var(--rand) var(--rand) 0;
+  overflow: hidden;
+  background: var(--o-grund);
 }
 
-.e-links {
-  position: relative;
+.kr-spalte {
+  --kr-orb: clamp(200px, 40vh, 560px);
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 50%;
   display: flex;
   flex-direction: column;
-  min-width: 0;
-  min-height: 0;
+  width: min(680px, calc(100% - 48px));
+  padding: clamp(20px, 4.4vh, 64px) 0 clamp(28px, 6.5vh, 110px);
+  transform: translateX(-50%);
 }
 
-/* ------------------------------------------------------------- Fenster */
-
-.e-bild {
-  position: absolute;
-  inset: 0 0 auto;
-  width: var(--buehne-b);
-  height: var(--bild-h);
-  margin-inline: auto;
-  background: url("../assets/night.jpg") 55% 36% / cover no-repeat;
-  -webkit-mask-image: linear-gradient(to bottom, transparent, #000 24%, #000 66%, transparent),
-    linear-gradient(to right, transparent, #000 16%, #000 84%, transparent);
-  -webkit-mask-composite: source-in;
-  mask-image: linear-gradient(to bottom, transparent, #000 24%, #000 66%, transparent),
-    linear-gradient(to right, transparent, #000 16%, #000 84%, transparent);
-  mask-composite: intersect;
-  transition: filter 0.4s var(--gleiten-os), opacity 0.4s var(--gleiten-os);
-}
-
-/* Von oben fällt Kuros Licht ins Fenster — stärker, solange er nicht ruht. */
-.e-bild::after {
-  content: "";
-  position: absolute;
-  inset: 0;
-  background: radial-gradient(
-    ellipse 46% 52% at 60% 0%,
-    color-mix(in srgb, var(--kuro-licht) 26%, transparent),
-    transparent 72%
-  );
-  opacity: 0.45;
-  transition: opacity 1.2s var(--gleiten-os), background 1.2s var(--gleiten-os);
-}
-
-.o-os:not([data-kuro="ruhe"]):not([data-kuro="offline"]) .e-bild::after {
-  opacity: 1;
-}
-
-.o-os.ist-fenster .e-bild {
-  filter: brightness(0.55) saturate(0.8);
-}
-
-/* ------------------------------------------------- Gruß, Heute, Im Haus */
-
-.e-unten {
+.kr-orb {
   position: relative;
-  z-index: 31;
-  display: flex;
-  flex-direction: column;
-  gap: clamp(22px, 3.4vh, 44px);
+  flex: none;
   align-self: center;
-  width: var(--buehne-b);
+  width: var(--kr-orb);
+  height: var(--kr-orb);
+  border-radius: 50%;
+}
+
+.kr-orb .ko-root {
   min-height: 0;
-  margin-top: calc(var(--bild-h) - var(--unten-ueber));
-  padding: 0 var(--einzug);
-  overflow-y: auto;
-  scrollbar-width: none;
 }
 
-.e-unten,
-.e-gespraech {
-  transition: opacity 0.3s var(--gleiten-os);
-}
-
-.o-os.ist-fenster .e-unten,
-.o-os.ist-fenster .e-gespraech {
-  z-index: auto;
-  opacity: 0;
-}
-
-.e-gruss__datum {
-  margin: 0 0 8px;
-  font-size: 14px;
-  color: var(--nebel);
-}
-
-.e-gruss__text {
-  margin: 0;
-  font-family: var(--zeichen);
-  font-weight: 500;
-  font-size: clamp(2rem, 2.6vw, 3.3rem);
-  line-height: 1.1;
-  color: var(--mond);
-  text-shadow: 0 2px 24px rgba(0, 0, 0, 0.55);
-}
-
-.e-tafeln {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: flex-start;
-  gap: 28px clamp(40px, 5vw, 96px);
-}
-
-.e-titel {
-  margin: 0 0 10px;
-  font-family: var(--zeichen);
-  font-weight: 500;
-  font-size: 19px;
-  color: var(--mond);
-}
-
-.e-heute {
-  flex: 1 1 440px;
-  max-width: 76ch;
-}
-
-.e-imhaus {
-  flex: 1 1 360px;
-  max-width: 64ch;
-}
-
-.e-imhaus:empty {
+/* Was Kuro tut, sagt die Statuszeile; die Namen der Bediensteten stehen nirgends. */
+.kr-orb .ko-caption,
+.kr-orb .ko-tags,
+.kr-orb .ko-more {
   display: none;
 }
 
-.e-heute__liste {
+.kr-orb.ist-ohne-orb {
   display: grid;
-  gap: 2px;
+  place-items: center;
+}
+
+.kr-orb .p-orb-fehler {
+  max-width: 34ch;
   margin: 0;
-  padding: 0;
-  list-style: none;
+  color: var(--o-leise);
+  font-size: 13px;
+  text-align: center;
 }
 
-.e-heute__liste li {
-  animation: o-ein 0.3s var(--gleiten-os) both;
+/* Hell: Kuros Licht wird Tinte — dieselben Teilchen, umgekehrt, der Farbton bleibt. */
+:root[data-helligkeit="hell"] .kr-orb canvas {
+  filter: invert(1) hue-rotate(180deg) saturate(1.6) contrast(1.15);
 }
 
-.e-satz {
-  display: flex;
-  align-items: baseline;
-  gap: 18px;
-  width: calc(100% + 24px);
-  margin: 0 -12px;
-  padding: 7px 12px;
-  border: 0;
-  border-radius: 10px;
-  background: none;
-  color: rgba(232, 239, 241, 0.86);
-  font: inherit;
-  font-size: clamp(15px, 0.6vw + 6.5px, 17px);
-  line-height: 1.5;
-  text-align: left;
-  cursor: pointer;
-  transition: background 0.18s ease, color 0.18s ease;
-}
-
-.e-satz__text {
-  flex: 1;
-  min-width: 0;
-}
-
-.e-satz__ziel {
+.kr-tag {
   flex: none;
-  font-size: 12.5px;
-  color: var(--laterne);
-  opacity: 0;
-  transform: translateX(-4px);
-  transition: opacity 0.18s ease, transform 0.18s ease;
+  margin-top: 2px;
+  text-align: center;
 }
 
-.e-satz:hover,
-.e-satz:focus-visible {
-  background: var(--tafel-licht);
-  color: var(--mond);
+.kr-tag__datum {
+  margin: 0;
+  color: var(--o-leise);
+  font-size: 14px;
 }
 
-.e-satz:hover .e-satz__ziel,
-.e-satz:focus-visible .e-satz__ziel {
-  opacity: 1;
-  transform: none;
+.kr-tag__gruss {
+  margin: 8px 0 0;
+  color: var(--o-text);
+  font-family: var(--zeichen);
+  font-weight: 500;
+  font-size: clamp(34px, 4.7vh, 60px);
+  line-height: 1.14;
 }
 
-.e-satz.ist-knapp .e-satz__text {
-  color: var(--faellt);
+.kr-tag__saetze {
+  max-width: 680px;
+  margin: 18px auto 0;
+  color: var(--o-text-2);
+  font-size: 16.5px;
+  line-height: 1.6;
 }
 
-.e-satz.ist-fehler {
-  color: var(--nebel);
+.kr-tag__saetze > [hidden] {
+  display: none;
 }
 
-/* ------------------------------------------------------------- Gespräch */
+.kr-satz {
+  display: inline;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: inherit;
+  text-decoration: underline;
+  text-decoration-color: transparent;
+  text-underline-offset: 4px;
+  cursor: pointer;
+  transition: color 0.14s ease, text-decoration-color 0.14s ease;
+}
 
-.e-gespraech {
+.kr-satz:hover {
+  color: var(--o-text);
+  text-decoration-color: var(--o-laterne-rand);
+}
+
+.kr-satz.ist-knapp {
+  color: var(--o-laterne);
+}
+
+.kr-satz.ist-fehler {
+  color: var(--o-blass);
+}
+
+.kr-gespraech {
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  flex: 1;
   min-height: 0;
-  margin-top: var(--kopf-h);
-  padding: 18px 20px 12px;
-  background: linear-gradient(180deg, rgba(232, 239, 241, 0.035), rgba(232, 239, 241, 0.022));
-  border: 1px solid var(--haarlinie);
-  border-radius: 14px;
+  margin-top: 22px;
 }
 
-.e-gespraech .e-titel {
-  margin: 0;
+.kr-raum .o-eingabe {
+  margin-top: 16px;
 }
 
-.e-faden .f-text {
-  font-size: 15px;
-}
-
-.e-gespraech__fuss {
-  display: flex;
-  margin-top: -4px;
-}
-
-.o-eingabe--gross {
-  gap: 6px;
-  padding: 10px 10px 10px 20px;
-  border-radius: 20px;
-}
-
-.o-eingabe--gross textarea {
-  min-height: 44px;
-  max-height: 200px;
-  padding: 10px 0;
-  font-size: 16px;
-}
-
-.o-eingabe--gross button {
-  width: 42px;
-  height: 42px;
-}
-
-.o-eingabe--gross button svg {
-  width: 20px;
-  height: 20px;
-}
-
-/* -------------------------------------------------------------- Schmal */
-
-/* Kuros Fenster als Band über dem Gespräch; Gruß und „Heute" haben hier keinen Platz. */
-@media (max-width: 760px) {
-  .o-empfang {
-    --bild-h: 220px;
-    grid-template-columns: minmax(0, 1fr);
-    grid-template-rows: var(--bild-h) minmax(0, 1fr);
-    padding: 0 var(--rand) var(--rand);
+/* Auf dem großen Schirm (3440 × 1440) darf die Spalte etwas breiter werden. */
+@media (min-width: 2200px) {
+  .kr-spalte {
+    width: min(780px, calc(100% - 48px));
   }
-  .e-bild {
-    inset: 0 calc(-1 * var(--rand)) auto;
-    width: auto;
+  .kr-tag__saetze {
+    max-width: 760px;
+    font-size: 17.5px;
   }
-  .e-unten {
-    display: none;
-  }
-  .e-gespraech {
-    margin-top: 0;
-  }
-  .o-eingabe--gross {
-    padding: 6px 6px 6px 16px;
+  .kr-raum .f-text {
+    font-size: 16.5px;
   }
 }
 
-@media (prefers-reduced-motion: reduce) {
-  .e-bild,
-  .e-bild::after,
-  .e-unten,
-  .e-gespraech,
-  .e-satz,
-  .e-satz__ziel {
-    transition: none;
+@media (max-height: 760px) {
+  .kr-spalte {
+    --kr-orb: clamp(140px, 30vh, 240px);
   }
-  .e-heute__liste li {
-    animation: none;
+  .kr-tag__saetze {
+    margin-top: 12px;
+    font-size: 15px;
   }
 }

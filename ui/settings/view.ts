@@ -58,15 +58,39 @@ function currentAccent(): string {
 }
 
 /**
- * Hier stand bis 2026-09-26 auch ein Schalter „Theme" (Dunkel / Folgt System). Er setzte
- * `data-theme`, und keine Regel las es — er änderte nichts. Beide Oberflächen sind dunkel
- * gebaut; ein Schalter, der eine helle behauptet, ist schlimmer als keiner.
+ * Bis 2026-09-26 stand hier ein Schalter „Theme" (Dunkel / Folgt System). Er setzte
+ * `data-theme`, und keine Regel las es — er änderte nichts. Seit 03.10. gibt es „Helligkeit",
+ * aber nur in Kuro OS, wo sie wirkt (`ui/os/helligkeit.ts`): Präsenz und Welle stehen auf
+ * Nachtbildern, und ein Schalter, der dort eine helle Fassung behauptet, wäre schlimmer als keiner.
  */
 function renderAppearance(settings: KuronamiSettings): string {
+  const imOs = document.body.classList.contains("ist-os");
+  const h = settings.appearance.helligkeit;
   return `
     <section class="settings-section" aria-labelledby="section-appearance-title">
       <h2 class="settings-section__title" id="section-appearance-title">Erscheinungsbild</h2>
+${
+  imOs
+    ? `
+      <div class="field">
+        <span class="field__label" id="setting-helligkeit-label">Helligkeit</span>
+        <div class="segment" role="radiogroup" aria-labelledby="setting-helligkeit-label" data-role="helligkeit">
+          <button type="button" role="radio" data-wert="dunkel" aria-checked="${h === "dunkel"}">Dunkel</button>
+          <button type="button" role="radio" data-wert="hell" aria-checked="${h === "hell"}">Hell</button>
+          <button type="button" role="radio" data-wert="system" aria-checked="${h === "system"}">Wie das System</button>
+        </div>
+        <p class="field__hint">Gilt für Kuro OS. „Wie das System“ folgt der Einstellung des Rechners, auch wenn sie abends wechselt.</p>
+      </div>
+`
+    : ""
+}${imOs ? "" : renderWebErscheinung(settings)}
+    </section>
+  `;
+}
 
+/** Oberfläche, Akzent und Dichte gelten nur für Präsenz und Welle; in Kuro OS wirken sie nicht. */
+function renderWebErscheinung(settings: KuronamiSettings): string {
+  return `
       <div class="field">
         <label class="field__label" for="setting-oberflaeche">Oberfläche</label>
         <select class="field__control" id="setting-oberflaeche" data-role="oberflaeche">
@@ -93,7 +117,6 @@ function renderAppearance(settings: KuronamiSettings): string {
           <option value="compact" ${settings.appearance.density === "compact" ? "selected" : ""}>Kompakt</option>
         </select>
       </div>
-    </section>
   `;
 }
 
@@ -494,6 +517,17 @@ export const settingsView: View = {
       if (ziel) globalThis.location.href = ziel;
     });
 
+    const helligkeitEl = container.querySelector<HTMLElement>('[data-role="helligkeit"]');
+    helligkeitEl?.addEventListener("click", (event) => {
+      const knopf = (event.target as HTMLElement).closest<HTMLElement>("[data-wert]");
+      const wert = knopf?.dataset.wert;
+      if (wert !== "dunkel" && wert !== "hell" && wert !== "system") return;
+      for (const b of helligkeitEl.querySelectorAll<HTMLElement>("[data-wert]")) {
+        b.setAttribute("aria-checked", String(b === knopf));
+      }
+      settingsBus.emit(updateSettingsSection("appearance", { helligkeit: wert }));
+    });
+
     container.querySelector('[data-role="density"]')?.addEventListener("change", (event) => {
       const value = (event.target as HTMLSelectElement)
         .value as KuronamiSettings["appearance"]["density"];
@@ -881,5 +915,4 @@ export async function applyAppearance(settings: KuronamiSettings): Promise<void>
     document.documentElement.style.setProperty("--accent", settings.appearance.accentOverride);
   }
   document.body.dataset.density = settings.appearance.density;
-  document.documentElement.dataset.theme = settings.appearance.theme === "dark" ? "dark" : "";
 }

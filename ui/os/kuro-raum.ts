@@ -8,7 +8,6 @@ import { datumZeile, gruss, werName } from "../welle/form.js";
 import type { Gespraech } from "../welle/gespraech.js";
 import { fehlerSatz } from "../welle/tafeln.js";
 import { eingabeHtml, verdrahteEingabe } from "./eingabe.js";
-import { LAGE, orbVor } from "./fensterbild.js";
 import {
   type AboDaten,
   type HeuteQuelle,
@@ -19,8 +18,9 @@ import {
 } from "./heute.js";
 
 /**
- * Der Raum Kuro, Kuros Empfang und der Desktop von Kuro OS: links Kuro vor dem Fenster seines
- * Zimmers, darunter Gruß, „Heute" und „Im Haus"; rechts das ganze Gespräch.
+ * Der Raum Kuro (4c, Entwurf S1): eine Spalte in der Mitte — oben der Orb, darunter Datum, Gruß
+ * und der Tag als ein paar Sätze, dann das Gespräch und die Eingabe. Kein Fensterbild, keine
+ * Karten; die Sätze führen dorthin, wovon sie sprechen.
  */
 
 export type RaumZiel = "kalender" | "post" | "system";
@@ -29,8 +29,6 @@ export interface KuroRaumOptionen {
   api: ApiClient;
   gespraech: Gespraech;
   voice: { toggle(): void };
-  /** Der eine Orb des Desktops; geht ein Raum auf, gleitet er in Kuros Platz. */
-  orb: HTMLElement;
   motto: string;
   toast(text: string): void;
   oeffne(ziel: RaumZiel): void;
@@ -39,16 +37,16 @@ export interface KuroRaumOptionen {
 export interface KuroRaum {
   sphaere: Sphaere;
   feld: HTMLTextAreaElement;
-  /** Für „Im Haus"; solange er leer ist, bleibt er unsichtbar. */
-  imHaus: HTMLElement;
-  /** „Heute" neu laden — höchstens einmal je Minute, etwa bei der Rückkehr zu Kuro. */
+  /** Ungelesene Briefe, sobald die Post geladen ist — für den Namen des Raums beim Wechsel. */
+  readonly ungelesen: number | null;
+  /** Den Tag neu laden — höchstens einmal je Minute, etwa bei der Rückkehr zu Kuro. */
   auffrischen(): void;
   loesen(): void;
 }
 
 const QUELLEN: ReadonlyArray<[HeuteQuelle, string]> = [
-  ["kalender", "/integrations/calendar"],
   ["post", "/integrations/mail"],
+  ["kalender", "/integrations/calendar"],
   ["nachtbau", "/integrations/nachtbau"],
   ["abo", "/integrations/abo"],
 ];
@@ -57,7 +55,7 @@ const POST_FRAGE = "Was ist in der ungelesenen Post wichtig?";
 
 type Stand = { ok: true; daten: unknown } | { ok: false; fehler: string };
 
-interface Zeile {
+interface Satz {
   text: string;
   ziel: string;
   knapp?: boolean;
@@ -65,69 +63,34 @@ interface Zeile {
 }
 
 export function mountKuroRaum(el: HTMLElement, opt: KuroRaumOptionen): KuroRaum {
-  const { api, gespraech, orb } = opt;
-  el.classList.add("e-raum");
+  const { api, gespraech } = opt;
+  el.classList.add("kr-raum");
   el.innerHTML = `
-    <div class="e-links">
-      <div class="e-bild" data-role="e-bild" aria-hidden="true"></div>
-      <div class="e-unten">
-        <header class="e-gruss">
-          <p class="e-gruss__datum" data-role="e-datum"></p>
-          <h1 class="e-gruss__text" data-role="e-gruss"></h1>
-        </header>
-        <div class="e-tafeln">
-          <section class="e-heute" aria-labelledby="e-heute-titel">
-            <h2 class="e-titel" id="e-heute-titel">Heute</h2>
-            <ul class="e-heute__liste" data-role="e-heute">
-              ${QUELLEN.map(([q]) => `<li data-quelle="${q}" hidden></li>`).join("")}
-            </ul>
-          </section>
-          <section class="e-imhaus" data-role="e-imhaus" aria-label="Im Haus"></section>
-        </div>
-      </div>
-    </div>
-    <section class="e-gespraech" aria-label="Gespräch">
-      <h2 class="e-titel">Gespräch</h2>
-      <div class="e-faden" data-role="e-faden" aria-live="polite"></div>
-      <p class="e-leer" data-role="e-leer" hidden>Fragen Sie Kuro etwas, oder halten Sie die Sprechtaste.</p>
-      ${eingabeHtml("e-form", "o-eingabe--gross")}
-      <footer class="e-gespraech__fuss">
-        <button type="button" class="o-leise" data-role="e-leeren" title="Leert nur diese Ansicht — Kuro erinnert sich weiter.">Ansicht leeren</button>
-      </footer>
-    </section>`;
+    <div class="kr-spalte">
+      <div class="kr-orb" data-role="kr-orb" role="button" tabindex="0" aria-label="Mikrofon an oder aus"></div>
+      <header class="kr-tag">
+        <p class="kr-tag__datum" data-role="kr-datum"></p>
+        <h1 class="kr-tag__gruss" data-role="kr-gruss"></h1>
+        <p class="kr-tag__saetze" data-role="kr-heute">${QUELLEN.map(([q]) => `<span data-quelle="${q}" hidden></span>`).join("")}</p>
+      </header>
+      <section class="kr-gespraech" aria-label="Gespräch">
+        <div class="kr-faden" data-role="kr-faden" aria-live="polite"></div>
+      </section>
+      ${eingabeHtml("kr-form", "o-eingabe--gross")}
+    </div>`;
 
   const q = <T extends Element>(rolle: string): T => {
     const e = el.querySelector<T>(`[data-role="${rolle}"]`);
     if (!e) throw new Error(`Raum Kuro: ${rolle} fehlt.`);
     return e;
   };
-  const bild = q<HTMLElement>("e-bild");
-  const heuteEl = q<HTMLElement>("e-heute");
-  const fadenEl = q<HTMLElement>("e-faden");
-  const leerEl = q<HTMLElement>("e-leer");
-  const feld = verdrahteEingabe(q<HTMLFormElement>("e-form"), opt);
-  q<HTMLButtonElement>("e-leeren").addEventListener("click", () => gespraech.leere());
+  const orb = q<HTMLElement>("kr-orb");
+  const heuteEl = q<HTMLElement>("kr-heute");
+  const fadenEl = q<HTMLElement>("kr-faden");
+  const feld = verdrahteEingabe(q<HTMLFormElement>("kr-form"), opt);
+  feld.placeholder = "Kuro fragen oder die Sprechtaste halten";
 
-  // ---------------------------------------------------------- Fenster und Orb
-  bild.style.backgroundPosition = `${LAGE.x * 100}% ${LAGE.y * 100}%`;
-  const untenEl = el.querySelector(".e-unten") as HTMLElement;
-  const setzeOrb = () => {
-    const r = bild.getBoundingClientRect();
-    if (r.width === 0 || r.height === 0) return;
-    // Auf schmalen Schirmen fehlen Gruß und „Heute"; dann endet der Orb mit dem Bild.
-    const u = untenEl.getBoundingClientRect();
-    const o = orbVor(
-      { links: r.left, oben: r.top, breite: r.width, hoehe: r.height },
-      { rechts: r.right, unten: u.height > 0 ? u.top : r.bottom },
-    );
-    orb.style.setProperty("--orb-l", `${o.links.toFixed(1)}px`);
-    orb.style.setProperty("--orb-t", `${o.oben.toFixed(1)}px`);
-    orb.style.setProperty("--orb-s", `${o.breite.toFixed(1)}px`);
-  };
-  const beobachter = new ResizeObserver(setzeOrb);
-  beobachter.observe(bild);
-  setzeOrb();
-
+  // ------------------------------------------------------------------- Orb
   const sphaere = mountSphaere(orb, opt.motto);
   for (const [wer, a] of gespraech.arbeit) {
     sphaere.bediensteterBeginnt(werName(wer), a.auftrag ?? undefined);
@@ -162,26 +125,25 @@ export function mountKuroRaum(el: HTMLElement, opt: KuroRaumOptionen): KuroRaum 
   const fadenLoesen = mountFaden(fadenEl, {
     api,
     gespraech,
-    beiLeere: (leer) => {
-      leerEl.hidden = !leer;
-    },
+    beiLeere: (leer) => el.classList.toggle("ist-still", leer),
   });
   fadenEl.scrollTop = fadenEl.scrollHeight;
 
   // ------------------------------------------------------------------ Gruß
-  const datumEl = q<HTMLElement>("e-datum");
-  const grussEl = q<HTMLElement>("e-gruss");
+  const datumEl = q<HTMLElement>("kr-datum");
+  const grussEl = q<HTMLElement>("kr-gruss");
   const zeigeGruss = () => {
     const d = new Date();
     datumEl.textContent = datumZeile(d);
     grussEl.textContent = gruss(d);
   };
 
-  // ----------------------------------------------------------------- Heute
+  // ---------------------------------------------------------------- Der Tag
   let weg = false;
+  let ungelesen: number | null = null;
   const stand = new Map<HeuteQuelle, Stand>();
 
-  const zeile = (quelle: HeuteQuelle, s: Stand, jetzt: Date): Zeile => {
+  const satz = (quelle: HeuteQuelle, s: Stand, jetzt: Date): Satz => {
     const system = () => opt.oeffne("system");
     switch (quelle) {
       case "kalender":
@@ -195,7 +157,7 @@ export function mountKuroRaum(el: HTMLElement, opt: KuroRaumOptionen): KuroRaum 
         if (m?.messages.some((b) => b.unread)) {
           return {
             text: postSatz(m, jetzt),
-            ziel: "Kuro fragen",
+            ziel: "Kuro fragen, was davon wichtig ist",
             tun: () =>
               void gespraech
                 .sende(POST_FRAGE)
@@ -229,20 +191,22 @@ export function mountKuroRaum(el: HTMLElement, opt: KuroRaumOptionen): KuroRaum 
   const zeichneHeute = () => {
     const jetzt = new Date();
     for (const [quelle] of QUELLEN) {
-      const li = heuteEl.querySelector<HTMLElement>(`[data-quelle="${quelle}"]`);
+      const span = heuteEl.querySelector<HTMLElement>(`[data-quelle="${quelle}"]`);
       const s = stand.get(quelle);
-      if (!li || !s) continue;
-      const z = zeile(quelle, s, jetzt);
+      if (!span || !s) continue;
+      const z = satz(quelle, s, jetzt);
       taten.set(quelle, z.tun);
-      const html = `<button type="button" class="e-satz${z.knapp ? " ist-knapp" : ""}${s.ok ? "" : " ist-fehler"}" data-quelle="${quelle}"><span class="e-satz__text">${escapeHtml(z.text)}</span><span class="e-satz__ziel">${escapeHtml(z.ziel)}</span></button>`;
-      if (li.innerHTML !== html) li.innerHTML = html;
-      li.hidden = false;
+      const html = z.text
+        ? `<button type="button" class="kr-satz${z.knapp ? " ist-knapp" : ""}${s.ok ? "" : " ist-fehler"}" title="${escapeHtml(z.ziel)}">${escapeHtml(z.text)}</button> `
+        : "";
+      if (span.innerHTML !== html) span.innerHTML = html;
+      span.hidden = html === "";
     }
   };
   heuteEl.addEventListener("click", (e) => {
-    const b = (e.target as HTMLElement).closest<HTMLElement>("[data-quelle]");
-    const tun = b ? taten.get(b.dataset.quelle as HeuteQuelle) : undefined;
-    tun?.();
+    if (!(e.target as HTMLElement).closest(".kr-satz")) return;
+    const span = (e.target as HTMLElement).closest<HTMLElement>("[data-quelle]");
+    taten.get(span?.dataset.quelle as HeuteQuelle)?.();
   });
 
   let geladen = 0;
@@ -258,6 +222,9 @@ export function mountKuroRaum(el: HTMLElement, opt: KuroRaumOptionen): KuroRaum 
         .then((s) => {
           if (weg) return;
           stand.set(quelle, s);
+          if (quelle === "post" && s.ok) {
+            ungelesen = (s.daten as MailData).messages.filter((b) => b.unread).length;
+          }
           zeichneHeute();
         });
     }
@@ -274,14 +241,15 @@ export function mountKuroRaum(el: HTMLElement, opt: KuroRaumOptionen): KuroRaum 
   return {
     sphaere,
     feld,
-    imHaus: q<HTMLElement>("e-imhaus"),
+    get ungelesen() {
+      return ungelesen;
+    },
     auffrischen() {
       if (Date.now() - geladen > 60_000) ladeHeute();
     },
     loesen() {
       weg = true;
       for (const u of uhren) globalThis.clearInterval(u);
-      beobachter.disconnect();
       abo();
       eingabeLoesen();
       fadenLoesen();

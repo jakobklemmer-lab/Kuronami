@@ -1,0 +1,441 @@
+/*
+ * Die Fachansichten (`ui/views/*.ts`) im Rahmen von Kuro OS (4c). Sie bringen ihren Grundbau aus
+ * der Präsenz mit (`views.css`) und ihr Kleid aus der Welle; hier werden sie flach: keine
+ * Glaskarten, kein Weichzeichner, Bereiche trennt die Haarlinie. Der Name des Teils steht links in
+ * der Seite, darum fällt der Titel der Ansicht weg; ihr Stand bleibt als ruhige Zeile.
+ */
+
+.o-teil-flaeche.w-raum,
+.o-blatt__inhalt.w-raum {
+  --haft-oben: 0px;
+  --haft-unten: 0px;
+  --bg-panel: transparent;
+  max-width: none;
+  min-height: 0;
+  margin: 0;
+  padding: 22px 32px 28px;
+}
+
+.o-teil-flaeche .detail-view,
+.o-blatt__inhalt .detail-view {
+  max-width: none;
+  min-height: 0;
+  margin: 0;
+  padding: 0;
+  gap: 16px;
+}
+
+/* Listen ohne zweite Spalte behalten ihre Lesebreite und stehen links. */
+.o-teil-flaeche .detail-view--schmal {
+  max-width: var(--seite-schmal);
+}
+
+.o-teil-flaeche .detail-view__title,
+.o-teil-flaeche .detail-view__icon,
+.o-blatt__inhalt .detail-view__title,
+.o-blatt__inhalt .detail-view__icon {
+  display: none;
+}
+
+.o-teil-flaeche .detail-view__head,
+.o-blatt__inhalt .detail-view__head {
+  align-items: center;
+  min-height: 24px;
+  margin: 0;
+}
+
+.o-teil-flaeche .detail-view__subtitle,
+.o-blatt__inhalt .detail-view__subtitle {
+  margin: 0;
+  color: var(--o-blass);
+  font-size: 12.5px;
+}
+
+.o-teil-flaeche .detail-view__archiv-schalter {
+  flex: none;
+  align-self: center;
+  padding: 4px 12px;
+  font-size: 13px;
+  white-space: nowrap;
+}
+
+/* Flach: keine Karte, nur die Haarlinie. */
+.o-teil-flaeche .glass,
+.o-blatt__inhalt .glass,
+.o-seite__platz .glass,
+.o-spalte .glass {
+  border-color: var(--o-linie);
+  border-radius: 12px;
+  background: transparent;
+  box-shadow: none;
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+
+.o-teil-flaeche .lehren {
+  margin-bottom: 0;
+}
+
+/* Post und Archive füllen die Fläche; Liste und Blatt rollen jedes in sich, wie ein Mailprogramm. */
+.o-teil-flaeche > div:has(> .post, > .detail-view--archiv) {
+  height: 100%;
+}
+
+.o-teil-flaeche .post,
+.o-teil-flaeche .detail-view--archiv {
+  height: 100%;
+}
+
+.o-teil-flaeche .post .post__flaeche,
+.o-teil-flaeche .detail-view--archiv .analysen {
+  flex: 1;
+  min-height: 0;
+  align-items: stretch;
+}
+
+.o-teil-flaeche .post .post__liste,
+.o-teil-flaeche .post .post__leser,
+.o-teil-flaeche .detail-view--archiv .analysen__liste,
+.o-teil-flaeche .detail-view--archiv .analysen__blatt {
+  position: static;
+  max-height: none;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.o-teil-flaeche .post__leser > .post__leer {
+  height: 100%;
+}
+
+.o-teil-flaeche .analysen__blatt > * {
+  max-width: 1120px;
+}
+
+/* --------------------------------------------------------------------- */
+/* Märkte: Beobachtung links, Chart mit Reitern in der Mitte, Wert rechts */
+/* --------------------------------------------------------------------- */
+
+.o-teil-flaeche--maerkte.w-raum {
+  padding: 0;
+  overflow: hidden;
+}
+
+.markt.ist-im-raum {
+  --markt-hoehe: 100cqh;
+  gap: 0;
+  height: 100%;
+}
+
+.markt.ist-im-raum > .detail-view__head,
+.markt.ist-im-raum .markt__seite {
+  display: none;
+}
+
+.markt.ist-im-raum .markt__body {
+  display: block;
+  height: 100%;
+}
+
+.markt.ist-im-raum .markt__arbeitsplatz {
+  height: 100%;
+  border: 0;
+  border-radius: 0;
+}
+
+.markt.ist-im-raum .markt__leiste,
+.markt.ist-im-raum .markt__fuss {
+  flex-wrap: wrap;
+  row-gap: 4px;
+  padding-left: 16px;
+  padding-right: 16px;
+  border-color: var(--o-linie);
+}
+
+.markt.ist-im-raum .markt__leiste {
+  padding-top: 10px;
+  padding-bottom: 10px;
+}
+
+@container arbeitsplatz (max-width: 1060px) {
+  .markt.ist-im-raum .markt__uhr,
+  .markt.ist-im-raum .markt__fusslabel {
+    display: none;
+  }
+}
+
+/* Die Reiterzeile: offene Charts wie bei Obsidian, rechts der Stand der Kurse. */
+.markt__offen {
+  display: flex;
+  align-items: flex-end;
+  gap: 16px;
+  width: 100%;
+  min-width: 0;
+  height: 100%;
+}
+
+.markt__offen-reiter {
+  display: flex;
+  align-items: flex-end;
+  gap: 2px;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.markt__tab {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex: none;
+  height: 32px;
+  padding: 0 14px;
+  border: 0;
+  border-radius: 8px 8px 0 0;
+  background: none;
+  color: var(--o-leise);
+  font: inherit;
+  font-size: 13px;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.markt__tab:hover {
+  background: var(--o-schwebe);
+  color: var(--o-text);
+}
+
+.markt__tab.ist-hier {
+  background: var(--o-inhalt);
+  color: var(--o-text);
+}
+
+.markt__tab-zu {
+  display: inline-grid;
+  place-items: center;
+  width: 16px;
+  height: 16px;
+  margin-right: -6px;
+  border-radius: 4px;
+  color: var(--o-blass);
+  font-size: 13px;
+  line-height: 1;
+  opacity: 0;
+}
+
+.markt__tab:hover .markt__tab-zu,
+.markt__tab.ist-hier .markt__tab-zu {
+  opacity: 1;
+}
+
+.markt__tab-zu:hover {
+  background: var(--o-schwebe);
+  color: var(--o-text);
+}
+
+.markt__tab-neu {
+  display: inline-grid;
+  place-items: center;
+  flex: none;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--o-blass);
+  cursor: pointer;
+}
+
+.markt__tab-neu:hover {
+  color: var(--o-text);
+}
+
+.markt__tab-neu svg {
+  width: 14px;
+  height: 14px;
+}
+
+.markt__offen .detail-view__subtitle {
+  align-self: center;
+  flex: none;
+  margin: 0 8px 0 auto;
+  color: var(--o-blass);
+  font-size: 12.5px;
+  white-space: nowrap;
+}
+
+/* Die Beobachtung in der Seite: Name und Tagesänderung, sonst nichts. */
+.o-seite__platz > .markt__liste {
+  flex: 1;
+  min-height: 0;
+  max-height: none;
+  margin: 0 -12px;
+  padding: 0;
+  border: 0;
+}
+
+.o-seite__platz .watchlist__head {
+  align-items: center;
+  padding: 0 12px 6px;
+}
+
+.o-seite__platz .watchlist__title {
+  color: var(--o-blass);
+  font-size: 12.5px;
+  font-weight: 400;
+}
+
+.o-seite__platz .watchlist__count {
+  display: none;
+}
+
+.o-seite__platz .markt__werte {
+  margin-top: 2px;
+  scrollbar-width: thin;
+  scrollbar-color: var(--o-linie-stark) transparent;
+}
+
+.o-seite__platz .markt__gruppenname {
+  margin: 14px 12px 4px;
+  color: var(--o-blass);
+  font-weight: 400;
+}
+
+.o-seite__platz .markt__wert {
+  grid-template-columns: minmax(0, 1fr) auto;
+  padding: 10px 12px;
+  border-radius: 8px;
+}
+
+.o-seite__platz .markt__wert-name {
+  font-size: 14.5px;
+}
+
+.o-seite__platz .markt__wert-name small,
+.o-seite__platz .markt__wert-kurs {
+  display: none;
+}
+
+.o-seite__platz .markt__wert-pct {
+  font-size: 13px;
+}
+
+.o-seite__platz .markt__wert.is-selected {
+  background: var(--o-gewaehlt);
+}
+
+/* Der gewählte Wert in der Spalte. */
+.o-spalte > .markt__detail {
+  flex: 1;
+  min-height: 0;
+  border: 0;
+}
+
+.o-spalte .markt__reiter {
+  height: 40px;
+  align-items: flex-end;
+  padding: 0 14px;
+  border-color: var(--o-linie);
+}
+
+.o-spalte .markt__reiter button {
+  padding: 8px 10px 10px;
+  font-size: 13px;
+}
+
+.o-spalte .markt__reiter button.ist-aktiv {
+  border-bottom-color: var(--o-laterne);
+}
+
+.o-spalte .markt__reiterinhalt {
+  padding: 18px 22px 22px;
+  scrollbar-width: thin;
+  scrollbar-color: var(--o-linie-stark) transparent;
+}
+
+/* Gewählt ist überall dasselbe Grau, nicht das Blau der Präsenz. */
+.ist-os .markt__wert.is-selected {
+  background: var(--o-gewaehlt);
+}
+
+/* Die Ansicht füllt die Mitte; ihr innerer Container hat sonst keine Höhe. */
+.o-teil-flaeche--maerkte > div {
+  height: 100%;
+}
+
+/* Den Wert wählen die Reiter und ihr „+“; der Stand steht oben in der Reiterzeile. */
+.markt.ist-im-raum .markt__symbol,
+.markt.ist-im-raum .markt__stand {
+  display: none;
+}
+
+/* Hinzufügen erst auf Abruf, wie am Telefon: das „+“ im Kopf der Beobachtung öffnet die Suche. */
+.o-seite__platz .markt__liste .search {
+  display: none;
+  margin: 0 12px 8px;
+}
+
+.o-seite__platz .markt__liste.ist-suchend .search {
+  display: block;
+}
+
+.o-seite__platz .markt__hinzu {
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  margin: 0 -4px 0 auto;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--o-blass);
+  cursor: pointer;
+}
+
+.o-seite__platz .markt__hinzu:hover,
+.o-seite__platz .markt__hinzu[aria-expanded="true"] {
+  background: var(--o-schwebe);
+  color: var(--o-text);
+}
+
+.o-seite__platz .markt__hinzu svg {
+  width: 15px;
+  height: 15px;
+}
+
+/* --------------------------------------------------------------------- */
+/* Hell: was die Ansichten in festen, hellen Farben setzen                */
+/* --------------------------------------------------------------------- */
+
+/* Auf Papier tragen nur die dunkleren Töne derselben Farbe: Grün, Bernstein, Rot. */
+.ist-os .markt__knopf--kuro,
+.ist-os .markt__knopf--kuro:hover {
+  background: var(--o-laterne-grund);
+  color: var(--o-laterne-hell);
+}
+
+:root[data-helligkeit="hell"] .analysen__marke.ist-uebertragbar,
+:root[data-helligkeit="hell"] .analysen__status-marke.ist-idee,
+:root[data-helligkeit="hell"] .lehre__wirkung.ist-wirkt {
+  color: var(--o-steigt);
+}
+
+:root[data-helligkeit="hell"] .analysen__marke.ist-gemischt,
+:root[data-helligkeit="hell"] .strategie__vorbehalte h3,
+:root[data-helligkeit="hell"] .markt__lage.ist-wiedergabe,
+:root[data-helligkeit="hell"] .markt__auge.ist-an,
+:root[data-helligkeit="hell"] .markt__stand.ist-wartet,
+:root[data-helligkeit="hell"] .analysen__chart-knopf,
+:root[data-helligkeit="hell"] .lehre__kopf,
+:root[data-helligkeit="hell"] .lehre__knopf--ja {
+  color: var(--o-laterne-hell);
+}
+
+:root[data-helligkeit="hell"] .analysen__marke.ist-einzelfall,
+:root[data-helligkeit="hell"] .analysen__status-marke.ist-verworfen,
+:root[data-helligkeit="hell"] .markt__fehler,
+:root[data-helligkeit="hell"] .lehre__wirkung.ist-schadet,
+:root[data-helligkeit="hell"] .lehren__fehler,
+:root[data-helligkeit="hell"] .ist-fehler .f-text,
+:root[data-helligkeit="hell"] .t-fehler {
+  color: var(--o-faellt);
+}

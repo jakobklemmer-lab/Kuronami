@@ -16,11 +16,16 @@
 
 import type { Oberflaeche } from "../oberflaeche.js";
 
-export type ThemeMode = "dark" | "system";
+/**
+ * Hell oder dunkel — gilt nur in Kuro OS (`ui/os/helligkeit.ts`); Präsenz und Welle stehen auf
+ * Nachtbildern und bleiben dunkel. Ersetzt am 2026-10-03 das Feld `theme`, dessen Schalter bis
+ * 26.09. nichts bewirkte: ein dort gespeichertes „system“ soll nicht plötzlich hell machen.
+ */
+export type Helligkeit = "dunkel" | "hell" | "system";
 export type Density = "comfortable" | "compact";
 
 export interface AppearanceSettings {
-  theme: ThemeMode;
+  helligkeit: Helligkeit;
   /** Von Hand gewählter Akzent, falls gesetzt — überschreibt den aus dem Raum abgeleiteten
    * Akzent (`ui/theme/palette.ts`). `null` heißt: dem Raum folgen. */
   accentOverride: string | null;
@@ -159,7 +164,7 @@ export interface KuronamiSettings {
 
 export const DEFAULT_SETTINGS: KuronamiSettings = {
   appearance: {
-    theme: "dark",
+    helligkeit: "dunkel",
     accentOverride: null,
     density: "comfortable",
     oberflaeche: "standard",
@@ -224,11 +229,17 @@ export function normalizeSettings(raw: unknown): KuronamiSettings {
   // Die Hintergrundwahl gehörte zur klassischen Hülle (bis S47). Ein gespeicherter Stand trägt
   // sie noch — als eigenes Bild eine Data-URL von einigen hundert Kilobyte —, und
   // `mergeSection` reichte sie bei jedem Speichern weiter. Hier fällt sie weg.
-  const { background: _archiviert, ...appearance } = mergeSection(
-    DEFAULT_SETTINGS.appearance,
-    candidate.appearance,
-  ) as AppearanceSettings & { background?: unknown };
+  const {
+    background: _archiviert,
+    theme: _wirkungslos,
+    ...appearance
+  } = mergeSection(DEFAULT_SETTINGS.appearance, candidate.appearance) as AppearanceSettings & {
+    background?: unknown;
+    theme?: unknown;
+  };
   if (appearance.oberflaeche !== "modern") appearance.oberflaeche = "standard";
+  if (!["dunkel", "hell", "system"].includes(appearance.helligkeit))
+    appearance.helligkeit = "dunkel";
   return {
     appearance,
     models: mergeSection(DEFAULT_SETTINGS.models, candidate.models),

@@ -40,7 +40,7 @@ describe("normalizeSettings", () => {
       speech: { wakeWord: "Wal" },
     });
     expect(result.appearance.density).toBe("compact");
-    expect(result.appearance.theme).toBe(DEFAULT_SETTINGS.appearance.theme);
+    expect(result.appearance.helligkeit).toBe(DEFAULT_SETTINGS.appearance.helligkeit);
     expect(result.speech.wakeWord).toBe("Wal");
     expect(result.speech.bargeIn).toBe(DEFAULT_SETTINGS.speech.bargeIn);
     expect(result.models).toEqual(DEFAULT_SETTINGS.models);
@@ -55,6 +55,15 @@ describe("normalizeSettings", () => {
     });
     expect(result.appearance).not.toHaveProperty("background");
     expect(result.appearance.density).toBe("compact");
+  });
+
+  it("macht aus dem alten, wirkungslosen „theme“ nichts Helles", () => {
+    const result = normalizeSettings({ appearance: { theme: "system" } });
+    expect(result.appearance).not.toHaveProperty("theme");
+    expect(result.appearance.helligkeit).toBe("dunkel");
+    expect(normalizeSettings({ appearance: { helligkeit: "grell" } }).appearance.helligkeit).toBe(
+      "dunkel",
+    );
   });
 
   it("wirft eine Sprachadresse, die keine ist, samt Geheimnis weg (Browser-Autofill)", () => {
@@ -121,8 +130,8 @@ describe("updateSettingsSection", () => {
   it("baut auf dem zuvor gespeicherten Stand auf, nicht auf der Vorgabe", () => {
     const store = fakeStorage();
     updateSettingsSection("appearance", { density: "compact" }, store);
-    const next = updateSettingsSection("appearance", { theme: "system" }, store);
+    const next = updateSettingsSection("appearance", { helligkeit: "hell" }, store);
     expect(next.appearance.density).toBe("compact");
-    expect(next.appearance.theme).toBe("system");
+    expect(next.appearance.helligkeit).toBe("hell");
   });
 });

@@ -81,11 +81,13 @@ function erstelleHaupt() {
     minWidth: 960,
     minHeight: 620,
     show: false,
-    backgroundColor: "#03080b",
+    backgroundColor: "#0d0c0a",
     title: "Kuro OS",
+    // Oben ist in Kuro OS nichts (4c, alles steht in der Statuszeile unten); die Seite lässt einen
+    // schmalen Streifen frei, an dem das Fenster hängt und in dem Ampel bzw. Knöpfe sitzen.
     titleBarStyle: MAC ? "hiddenInset" : "hidden",
-    trafficLightPosition: { x: 14, y: 10 },
-    ...(MAC ? {} : { titleBarOverlay: { color: "#0a1418", symbolColor: "#93a7b0", height: 32 } }),
+    trafficLightPosition: { x: 14, y: 8 },
+    ...(MAC ? {} : { titleBarOverlay: { color: "#00000000", symbolColor: "#a39d92", height: 32 } }),
     webPreferences: {
       preload: path.join(__dirname, "preload.cjs"),
       contextIsolation: true,

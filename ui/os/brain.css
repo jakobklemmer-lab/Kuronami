@@ -1,0 +1,503 @@
+/*
+ * Das Brain (`brain.ts`), gebaut wie Obsidian. In Kuro OS (4c) stehen Suche und Dateibaum links in
+ * der Seite des Raums, Verbindungen und Verweise rechts in seiner Spalte; die Mitte trägt Kopf
+ * (Zurück, Vor, Ort, Bearbeiten) und Notiz. Ohne die Plätze steht alles in `.b-app` beisammen.
+ */
+
+.b-app {
+  display: grid;
+  grid-template-columns: 236px minmax(0, 1fr) 258px;
+  height: 100%;
+}
+
+.b-links,
+.b-rechts {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  background: transparent;
+}
+
+.b-links {
+  padding: 10px 8px;
+  border-right: 1px solid var(--linie);
+}
+
+.b-rechts {
+  padding: 10px 14px 14px;
+  overflow-y: auto;
+  border-left: 1px solid var(--linie);
+}
+
+.b-suche input {
+  width: 100%;
+  padding: 7px 10px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: var(--o-schwebe);
+  color: var(--mond);
+  font: inherit;
+  font-size: 13.5px;
+  outline: none;
+}
+
+.b-suche input:focus {
+  border-color: var(--o-laterne-rand);
+}
+
+.b-leiste {
+  display: flex;
+  gap: 6px;
+  margin: 8px 0 6px;
+}
+
+.b-leiste button {
+  flex: 1;
+  padding: 6px;
+  border: 0;
+  border-radius: 7px;
+  background: var(--o-schwebe);
+  color: var(--nebel);
+  font: inherit;
+  font-size: 12.5px;
+  cursor: pointer;
+}
+
+.b-leiste button:hover {
+  background: var(--o-gewaehlt);
+  color: var(--mond);
+}
+
+.b-baum {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  font-size: 13.5px;
+  scrollbar-width: thin;
+}
+
+.b-zeile {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  width: 100%;
+  padding: 3px 8px 3px calc(10px + var(--tiefe, 0) * 14px);
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  color: var(--nebel);
+  font: inherit;
+  text-align: left;
+  text-decoration: none;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  cursor: pointer;
+}
+
+.b-zeile:hover {
+  background: var(--o-schwebe);
+  color: var(--mond);
+}
+
+.b-zeile.ist-aktiv {
+  background: var(--o-gewaehlt);
+  color: var(--mond);
+}
+
+.b-zeile--ordner {
+  padding-left: calc(4px + var(--tiefe, 0) * 14px);
+  color: var(--o-text-2);
+  font-weight: 500;
+}
+
+.b-zeile--ordner svg {
+  flex: none;
+  transform: rotate(90deg);
+  transition: transform 0.12s ease;
+}
+
+.ist-zu > .b-zeile--ordner svg {
+  transform: none;
+}
+
+.b-zeile--ordner span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.b-mitte {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+}
+
+.b-kopf {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  flex: none;
+  height: 40px;
+  padding: 0 10px;
+  border-bottom: 1px solid var(--linie);
+}
+
+.b-rund {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  color: var(--nebel);
+  cursor: pointer;
+}
+
+.b-rund:hover:not(:disabled) {
+  background: var(--o-schwebe);
+  color: var(--mond);
+}
+
+.b-rund:disabled {
+  opacity: 0.28;
+  cursor: default;
+}
+
+.b-ort {
+  flex: 1;
+  margin: 0 8px;
+  overflow: hidden;
+  font-size: 12.5px;
+  color: var(--nebel);
+  text-align: center;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.b-modus {
+  padding: 5px 12px;
+  border: 0;
+  border-radius: 7px;
+  background: var(--o-laterne-grund);
+  color: var(--laterne);
+  font: inherit;
+  font-size: 12.5px;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.b-modus:hover:not(:disabled) {
+  background: var(--o-laterne-rand);
+}
+
+.b-modus:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+
+.b-inhalt {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.b-notiz {
+  max-width: 72ch;
+  margin: 0 auto;
+  padding: 34px 40px 64px;
+}
+
+.b-titel {
+  margin: 0 0 20px;
+  font-family: var(--zeichen);
+  font-weight: 500;
+  font-size: clamp(1.8rem, 3cqi, 2.4rem);
+  line-height: 1.12;
+  color: var(--mond);
+}
+
+.b-hinweis {
+  margin: -10px 0 22px;
+  font-size: 13px;
+  color: var(--dunst);
+}
+
+.b-text {
+  font-size: 15.5px;
+  line-height: 1.7;
+  color: var(--o-text);
+}
+
+.b-text h3 {
+  margin: 1.6em 0 0.5em;
+  font-size: 1.3rem;
+  font-weight: 600;
+  color: var(--mond);
+}
+
+.b-text h4 {
+  margin: 1.8em 0 0.5em;
+  font-size: 1.12rem;
+  font-weight: 600;
+  color: var(--mond);
+}
+
+.b-text h5,
+.b-text h6 {
+  margin: 1.5em 0 0.4em;
+  font-size: 1rem;
+  font-weight: 600;
+  color: var(--nebel);
+}
+
+.b-text > :first-child {
+  margin-top: 0;
+}
+
+.b-text p,
+.b-text ul,
+.b-text ol {
+  margin: 0 0 0.9em;
+}
+
+.b-text ul,
+.b-text ol {
+  padding-left: 1.2em;
+}
+
+.b-text code {
+  padding: 1px 5px;
+  border-radius: 4px;
+  background: var(--o-schwebe);
+  font-size: 0.92em;
+}
+
+.b-text table {
+  width: 100%;
+  margin: 0 0 1.2em;
+  border-collapse: collapse;
+  font-size: 14px;
+}
+
+.b-text th,
+.b-text td {
+  padding: 8px 14px 8px 0;
+  border-bottom: 1px solid var(--linie);
+  text-align: left;
+  vertical-align: top;
+}
+
+.b-text th {
+  font-weight: 500;
+  color: var(--nebel);
+}
+
+.b-link {
+  color: var(--link);
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.b-link:hover {
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.b-link--offen {
+  color: color-mix(in srgb, var(--link) 55%, transparent);
+  cursor: default;
+}
+
+.b-link--offen:hover {
+  text-decoration: none;
+}
+
+.b-editor {
+  display: block;
+  width: 100%;
+  height: 100%;
+  padding: 34px max(40px, calc((100% - 72ch) / 2)) 64px;
+  border: 0;
+  background: none;
+  color: var(--mond);
+  font: inherit;
+  font-size: 15px;
+  line-height: 1.7;
+  resize: none;
+  outline: none;
+}
+
+.b-graph {
+  position: absolute;
+  inset: 0;
+}
+
+.b-graph__hilfe {
+  position: absolute;
+  left: 16px;
+  bottom: 10px;
+  margin: 0;
+  font-size: 12px;
+  color: var(--dunst);
+  pointer-events: none;
+}
+
+.g-leinwand {
+  display: block;
+  cursor: grab;
+  touch-action: none;
+}
+
+.b-rechts__titel {
+  margin: 16px 0 8px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--nebel);
+}
+
+.b-rechts__titel:first-child {
+  margin-top: 4px;
+}
+
+.b-lokal {
+  position: relative;
+  flex: none;
+  height: 220px;
+  overflow: hidden;
+  border: 1px solid var(--linie);
+  border-radius: 10px;
+  background: var(--o-inhalt);
+}
+
+.b-verweise {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.b-verweise a {
+  display: block;
+  padding: 4px 6px;
+  border-radius: 5px;
+  color: var(--link);
+  font-size: 13px;
+  text-decoration: none;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.b-verweise a:hover {
+  background: var(--o-schwebe);
+}
+
+.b-verweise__leer {
+  padding: 2px 6px;
+  font-size: 12.5px;
+  color: var(--dunst);
+}
+
+.b-funde {
+  max-width: 72ch;
+  margin: 0 auto;
+  padding: 28px 40px;
+  list-style: none;
+}
+
+.b-funde li {
+  margin-bottom: 18px;
+}
+
+.b-funde small {
+  display: block;
+  margin-top: 2px;
+  font-size: 12px;
+  color: var(--dunst);
+}
+
+.b-funde p {
+  margin: 4px 0 0;
+  font-size: 13.5px;
+  color: var(--nebel);
+}
+
+.b-leer,
+.b-fehler {
+  padding: 34px 40px;
+  color: var(--nebel);
+}
+
+.b-fehler {
+  color: var(--faellt);
+}
+
+/* Zuerst weicht die rechte Spalte, damit die Notiz ihre Lesebreite behält (≈ 600 px). */
+@container (max-width: 1080px) {
+  .b-app {
+    grid-template-columns: 220px minmax(0, 1fr);
+  }
+  .b-rechts {
+    display: none;
+  }
+}
+
+@container (max-width: 620px) {
+  .b-app {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .b-links {
+    display: none;
+  }
+  .b-notiz {
+    padding: 24px 22px 48px;
+  }
+}
+
+/* Im großen Graphen braucht es keine Spalte für eine einzelne Notiz. */
+.b-app.ist-graph {
+  grid-template-columns: 236px minmax(0, 1fr);
+}
+.b-app.ist-graph .b-rechts {
+  display: none;
+}
+
+/* Auf den Plätzen des Raums: die Seite und die Spalte tragen Hintergrund und Rand schon. */
+.b-app.ist-im-raum {
+  display: flex;
+}
+
+.b-app.ist-im-raum .b-mitte {
+  flex: 1;
+}
+
+.o-seite__platz > .b-links {
+  flex: 1;
+  padding: 0;
+  margin: 0 -12px;
+  border: 0;
+}
+
+.o-seite__platz > .b-links .b-suche,
+.o-seite__platz > .b-links .b-leiste {
+  margin-left: 12px;
+  margin-right: 12px;
+}
+
+.o-spalte > .b-rechts {
+  flex: 1;
+  padding: 18px 20px 20px;
+  border: 0;
+}
+
+.o-spalte > .b-rechts.ist-graph {
+  display: none;
+}
+
+.o-raum .b-kopf {
+  height: 40px;
+  background: var(--o-seite);
+  border-bottom: 0;
+}

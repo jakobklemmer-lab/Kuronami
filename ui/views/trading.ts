@@ -59,6 +59,12 @@ import {
   voranstellen,
 } from "../markets/kerzen.js";
 import {
+  SPEICHER_OFFENE,
+  liesOffene,
+  oeffneChart,
+  schliesseChart,
+} from "../markets/offene-charts.js";
+import {
   addSymbol,
   chartSymbolFuer,
   hasSymbol,
@@ -479,8 +485,29 @@ export const tradingView: View = {
       </div>
     `;
 
+    // Kuro OS (4c) legt Teile des Gerüsts auf die Plätze seines Raums (`ctx.plaetze`): die
+    // Beobachtung links in die Seite, den gewählten Wert rechts in die Spalte, Stand und offene
+    // Charts in die Reiterzeile. Gesucht wird darum im Container und in allem Ausgelagerten.
+    const ausgelagert: HTMLElement[] = [];
+    const findeAlle = <T extends Element>(sel: string): T[] =>
+      [container, ...ausgelagert].flatMap((w) => [...w.querySelectorAll<T>(sel)]);
+    const finde = <T extends Element>(sel: string): T | null => findeAlle<T>(sel)[0] ?? null;
     const rolle = <T extends HTMLElement>(name: string): T =>
-      container.querySelector<T>(`[data-role="${name}"]`) as T;
+      finde<T>(`[data-role="${name}"]`) as T;
+    let reiterEl: HTMLElement | null = null;
+    if (ctx.plaetze) {
+      const liste = container.querySelector(".markt__liste") as HTMLElement;
+      const detail = container.querySelector(".markt__detail") as HTMLElement;
+      reiterEl = document.createElement("div");
+      reiterEl.className = "markt__offen";
+      reiterEl.innerHTML = `<nav class="markt__offen-reiter" data-role="offen" role="tablist" aria-label="Offene Charts"></nav>`;
+      reiterEl.append(container.querySelector('[data-role="subtitle"]') as HTMLElement);
+      ctx.plaetze.seite.append(liste);
+      ctx.plaetze.spalte.append(detail);
+      ctx.plaetze.reiter.append(reiterEl);
+      ausgelagert.push(liste, detail, reiterEl);
+      finde(".markt")?.classList.add("ist-im-raum");
+    }
     const untertitelEl = rolle("subtitle");
     const symbolNameEl = rolle("symbol-name");
     const leinwandEl = rolle("leinwand");
@@ -500,8 +527,8 @@ export const tradingView: View = {
     const searchEl = rolle<HTMLInputElement>("search");
     const resultsEl = rolle("results");
     const reiterInhalt = rolle("reiterinhalt");
-    const wurzelEl = container.querySelector(".markt") as HTMLElement;
-    const arbeitsplatzEl = container.querySelector(".markt__arbeitsplatz") as HTMLElement;
+    const wurzelEl = finde(".markt") as HTMLElement;
+    const arbeitsplatzEl = finde(".markt__arbeitsplatz") as HTMLElement;
     const handyNameEl = rolle("handy-name-text");
     const handyKursEl = rolle("handy-kurs");
     const handyWandelEl = rolle("handy-wandel");
@@ -520,8 +547,9 @@ export const tradingView: View = {
     };
 
     // ------------------------------------------------------------------ Chart
+    // Am Chart gelesen, nicht an <html>: Kuro OS setzt seine Farben (hell, dunkel) auf die Hülle.
     const css = (name: string, vorgabe: string) =>
-      getComputedStyle(document.documentElement).getPropertyValue(name).trim() || vorgabe;
+      getComputedStyle(chartEl).getPropertyValue(name).trim() || vorgabe;
     const hoch = css("--state-up", "#5fc98c");
     const tief = css("--state-down", "#e0787f");
     const stellen = () => stellenFuer(kopf?.price ?? kerzen.at(-1)?.close ?? 100, kopf?.stellen);
@@ -534,12 +562,15 @@ export const tradingView: View = {
         fontFamily: css("--font-ui", "system-ui, sans-serif"),
         fontSize: 11.5,
         panes: {
-          separatorColor: "rgba(237, 240, 245, 0.08)",
-          separatorHoverColor: "rgba(237, 240, 245, 0.18)",
+          separatorColor: css("--chart-trenner", "rgba(237, 240, 245, 0.08)"),
+          separatorHoverColor: css("--chart-trenner-stark", "rgba(237, 240, 245, 0.18)"),
           enableResize: true,
         },
       },
-      grid: { vertLines: { visible: false }, horzLines: { color: "rgba(237, 240, 245, 0.045)" } },
+      grid: {
+        vertLines: { visible: false },
+        horzLines: { color: css("--chart-gitter", "rgba(237, 240, 245, 0.045)") },
+      },
       rightPriceScale: { borderVisible: false, scaleMargins: { top: 0.1, bottom: 0.08 } },
       // `minBarSpacing`: ohne ihn hält der Chart mindestens einen halben Pixel je Kerze und
       // schneidet „5 Jahre" oder „Alles" vorn stillschweigend ab — 2.200 Tageskerzen passen
@@ -555,8 +586,14 @@ export const tradingView: View = {
       localization: { locale: "de-DE", priceFormatter: (p: number) => formatKurs(p, stellen()) },
       crosshair: {
         mode: 0,
-        vertLine: { color: "rgba(237, 240, 245, 0.28)", labelBackgroundColor: "#1b2530" },
-        horzLine: { color: "rgba(237, 240, 245, 0.28)", labelBackgroundColor: "#1b2530" },
+        vertLine: {
+          color: css("--chart-kreuz", "rgba(237, 240, 245, 0.28)"),
+          labelBackgroundColor: css("--chart-etikett", "#1b2530"),
+        },
+        horzLine: {
+          color: css("--chart-kreuz", "rgba(237, 240, 245, 0.28)"),
+          labelBackgroundColor: css("--chart-etikett", "#1b2530"),
+        },
       },
     });
 
@@ -857,7 +894,7 @@ export const tradingView: View = {
     }
 
     function markiereWerkzeug(): void {
-      for (const b of container.querySelectorAll<HTMLButtonElement>("[data-werkzeug]")) {
+      for (const b of findeAlle<HTMLButtonElement>("[data-werkzeug]")) {
         const an = b.dataset.werkzeug === stift.aktuellesWerkzeug;
         b.classList.toggle("ist-aktiv", an);
         b.setAttribute("aria-pressed", String(an));
@@ -1393,7 +1430,7 @@ export const tradingView: View = {
 
     // ------------------------------------------------------------------ Kerzengröße, Zeitraum
     function zeichneLeiste(): void {
-      for (const b of container.querySelectorAll<HTMLButtonElement>("[data-iv]")) {
+      for (const b of findeAlle<HTMLButtonElement>("[data-iv]")) {
         const an = b.dataset.iv === iv;
         b.classList.toggle("ist-aktiv", an);
         b.setAttribute("aria-checked", String(an));
@@ -1434,7 +1471,7 @@ export const tradingView: View = {
     });
 
     function markiereZeitraum(id: string | null): void {
-      for (const b of container.querySelectorAll<HTMLButtonElement>("[data-zr]"))
+      for (const b of findeAlle<HTMLButtonElement>("[data-zr]"))
         b.classList.toggle("ist-aktiv", b.dataset.zr === id);
     }
 
@@ -1557,11 +1594,10 @@ export const tradingView: View = {
       m.className = `markt__menue glass${breit ? " markt__menue--breit" : ""}`;
       m.innerHTML = inhalt;
       const kasten = anker.getBoundingClientRect();
-      const bezug =
-        container.querySelector(".markt__arbeitsplatz")?.getBoundingClientRect() ?? kasten;
+      const bezug = finde(".markt__arbeitsplatz")?.getBoundingClientRect() ?? kasten;
       m.style.left = `${Math.max(8, Math.min(kasten.left - bezug.left, bezug.width - (breit ? 380 : 220)))}px`;
       m.style.top = `${kasten.bottom - bezug.top + 6}px`;
-      container.querySelector(".markt__arbeitsplatz")?.append(m);
+      finde(".markt__arbeitsplatz")?.append(m);
       offenesMenue = m;
       return m;
     }
@@ -1752,12 +1788,70 @@ export const tradingView: View = {
       }
     });
 
+    // ------------------------------------------------------------------ Offene Charts (Kuro OS)
+    const seitenspeicher = (): Storage | null => {
+      try {
+        return globalThis.localStorage ?? null;
+      } catch {
+        return null;
+      }
+    };
+    let offen: string[] = reiterEl
+      ? oeffneChart(liesOffene(seitenspeicher()?.getItem(SPEICHER_OFFENE) ?? null), symbol)
+      : [];
+    function zeichneOffene(): void {
+      const nav = reiterEl?.querySelector<HTMLElement>('[data-role="offen"]');
+      if (!nav) return;
+      const zu = offen.length > 1;
+      nav.innerHTML = `${offen
+        .map((s) => {
+          const name = escapeHtml(anzeigeName(s, quotes.get(s)?.name ?? ""));
+          const hier = s === symbol;
+          return `<button type="button" role="tab" class="markt__tab${hier ? " ist-hier" : ""}" data-tab="${escapeHtml(s)}" aria-selected="${hier}" title="${escapeHtml(s)}">${name}${zu ? `<span class="markt__tab-zu" data-tab-zu="${escapeHtml(s)}" role="button" aria-label="${name} schließen" title="Schließen">×</span>` : ""}</button>`;
+        })
+        .join(
+          "",
+        )}<button type="button" class="markt__tab-neu" data-role="tab-neu" aria-label="Chart öffnen" title="Chart öffnen — einfach lostippen">${SVG('<path d="M10 4.5v11M4.5 10h11"/>')}</button>`;
+    }
+    function merkeOffene(): void {
+      try {
+        seitenspeicher()?.setItem(SPEICHER_OFFENE, JSON.stringify(offen));
+      } catch {
+        // Ohne Seitenspeicher gelten die Reiter bis zum Neuladen.
+      }
+    }
+    reiterEl?.addEventListener("click", (e) => {
+      const t = e.target as HTMLElement;
+      const schliessen = t.closest<HTMLElement>("[data-tab-zu]")?.dataset.tabZu;
+      if (schliessen) {
+        e.stopPropagation();
+        const r = schliesseChart(offen, schliessen, symbol);
+        offen = r.offen;
+        merkeOffene();
+        if (r.naechster) waehle(r.naechster);
+        else zeichneOffene();
+        return;
+      }
+      const tab = t.closest<HTMLElement>("[data-tab]")?.dataset.tab;
+      if (tab) {
+        waehle(tab);
+        return;
+      }
+      if (t.closest('[data-role="tab-neu"]')) oeffneSuche();
+    });
+    zeichneOffene();
+
     // ------------------------------------------------------------------ Wert wählen
     function waehle(neu: string): void {
       const s = neu.toUpperCase();
       if (s === symbol && kerzen.length > 0) return;
       symbol = s;
       rememberSelectedSymbol(s);
+      if (reiterEl) {
+        offen = oeffneChart(offen, s);
+        merkeOffene();
+        zeichneOffene();
+      }
       kopf = null;
       kerzen = [];
       gezeigteStrategien.clear();
@@ -1842,6 +1936,7 @@ export const tradingView: View = {
         quotes = neu;
         fehlgeschlagen = new Set(d.failed.map((s) => s.toUpperCase()));
         zeichneListe();
+        zeichneOffene();
         untertitelEl.textContent = `Yahoo Finance · Stand ${uhr()}`;
       } catch (error) {
         if (!verworfen) untertitelEl.textContent = describeError(error);
@@ -1923,7 +2018,7 @@ export const tradingView: View = {
     });
     const hinzuEl = rolle<HTMLButtonElement>("hinzu");
     const zeigeHinzu = (an: boolean) => {
-      container.querySelector(".markt__liste")?.classList.toggle("ist-suchend", an);
+      finde(".markt__liste")?.classList.toggle("ist-suchend", an);
       hinzuEl.setAttribute("aria-expanded", String(an));
       if (an) searchEl.focus();
     };
@@ -2363,7 +2458,7 @@ export const tradingView: View = {
 
     // ---- Reiter
     function zeichneReiter(): void {
-      for (const b of container.querySelectorAll<HTMLButtonElement>("[data-reiter]")) {
+      for (const b of findeAlle<HTMLButtonElement>("[data-reiter]")) {
         const an = b.dataset.reiter === reiter;
         b.classList.toggle("ist-aktiv", an);
         b.setAttribute("aria-selected", String(an));
@@ -2372,7 +2467,7 @@ export const tradingView: View = {
         reiter === "ueberblick" ? ueberblick() : reiter === "kuro" ? kuroReiter() : alarmReiter();
     }
 
-    container.querySelector(".markt__reiter")?.addEventListener("click", (e) => {
+    finde(".markt__reiter")?.addEventListener("click", (e) => {
       const r = (e.target as HTMLElement).closest<HTMLElement>("[data-reiter]")?.dataset.reiter as
         | typeof reiter
         | undefined;
