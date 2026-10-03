@@ -462,6 +462,14 @@ function baueTray() {
   tray.setContextMenu(
     Menu.buildFromTemplate([
       { label: "Kuro OS zeigen", click: zeigeHaupt },
+      {
+        // Schließen versteckt nur; neuer Stand vom Server kommt erst hiermit (oder ⇧⌘R).
+        label: "Neu laden",
+        click: () => {
+          zeigeHaupt();
+          haupt?.webContents.reloadIgnoringCache();
+        },
+      },
       { type: "separator" },
       {
         label: `Sprechtaste (${TASTEN_NAME[konfig.sprechtaste] ?? konfig.sprechtaste})`,
