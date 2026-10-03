@@ -1,7 +1,8 @@
 /**
  * Kuro OS als Desktop-App (2026-10-02). Die Oberfläche kommt vom Server (`/os/`), damit es
  * nur eine gibt; die App bringt, was ein Browser nicht kann: eine Sprechtaste, die auch wirkt,
- * wenn ein anderes Programm vorn ist, Kuros Insel über allen Fenstern, Tray und Autostart.
+ * wenn ein anderes Programm vorn ist, den kleinen Kuro als Begleiter auf dem Schreibtisch, Tray und
+ * Autostart.
  */
 const {
   app,
@@ -18,6 +19,7 @@ const {
 } = require("electron");
 const fs = require("node:fs");
 const path = require("node:path");
+const L = require("./begleiter-lage.cjs");
 
 const MAC = process.platform === "darwin";
 const BILD = (name) => path.join(__dirname, "bild", name);
@@ -30,6 +32,9 @@ const VORGABE = {
   // Rechte Wahltaste am Mac, rechte Strg-Taste unter Windows — beide tippen sonst kaum etwas.
   sprechtaste: MAC ? "AltRight" : "CtrlRight",
   sprechtasteAn: true,
+  begleiterAn: true,
+  /** Ecke oben links der Figur; `null` heißt unten rechts. */
+  begleiter: null,
 };
 
 function liesKonfig() {
@@ -64,7 +69,7 @@ function gleicherUrsprung(url) {
 /** @type {BrowserWindow | null} */
 let haupt = null;
 /** @type {BrowserWindow | null} */
-let insel = null;
+let begleiter = null;
 /** @type {Tray | null} */
 let tray = null;
 let beenden = false;
@@ -122,10 +127,9 @@ function erstelleHaupt() {
     e.preventDefault();
     haupt?.hide();
   });
-  haupt.on("focus", () => aktualisiereInsel());
-  haupt.on("blur", () => aktualisiereInsel());
-  haupt.on("show", () => aktualisiereInsel());
-  haupt.on("hide", () => aktualisiereInsel());
+  for (const art of ["focus", "blur", "show", "hide", "minimize", "restore"]) {
+    haupt.on(art, () => aktualisiereBegleiter());
+  }
 }
 
 function zeigeHaupt() {
@@ -135,79 +139,224 @@ function zeigeHaupt() {
   haupt?.focus();
 }
 
-// --------------------------------------------------------------------- Insel
+// ----------------------------------------------------------------- Begleiter
 
-const INSEL_BREITE = 380;
-const INSEL_HOCH_ZU = 40;
-const INSEL_HOCH_AUF = 118;
-const ANTWORT_STEHT_MS = 10_000;
+/**
+ * Der kleine Kuro auf dem Schreibtisch: die Seite `/os/begleiter/` in einem randlosen,
+ * durchsichtigen Fenster über allen Programmen. Er zeigt sich, wenn Kuro OS nicht vorn ist.
+ * Durchklickbar ist alles außer Figur und Blase; das entscheidet ein Blick auf den Zeiger alle
+ * 50 ms statt `forward` — so kommt auch eine Datei, die man aus dem Finder zieht, bei ihm an.
+ */
 
-let lage = { zustand: "ruhe", satz: "", farbe: "#6d90ff", text: null };
-let antwortSeit = 0;
-let gehalten = false;
+/** @type {{ x: number, y: number, rand: "links" | "rechts" | null }} */
+let lageFigur = { x: 0, y: 0, rand: null };
+let aufbauJetzt = null;
+let blaseOffen = false;
+/** Flächen von Figur und Blase im Fenster, von der Seite gemeldet. */
+let flaechen = [];
+let durchklick = true;
+/** Während des Ziehens: wo im Fenster der Zeiger gefasst hat. */
+let anker = null;
+let zeigerUhr = null;
+let zeigerZuletzt = null;
+let sichtUhr = null;
 
-function erstelleInsel() {
-  insel = new BrowserWindow({
-    width: INSEL_BREITE,
-    height: INSEL_HOCH_ZU,
+const schirme = () =>
+  screen.getAllDisplays().map((d) => ({ bounds: d.bounds, workArea: d.workArea }));
+const begleiterAdresse = () =>
+  konfig.adresse ? new URL("/os/begleiter/", konfig.adresse).toString() : null;
+
+function erstelleBegleiter() {
+  const ziel = begleiterAdresse();
+  if (!ziel || begleiter) return;
+  lageFigur = L.startLage(konfig.begleiter, schirme(), screen.getPrimaryDisplay());
+  aufbauJetzt = L.aufbau(lageFigur, schirme());
+  begleiter = new BrowserWindow({
+    ...aufbauJetzt.fenster,
     frame: false,
     transparent: true,
+    backgroundColor: "#00000000",
     resizable: false,
-    movable: false,
     minimizable: false,
     maximizable: false,
-    focusable: false,
+    fullscreenable: false,
     skipTaskbar: true,
     hasShadow: false,
     show: false,
     alwaysOnTop: true,
+    // Am Mac sonst nie über der Menüleiste und nie halb aus dem Schirm.
+    enableLargerThanScreen: true,
+    // Der erste Klick auf ihn gilt schon, auch wenn ein anderes Programm vorn ist.
+    acceptFirstMouse: true,
+    title: "Kuro",
     webPreferences: {
-      preload: path.join(__dirname, "insel-preload.cjs"),
+      preload: path.join(__dirname, "preload.cjs"),
       contextIsolation: true,
       sandbox: true,
+      nodeIntegration: false,
     },
   });
-  insel.setAlwaysOnTop(true, "screen-saver");
-  insel.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
-  void insel.loadFile(path.join(__dirname, "insel.html"));
+  begleiter.setAlwaysOnTop(true, "floating");
+  begleiter.setVisibleOnAllWorkspaces(true);
+  begleiter.setIgnoreMouseEvents(true);
+  durchklick = true;
+  begleiter.webContents.setWindowOpenHandler(({ url }) => {
+    void shell.openExternal(url);
+    return { action: "deny" };
+  });
+  begleiter.webContents.on("will-navigate", (e, url) => {
+    if (gleicherUrsprung(url)) return;
+    e.preventDefault();
+    void shell.openExternal(url);
+  });
+  begleiter.webContents.on("did-finish-load", () => sendeAufbau());
+  // Ohne Server bleibt er unsichtbar und versucht es später wieder.
+  begleiter.webContents.on("did-fail-load", (_e, code, _b, url) => {
+    if (code === -3 || !gleicherUrsprung(url)) return;
+    setTimeout(() => {
+      const neu = begleiterAdresse();
+      if (begleiter && neu) void begleiter.loadURL(neu);
+    }, 30_000);
+  });
+  begleiter.on("blur", () => setzeBlase(false));
+  begleiter.on("closed", () => {
+    begleiter = null;
+    stoppeZeiger();
+  });
+  void begleiter.loadURL(ziel);
+}
+
+function sendeAufbau() {
+  if (!begleiter || !aufbauJetzt) return;
+  begleiter.webContents.send("begleiter-lage", {
+    seite: aufbauJetzt.seite,
+    versatz: aufbauJetzt.versatz,
+    rand: blaseOffen ? null : lageFigur.rand,
+    offen: blaseOffen,
+  });
+}
+
+/** Stellt das Fenster so, dass die Figur bei `figur` steht. */
+function stelleBegleiter(figur) {
+  if (!begleiter) return;
+  aufbauJetzt = L.aufbau(figur, schirme());
+  begleiter.setBounds(aufbauJetzt.fenster);
+  sendeAufbau();
+}
+
+function setzeBlase(offen) {
+  if (!begleiter || offen === blaseOffen) return;
+  blaseOffen = offen;
+  stelleBegleiter(offen ? L.ausDemRand(lageFigur, schirme()) : lageFigur);
+}
+
+function merkeLage() {
+  konfig = { ...konfig, begleiter: { x: lageFigur.x, y: lageFigur.y } };
+  schreibeKonfig(konfig);
 }
 
 /**
- * Die Insel steht über anderen Programmen nur, wenn Kuro OS nicht vorn ist und es etwas zu sehen
- * gibt: Kuro arbeitet, die Sprechtaste ist gedrückt, oder eine Antwort ist gerade gekommen.
+ * Sichtbar, wenn eingeschaltet und Kuro OS nicht vorn ist — ist es vorn, ist Kuro dort. Kurz
+ * verzögert, damit er beim Wechsel zwischen den Fenstern nicht aufblitzt.
  */
-function aktualisiereInsel() {
-  if (!insel) return;
-  const vorn = haupt?.isVisible() && haupt.isFocused();
-  const neu = Date.now() - antwortSeit < ANTWORT_STEHT_MS;
-  const zeigen = !vorn && (gehalten || lage.zustand !== "ruhe" || neu);
-  if (!zeigen) {
-    if (insel.isVisible()) insel.hide();
-    return;
-  }
-  const { bounds } = screen.getPrimaryDisplay();
-  const hoch = neu && lage.text ? INSEL_HOCH_AUF : INSEL_HOCH_ZU;
-  insel.setBounds({
-    x: Math.round(bounds.x + (bounds.width - INSEL_BREITE) / 2),
-    y: bounds.y,
-    width: INSEL_BREITE,
-    height: hoch,
-  });
-  insel.webContents.send("lage", { ...lage, gehalten, neu });
-  if (!insel.isVisible()) insel.showInactive();
+function aktualisiereBegleiter() {
+  if (sichtUhr) clearTimeout(sichtUhr);
+  sichtUhr = setTimeout(() => {
+    sichtUhr = null;
+    if (!begleiter) return;
+    const vorn = haupt?.isVisible() && haupt.isFocused() && !haupt.isMinimized();
+    const zeigen = konfig.begleiterAn && !vorn;
+    if (zeigen && !begleiter.isVisible()) {
+      begleiter.showInactive();
+      starteZeiger();
+    } else if (!zeigen && begleiter.isVisible()) {
+      setzeBlase(false);
+      begleiter.hide();
+      stoppeZeiger();
+    }
+  }, 150);
 }
 
-ipcMain.on("zustand", (e, neueLage) => {
-  if (e.sender !== haupt?.webContents) return;
-  if (neueLage.text && neueLage.text !== lage.text && neueLage.zustand === "ruhe") {
-    antwortSeit = Date.now();
-    setTimeout(aktualisiereInsel, ANTWORT_STEHT_MS + 50);
+function setzeBegleiterAn(an) {
+  konfig = { ...konfig, begleiterAn: an };
+  schreibeKonfig(konfig);
+  aktualisiereBegleiter();
+}
+
+/** Der Zeiger entscheidet über Durchklicken, und Kuro schaut ihm nach — über den ganzen Schirm. */
+function zeigerTakt() {
+  if (!begleiter?.isVisible()) return;
+  const p = screen.getCursorScreenPoint();
+  const b = begleiter.getBounds();
+  const punkt = { x: p.x - b.x, y: p.y - b.y };
+  if (anker === null) {
+    const drin = L.trifft(punkt, flaechen);
+    if (drin === durchklick) {
+      durchklick = !drin;
+      begleiter.setIgnoreMouseEvents(durchklick);
+    }
   }
-  lage = { ...lage, ...neueLage };
-  aktualisiereInsel();
+  if (zeigerZuletzt?.x !== punkt.x || zeigerZuletzt?.y !== punkt.y) {
+    zeigerZuletzt = punkt;
+    begleiter.webContents.send("begleiter-zeiger", punkt);
+  }
+}
+
+function starteZeiger() {
+  zeigerUhr ??= setInterval(zeigerTakt, 50);
+}
+
+function stoppeZeiger() {
+  if (zeigerUhr) clearInterval(zeigerUhr);
+  zeigerUhr = null;
+}
+
+const vomBegleiter = (e) => begleiter !== null && e.sender === begleiter.webContents;
+const zahl = (w) => (Number.isFinite(w) ? Number(w) : null);
+
+ipcMain.on("begleiter-flaechen", (e, liste) => {
+  if (!vomBegleiter(e) || !Array.isArray(liste)) return;
+  flaechen = liste
+    .slice(0, 4)
+    .map((r) => ({ x: zahl(r?.x), y: zahl(r?.y), w: zahl(r?.w), h: zahl(r?.h) }))
+    .filter((r) => r.x !== null && r.y !== null && r.w !== null && r.h !== null);
 });
 
-ipcMain.on("insel-klick", () => zeigeHaupt());
+/** Ziehen über Bildschirmpunkte: `-webkit-app-region: drag` schluckte Klick, Doppelklick und Dateien. */
+ipcMain.on("begleiter-ziehen", (e, phase, x, y) => {
+  if (!vomBegleiter(e) || zahl(x) === null || zahl(y) === null) return;
+  const b = begleiter.getBounds();
+  if (phase === "start") {
+    if (blaseOffen) {
+      blaseOffen = false;
+      sendeAufbau();
+    }
+    anker = { x: x - b.x, y: y - b.y };
+  } else if (phase === "zug" && anker) {
+    begleiter.setPosition(Math.round(x - anker.x), Math.round(y - anker.y));
+  } else if (phase === "ende" && anker) {
+    anker = null;
+    const figur = L.figurAus(begleiter.getBounds(), aufbauJetzt);
+    lageFigur = L.setzeAb(figur, schirme());
+    stelleBegleiter(lageFigur);
+    merkeLage();
+  }
+});
+
+ipcMain.on("begleiter-blase", (e, offen) => {
+  if (vomBegleiter(e)) setzeBlase(offen === true);
+});
+
+ipcMain.on("begleiter-haupt", (e) => {
+  if (vomBegleiter(e)) zeigeHaupt();
+});
+
+/** Ein Schirm kam dazu, ging weg oder änderte sich: er bleibt auf einem, der da ist. */
+function holeAufSchirm() {
+  if (!begleiter) return;
+  lageFigur = L.setzeAb(lageFigur, schirme());
+  stelleBegleiter(blaseOffen ? L.ausDemRand(lageFigur, schirme()) : lageFigur);
+}
 
 // ---------------------------------------------------------------- Sprechtaste
 
@@ -218,6 +367,13 @@ ipcMain.on("insel-klick", () => zeigeHaupt());
  * erste Druck erst öffnet, den Zustand, sobald sie steht.
  */
 let hook = null;
+
+/** Kuro OS hört zu; der Begleiter leuchtet dabei im Zuhör-Zustand. */
+function meldeSprechtaste(an) {
+  haupt?.webContents.send("sprechtaste", an);
+  begleiter?.webContents.send("sprechtaste", an);
+}
+
 function starteSprechtaste() {
   if (!konfig.sprechtasteAn || hook) return;
   if (MAC && !systemPreferences.isTrustedAccessibilityClient(true)) {
@@ -238,11 +394,7 @@ function starteSprechtaste() {
   let aktiv = false;
   let warte = null;
   let wiederhole = null;
-  const sende = (an) => {
-    gehalten = an;
-    haupt?.webContents.send("sprechtaste", an);
-    aktualisiereInsel();
-  };
+  const sende = (an) => meldeSprechtaste(an);
   const loese = () => {
     if (warte) clearTimeout(warte);
     if (wiederhole) clearInterval(wiederhole);
@@ -309,6 +461,12 @@ function baueTray() {
         },
       },
       {
+        label: "Kuro auf dem Desktop",
+        type: "checkbox",
+        checked: konfig.begleiterAn,
+        click: (m) => setzeBegleiterAn(m.checked),
+      },
+      {
         label: "Beim Anmelden starten",
         type: "checkbox",
         checked: autostart,
@@ -336,7 +494,8 @@ function baueTray() {
 
 // ------------------------------------------------------------- Einrichtung
 
-ipcMain.handle("adresse", (_e, roh) => {
+ipcMain.handle("adresse", (e, roh) => {
+  if (e.sender !== haupt?.webContents) return { ok: false, grund: "Nur aus Kuro OS." };
   let url;
   try {
     url = new URL(String(roh).trim());
@@ -352,6 +511,9 @@ ipcMain.handle("adresse", (_e, roh) => {
   konfig = { ...konfig, adresse: url.origin };
   schreibeKonfig(konfig);
   void haupt?.loadURL(osAdresse());
+  if (begleiter) void begleiter.loadURL(begleiterAdresse());
+  else erstelleBegleiter();
+  aktualisiereBegleiter();
   return { ok: true };
 });
 
@@ -379,7 +541,11 @@ if (!app.requestSingleInstanceLock()) {
     if (MAC) await systemPreferences.askForMediaAccess("microphone").catch(() => false);
 
     erstelleHaupt();
-    erstelleInsel();
+    erstelleBegleiter();
+    aktualisiereBegleiter();
+    for (const art of ["display-added", "display-removed", "display-metrics-changed"]) {
+      screen.on(art, holeAufSchirm);
+    }
     baueTray();
     starteSprechtaste();
     // Kuro OS nach vorn holen, von überall: ⌥⌘K am Mac, Strg+Alt+K unter Windows.
@@ -400,3 +566,6 @@ if (!app.requestSingleInstanceLock()) {
   // Fenster zu heißt nicht App zu: Tray und Sprechtaste bleiben.
   app.on("window-all-closed", () => {});
 }
+
+// Für die Probe unter xvfb (`probe-begleiter.cjs`).
+module.exports = { meldeSprechtaste, setzeBegleiterAn };

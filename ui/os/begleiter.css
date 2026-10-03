@@ -22,31 +22,86 @@ body {
   -webkit-font-smoothing: antialiased;
 }
 
+body.ist-begleiter:not(.ist-vorschau) {
+  overflow: hidden;
+  user-select: none;
+}
+
+/*
+ * Die Bühne hat die Größe des Fensters der App (320 × 460, `desktop/begleiter-lage.cjs`). Die
+ * Figur steht unten oder oben, je nachdem wo Platz für die Blase ist; `--versatz` rückt sie am
+ * Bildschirmrand zur Seite, damit die Blase auf dem Schirm bleibt.
+ */
 .b-buehne {
+  --versatz: 0px;
   position: fixed;
-  inset: 0;
-  display: grid;
-  place-items: end center;
-  padding-bottom: 6px;
+  left: 50%;
+  bottom: 0;
+  width: 320px;
+  height: 460px;
+  margin-left: -160px;
 }
 
 .b-figur {
+  position: absolute;
+  bottom: 8px;
+  left: calc(50% + var(--versatz) - 75px);
   width: 150px;
   cursor: grab;
+  touch-action: none;
+}
+
+.b-buehne[data-seite="unten"] .b-figur {
+  top: 12px;
+  bottom: auto;
+}
+
+.b-figur.ist-gezogen {
+  cursor: grabbing;
+}
+
+/* Zurückgenommen: halb hinter der Kante, er lehnt sich zum Schirm und zeigt sein Licht. */
+.b-buehne[data-rand="links"] .fg-leib {
+  transform: rotate(9deg);
+}
+.b-buehne[data-rand="rechts"] .fg-leib {
+  transform: rotate(-9deg);
+}
+.b-buehne[data-rand="links"] .fg-aura,
+.b-buehne[data-rand="rechts"] .fg-aura {
+  opacity: 0.34;
+}
+
+/* Eine Antwort kam, während die Blase zu war: das Licht atmet, bis er angeklickt wird. */
+.b-figur.hat-neues .fg-aura {
+  animation: b-neues 2.6s ease-in-out infinite alternate;
+}
+
+@keyframes b-neues {
+  to {
+    opacity: 0.45;
+  }
 }
 
 .b-blase {
-  position: fixed;
+  position: absolute;
   left: 12px;
   right: 12px;
   bottom: 196px;
   display: grid;
   gap: 10px;
   padding: 14px 14px 12px;
-  background: rgba(8, 16, 20, 0.94);
+  /* Deckend: sonst schiene die Spitze, die auf der Blase liegt, als Raute durch. */
+  background: #0a1216;
   border: 1px solid rgba(232, 239, 241, 0.1);
   border-radius: 16px;
-  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.5);
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.45);
+  user-select: text;
+}
+
+.b-buehne[data-seite="unten"] .b-blase {
+  top: 196px;
+  bottom: auto;
 }
 
 .b-blase[hidden] {
@@ -57,18 +112,31 @@ body {
   content: "";
   position: absolute;
   bottom: -7px;
-  left: 50%;
+  left: calc(50% + var(--versatz) - 7px);
   width: 14px;
   height: 14px;
-  margin-left: -7px;
   background: inherit;
   border-right: inherit;
   border-bottom: inherit;
   transform: rotate(45deg);
 }
 
+.b-buehne[data-seite="unten"] .b-blase::after {
+  top: -7px;
+  bottom: auto;
+  border: 0;
+  border-left: inherit;
+  border-top: inherit;
+}
+
+.b-blase .b-zustand {
+  max-height: none;
+  font-size: 12.5px;
+  color: var(--nebel);
+}
+
 .b-blase p {
-  max-height: 140px;
+  max-height: 150px;
   margin: 0;
   overflow-y: auto;
   font-size: 14px;
@@ -150,6 +218,13 @@ body {
 
 .v-zelle .fg {
   width: 150px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .b-figur.hat-neues .fg-aura {
+    animation: none;
+    opacity: 0.4;
+  }
 }
 
 .v-zelle span {

@@ -23,7 +23,6 @@ interface KuroDesktop {
   plattform: string;
   beiSprechtaste(rueckruf: (an: boolean) => void): void;
   beiInselOeffnen(rueckruf: () => void): void;
-  zustand(lage: { zustand: string; satz: string; farbe: string; text: string | null }): void;
 }
 declare global {
   interface Window {
@@ -130,18 +129,17 @@ function starte(backend: ReturnType<typeof resolveBackendOrigin>): void {
   bus.connect();
 
   const desktop = globalThis.window?.kuroDesktop;
-  if (desktop) verbindeDesktop(desktop, stimme, gespraech);
+  if (desktop) verbindeDesktop(desktop, stimme);
 }
 
 /**
  * In der Desktop-App: die Sprechtaste wirkt systemweit. Der erste Druck öffnet die Sprachsitzung,
- * nach drei Minuten Stille schläft sie wieder. Kuros Zustand geht an die Insel über den anderen
- * Programmen, und Antworten dürfen als Mitteilung kommen.
+ * nach drei Minuten Stille schläft sie wieder, und Antworten dürfen als Mitteilung kommen. Den
+ * Begleiter auf dem Schreibtisch speist eine eigene Seite (`begleiter.ts`).
  */
 function verbindeDesktop(
   desktop: KuroDesktop,
   stimme: ReturnType<typeof createVoiceController>,
-  gespraech: ReturnType<typeof oeffneGespraech>,
 ): void {
   document.body.classList.add("ist-desktop", `ist-${desktop.plattform}`);
   let zuletzt = 0;
@@ -154,7 +152,7 @@ function verbindeDesktop(
       vonTaste = true;
       stimme.toggle();
     }
-    // Die Sprechtaste (`voice/sprechtaste.ts`) und die Insel hören auf dieses Ereignis.
+    // Die Sprechtaste (`voice/sprechtaste.ts`) und Kuros Platz hören auf dieses Ereignis.
     globalThis.dispatchEvent(new CustomEvent("kuro:sprechtaste", { detail: { an } }));
   });
   desktop.beiInselOeffnen(() => globalThis.dispatchEvent(new Event("kuro:insel")));
@@ -173,22 +171,6 @@ function verbindeDesktop(
   if (typeof Notification !== "undefined" && Notification.permission === "default") {
     void Notification.requestPermission();
   }
-
-  const melde = () => {
-    const letzte = [...gespraech.verlauf.eintraege].reverse().find((e) => e.von === "kuro");
-    desktop.zustand({
-      zustand: gespraech.zustand,
-      satz: gespraech.detail ?? "",
-      farbe: getComputedStyle(document.querySelector(".o-os") ?? document.body)
-        .getPropertyValue("--kuro-licht")
-        .trim(),
-      text: letzte?.text ?? null,
-    });
-  };
-  gespraech.abonniere((s) => {
-    if (s.art === "zustand" || s.art === "fertig" || s.art === "verlauf") melde();
-  });
-  melde();
 }
 
 async function start(): Promise<void> {

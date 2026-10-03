@@ -21,7 +21,7 @@
     "appId": "dev.kuronami.os",
     "productName": "Kuro OS",
     "directories": { "output": "dist", "buildResources": "bild" },
-    "files": ["main.cjs", "preload.cjs", "insel-preload.cjs", "*.html", "bild/**"],
+    "files": ["main.cjs", "begleiter-lage.cjs", "preload.cjs", "*.html", "bild/**"],
     "mac": {
       "target": ["dmg"],
       "category": "public.app-category.productivity",

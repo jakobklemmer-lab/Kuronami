@@ -68,6 +68,9 @@ export interface GespraechsOptionen {
   mic: MicStateStore;
   /** Wo der Verlauf ein Neuladen übersteht. `null`: nirgends. */
   speicher: Storage | null;
+  /** `false` für ein zweites Fenster (den Begleiter): das Postfach leert sich beim Abholen und
+   * gehört dem Hauptfenster. */
+  postfach?: boolean;
 }
 
 interface NachrichtAntwort {
@@ -86,7 +89,7 @@ interface PostfachAntwort {
   deliveries?: Array<{ message: { kind: string; text?: string } }>;
 }
 
-const SPEICHER_SCHLUESSEL = "kuronami.welle.verlauf";
+export const SPEICHER_SCHLUESSEL = "kuronami.welle.verlauf";
 const FEHLER_STEHT_MS = 4000;
 /** Uhr der Seite gegen Uhr des Gateways, und Jakobs erste Frage steht vor Kuros erster Zeile. */
 const SITZUNG_SPIELRAUM_MS = 2 * 60_000;
@@ -378,12 +381,14 @@ export function oeffneGespraech(opt: GespraechsOptionen): Gespraech {
   // Beim Öffnen liegen im Postfach des Web-Kanals oft Reste früherer Sitzungen. Die werden
   // einmal abgeholt und verworfen; erst was danach kommt, ist ein Nachtrag für dieses Gespräch.
   let postfachBereit = false;
-  void opt.api
-    .get<PostfachAntwort>("/channels/web/outbox")
-    .catch(() => undefined)
-    .finally(() => {
-      postfachBereit = true;
-    });
+  if (opt.postfach !== false) {
+    void opt.api
+      .get<PostfachAntwort>("/channels/web/outbox")
+      .catch(() => undefined)
+      .finally(() => {
+        postfachBereit = true;
+      });
+  }
   const postfachUhr = globalThis.setInterval(async () => {
     if (!postfachBereit || lage.unterwegs) return;
     try {
