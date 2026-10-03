@@ -26,7 +26,7 @@ export const NACHT_ANTEIL_WOCHE = 10;
 /** Höchststand des Sitzungsfensters, das in Jakobs Morgen reicht. */
 export const GRENZE_LETZTES_FENSTER = 30;
 /** So lange läuft ein Sitzungsfenster des Abos. */
-const SITZUNG_MS = 5 * 60 * 60 * 1000;
+export const SITZUNG_MS = 5 * 60 * 60 * 1000;
 
 export interface Nachtgrenzen {
   /** Höchststand des Sitzungsfensters (%), ab dem nichts Neues beginnt. */

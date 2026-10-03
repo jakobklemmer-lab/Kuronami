@@ -113,10 +113,10 @@ describe("wocheZuBeginn", () => {
 });
 
 describe("Lehrgang im Nachtbudget", () => {
-  const abo = (sitzung: number, woche: number): AboStand => ({
+  const abo = (sitzung: number, woche: number, zurueck: string | null = null): AboStand => ({
     verfuegbar: true,
     plan: "pro",
-    fenster: fenster(sitzung, null, woche),
+    fenster: fenster(sitzung, zurueck, woche),
     aufteilung: [],
     zusatz: false,
     stand: "",
@@ -135,14 +135,23 @@ describe("Lehrgang im Nachtbudget", () => {
     expect(await grenzenJetzt(abo(10, 20), dir, tag, "08:00")).toEqual({ sitzung: 70, woche: 85 });
   });
 
-  it("in einer freigegebenen Nacht gelten 98/98, nur für genau diese Nacht", async () => {
+  it("in einer freigegebenen Nacht 98/98, aber nur für ein Sitzungsfenster", async () => {
     const dir = await mkdtemp(path.join(tmpdir(), "nachtbudget-"));
     vi.stubEnv("NACHTBAU_FREI", "2026-10-03");
     const frei = { sitzung: 98, woche: 98 };
-    // 00:30 und 07:30 Wien am 04.10. gehören zur Nacht vom 03.10.
-    expect(await grenzenJetzt(abo(10, 20), dir, new Date("2026-10-03T22:30:00Z"), "08:00")).toEqual(frei);
-    expect(await grenzenJetzt(abo(10, 20), dir, new Date("2026-10-04T05:30:00Z"), "08:00")).toEqual(frei);
-    expect(await grenzenJetzt(abo(10, 20), dir, new Date("2026-10-04T22:30:00Z"), "08:00")).not.toEqual(frei);
+    const zu = { sitzung: 0, woche: 98 };
+    const um = (t: string, a: AboStand) => grenzenJetzt(a, dir, new Date(t), "08:00");
+    // 00:30 Wien: das Abendfenster (96 %, zurück 01:10) zählt nicht zur Nacht.
+    expect(await um("2026-10-03T22:30:00Z", abo(96, 67, "2026-10-03T23:10:00Z"))).toEqual(zu);
+    // 01:10 Wien frei, kein Fenster läuft: das erste der Nacht beginnt.
+    expect(await um("2026-10-03T23:10:00Z", abo(0, 67))).toEqual(frei);
+    // 03:00 Wien im Fenster, das um 01:10 begann.
+    expect(await um("2026-10-04T01:00:00Z", abo(60, 75, "2026-10-04T04:10:00Z"))).toEqual(frei);
+    // 06:30 Wien: das erste ist um, ein zweites beginnt nicht — und wenn doch eins läuft, auch nicht.
+    expect(await um("2026-10-04T04:30:00Z", abo(0, 80))).toEqual(zu);
+    expect(await um("2026-10-04T04:30:00Z", abo(5, 80, "2026-10-04T09:15:00Z"))).toEqual(zu);
+    // Die nächste Nacht ist nicht freigegeben.
+    expect(await um("2026-10-04T22:30:00Z", abo(0, 80))).not.toEqual(frei);
     vi.unstubAllEnvs();
   });
 });

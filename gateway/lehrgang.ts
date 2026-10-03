@@ -3,7 +3,13 @@ import path from "node:path";
 import { redactText } from "../runtime/redaction/redact.js";
 import type { AboStand } from "./abo.js";
 import { ZONE, wienerZeit } from "./gespraeche.js";
-import { NACHT_ENDE, inDerNacht, nachtgrenzen, wocheZuBeginn } from "./nachtbudget.js";
+import {
+  NACHT_ENDE,
+  SITZUNG_MS,
+  inDerNacht,
+  nachtgrenzen,
+  wocheZuBeginn,
+} from "./nachtbudget.js";
 import type { Transkript, Video, WissenAblage } from "./wissen.js";
 
 /**
@@ -478,9 +484,16 @@ export async function grenzenJetzt(
 ): Promise<{ sitzung: number; woche: number }> {
   const normal = { sitzung: GRENZE_SITZUNG, woche: GRENZE_WOCHE };
   if (!abo.verfuegbar || !inDerNacht(jetzt, ende)) return normal;
-  // Von Jakob freigegebene Nacht (`NACHTBAU_FREI=<Abenddatum>`): wie der Nachtbau 98/98, ohne Nachtbudget.
+  // Von Jakob freigegebene Nacht (`NACHTBAU_FREI=<Abenddatum>`): kein Nachtbudget, aber nur ein
+  // Sitzungsfenster — das, das zwischen 00:00 und 05:00 Wien beginnt; ein zweites beginnt später.
   const abend = wienerZeit(new Date(jetzt.getTime() - 12 * 3_600_000).toISOString(), ZONE).tag;
-  if (process.env.NACHTBAU_FREI?.trim() === abend) return { sitzung: 98, woche: 98 };
+  if (process.env.NACHTBAU_FREI?.trim() === abend) {
+    const s = abo.fenster.find((f) => f.id === "sitzung");
+    const zurueck = s?.zurueck ? Date.parse(s.zurueck) : Number.NaN;
+    const beginn =
+      s && s.prozent > 0 && zurueck > jetzt.getTime() ? zurueck - SITZUNG_MS : jetzt.getTime();
+    return { sitzung: inDerNacht(new Date(beginn), "05:00") ? 98 : 0, woche: 98 };
+  }
   const woche = abo.fenster.find((f) => f.id === "woche");
   if (!woche) return normal;
   const wocheStart = await wocheZuBeginn(workdir, jetzt, woche.prozent);
