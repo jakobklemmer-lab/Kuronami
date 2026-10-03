@@ -58,7 +58,11 @@ export function mountGraph(
   // Vorlauf ohne Zeichnen: der Graph steht schon beim ersten Bild fast still.
   for (let i = 0; i < (opt.lokal ? 160 : 140); i++) schritt(netz);
 
-  const radius = (grad: number) => Math.min(14, 3.2 + Math.sqrt(grad) * 1.7);
+  // Größe nach Rang (Jakob, 03.10.: „kein Unterschied zwischen Über- und Unterordnern"):
+  // START groß, Bereiche, Verzeichnisse, Notizen als kleine Punkte.
+  const GROESSE = [15, 10.5, 7, 3.6];
+  const radius = (k: { stufe: number; grad: number }) =>
+    (GROESSE[k.stufe] ?? 3.6) + (k.stufe === 3 ? Math.min(2, Math.sqrt(k.grad) * 0.5) : 0);
   const zuBild = (x: number, y: number) => ({
     x: breite / 2 + kamera.x + x * kamera.s,
     y: hoehe / 2 + kamera.y + y * kamera.s,
@@ -133,16 +137,40 @@ export function mountGraph(
       ctx.stroke();
     }
 
-    // Knoten
+    // Knoten als leuchtende Kugeln: Lichtpunkt oben links, dunkler Rand; Bereiche und START
+    // tragen dazu einen Ring und einen Schein.
     netz.knoten.forEach((k, i) => {
       const p = zuBild(k.x, k.y);
-      const r = radius(k.grad) * Math.max(0.7, Math.min(1.6, Math.sqrt(kamera.s)));
+      const r = radius(k) * Math.max(0.7, Math.min(1.6, Math.sqrt(kamera.s)));
+      const grund = k.gruppe === "" ? fa.wurzel : farbe(k.gruppe);
       ctx.globalAlpha = istHell(i) ? 1 : 0.18;
-      ctx.fillStyle = k.gruppe === "" ? fa.wurzel : farbe(k.gruppe);
+      if (k.stufe <= 1) {
+        ctx.shadowColor = grund;
+        ctx.shadowBlur = k.stufe === 0 ? 22 : 12;
+      }
+      const verlauf = ctx.createRadialGradient(p.x - r * 0.35, p.y - r * 0.4, r * 0.1, p.x, p.y, r);
+      verlauf.addColorStop(0, "#ffffff");
+      verlauf.addColorStop(0.35, grund);
+      verlauf.addColorStop(1, "rgba(0, 0, 0, 0.55)");
+      ctx.fillStyle = grund;
       ctx.beginPath();
       ctx.arc(p.x, p.y, r, 0, Math.PI * 2);
       ctx.fill();
+      ctx.shadowBlur = 0;
+      if (k.stufe <= 2) {
+        ctx.fillStyle = verlauf;
+        ctx.fill();
+      }
+      if (k.stufe <= 1) {
+        ctx.strokeStyle = grund;
+        ctx.globalAlpha *= 0.45;
+        ctx.lineWidth = 1.2;
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, r + (k.stufe === 0 ? 6 : 4), 0, Math.PI * 2);
+        ctx.stroke();
+      }
       if (k.id === aktiv) {
+        ctx.globalAlpha = 1;
         ctx.strokeStyle = fa.betont;
         ctx.lineWidth = 2;
         ctx.beginPath();
@@ -150,12 +178,14 @@ export function mountGraph(
         ctx.stroke();
       }
     });
+    ctx.globalAlpha = 1;
 
     // Namen: beim Heranzoomen, an großen Knoten, an dem unter der Maus und seinen Nachbarn.
     // Wichtigere zuerst; ein Name, der einen schon gesetzten überdecken würde, entfällt — sonst
     // liegen bei hundert Notizen alle übereinander.
-    const groesse = opt.lokal ? 11 : 12;
-    ctx.font = `${groesse}px Figtree, system-ui, sans-serif`;
+    const SCHRIFT = opt.lokal ? [12, 11.5, 11, 11] : [15, 13.5, 12.5, 11.5];
+    const schrift = (st: number) =>
+      `${st <= 1 ? 600 : 400} ${SCHRIFT[st] ?? 11.5}px Figtree, system-ui, sans-serif`;
     ctx.textAlign = "center";
     ctx.textBaseline = "top";
     const rang = (i: number) =>
@@ -163,7 +193,7 @@ export function mountGraph(
         ? 1e6
         : netz.knoten[i].id === aktiv
           ? 1e5
-          : (nah?.has(i) ? 1e4 : 0) + netz.knoten[i].grad;
+          : (nah?.has(i) ? 1e4 : 0) + (3 - netz.knoten[i].stufe) * 1000 + netz.knoten[i].grad;
     const kandidaten = netz.knoten
       .map((_, i) => i)
       .filter((i) => {
@@ -171,7 +201,7 @@ export function mountGraph(
         return (
           opt.lokal ||
           k.id === aktiv ||
-          (hervor !== null ? istHell(i) : kamera.s > 0.9 || k.grad >= 5)
+          (hervor !== null ? istHell(i) : kamera.s > 1.1 || k.stufe <= 2)
         );
       })
       .sort((a, b) => rang(b) - rang(a));
@@ -180,14 +210,15 @@ export function mountGraph(
       const k = netz.knoten[i];
       const p = zuBild(k.x, k.y);
       if (p.x < -200 || p.x > breite + 200 || p.y < -40 || p.y > hoehe + 40) continue;
-      const r = radius(k.grad) * Math.max(0.7, Math.min(1.6, Math.sqrt(kamera.s)));
+      const r = radius(k) * Math.max(0.7, Math.min(1.6, Math.sqrt(kamera.s)));
       const text = k.titel.length > 34 ? `${k.titel.slice(0, 33)}…` : k.titel;
+      ctx.font = schrift(k.stufe);
       const w = ctx.measureText(text).width;
       const box: [number, number, number, number] = [
         p.x - w / 2 - 3,
         p.y + r + 2,
         w + 6,
-        groesse + 5,
+        (SCHRIFT[k.stufe] ?? 11.5) + 5,
       ];
       const stoesst = gesetzt.some(
         ([x, y, bw, bh]) =>
@@ -196,7 +227,7 @@ export function mountGraph(
       if (stoesst && i !== hervor && k.id !== aktiv) continue;
       gesetzt.push(box);
       ctx.globalAlpha = istHell(i) ? (i === hervor ? 1 : 0.82) : 0.12;
-      ctx.fillStyle = i === hervor ? fa.schriftHell : fa.schrift;
+      ctx.fillStyle = i === hervor || k.stufe <= 1 ? fa.schriftHell : fa.schrift;
       ctx.fillText(text, p.x, p.y + r + 4);
     }
     ctx.globalAlpha = 1;
@@ -222,7 +253,7 @@ export function mountGraph(
     netz.knoten.forEach((k, i) => {
       const p = zuBild(k.x, k.y);
       const d = Math.hypot(p.x - px, p.y - py);
-      const r = radius(k.grad) * Math.max(0.7, Math.min(1.6, Math.sqrt(kamera.s))) + 5;
+      const r = radius(k) * Math.max(0.7, Math.min(1.6, Math.sqrt(kamera.s))) + 5;
       if (d < r && d < abstand) {
         bester = i;
         abstand = d;

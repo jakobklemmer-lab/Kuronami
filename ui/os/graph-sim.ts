@@ -13,6 +13,8 @@ export interface Knoten {
   vx: number;
   vy: number;
   grad: number;
+  /** Abstand zu START in Links: 0 START, 1 Bereich, 2 Verzeichnis, 3 Notiz (auch unerreichbar). */
+  stufe: number;
   /** Festgehalten, solange Jakob ihn zieht. */
   fest: boolean;
 }
@@ -63,6 +65,21 @@ export function baueNetz(
     gesehen.add(schluessel);
     liste.push({ a, b });
   }
+  const stufe = knoten.map(() => 3);
+  const wurzel = index.get("START.md");
+  if (wurzel !== undefined) {
+    stufe[wurzel] = 0;
+    const schlange = [wurzel];
+    while (schlange.length > 0) {
+      const i = schlange.shift() as number;
+      if (stufe[i] >= 2) continue;
+      for (const j of nachbarn[i]) {
+        if (j === wurzel || stufe[j] <= stufe[i] + 1) continue;
+        stufe[j] = stufe[i] + 1;
+        schlange.push(j);
+      }
+    }
+  }
   return {
     knoten: knoten.map((k, i) => ({
       id: k.pfad,
@@ -72,6 +89,7 @@ export function baueNetz(
       vx: 0,
       vy: 0,
       grad: nachbarn[i].size,
+      stufe: stufe[i],
       fest: false,
     })),
     kanten: liste,
