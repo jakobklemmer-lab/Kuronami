@@ -158,3 +158,24 @@
     font-size: 15px;
   }
 }
+
+/*
+ * Sobald gesprochen wird, tritt der Tag zurück (Jakob, 03.10.: der Text „verdeckt die Chat-
+ * Antworten"): der Orb wird klein, Datum, Gruß und Sätze klappen weg, das Gespräch hat die Spalte.
+ */
+.kr-orb,
+.kr-tag {
+  transition: width 0.32s ease, height 0.32s ease, opacity 0.2s ease;
+}
+
+.kr-raum:not(.ist-still) .kr-spalte {
+  --kr-orb: clamp(56px, 8vh, 96px);
+}
+
+.kr-raum:not(.ist-still) .kr-tag {
+  display: none;
+}
+
+.kr-raum:not(.ist-still) .kr-gespraech {
+  margin-top: 12px;
+}

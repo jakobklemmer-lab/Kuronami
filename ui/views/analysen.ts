@@ -374,7 +374,9 @@ export const analysenView: View = {
           archivAnzahl = daten.archiviert;
           if (archivSchalterEl) {
             archivSchalterEl.hidden = archivAnzahl === 0 && !archivAnsicht;
-            archivSchalterEl.textContent = `Archiv (${archivAnzahl})`;
+            archivSchalterEl.textContent = archivAnsicht
+              ? "← Zurück aus dem Archiv"
+              : `Archiv (${archivAnzahl})`;
             archivSchalterEl.setAttribute("aria-pressed", String(archivAnsicht));
           }
           if (untertitelEl) {
