@@ -13,6 +13,7 @@ import { strategienView } from "../views/strategien.js";
 import { systemView } from "../views/system.js";
 import { tradingView } from "../views/trading.js";
 import type { View, ViewContext } from "../views/types.js";
+import { verfolge } from "../welle/bereit.js";
 import { mountFaden } from "../welle/faden.js";
 import type { Gespraech } from "../welle/gespraech.js";
 import * as V from "../welle/verlauf.js";
@@ -335,28 +336,44 @@ export function mountOs(opt: OsOptionen): void {
       return;
     }
     let neu: Gemountet;
+    // Ein neuer Teil entsteht unsichtbar und zeigt sich erst mit seinen ersten Antworten
+    // (`bereit.ts`), statt mit „Lädt …" hereinzukommen. Unsichtbar schon vor dem Einhängen —
+    // Ansichten, die beim Aufbau messen, zeigten ihn sonst einen Augenblick lang.
+    const r = richtung(vorher, ziel);
+    const kommend = (el: HTMLElement) => {
+      el.style.setProperty("--versatz", `${12 * r}px`);
+      el.classList.add("ist-kommend");
+    };
+    let bereit: Promise<void> = Promise.resolve();
     if (teil === "brain") {
       if (brain) {
+        kommend(brain.el);
         if (ziel.notiz) brain.app.oeffne(ziel.notiz);
       } else {
         const el = document.createElement("div");
         el.className = "o-teil-flaeche o-teil-flaeche--brain";
+        kommend(el);
         buehne.append(el);
-        brain = { el, app: mountBrainApp(el, api, ziel.notiz, opt.toast) };
+        const verfolgt = verfolge(api);
+        brain = { el, app: mountBrainApp(el, verfolgt.api, ziel.notiz, opt.toast) };
+        bereit = verfolgt.bereit();
       }
       brain.el.hidden = false;
       neu = { teil, el: brain.el, loesen: () => {} };
     } else {
       const el = document.createElement("div");
       el.className = `o-teil-flaeche w-raum o-teil-flaeche--${teil}`;
+      kommend(el);
       const innen = document.createElement("div");
       el.append(innen);
       buehne.append(el);
-      neu = { teil, el, loesen: ANSICHT[teil].mount(innen, ctxFuer()) };
+      const verfolgt = verfolge(api);
+      neu = { teil, el, loesen: ANSICHT[teil].mount(innen, { ...ctxFuer(), api: verfolgt.api }) };
+      bereit = verfolgt.bereit();
     }
     const alt = aktiv;
     aktiv = neu;
-    const r = richtung(vorher, ziel);
+    let ausgeblendet: Promise<void> = Promise.resolve();
     if (alt && !fenster.hidden) {
       // Der alte Teil gleitet in die Gegenrichtung hinaus, der neue kommt aus der Richtung herein.
       alt.el.style.setProperty("--versatz", `${-12 * r}px`);
@@ -365,14 +382,17 @@ export function mountOs(opt: OsOptionen): void {
         alt.el.classList.remove("ist-gehend");
         if (aktiv?.el !== alt.el) baueAb(alt);
       }, UEBERGANG_MS);
-      neu.el.style.setProperty("--versatz", `${12 * r}px`);
-      neu.el.classList.add("ist-kommend");
-      requestAnimationFrame(() =>
-        requestAnimationFrame(() => neu.el.classList.remove("ist-kommend")),
-      );
+      ausgeblendet = new Promise((los) => globalThis.setTimeout(los, 120));
     } else if (alt) {
       baueAb(alt);
     }
+    void Promise.all([bereit, ausgeblendet]).then(() => {
+      // Inzwischen weitergeklickt: dieser Teil kommt nicht mehr dran.
+      if (aktiv?.el !== neu.el) return;
+      requestAnimationFrame(() =>
+        requestAnimationFrame(() => neu.el.classList.remove("ist-kommend")),
+      );
+    });
   }
 
   const oeffneFenster = () => {
