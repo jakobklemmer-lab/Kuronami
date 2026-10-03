@@ -420,10 +420,10 @@ export function mountGraph(host: HTMLElement, daten: GraphDaten, opt: GraphOptio
   }
   const sprites = new Map<string, HTMLCanvasElement>();
   let blasenEbene: HTMLCanvasElement | null = null;
-  // Im Dunkeln: Clusterfarbe zu 11 % in Schwarz, zu 70 % über dem Grund — dunkle Becken mit
-  // einem Hauch Farbe, gerade noch vom Grund zu unterscheiden.
-  const dunkelTon = 0.11;
-  const dunkelDeckung = 0.7;
+  // Im Dunkeln nur ein Hauch: 1,8 % Clusterfarbe über dem Grund, etwa zwei Farbstufen. Jakob,
+  // 03.10.: bei voller Helligkeit am Mac hob sich schon ein Blaustich von sechs Stufen „extrem
+  // krass" ab — auf dem Bildschirmfoto sah man davon fast nichts.
+  const dunkelDeckung = 0.018;
   let farbe: string[] = [];
   let clusterFarbe: string[] = [];
   let legende: Array<{ name: string; farbe: string }> = [];
@@ -910,10 +910,8 @@ export function mountGraph(host: HTMLElement, daten: GraphDaten, opt: GraphOptio
       const h = huelle(glieder.map((i) => p[i]));
       if (h.length === 0) continue;
       const c = clusterFarbe[g.nummer];
-      // Im Dunkeln ein Schatten: dunkler als der Grund, mit einem Hauch der Clusterfarbe.
-      const ton = hell ? c : mische("#000000", c, dunkelTon);
-      g2.fillStyle = ton;
-      g2.strokeStyle = ton;
+      g2.fillStyle = c;
+      g2.strokeStyle = c;
       g2.lineWidth = rand * 2;
       // Weich statt eckig: die Kurve läuft durch die Kantenmitten, die Ecken ziehen nur.
       g2.beginPath();
@@ -1000,7 +998,7 @@ export function mountGraph(host: HTMLElement, daten: GraphDaten, opt: GraphOptio
     ctx.strokeStyle = f.betont;
     ctx.lineWidth = 1.6;
     ctx.setLineDash([5, 7]);
-    ctx.lineDashOffset = -((jetzt - spurStart) / 40);
+    ctx.lineDashOffset = spurReplay > 0 ? -((jetzt - spurStart) / 40) : 0;
     for (let s = 0; s < bis; s++) {
       const a = p[st[s]];
       const b = p[st[s + 1]];
@@ -1308,15 +1306,9 @@ export function mountGraph(host: HTMLElement, daten: GraphDaten, opt: GraphOptio
       else weiter = true;
     }
     if (modus === "erkunden" && jetzt - fanStart < 340) weiter = true;
-    // Die Spur wandert — nur, solange man hinsieht und sie mehr als einen Halt hat.
-    if (
-      d.ebenen.spur &&
-      !lokal &&
-      modus !== "erkunden" &&
-      document.visibilityState === "visible" &&
-      (opt.spur?.().length ?? 0) > 1
-    )
-      weiter = true;
+    // Die Spur steht still; sie bewegt sich nur beim Abspielen (ein Dauerlauf hielt den Graphen
+    // sonst in jedem Bild beschäftigt).
+    if (spurReplay > 0) weiter = true;
     if (spurReplay > 0 && jetzt - spurReplay > 12 * 650) spurReplay = 0;
     zeichne();
     if (weiter) requestAnimationFrame(takt);
