@@ -159,6 +159,34 @@ Funktion `darfJetztArchivieren(kontext, letzterZug, jetzt, grenze)`.
 **Fertig, wenn:** Tests grün; im Bericht, bei welcher Grenze und warum 80.000 (Übergabe kostet
 gemessen 7–8k Token, lohnt also ab etwa dem Zehnfachen).
 
+## N20 · Endspurt: Lernen für Prüfungen, mit Shao-Min Cook
+- Status: in Teilaufgaben (N20a–N20d)
+- Modell: opus
+
+Jakob am 04.10.: die Funktion von Lumivara (ichbinsocooked.com) im Studium-Raum — Stoff ablegen,
+Probeklausur, Lernplan, Vorlesen mit Übungen. Ablauf als Code, für Urteil eine neue Bedienstete,
+Shao-Min Cook. Freie Nacht vom 04. auf den 05.10., nur N20 (`NACHTBAU_FREI_NUR=N20`). Gemeinsames:
+`bau/aufgaben/_N20-gemeinsam.md`.
+
+## N20a · Prüfung anlegen, Stoff ablegen, Gliederung
+- Status: offen
+- Modell: opus
+
+## N20b · Shao-Min liest den Stoff, Probeklausur
+- Status: offen
+- Modell: opus
+- Braucht: N20a
+
+## N20c · Lernplan, Wissen, Stand — auch für Kuro
+- Status: offen
+- Modell: opus
+- Braucht: N20b
+
+## N20d · Lernen: Lesen, Vorlesen, Übungen
+- Status: offen
+- Modell: opus
+- Braucht: N20a, N20b
+
 ## N19 · Kuro OS, dritter Wurf: das Arbeitszimmer
 - Status: in Teilaufgaben (N19a–N19f)
 - Modell: opus

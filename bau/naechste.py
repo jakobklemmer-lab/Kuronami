@@ -6,10 +6,12 @@ Aufruf:  naechste.py <PLAN.md> [bereits versuchte IDs, kommagetrennt]
 Ausgabe: "<ID> <modell>" oder nichts, wenn keine Aufgabe bereit ist.
 
 Bereit ist die erste Aufgabe (in Plan-Reihenfolge) mit Status offen, in Arbeit oder wartet, deren
-„Braucht" alle erledigt sind und die in dieser Nacht noch nicht versucht wurde.
+„Braucht" alle erledigt sind und die in dieser Nacht noch nicht versucht wurde. Mit NACHTBAU_NUR=N20
+(Komma-Liste) kommen nur diese Aufgaben und ihre Teile (N20a …) in Frage.
 Setzen:  naechste.py --setze <PLAN.md> <ID> <neuer Status>
 """
 
+import os
 import re
 import sys
 
@@ -46,6 +48,7 @@ def main() -> None:
 
     liste = aufgaben(open(sys.argv[1], encoding="utf-8").read())
     versucht = set(filter(None, (sys.argv[2] if len(sys.argv) > 2 else "").split(",")))
+    nur = [n.strip() for n in os.environ.get("NACHTBAU_NUR", "").split(",") if n.strip()]
     erledigt = {a["id"] for a in liste if a["status"].startswith("erledigt")}
     # Eine zerlegte Aufgabe gilt als erledigt, wenn alle ihre Teile erledigt sind.
     for a in liste:
@@ -54,6 +57,8 @@ def main() -> None:
             erledigt.add(a["id"])
     for a in liste:
         if a["id"] in versucht:
+            continue
+        if nur and not any(re.fullmatch(rf"{re.escape(n)}[a-z]?", a["id"]) for n in nur):
             continue
         if not a["status"].startswith(("offen", "in Arbeit", "wartet")):
             continue
